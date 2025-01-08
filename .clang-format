@@ -1,0 +1,8 @@
+BasedOnStyle: LLVM
+PointerAlignment: Left
+ColumnLimit: 100
+IndentWidth: 4
+ContinuationIndentWidth: 2
+#BinPackArguments: false
+BinPackParameters: false
+FixNamespaceComments: true
