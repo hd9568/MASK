@@ -1,3 +1,4 @@
+import sparsene.model.op
 from sparsene.model import stage
 from sparsene.formats.DTC_SpMM import OP_S, OP_R, OP_MMA, OP_WB, DTC_SPMM_FORMAT
 
@@ -36,7 +37,7 @@ if __name__ == "__main__":
                                    B="B",
                                    C="nullptr", ) + '\n')
 
-        op_seq = stage.SequentialOp(
+        op_seq = sparsene.model.op.SequentialOp(
             name="seq", type="k",
             ops=[OP_S, OP_R, OP_MMA]
         )

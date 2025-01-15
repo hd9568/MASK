@@ -1,62 +1,23 @@
 from collections import OrderedDict
 
-from sparsene.model.stage import Op, OpParams
-from sparsene.model.format import Direction, Axis, Format, CooFormat, CooAxis
+from sparsene.model.format import Direction, Format, coo_format, df_axis, sv_axis
+from sparsene.model.op import Op
+from sparsene.model.param import Params
 
 DTC_SPMM_FORMAT = Format(
     name="DTC-SpMM",
     axes=[
-        Axis(
-            name="X_o",
-            direction=Direction.ROW,
-            is_sparse=False,
-            is_varlen=False,
-        ),
-        Axis(
-            name="Y_s",
-            direction=Direction.COL,
-            is_sparse=True,
-            is_varlen=True,
-        ),
-        Axis(
-            name="X_i",
-            direction=Direction.ROW,
-            is_sparse=False,
-            is_varlen=False,
-        ),
+        df_axis("X_o", Direction.ROW),
+        sv_axis("Y_s", Direction.COL),
+        df_axis("X_i", Direction.ROW),
     ],
     child=Format(
         axes=[
-            Axis(
-                name="Y_so",
-                direction=Direction.COL,
-                is_sparse=False,
-                is_varlen=False,
-            ),
-            Axis(
-                name="Y_si",
-                direction=Direction.COL,
-                is_sparse=False,
-                is_varlen=False,
-            ),
-            Axis(
-                name="X_i",
-                direction=Direction.ROW,
-                is_sparse=False,
-                is_varlen=False,
-            ),
+            df_axis("Y_so", Direction.COL),
+            df_axis("Y_si", Direction.COL),
+            df_axis("X_i", Direction.ROW),
         ],
-        child=CooFormat(axes=[
-            CooAxis(
-                name="X_i",
-                direction=Direction.ROW,
-            ),
-
-            CooAxis(
-                name="Y_si",
-                direction=Direction.COL,
-            )
-        ]),
+        child=coo_format("X_i", "Y_si"),
     ),
 )
 
@@ -102,7 +63,7 @@ OP_WB_SRC_BODY = """
 
 OP_S = Op(
     name="s", type="k",
-    params=OpParams(
+    params=Params(
         sw_idx=OrderedDict([
             ("i", "int"),
             ("TCStart_offset", "int"),
@@ -132,7 +93,7 @@ OP_S = Op(
 
 OP_R = Op(
     name="r", type="k",
-    params=OpParams(
+    params=Params(
         sw_idx=OrderedDict([
             ("i", "int"),
             ("TCStart_offset", "int"),
@@ -162,7 +123,7 @@ OP_R = Op(
 
 OP_MMA = Op(
     name="mma", type="k",
-    params=OpParams(
+    params=Params(
         sw_idx=OrderedDict([
             ("i", "int"),
             ("TCStart_offset", "int"),
@@ -192,7 +153,7 @@ OP_MMA = Op(
 
 OP_WB = Op(
     name="wb", type="cta",
-    params=OpParams(
+    params=Params(
         sw_idx=OrderedDict([
             ("i", "int"),
             ("TCStart_offset", "int"),
