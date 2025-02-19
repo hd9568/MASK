@@ -1,0 +1,139 @@
+1. totally dense
+
+format = (
+	x, x, d, f, m
+	y, y, d, f, n
+)
+
+array:
+val= x[m]y[n]
+b = y[n]z[k]
+
+kernel:
+atomic_dense(val, b)
+
+
+2. row_splitted
+
+format = (
+	x_o, x, d, f, M (M * TM = m)
+	x_i, x, d, f, TM
+	y, y, d, f, n
+)
+
+array:
+val = x_o[M]x_i[TM]y[n]
+b = y[n]z[k]
+
+kernel:
+for i in 0..M:
+	atomic_dense(val[i], b)
+
+
+3. lower axes swapped
+
+format = (
+	x_o, x, d, f, M
+	y, y, d, f, n
+	x_i, x, d, f, TM
+)
+
+array:
+val = x_o[M]y[n]x_i[TM]
+b = y[n]z[k]
+
+kernel:
+for i in 0..M:
+	atomic_dense(val[i], b)
+
+4. condense y axis
+
+format = (
+	x_o, x, d, f, M
+	y_s, y, s, v, n
+	x_i, x, d, f, TM
+)
+
+array:
+val = x_o_y_s[nnz]x_i[TM]
+y_s_idx = x_o_y_s[nnz]
+x_o_off = x_o[M]
+b = y[n]z[k]
+
+kernel:
+for i in 0..M:
+	l, r = x_o_off[i], x_o_off[i+1]
+	b_tile = b[y_s_idx[l:r]]
+	atomic_dense(val[l:r], b_tile)
+
+4+1/2. (go down / spawn child)
+format = (
+	x_o, x, d, f, M
+	y_s, y, s, v, n
+	x_i, x, d, f, TM
+	child = (
+		y_s, y, d, f, n
+		x_i, x, d, f, TM
+	)
+)
+
+5. split y_s
+### on sparse axis split, we spawn a child format
+format = (
+	x_o, x, d, f, M
+	y_s, y, s, v, n
+	x_i, x, d, f, TM
+	child = (
+		y_so, y, d, f, N (N * TN = n)
+		y_si, y, d, f, TN
+		x_i, x, d, f, TM
+	)
+)
+
+array:
+# val = x_o_y_s[nnz]x_i[TM]
+val = x_o_y_so[nnz_b]y_si[TN]x_i[TM]
+# y_s_idx = x_o_y_s[nnz]
+y_s_idx = x_o_y_so[nnz_b]y_si[TN]
+x_o_off = x_o[M]
+b = y[n]z[k]
+
+kernel:
+for i in 0..M:
+	l, r = x_o_off[i], x_o_off[i+1]
+	for j in l..r:
+		b_tile = b[y_s_idx[j]]
+		atomic_dense(val[j], b_tile)
+
+6. coo-ize
+### on coo-ization, we spawn a child format
+format = (
+	x_o, x, d, f, M
+	y_s, y, s, v, n
+	x_i, x, d, f, TM
+	child = (
+		y_so, y, d, f, N (N * TN = n)
+		y_si, y, d, f, TN
+		x_i, x, d, f, TM
+		child = atomic_coo(
+			x_i, x, d, f, TM
+			y_si, y, d, f, TN
+		)
+	)
+)
+
+array:
+# val = x_o_y_so[nnz_b]y_si[TN]x_i[TM]
+val = x_o_y_so_coo[nnz]
+coo_off = x_o_y_so[nnz_b]
+y_s_idx = x_o_y_so[nnz_b]y_si[TN]
+x_o_off = x_o[M]
+b = y[n]z[k]
+
+kernel:
+for i in 0..M:
+	l, r = x_o_off[i], x_o_off[i+1]
+	for j in l..r:
+		b_tile = b[y_s_idx[j]]
+		coo_l, coo_r = coo_off[j], coo_off[j+1]
+		atomic_coo(val[coo_l:coo_r], b_tile)
