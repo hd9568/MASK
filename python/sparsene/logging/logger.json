@@ -31,7 +31,7 @@
 			"class": "logging.FileHandler",
 			"formatter": "detailed",
 			"level": "DEBUG",
-			"filename": "logs/sparsene.log"
+			"filename": "sparsene.log"
 		}
 	},
 	"loggers": {

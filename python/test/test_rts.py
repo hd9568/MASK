@@ -1,6 +1,6 @@
 from sparsene.formats.DTC_SpMM import DTC_SPMM_FORMAT
 
-from sparsene.transformation.rts import derive_rts
+from sparsene.transform.rts import derive_rts
 
 from sparsene.logging import get_logger
 

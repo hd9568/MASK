@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import List, Optional
 from abc import ABC, abstractmethod
+from sympy import Symbol, Expr, sympify
 
 
 class Direction(Enum):
@@ -10,14 +11,36 @@ class Direction(Enum):
     COL = 1
 
 
+VARLEN = Symbol("_")
+
+
 @dataclass(kw_only=True)
 class Axis:
     name: str
     direction: Direction
-    length: Optional[int] = None
+    length: Expr = VARLEN
     is_sparse: bool
     is_varlen: bool
     reorder: Optional[str] = None
+
+    def __init__(
+        self,
+        name: str,
+        direction: Direction,
+        length: int | str | Expr = VARLEN,
+        is_sparse: bool = False,
+        is_varlen: bool = False,
+        reorder: Optional[str] = None,
+    ):
+        self.name = name
+        self.direction = direction
+        if isinstance(length, Expr):
+            self.length = length
+        else:
+            self.length = sympify(length)
+        self.is_sparse = is_sparse
+        self.is_varlen = is_varlen
+        self.reorder = reorder
 
 
 @dataclass(kw_only=True)
@@ -67,7 +90,7 @@ class Format(FormatBase):
 def sv_axis(
     name: str,
     direction: Direction,
-    length: Optional[int] = None,
+    length: Expr = VARLEN,
     reorder: Optional[str] = None,
 ) -> Axis:
     return Axis(
@@ -83,7 +106,7 @@ def sv_axis(
 def sf_axis(
     name: str,
     direction: Direction,
-    length: Optional[int] = None,
+    length: Expr = VARLEN,
     reorder: Optional[str] = None,
 ) -> Axis:
     return Axis(
@@ -99,7 +122,7 @@ def sf_axis(
 def dv_axis(
     name: str,
     direction: Direction,
-    length: Optional[int] = None,
+    length: Expr = VARLEN,
     reorder: Optional[str] = None,
 ) -> Axis:
     return Axis(
@@ -115,7 +138,7 @@ def dv_axis(
 def df_axis(
     name: str,
     direction: Direction,
-    length: Optional[int] = None,
+    length: Expr = VARLEN,
     reorder: Optional[str] = None,
 ) -> Axis:
     return Axis(

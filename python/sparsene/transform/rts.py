@@ -24,9 +24,10 @@ from sparsene.model.transformation import (
     Transformation,
 )
 
-from sparsene.logging import get_logger, root_logger
+from sparsene.logging import get_logger
 
 logger = get_logger("rts")
+
 
 def print_axes(axes: List[Axis]) -> None:
     for axis in axes:
@@ -43,14 +44,14 @@ def derive_rts(format: Format) -> TransformationSequence:
         minor_direction_axis_count = 0
         bubble_seq: List[Transformation] = []
         for i in range(len(axes)):
-            if axes[i].direction != parent_major_direction:
+            if axes[i].direction == parent_major_direction:
                 for j in range(minor_direction_axis_count, i):
                     bubble_seq.append(SwapTransformation(j, j + 1))
                 minor_direction_axis_count += 1
 
         for trans in reversed(bubble_seq):
             seq.prepend(trans)
-            i, j = trans.args
+            i, j = trans.axes
             axes[i], axes[j] = axes[j], axes[i]
 
     def _densify(axes: List[Axis]) -> None:
@@ -61,16 +62,13 @@ def derive_rts(format: Format) -> TransformationSequence:
 
         for trans in reversed(densify_seq):
             seq.prepend(trans)
-            axes[trans.args[0]].is_sparse = False
+            axes[trans.axes[0]].is_sparse = False
 
     def _squeeze(axes: List[Axis]) -> None:
         for i in reversed(range(len(axes) - 1)):
             if axes[i].direction == axes[i + 1].direction:
-                seq.prepend(SplitTransformation(i))
-                # breakpoint()
+                seq.prepend(SplitTransformation(i, axes[i + 1].length))
                 axes.pop(i)
-        
-
 
     def _derive_rts(format: Format, parent_major_direction: Direction) -> None:
         if format.child is not None:
@@ -88,27 +86,27 @@ def derive_rts(format: Format) -> TransformationSequence:
                         )
                 seq.prepend(SpawnTransformation())
             elif isinstance(format.child, Format):
-                _derive_rts(format.child, format.axes[-1].direction)
+                _derive_rts(format.child, format.axes[-2].direction)
                 seq.prepend(SpawnTransformation())
 
         axes = format.axes.copy()
 
         # densify
         _densify(axes)
-        logger.debug('densify:')
-        logger.debug(f'ts:\n{seq}')
+        logger.debug("densify:")
+        logger.debug(f"ts:\n{seq}")
         print_axes(axes)
         # bubble up
         _bubble_up(axes, parent_major_direction)
-        logger.debug('bubble up:')
-        logger.debug(f'ts:\n{seq}')
+        logger.debug("bubble up:")
+        logger.debug(f"ts:\n{seq}")
         print_axes(axes)
         # squeeze
         _squeeze(axes)
-        logger.debug('squeeze:')
-        logger.debug(f'ts:\n{seq}')
+        logger.debug("squeeze:")
+        logger.debug(f"ts:\n{seq}")
         print_axes(axes)
-    
-    _derive_rts(format, Direction.COL)
+
+    _derive_rts(format, Direction.ROW)
 
     return seq

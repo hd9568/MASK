@@ -3,16 +3,17 @@ from collections import OrderedDict
 from dataclasses import dataclass, field
 from itertools import chain
 from typing import List, Tuple, Optional
+from sympy import Expr, Number, Symbol
 
 
 @dataclass(kw_only=True)
 class Transformation(ABC):
     name: str
-    args: Tuple
+    axes: Tuple[int, ...]
 
     @property
     @abstractmethod
-    def nargs(self) -> int:
+    def naxes(self) -> int:
         pass
 
 
@@ -20,12 +21,12 @@ class Transformation(ABC):
 class NullaryTransformation(Transformation, ABC):
     @abstractmethod
     def __init__(self, name: Optional[str] = None):
-        self.args = ()
+        self.axes = ()
         if name is not None:
             self.name = name
 
     @property
-    def nargs(self) -> int:
+    def naxes(self) -> int:
         return 0
 
 
@@ -33,12 +34,12 @@ class NullaryTransformation(Transformation, ABC):
 class UnaryTransformation(Transformation, ABC):
     @abstractmethod
     def __init__(self, i: int, name: Optional[str] = None):
-        self.args = (i,)
+        self.axes = (i,)
         if name is not None:
             self.name = name
 
     @property
-    def nargs(self) -> int:
+    def naxes(self) -> int:
         return 1
 
 
@@ -46,29 +47,40 @@ class UnaryTransformation(Transformation, ABC):
 class BinaryTransformation(Transformation, ABC):
     @abstractmethod
     def __init__(self, i: int, j: int, name: Optional[str] = None):
-        self.args = (i, j)
+        self.axes = (i, j)
         if name is not None:
             self.name = name
 
     @property
-    def nargs(self) -> int:
+    def naxes(self) -> int:
         return 2
 
 
 @dataclass(kw_only=True)
 class SplitTransformation(UnaryTransformation):
-    def __init__(self, i: int, name: Optional[str] = None):
-        self.args = (i,)
+    split_size: Expr
+
+    def __init__(
+        self, axis: int, split_size: int | str | Expr, name: Optional[str] = None
+    ):
+        self.axes = (axis,)
         if name is not None:
             self.name = name
+
+        if isinstance(split_size, str):
+            self.split_size = Symbol(split_size)
+        elif isinstance(split_size, int):
+            self.split_size = Number(split_size)
+        else:
+            self.split_size = split_size
 
     name: str = "split"
 
 
 @dataclass(kw_only=True)
 class MergeTransformation(BinaryTransformation):
-    def __init__(self, i: int, j: int, name: Optional[str] = None):
-        self.args = (i, j)
+    def __init__(self, axis_i: int, axis_j: int, name: Optional[str] = None):
+        self.axes = (axis_i, axis_j)
         if name is not None:
             self.name = name
 
@@ -77,8 +89,8 @@ class MergeTransformation(BinaryTransformation):
 
 @dataclass(kw_only=True)
 class SparsifyTransformation(UnaryTransformation):
-    def __init__(self, i: int, name: Optional[str] = None):
-        self.args = (i,)
+    def __init__(self, axis: int, name: Optional[str] = None):
+        self.axes = (axis,)
         if name is not None:
             self.name = name
 
@@ -87,8 +99,8 @@ class SparsifyTransformation(UnaryTransformation):
 
 @dataclass(kw_only=True)
 class DensifyTransformation(UnaryTransformation):
-    def __init__(self, i: int, name: Optional[str] = None):
-        self.args = (i,)
+    def __init__(self, axis: int, name: Optional[str] = None):
+        self.axes = (axis,)
         if name is not None:
             self.name = name
 
@@ -97,8 +109,8 @@ class DensifyTransformation(UnaryTransformation):
 
 @dataclass(kw_only=True)
 class SwapTransformation(BinaryTransformation):
-    def __init__(self, i: int, j: int, name: Optional[str] = None):
-        self.args = (i, j)
+    def __init__(self, axis_i: int, axis_j: int, name: Optional[str] = None):
+        self.axes = (axis_i, axis_j)
         if name is not None:
             self.name = name
 
@@ -108,7 +120,7 @@ class SwapTransformation(BinaryTransformation):
 @dataclass(kw_only=True)
 class SpawnTransformation(NullaryTransformation):
     def __init__(self, name: Optional[str] = None):
-        self.args = ()
+        self.axes = ()
         if name is not None:
             self.name = name
 
@@ -118,7 +130,7 @@ class SpawnTransformation(NullaryTransformation):
 @dataclass(kw_only=True)
 class GoUpTransformation(NullaryTransformation):
     def __init__(self, name: Optional[str] = None):
-        self.args = ()
+        self.axes = ()
         if name is not None:
             self.name = name
 
@@ -128,7 +140,7 @@ class GoUpTransformation(NullaryTransformation):
 @dataclass(kw_only=True)
 class CooizeTransformation(NullaryTransformation):
     def __init__(self, name: Optional[str] = None):
-        self.args = ()
+        self.axes = ()
         if name is not None:
             self.name = name
 
@@ -138,7 +150,7 @@ class CooizeTransformation(NullaryTransformation):
 @dataclass(kw_only=True)
 class MaskizeTransformation(NullaryTransformation):
     def __init__(self, name: Optional[str] = None):
-        self.args = ()
+        self.axes = ()
         if name is not None:
             self.name = name
 
@@ -156,4 +168,8 @@ class TransformationSequence:
         self.sequence.insert(0, transformation)
 
     def __str__(self) -> str:
-        return "TansformationSequence(\n  " + ",\n  ".join(map(lambda x: str(x), self.sequence)) + "\n)"
+        return (
+            "TansformationSequence(\n  "
+            + ",\n  ".join(map(lambda x: str(x), self.sequence))
+            + "\n)"
+        )
