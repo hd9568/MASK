@@ -42,6 +42,18 @@ class Axis:
         self.is_varlen = is_varlen
         self.reorder = reorder
 
+    def is_df(self) -> bool:
+        return not self.is_sparse and not self.is_varlen
+
+    def is_dv(self) -> bool:
+        return not self.is_sparse and self.is_varlen
+
+    def is_sf(self) -> bool:
+        return self.is_sparse and not self.is_varlen
+
+    def is_sv(self) -> bool:
+        return self.is_sparse and self.is_varlen
+
 
 @dataclass(kw_only=True)
 class FormatBase(ABC):
@@ -52,6 +64,9 @@ class FormatBase(ABC):
     @abstractmethod
     def is_atomic(self) -> bool:
         pass
+
+    def is_dense(self) -> bool:
+        return all(axis.is_df() for axis in self.axes)
 
 
 @dataclass(kw_only=True)

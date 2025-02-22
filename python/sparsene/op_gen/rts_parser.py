@@ -1,4 +1,5 @@
 from __future__ import annotations
+from typing import overload
 from copy import deepcopy
 from dataclasses import dataclass
 from enum import Enum
@@ -14,6 +15,7 @@ from sparsene.model.transformation import (
     MaskizeTransformation,
 )
 from sparsene.model.format import (
+    Expr,
     Direction,
     Format,
     Axis,
@@ -23,7 +25,6 @@ from sparsene.model.format import (
     mask_atomic_format,
 )
 from sparsene.formats.dense import get_dense_format
-from sympy import Expr, Number, Symbol, sympify
 
 
 class AtomicFormatType(Enum):
@@ -63,9 +64,10 @@ class DimIterator:
 
 class ArrayType(Enum):
     VAL = 0
-    INDEX = 1
+    COO_IDX = 1
     MASK = 2
     OFFSET = 3
+    B_VAL = 4
 
 
 @dataclass(kw_only=True)
@@ -94,11 +96,30 @@ class ArrayDefCollection:
     def __iter__(self) -> Iterator[ArrayDef]:
         return iter(self.array_defs.values())
 
-    def __getitem__(self, key: str) -> ArrayDef:
+    @overload
+    def __getitem__(self, key: str) -> ArrayDef: ...
+
+    @overload
+    def __getitem__(self, key: ArrayType) -> List[ArrayDef]: ...
+
+    def __getitem__(self, key: str | ArrayType) -> ArrayDef | List[ArrayDef]:
+        if isinstance(key, ArrayType):
+            return [
+                array_def
+                for array_def in self.array_defs.values()
+                if array_def.type == key
+            ]
         return self.array_defs[key]
 
     def items(self) -> Iterator[Tuple[str, ArrayDef]]:
         return iter(self.array_defs.items())
+
+    def replace(self, old: List[str], new: List[ArrayDef]) -> None:
+        for old_def_name in old:
+            if old_def_name in self.array_defs:
+                del self.array_defs[old_def_name]
+        for new_def in new:
+            self.array_defs[new_def.name] = new_def
 
 
 @dataclass(kw_only=True)
@@ -283,19 +304,42 @@ def apply_cooize_transformation(
         deepcopy(format),
     )
     # 1. Handle format
-    parent = format
-    while isinstance(parent.child, Format):
-        parent = parent.child
-    assert parent.child is None
+    parent, child = format, format.child
+    assert isinstance(child, Format)
+    while isinstance(child.child, Format):
+        parent, child = child, child.child
+    assert child.child is None
+
+    axis_x, axis_y = child.axes[0].name, child.axes[1].name
+    assert len(child.axes) == 2 and child.is_dense()
 
     parent.child = coo_atomic_format(
-        x_name=parent.axes[-2].name,
-        y_name=parent.axes[-1].name,
-        col_major=parent.axes[-2].direction == Direction.COL,
+        x_name=axis_x,
+        y_name=axis_y,
+        col_major=parent.axes[0].direction == Direction.COL,
     )
 
     # 2. Handle array_defs
-    # TODO: Implement
+    for val_def in array_defs[ArrayType.VAL]:
+        idx_x, idx_y = val_def.indexed_at(axis_x), val_def.indexed_at(axis_y)
+        # idx_x and idx_y should be the last two dimensions
+        assert idx_x and idx_y and idx_x + 1 == idx_y and idx_y == len(val_def.dims) - 1
+        coo_idx_def = ArrayDef(
+            name=val_def.name + "_coo_idx",
+            dims=[f"{axis_x}_{axis_y}_coo"],
+            type=ArrayType.COO_IDX,
+        )
+        coo_val_def = ArrayDef(
+            name=val_def.name + "_coo_val",
+            dims=[f"{axis_x}_{axis_y}_coo"],
+            type=ArrayType.VAL,
+        )
+        coo_off_def = ArrayDef(
+            name=val_def.name + "_coo_off",
+            dims=val_def.dims[:-2],
+            type=ArrayType.OFFSET,
+        )
+        array_defs.replace([val_def.name], [coo_idx_def, coo_val_def, coo_off_def])
 
     # 3. Handle schedule
     # TODO: Implement
@@ -315,19 +359,42 @@ def apply_maskize_transformation(
         deepcopy(format),
     )
     # 1. Handle format
-    parent = format
-    while isinstance(parent.child, Format):
-        parent = parent.child
-    assert parent.child is None
+    parent, child = format, format.child
+    assert isinstance(child, Format)
+    while isinstance(child.child, Format):
+        parent, child = child, child.child
+    assert child.child is None
 
-    parent.child = coo_atomic_format(
-        x_name=parent.axes[-2].name,
-        y_name=parent.axes[-1].name,
-        col_major=parent.axes[-2].direction == Direction.COL,
+    axis_x, axis_y = child.axes[0].name, child.axes[1].name
+    assert len(child.axes) == 2 and child.is_dense()
+
+    parent.child = mask_atomic_format(
+        x_name=axis_x,
+        y_name=axis_y,
+        col_major=parent.axes[0].direction == Direction.COL,
     )
 
     # 2. Handle array_defs
-    # TODO: Implement
+    for val_def in array_defs[ArrayType.VAL]:
+        idx_x, idx_y = val_def.indexed_at(axis_x), val_def.indexed_at(axis_y)
+        # idx_x and idx_y should be the last two dimensions
+        assert idx_x and idx_y and idx_x + 1 == idx_y and idx_y == len(val_def.dims) - 1
+        mask_def = ArrayDef(
+            name=val_def.name + "_mask",
+            dims=val_def.dims[:-2],
+            type=ArrayType.MASK,
+        )
+        mask_val_def = ArrayDef(
+            name=val_def.name + "_mask_val",
+            dims=[f"{axis_x}_{axis_y}_mask"],
+            type=ArrayType.VAL,
+        )
+        mask_off_def = ArrayDef(
+            name=val_def.name + "_mask_off",
+            dims=val_def.dims[:-2],
+            type=ArrayType.OFFSET,
+        )
+        array_defs.replace([val_def.name], [mask_def, mask_val_def, mask_off_def])
 
     # 3. Handle schedule
     # TODO: Implement

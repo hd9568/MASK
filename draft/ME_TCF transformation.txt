@@ -124,8 +124,9 @@ format = (
 
 array:
 # val = x_o_y_so[nnz_b]y_si[TN]x_i[TM]
-val = x_o_y_so_coo[nnz]
-coo_off = x_o_y_so[nnz_b]
+(new) val = x_o_y_so_coo[nnz]
+(new) coo_idx = x_o_y_so_coo[nnz]
+(new) coo_off = x_o_y_so[nnz_b]
 y_s_idx = x_o_y_so[nnz_b]y_si[TN]
 x_o_off = x_o[M]
 b = y[n]z[k]
