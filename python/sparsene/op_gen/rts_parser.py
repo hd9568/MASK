@@ -1,9 +1,10 @@
 from __future__ import annotations
+from abc import ABC, abstractmethod
 from typing import overload
 from copy import deepcopy
 from dataclasses import dataclass
 from enum import Enum
-from typing import Iterator, List, Optional, Dict, Tuple
+from typing import Iterator, List, Optional, Dict, Tuple, Iterable
 from sparsene.model.transformation import (
     Transformation,
     TransformationSequence,
@@ -12,62 +13,219 @@ from sparsene.model.transformation import (
     SparsifyTransformation,
     SpawnTransformation,
     CooizeTransformation,
-    MaskizeTransformation,
+    McoizeTransformation,
 )
 from sparsene.model.format import (
-    Expr,
     Direction,
     Format,
     Axis,
     df_axis,
     sv_axis,
     coo_atomic_format,
-    mask_atomic_format,
+    mco_atomic_format,
 )
 from sparsene.formats.dense import get_dense_format
+
+from sparsene.logging import get_logger
+
+logger = get_logger(__name__)
+
+
+class NameManager:
+    def __init__(self):
+        self.counter = 0
+
+    def new_name(self) -> str:
+        self.counter += 1
+        return f"v{self.counter}"
+
+
+name_manager = NameManager()
 
 
 class AtomicFormatType(Enum):
     DENSE = 0
     COO = 1
-    MASK = 2
-
-
-@dataclass(kw_only=True)
-class Slice:
-    start: Variable
-    end: Variable
+    MCO = 2
 
 
 @dataclass(kw_only=True)
 class ArrayRef:
     array: str
-    indices: List[Variable | Slice]
+    indices: List[Variable]
+
+    def replace_symbol(self, old: str, new: str) -> None:
+        for i in range(len(self.indices)):
+            index = self.indices[i]
+            if isinstance(index, ArrayRef):
+                index.replace_symbol(old, new)
+            elif index == old:
+                self.indices[i] = new
+
+    def split_array_ref_index(self, old: str, new: List[Variable]) -> None:
+        for i in range(len(self.indices)):
+            index = self.indices[i]
+            if isinstance(index, ArrayRef):
+                index.split_array_ref_index(old, new)
+        for i in range(len(self.indices)):
+            if self.indices[i] == old:
+                self.indices = self.indices[:i] + new + self.indices[i + 1 :]
+                break
+
+    def append_ref_index(self, index: Variable) -> None:
+        nested = False
+        for i in range(len(self.indices)):
+            index = self.indices[i]
+            if isinstance(index, ArrayRef):
+                index.append_ref_index(index)
+                nested = True
+        if not nested:
+            self.indices.append(index)
 
 
-Variable = ArrayRef | Expr
+Variable = ArrayRef | str
 
 
 @dataclass(kw_only=True)
-class AtomicFormatOp:
+class Schedule(ABC):
+    @abstractmethod
+    def is_leaf(self) -> bool: ...
+
+    @abstractmethod
+    def get_child(self) -> Optional[Schedule]: ...
+
+    @abstractmethod
+    def refers_to(self, axis: str) -> bool: ...
+
+    @abstractmethod
+    def replace_symbol(self, old: str, new: str) -> None: ...
+
+    @abstractmethod
+    def split_array_ref_index(self, old: str, new: List[Variable]) -> None: ...
+
+    def get_parent(self, root: Schedule) -> Optional[AxisVisitor]:
+        if root is self:
+            return None
+        parent = root
+        while parent is not None:
+            child = parent.get_child()
+            if child is self:
+                assert isinstance(parent, AxisVisitor)
+                return parent
+            parent = child
+        return parent
+
+    def find_axis_ref(self, axis: str) -> Optional[Schedule]:
+        if self.refers_to(axis):
+            return self
+        child = self.get_child()
+        if child is None:
+            return None
+        return child.find_axis_ref(axis)
+
+
+@dataclass(kw_only=True)
+class AtomicFormatOp(Schedule):
     axes: Tuple[str, str]
     type: AtomicFormatType
-    args: List[ArrayRef]
+    args: List[Variable]
+
+    def is_leaf(self) -> bool:
+        return True
+
+    def get_child(self) -> Optional[Schedule]:
+        return None
+
+    def refers_to(self, axis: str) -> bool:
+        return axis in self.axes
+
+    def replace_symbol(self, old: str, new: str) -> None:
+        for i in range(len(self.args)):
+            arg = self.args[i]
+            if isinstance(arg, ArrayRef):
+                arg.replace_symbol(old, new)
+            elif arg == old:
+                self.args[i] = new
+
+    def split_array_ref_index(self, old: str, new: List[Variable]) -> None:
+        for i in range(len(self.args)):
+            arg = self.args[i]
+            if isinstance(arg, ArrayRef):
+                arg.split_array_ref_index(old, new)
 
 
 @dataclass(kw_only=True)
-class DimIterator:
+class AxisVisitor(Schedule, ABC):
+    name: str = ""
     axis: str
     body: Schedule
-    is_sparse: bool
+
+    def __post_init__(self):
+        if self.name == "":
+            self.name = name_manager.new_name()
+
+    def is_leaf(self) -> bool:
+        return False
+
+    def get_child(self) -> Schedule | None:
+        return self.body
+
+    def refers_to(self, axis: str) -> bool:
+        return axis == self.axis
+
+    def replace_symbol(self, old: str, new: str) -> None:
+        if self.name == old:
+            raise ValueError(
+                f"Cannot replace the name of an {self.__class__.__name__} itself: {self}"
+            )
+        self.body.replace_symbol(old, new)
+
+    def split_array_ref_index(self, old: str, new: List[Variable]) -> None:
+        self.body.split_array_ref_index(old, new)
+
+    @property
+    @abstractmethod
+    def is_sparse(self) -> bool: ...
+
+
+@dataclass(kw_only=True)
+class DenseAxisIterator(AxisVisitor):
+    @property
+    def is_sparse(self) -> bool:
+        return False
+
+
+@dataclass(kw_only=True)
+class SparseAxisIterator(AxisVisitor):
+    """
+    This is a schedule that iterates over a range of an array according to the offset
+    array in a sparse format and provide the index to be used in the body.
+    """
+
+    @property
+    def is_sparse(self) -> bool:
+        return True
+
+
+@dataclass(kw_only=True)
+class SparseAxisSlicer(AxisVisitor):
+    """
+    This is a schedule that slices an array according to the offset array in a sparse
+    format and provide the slice to be used in the body.
+    """
+
+    @property
+    def is_sparse(self) -> bool:
+        return True
 
 
 class ArrayType(Enum):
     VAL = 0
-    COO_IDX = 1
-    MASK = 2
-    OFFSET = 3
-    B_VAL = 4
+    IDX = 1
+    OFFSET = 2
+    B_VAL = 3
+    COO_IDX = 4
+    MASK = 5
 
 
 @dataclass(kw_only=True)
@@ -81,9 +239,6 @@ class ArrayDef:
             if dim == axis:
                 return i
         return None
-
-
-Schedule = DimIterator | AtomicFormatOp
 
 
 @dataclass(kw_only=True)
@@ -110,6 +265,23 @@ class ArrayDefCollection:
                 if array_def.type == key
             ]
         return self.array_defs[key]
+
+    def __setitem__(self, key: str, value: ArrayDef) -> None:
+        assert key == value.name
+        self.array_defs[key] = value
+
+    @overload
+    def add(self, array_def: ArrayDef) -> None: ...
+
+    @overload
+    def add(self, array_def: Iterable[ArrayDef]) -> None: ...
+
+    def add(self, array_def: ArrayDef | Iterable[ArrayDef]) -> None:
+        if isinstance(array_def, ArrayDef):
+            self.array_defs[array_def.name] = array_def
+        else:
+            for ad in array_def:
+                self.array_defs[ad.name] = ad
 
     def items(self) -> Iterator[Tuple[str, ArrayDef]]:
         return iter(self.array_defs.items())
@@ -181,8 +353,12 @@ def apply_split_transformation(
         is_sparse=axis_to_split.is_sparse,
         is_varlen=axis_to_split.is_varlen,
     )
-    format.axes[axis_idx] = new_axis_outer
-    format.axes.insert(axis_idx + 1, new_axis_inner)
+    format.axes = (
+        format.axes[:axis_idx]
+        + [new_axis_outer]
+        + [new_axis_inner]
+        + format.axes[axis_idx + 1 :]
+    )
 
     # 2. Handle array_defs
     for array_def in array_defs:
@@ -194,7 +370,73 @@ def apply_split_transformation(
         array_def.dims.insert(idx_dim + 1, new_axis_inner.name)
 
     # 3. Handle schedule
-    # TODO: Implement
+    axis_ref = schedule.find_axis_ref(axis_to_split.name)
+    if isinstance(axis_ref, (DenseAxisIterator, SparseAxisIterator)):
+        new_inner_axis_ref = DenseAxisIterator(
+            axis=new_axis_inner.name,
+            body=axis_ref.body,
+        )
+        axis_ref.axis = new_axis_outer.name
+        axis_ref.body = new_inner_axis_ref
+
+        new_inner_axis_ref.body.split_array_ref_index(
+            axis_ref.name, [axis_ref.name, new_inner_axis_ref.name]
+        )
+    elif isinstance(axis_ref, SparseAxisSlicer):
+        new_axis_ref = SparseAxisIterator(
+            name=axis_ref.name,
+            axis=new_axis_outer.name,
+            body=axis_ref.body,
+        )
+        assert isinstance(axis_ref.body, AtomicFormatOp)
+        if axis_ref.body.axes[0] == axis_to_split.name:
+            axis_ref.body.axes = new_axis_inner.name, axis_ref.body.axes[1]
+        elif axis_ref.body.axes[1] == axis_to_split.name:
+            axis_ref.body.axes = axis_ref.body.axes[0], new_axis_inner.name
+        else:
+            raise ValueError(
+                f"None of the axes match {axis_to_split.name}: {axis_ref.body.axes}"
+            )
+
+        parent_axis_ref = axis_ref.get_parent(schedule)
+        if parent_axis_ref is not None:
+            assert isinstance(
+                parent_axis_ref, AxisVisitor
+            ), f"Parent axis reference should be an AxisVisitor, got {parent_axis_ref}"
+            parent_axis_ref.body = new_axis_ref
+        else:
+            schedule = new_axis_ref
+    elif isinstance(axis_ref, AtomicFormatOp):
+        if axis_ref.axes[0] == axis_to_split.name:
+            axis_ref.axes = new_axis_inner.name, axis_ref.axes[1]
+        elif axis_ref.axes[1] == axis_to_split.name:
+            axis_ref.axes = axis_ref.axes[0], new_axis_inner.name
+        else:
+            raise ValueError(
+                f"None of the axes match {axis_to_split.name}: {axis_ref.axes}"
+            )
+        new_axis_ref = DenseAxisIterator(
+            axis=new_axis_outer.name,
+            body=axis_ref,
+        )
+
+        parent_axis_ref = axis_ref.get_parent(schedule)
+        if parent_axis_ref is not None:
+            assert isinstance(
+                parent_axis_ref, AxisVisitor
+            ), f"Parent axis reference should be an AxisVisitor, got {parent_axis_ref}"
+            parent_axis_ref.body = new_axis_ref
+        else:
+            schedule = new_axis_ref
+
+        # Insert a new dense dim index of x_o into array refs
+        # Maybe always append to the tail of the refs?
+        for arg in axis_ref.args:
+            if isinstance(arg, ArrayRef):
+                arg.append_ref_index(new_axis_outer.name)
+
+    else:
+        raise ValueError(f"Unknown axis reference: {axis_ref}")
 
     return schedule, array_defs, format
 
@@ -230,7 +472,25 @@ def apply_swap_transformation(
         )
 
     # 3. Handle schedule
-    # TODO: Implement
+    axis0_ref = schedule.find_axis_ref(format.axes[transform.axes[0]].name)
+    axis1_ref = schedule.find_axis_ref(format.axes[transform.axes[1]].name)
+    if axis0_ref is None or axis1_ref is None:
+        raise ValueError(f"Unknown axis reference: {axis0_ref} or {axis1_ref}")
+
+    if axis0_ref is axis1_ref:
+        assert isinstance(axis0_ref, AtomicFormatOp)
+        # they are in the same atomic op, just swap the axes
+        axis0_ref.axes = axis0_ref.axes[1], axis0_ref.axes[0]
+    elif axis0_ref.get_child() is axis1_ref:
+        assert isinstance(axis0_ref, DenseAxisIterator)
+        assert isinstance(axis1_ref, DenseAxisIterator)
+        # they are in the same dense axis iterator, just swap the axes
+        axis0_ref.axis, axis1_ref.axis = axis1_ref.axis, axis0_ref.axis
+    else:
+        raise ValueError(
+            f"Axis references do not match: {axis0_ref} and {axis1_ref} for "
+            f"swap({transform.axes[0]}, {transform.axes[1]})"
+        )
 
     return schedule, array_defs, format
 
@@ -241,13 +501,85 @@ def apply_sparsify_transformation(
     format: Format,
     transform: SparsifyTransformation,
 ) -> Tuple[Schedule, ArrayDefCollection, Format]:
-    schedule, array_defs, format = (
+    new_schedule, new_array_defs, new_format = (
         deepcopy(schedule),
-        deepcopy(array_defs),
+        ArrayDefCollection(),
         deepcopy(format),
     )
-    # TODO: Implement
-    return schedule, array_defs, format
+
+    axis_gid = transform.axes[0]
+    axis = format.axes[axis_gid]
+
+    # 1. Handle format
+    axis.is_sparse = True
+    axis.is_varlen = True
+    axis.name = axis.name + "_s"
+
+    # 2. Handle array_defs
+    for array_def in array_defs:
+        idx = array_def.indexed_at(axis.name)
+        if idx is None:
+            new_array_defs.add(array_def)
+            continue
+
+        idx_p = idx - 1
+        assert idx_p >= 0
+
+        array_def.dims[idx] = axis.name
+        array_def.dims.pop(idx - 1)
+
+        sparse_val_def = ArrayDef(
+            name=array_def.name,
+            dims=[axis.name] + array_def.dims[idx + 1 :],
+            type=ArrayType.VAL,
+        )
+
+        sparse_idx_def = ArrayDef(
+            name=array_def.name + "_sidx",
+            dims=array_def.dims[: idx - 1] + [axis.name],
+            type=ArrayType.IDX,
+        )
+
+        sparse_off_def = ArrayDef(
+            name=array_def.name + "_soff",
+            dims=array_def.dims[:idx],
+            type=ArrayType.OFFSET,
+        )
+
+        new_array_defs.add([sparse_val_def, sparse_idx_def, sparse_off_def])
+
+    # 3. Handle schedule
+    axis_ref = schedule.find_axis_ref(axis.name)
+    assert axis_ref is not None
+
+    if isinstance(axis_ref, DenseAxisIterator):
+        parent_axis_ref = axis_ref.get_parent(schedule)
+        assert isinstance(
+            parent_axis_ref, AxisVisitor
+        ), f"Parent axis reference should be an AxisVisitor, got {parent_axis_ref}"
+        sparse_axis_iter = SparseAxisIterator(
+            axis=axis.name,
+            body=axis_ref.body,
+            name=axis_ref.name,
+        )
+        parent_axis_ref.body = sparse_axis_iter
+    elif isinstance(axis_ref, AtomicFormatOp):
+        parent_axis_ref = axis_ref.get_parent(schedule)
+        assert isinstance(
+            parent_axis_ref, AxisVisitor
+        ), f"Parent axis reference should be an AxisVisitor, got {parent_axis_ref}"
+        sparse_axis_slicer = SparseAxisSlicer(
+            axis=axis.name,
+            body=axis_ref,
+        )
+        parent_axis_ref.body = sparse_axis_slicer
+        axis_ref.replace_symbol(parent_axis_ref.name, sparse_axis_slicer.name)
+    else:
+        raise ValueError(
+            f"Unknown axis reference: {axis_ref} for sparsify({axis.name})"
+        )
+
+    return new_schedule, new_array_defs, new_format
 
 
 def apply_spawn_transformation(
@@ -324,6 +656,11 @@ def apply_cooize_transformation(
         idx_x, idx_y = val_def.indexed_at(axis_x), val_def.indexed_at(axis_y)
         # idx_x and idx_y should be the last two dimensions
         assert idx_x and idx_y and idx_x + 1 == idx_y and idx_y == len(val_def.dims) - 1
+        coo_off_def = ArrayDef(
+            name=val_def.name + "_coo_off",
+            dims=val_def.dims[:-2],
+            type=ArrayType.OFFSET,
+        )
         coo_idx_def = ArrayDef(
             name=val_def.name + "_coo_idx",
             dims=[f"{axis_x}_{axis_y}_coo"],
@@ -334,24 +671,44 @@ def apply_cooize_transformation(
             dims=[f"{axis_x}_{axis_y}_coo"],
             type=ArrayType.VAL,
         )
-        coo_off_def = ArrayDef(
-            name=val_def.name + "_coo_off",
-            dims=val_def.dims[:-2],
-            type=ArrayType.OFFSET,
-        )
         array_defs.replace([val_def.name], [coo_idx_def, coo_val_def, coo_off_def])
 
     # 3. Handle schedule
-    # TODO: Implement
+    axis_ref = schedule.find_axis_ref(axis_x)
+    assert axis_ref is schedule.find_axis_ref(axis_y)
+    assert isinstance(axis_ref, AtomicFormatOp)
+    assert axis_ref.type == AtomicFormatType.DENSE
+
+    axis_ref = AtomicFormatOp(
+        axes=(axis_x, axis_y),
+        type=AtomicFormatType.COO,
+        args=[
+            ArrayRef(array=val_def.name + "_coo_off", indices=[]),
+            ArrayRef(array=val_def.name + "_coo_idx", indices=[]),
+            ArrayRef(array=val_def.name + "_coo_val", indices=[]),
+            axis_ref.args[1],
+        ],
+    )
+
+    parent_axis_ref = axis_ref.get_parent(schedule)
+    if parent_axis_ref is not None:
+        assert isinstance(parent_axis_ref, AxisVisitor)
+        parent_axis_ref.body = axis_ref
+    else:
+        logger.warning(
+            f"No parent axis reference found for {axis_ref} during cooize transformation. "
+            f"Make sure this is what you want."
+        )
+        schedule = axis_ref
 
     return schedule, array_defs, format
 
 
-def apply_maskize_transformation(
+def apply_mcoize_transformation(
     schedule: Schedule,
     array_defs: ArrayDefCollection,
     format: Format,
-    transform: MaskizeTransformation,
+    transform: McoizeTransformation,
 ) -> Tuple[Schedule, ArrayDefCollection, Format]:
     schedule, array_defs, format = (
         deepcopy(schedule),
@@ -368,7 +725,7 @@ def apply_maskize_transformation(
     axis_x, axis_y = child.axes[0].name, child.axes[1].name
     assert len(child.axes) == 2 and child.is_dense()
 
-    parent.child = mask_atomic_format(
+    parent.child = mco_atomic_format(
         x_name=axis_x,
         y_name=axis_y,
         col_major=parent.axes[0].direction == Direction.COL,
@@ -379,25 +736,51 @@ def apply_maskize_transformation(
         idx_x, idx_y = val_def.indexed_at(axis_x), val_def.indexed_at(axis_y)
         # idx_x and idx_y should be the last two dimensions
         assert idx_x and idx_y and idx_x + 1 == idx_y and idx_y == len(val_def.dims) - 1
-        mask_def = ArrayDef(
-            name=val_def.name + "_mask",
+        mco_mask_def = ArrayDef(
+            name=val_def.name + "_mco_mask",
             dims=val_def.dims[:-2],
             type=ArrayType.MASK,
         )
-        mask_val_def = ArrayDef(
-            name=val_def.name + "_mask_val",
-            dims=[f"{axis_x}_{axis_y}_mask"],
+        mco_val_def = ArrayDef(
+            name=val_def.name + "_mco_val",
+            dims=[f"{axis_x}_{axis_y}_mco"],
             type=ArrayType.VAL,
         )
-        mask_off_def = ArrayDef(
-            name=val_def.name + "_mask_off",
+        mco_off_def = ArrayDef(
+            name=val_def.name + "_mco_off",
             dims=val_def.dims[:-2],
             type=ArrayType.OFFSET,
         )
-        array_defs.replace([val_def.name], [mask_def, mask_val_def, mask_off_def])
+        array_defs.replace([val_def.name], [mco_mask_def, mco_val_def, mco_off_def])
 
     # 3. Handle schedule
-    # TODO: Implement
+    axis_ref = schedule.find_axis_ref(axis_x)
+    assert axis_ref is schedule.find_axis_ref(axis_y)
+    assert isinstance(axis_ref, AtomicFormatOp)
+    assert axis_ref.type == AtomicFormatType.DENSE
+
+    axis_ref = AtomicFormatOp(
+        axes=(axis_x, axis_y),
+        type=AtomicFormatType.COO,
+        args=[
+            ArrayRef(array=val_def.name + "_mco_off", indices=[]),
+            ArrayRef(array=val_def.name + "_mco_mask", indices=[]),
+            ArrayRef(array=val_def.name + "_mco_val", indices=[]),
+            axis_ref.args[1],
+        ],
+    )
+
+    parent_axis_ref = axis_ref.get_parent(schedule)
+    if parent_axis_ref is not None:
+        assert isinstance(parent_axis_ref, AxisVisitor)
+        parent_axis_ref.body = axis_ref
+    else:
+        logger.warning(
+            f"No parent axis reference found for {axis_ref} during cooize transformation. "
+            f"Make sure this is what you want."
+        )
+        schedule = axis_ref
+
 
     return schedule, array_defs, format
 
@@ -428,8 +811,8 @@ def generate_from_rts(name: str, rts: TransformationSequence) -> Computent:
             schedule, array_defs, format = apply_cooize_transformation(
                 schedule, array_defs, format, transform
             )
-        elif isinstance(transform, MaskizeTransformation):
-            schedule, array_defs, format = apply_maskize_transformation(
+        elif isinstance(transform, McoizeTransformation):
+            schedule, array_defs, format = apply_mcoize_transformation(
                 schedule, array_defs, format, transform
             )
 

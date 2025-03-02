@@ -89,8 +89,8 @@ class CooAtomicFormat(AtomicFormat):
 
 
 @dataclass(kw_only=True)
-class MaskAtomicFormat(AtomicFormat):
-    atomic_type: str = "mask"
+class McoAtomicFormat(AtomicFormat):
+    atomic_type: str = "mco"
 
 
 @dataclass(kw_only=True)
@@ -188,10 +188,10 @@ def coo_atomic_format(
     )
 
 
-def mask_atomic_format(
+def mco_atomic_format(
     x_name: str, y_name: str, col_major: bool = False
 ) -> AtomicFormat:
-    return MaskAtomicFormat(
+    return McoAtomicFormat(
         name="coo",
         axes=[
             Axis(
@@ -238,8 +238,8 @@ def atomic_format(
     match atomic_type:
         case "coo":
             return coo_atomic_format(x_name, y_name, col_major)
-        case "mask":
-            return mask_atomic_format(x_name, y_name, col_major)
+        case "mco":
+            return mco_atomic_format(x_name, y_name, col_major)
         case "dense":
             return dense_atomic_format(x_name, y_name, col_major)
         case _:

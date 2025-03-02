@@ -20,7 +20,7 @@ from sparsene.model.transformation import (
     SparsifyTransformation,
     DensifyTransformation,
     CooizeTransformation,
-    MaskizeTransformation,
+    McoizeTransformation,
     Transformation,
 )
 
@@ -76,8 +76,8 @@ def derive_rts(format: Format) -> TransformationSequence:
                 match format.child.atomic_type:
                     case "coo":
                         seq.prepend(CooizeTransformation())
-                    case "mask":
-                        seq.prepend(MaskizeTransformation())
+                    case "mco":
+                        seq.prepend(McoizeTransformation())
                     case "dense":
                         pass
                     case _:

@@ -148,13 +148,13 @@ class CooizeTransformation(NullaryTransformation):
 
 
 @dataclass(kw_only=True)
-class MaskizeTransformation(NullaryTransformation):
+class McoizeTransformation(NullaryTransformation):
     def __init__(self, name: Optional[str] = None):
         self.axes = ()
         if name is not None:
             self.name = name
 
-    name: str = "maskize"
+    name: str = "mcoize"
 
 
 @dataclass(kw_only=True)
