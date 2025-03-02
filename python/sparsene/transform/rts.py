@@ -73,6 +73,8 @@ def derive_rts(format: Format) -> TransformationSequence:
     def _derive_rts(format: Format, parent_major_direction: Direction) -> None:
         if format.child is not None:
             if isinstance(format.child, AtomicFormat):
+                if format.child.axes[1].direction == parent_major_direction:
+                    seq.prepend(SwapTransformation(0, 1))
                 match format.child.atomic_type:
                     case "coo":
                         seq.prepend(CooizeTransformation())
