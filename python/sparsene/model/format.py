@@ -1,4 +1,5 @@
 from __future__ import annotations
+from sparsene.utils.source import indent
 from dataclasses import dataclass
 from enum import Enum
 from typing import List, Optional
@@ -54,6 +55,16 @@ class Axis:
     def is_sv(self) -> bool:
         return self.is_sparse and self.is_varlen
 
+    def __str__(self, indent_width: int = 4) -> str:
+        return (
+            f"{self.__class__.__name__}("
+            + f"name={self.name}, "
+            + f"direction={self.direction.name}, "
+            + f"length={self.length}, "
+            + f"is_sparse={self.is_sparse}, "
+            + f"is_varlen={self.is_varlen}, "
+            + f"reorder={self.reorder})"
+        )
 
 @dataclass(kw_only=True)
 class FormatBase(ABC):
@@ -76,6 +87,26 @@ class AtomicFormat(FormatBase):
     @property
     def is_atomic(self) -> bool:
         return True
+
+    def __str__(self, indent_width: int = 4) -> str:
+        return (
+            f"{self.__class__.__name__}(\n"
+            + indent(
+                f"axes=(\n"
+                + indent(
+                    "\n".join(map(str, self.axes)),
+                    indent_width,
+                )
+                + "\n)",
+                indent_width,
+            )
+            + "\n"
+            + indent(
+                f"atomic_type={self.atomic_type}",
+                indent_width,
+            )
+            + "\n)"
+        )
 
 
 @dataclass(kw_only=True)
@@ -100,6 +131,30 @@ class Format(FormatBase):
     @property
     def is_atomic(self) -> bool:
         return False
+
+    def __str__(self, indent_width: int = 4) -> str:
+        return (
+            f"{self.__class__.__name__}(\n"
+            + indent(
+                f"axes=(\n"
+                + indent(
+                    "\n".join(map(str, self.axes)),
+                    indent_width,
+                )
+                + "\n)",
+                indent_width,
+            )
+            + "\n"
+            + (
+                indent(
+                    f"child={self.child.__str__(indent_width)}",
+                    indent_width,
+                )
+                if self.child is not None
+                else ""
+            )
+            + "\n)"
+        )
 
 
 def sv_axis(

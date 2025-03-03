@@ -2,6 +2,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import overload
 from copy import deepcopy
+from sparsene.utils.source import indent
 from dataclasses import dataclass
 from enum import Enum
 from typing import Iterator, List, Optional, Dict, Tuple, Iterable
@@ -83,6 +84,9 @@ class ArrayRef:
         if not nested:
             self.indices.append(new_index)
 
+    def __str__(self, indent_width: int = 4) -> str:
+        return f"{self.array}[{', '.join(map(str, self.indices))}]"
+
 
 Variable = ArrayRef | str
 
@@ -124,6 +128,9 @@ class Schedule(ABC):
             return None
         return child.find_axis_ref(axis)
 
+    @abstractmethod
+    def __str__(self, indent_width: int = 4) -> str: ...
+
 
 @dataclass(kw_only=True)
 class AtomicFormatOp(Schedule):
@@ -153,6 +160,18 @@ class AtomicFormatOp(Schedule):
             arg = self.args[i]
             if isinstance(arg, ArrayRef):
                 arg.split_array_ref_index(old, new)
+
+    def __str__(self, indent_width: int = 4) -> str:
+        return (
+            f"AtomicFormatOp[{self.type.name}]({self.axes[0]}, {self.axes[1]})"
+            + "{\n"
+            + indent(
+                f"args=(\n"
+                + indent(str("\n".join(map(str, self.args))), indent_width)
+                + "\n)"
+            )
+            + "\n}"
+        )
 
 
 @dataclass(kw_only=True)
@@ -187,6 +206,14 @@ class AxisVisitor(Schedule, ABC):
     @property
     @abstractmethod
     def is_sparse(self) -> bool: ...
+
+    def __str__(self, indent_width: int = 4) -> str:
+        return (
+            f"{self.__class__.__name__}({self.axis})"
+            + "{\n"
+            + indent(f"{self.body.__str__(indent_width)}", indent_width)
+            + "\n}"
+        )
 
 
 @dataclass(kw_only=True)
@@ -294,14 +321,17 @@ class ArrayDefCollection:
         for new_def in new:
             self.array_defs[new_def.name] = new_def
 
-    def __str__(self) -> str:
+    def __str__(self, indent_width: int = 4) -> str:
         return (
             f"ArrayDefCollection(\n"
-            + "\n".join(
-                [
-                    f"  {name}: {array_def}"
-                    for name, array_def in self.array_defs.items()
-                ]
+            + indent(
+                "\n".join(
+                    [
+                        f"  {name}: {array_def}"
+                        for name, array_def in self.array_defs.items()
+                    ]
+                ),
+                indent_width,
             )
             + "\n)"
         )
@@ -314,14 +344,24 @@ class Computent:
     array_defs: ArrayDefCollection
     format: Format
 
-    def __str__(self) -> str:
+    def __str__(self, indent_width: int = 4) -> str:
         return (
             f"Computent(\n"
-            f"  name={self.name},\n"
-            f"  schedule={self.schedule},\n"
-            f"  array_defs={self.array_defs},\n"
-            f"  format={self.format}\n"
-            f")"
+            + indent(f"name={self.name},", indent_width)
+            + "\n"
+            + indent(
+                f"schedule=\n"
+                + indent(self.schedule.__str__(indent_width), indent_width)
+                + ",",
+                indent_width,
+            )
+            + "\n"
+            + indent(
+                f"array_defs={self.array_defs.__str__(indent_width)},", indent_width
+            )
+            + "\n"
+            + indent(f"format={self.format.__str__(indent_width)}", indent_width)
+            + "\n)"
         )
 
 
@@ -845,7 +885,7 @@ def apply_mcoize_transformation(
     return schedule, array_defs, new_format
 
 
-def generate_from_rts(name: str, rts: TransformationSequence) -> Computent:
+def computent_from_rts(name: str, rts: TransformationSequence) -> Computent:
     format = get_dense_format()
     root_format = Format(axes=[], child=format)
     parent_format = root_format

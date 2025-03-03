@@ -1,5 +1,5 @@
 import re
 
 
-def indent(s: str, width: int = 4):
-    return re.sub(r'^', ' ' * width, s, flags=re.M)
+def indent(s: str, width: int = 4, char: str = ' '):
+    return re.sub(r'^', char * width, s, flags=re.M)

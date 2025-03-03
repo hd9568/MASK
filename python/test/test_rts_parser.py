@@ -4,14 +4,14 @@ from sparsene.formats.Acc_SpMM import BIT_TCF_FORMAT
 from sparsene.formats.Spaden import BIT_BSR_FORMAT
 from sparsene.formats.SR_BCRS import SR_BCRS_FORMAT
 from sparsene.transform.rts import derive_rts
-from sparsene.op_gen.rts_parser import generate_from_rts
+from sparsene.op_gen.rts_parser import computent_from_rts
 
 from sparsene.logging import get_logger
 
 if __name__ == "__main__":
     logger = get_logger("test")
     rts = derive_rts(DTC_SPMM_FORMAT)
-    computent = generate_from_rts("dtc_spmm", rts)
+    computent = computent_from_rts("dtc_spmm", rts)
 
     logger.info("DTC-SPMM:")
     logger.info(rts)
