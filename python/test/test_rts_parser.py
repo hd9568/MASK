@@ -17,34 +17,34 @@ if __name__ == "__main__":
     logger.info(rts)
     logger.info(computent)
 
-    breakpoint()
+    # breakpoint()
 
-    rts = derive_rts(BIT_TCF_FORMAT)
-    computent = generate_from_rts("bit_tcf", rts)
+    # rts = derive_rts(BIT_TCF_FORMAT)
+    # computent = generate_from_rts("bit_tcf", rts)
 
-    logger.info("BIT-TCF:")
-    logger.info(rts)
-    logger.info(computent)
+    # logger.info("BIT-TCF:")
+    # logger.info(rts)
+    # logger.info(computent)
 
-    breakpoint()
+    # breakpoint()
 
-    rts = derive_rts(BIT_BSR_FORMAT)
-    computent = generate_from_rts("bit_bsr", rts)
+    # rts = derive_rts(BIT_BSR_FORMAT)
+    # computent = generate_from_rts("bit_bsr", rts)
 
-    logger.info("BIT-BSR:")
-    logger.info(rts)
-    logger.info(computent)
+    # logger.info("BIT-BSR:")
+    # logger.info(rts)
+    # logger.info(computent)
 
-    breakpoint()
+    # breakpoint()
 
-    rts = derive_rts(SR_BCRS_FORMAT)
-    computent = generate_from_rts("sr_bcr", rts)
+    # rts = derive_rts(SR_BCRS_FORMAT)
+    # computent = generate_from_rts("sr_bcr", rts)
 
-    logger.info("SR-BCRS:")
-    logger.info(rts)
-    logger.info(computent)
+    # logger.info("SR-BCRS:")
+    # logger.info(rts)
+    # logger.info(computent)
 
-    breakpoint()
+    # breakpoint()
 
     # rts = derive_rts(HME_TCF_FORMAT)
     # computent = generate_from_rts("hmec_tcf", rts)

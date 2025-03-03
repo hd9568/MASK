@@ -294,19 +294,33 @@ class ArrayDefCollection:
         for new_def in new:
             self.array_defs[new_def.name] = new_def
 
+    def __str__(self) -> str:
+        return (
+            f"ArrayDefCollection(\n"
+            + "\n".join(
+                [
+                    f"  {name}: {array_def}"
+                    for name, array_def in self.array_defs.items()
+                ]
+            )
+            + "\n)"
+        )
+
 
 @dataclass(kw_only=True)
 class Computent:
     name: str
     schedule: Schedule
     array_defs: ArrayDefCollection
+    format: Format
 
     def __str__(self) -> str:
         return (
             f"Computent(\n"
             f"  name={self.name},\n"
             f"  schedule={self.schedule},\n"
-            f"  array_defs={self.array_defs}\n"
+            f"  array_defs={self.array_defs},\n"
+            f"  format={self.format}\n"
             f")"
         )
 
@@ -467,7 +481,6 @@ def apply_split_transformation(
             raise ValueError(
                 f"None of the axes match {axis_to_split.name}: {axis_ref.axes}"
             )
-
 
     else:
         raise ValueError(f"Unknown axis reference: {axis_ref}")
@@ -689,17 +702,16 @@ def apply_cooize_transformation(
     array_defs: ArrayDefCollection,
     format: Format,
     transform: CooizeTransformation,
-) -> Tuple[Schedule, ArrayDefCollection]:
-    schedule, array_defs, format = (
+) -> Tuple[Schedule, ArrayDefCollection, AtomicFormat]:
+    schedule, array_defs = (
         deepcopy(schedule),
         deepcopy(array_defs),
-        deepcopy(format),
     )
     # 1. Handle format
     axis_x, axis_y = format.axes[0].name, format.axes[1].name
     assert len(format.axes) == 2 and format.is_dense()
 
-    coo_atomic_format(
+    new_format = coo_atomic_format(
         x_name=axis_x,
         y_name=axis_y,
         col_major=format.axes[0].direction == Direction.COL,
@@ -754,7 +766,7 @@ def apply_cooize_transformation(
         )
         schedule = new_axis_ref
 
-    return schedule, array_defs
+    return schedule, array_defs, new_format
 
 
 def apply_mcoize_transformation(
@@ -762,17 +774,16 @@ def apply_mcoize_transformation(
     array_defs: ArrayDefCollection,
     format: Format,
     transform: McoizeTransformation,
-) -> Tuple[Schedule, ArrayDefCollection]:
-    schedule, array_defs, format = (
+) -> Tuple[Schedule, ArrayDefCollection, AtomicFormat]:
+    schedule, array_defs = (
         deepcopy(schedule),
         deepcopy(array_defs),
-        deepcopy(format),
     )
     # 1. Handle format
     axis_x, axis_y = format.axes[0].name, format.axes[1].name
     assert len(format.axes) == 2 and format.is_dense()
 
-    mco_atomic_format(
+    new_format = mco_atomic_format(
         x_name=axis_x,
         y_name=axis_y,
         col_major=format.axes[0].direction == Direction.COL,
@@ -827,51 +838,69 @@ def apply_mcoize_transformation(
         )
         schedule = new_axis_ref
 
-    return schedule, array_defs
+    return schedule, array_defs, new_format
 
 
 def generate_from_rts(name: str, rts: TransformationSequence) -> Computent:
     format = get_dense_format()
+    root_format = Format(axes=[], child=format)
+    parent_format = root_format
     schedule = deepcopy(DENSE_SCHEDULE)
     array_defs = deepcopy(DENSE_ARRAY_DEFS)
 
+    atomic_format_reached = False
     for transform in rts.sequence:
+        assert (
+            not atomic_format_reached
+        ), f"Transforms remaining after atomic format reached: {transform}"
         logger.info(f"Transform begins: {transform}")
         if isinstance(transform, SplitTransformation):
             schedule, array_defs, format = apply_split_transformation(
                 schedule, array_defs, format, transform
             )
+            parent_format.child = format
         elif isinstance(transform, SwapTransformation):
             schedule, array_defs, format = apply_swap_transformation(
                 schedule, array_defs, format, transform
             )
+            parent_format.child = format
         elif isinstance(transform, SparsifyTransformation):
             schedule, array_defs, format = apply_sparsify_transformation(
                 schedule, array_defs, format, transform
             )
+            parent_format.child = format
         elif isinstance(transform, SpawnTransformation):
             schedule, array_defs, format = apply_spawn_transformation(
                 schedule, array_defs, format, transform
             )
+            parent_format.child = format
+            parent_format = format
             format = format.child
             assert isinstance(format, Format)
         elif isinstance(transform, CooizeTransformation):
-            schedule, array_defs = apply_cooize_transformation(
+            schedule, array_defs, atomic_format = apply_cooize_transformation(
                 schedule, array_defs, format, transform
             )
+            parent_format.child = atomic_format
+            atomic_format_reached = True
         elif isinstance(transform, McoizeTransformation):
-            schedule, array_defs = apply_mcoize_transformation(
+            schedule, array_defs, atomic_format = apply_mcoize_transformation(
                 schedule, array_defs, format, transform
             )
+            parent_format.child = atomic_format
+            atomic_format_reached = True
         else:
             raise ValueError(f"Unknown transformation: {transform}")
 
         logger.info(schedule)
         logger.info(array_defs)
-        logger.info(format)
+        logger.info(root_format.child)
         logger.info("-" * 100)
+
+    assert isinstance(root_format.child, Format)
     return Computent(
         name=name,
         schedule=schedule,
         array_defs=array_defs,
+        format=root_format.child,
     )
