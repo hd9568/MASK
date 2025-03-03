@@ -716,6 +716,8 @@ def apply_cooize_transformation(
         y_name=axis_y,
         col_major=format.axes[0].direction == Direction.COL,
     )
+    new_format.axes[0].length = format.axes[0].length
+    new_format.axes[1].length = format.axes[1].length
 
     # 2. Handle array_defs
     for val_def in array_defs[ArrayType.VAL]:
@@ -788,6 +790,8 @@ def apply_mcoize_transformation(
         y_name=axis_y,
         col_major=format.axes[0].direction == Direction.COL,
     )
+    new_format.axes[0].length = format.axes[0].length
+    new_format.axes[1].length = format.axes[1].length
 
     # 2. Handle array_defs
     for val_def in array_defs[ArrayType.VAL]:

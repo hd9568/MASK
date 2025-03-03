@@ -105,7 +105,7 @@ class Format(FormatBase):
 def sv_axis(
     name: str,
     direction: Direction,
-    length: Expr = VARLEN,
+    length: int | str | Expr = VARLEN,
     reorder: Optional[str] = None,
 ) -> Axis:
     return Axis(
@@ -121,7 +121,7 @@ def sv_axis(
 def sf_axis(
     name: str,
     direction: Direction,
-    length: Expr = VARLEN,
+    length: int | str | Expr = VARLEN,
     reorder: Optional[str] = None,
 ) -> Axis:
     return Axis(
@@ -137,7 +137,7 @@ def sf_axis(
 def dv_axis(
     name: str,
     direction: Direction,
-    length: Expr = VARLEN,
+    length: int | str | Expr = VARLEN,
     reorder: Optional[str] = None,
 ) -> Axis:
     return Axis(
@@ -153,7 +153,7 @@ def dv_axis(
 def df_axis(
     name: str,
     direction: Direction,
-    length: Expr = VARLEN,
+    length: int | str | Expr = VARLEN,
     reorder: Optional[str] = None,
 ) -> Axis:
     return Axis(

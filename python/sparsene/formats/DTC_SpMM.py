@@ -1,21 +1,29 @@
 from collections import OrderedDict
 
-from sparsene.model.format import Direction, Format, coo_atomic_format, df_axis, sv_axis
+from sparsene.model.format import (
+    Direction,
+    Format,
+    coo_atomic_format,
+    df_axis,
+    sv_axis,
+    Expr,
+    Symbol,
+)
 from sparsene.model.op import Op
 from sparsene.model.param import Params
 
 DTC_SPMM_FORMAT = Format(
     name="DTC-SpMM",
     axes=[
-        df_axis("X_o", Direction.ROW),
-        sv_axis("Y_s", Direction.COL),
-        df_axis("X_i", Direction.ROW),
+        df_axis("X_o", Direction.ROW, length="M"),
+        sv_axis("Y_s", Direction.COL, length="N"),
+        df_axis("X_i", Direction.ROW, length=16),
     ],
     child=Format(
         axes=[
-            df_axis("Y_so", Direction.COL),
-            df_axis("Y_si", Direction.COL),
-            df_axis("X_i", Direction.ROW),
+            df_axis("Y_so", Direction.COL, length=Symbol("N") / 8),
+            df_axis("Y_si", Direction.COL, length=8),
+            df_axis("X_i", Direction.ROW, length=16),
         ],
         child=coo_atomic_format("X_i", "Y_si"),
     ),
