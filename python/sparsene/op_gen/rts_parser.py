@@ -64,11 +64,11 @@ class ArrayRef:
             elif index == old:
                 self.indices[i] = new
 
-    def split_array_ref_index(self, old: str, new: List[Variable]) -> None:
+    def replace_index(self, old: str, new: List[Variable]) -> None:
         for i in range(len(self.indices)):
             index = self.indices[i]
             if isinstance(index, ArrayRef):
-                index.split_array_ref_index(old, new)
+                index.replace_index(old, new)
         for i in range(len(self.indices)):
             if self.indices[i] == old:
                 self.indices = self.indices[:i] + new + self.indices[i + 1 :]
@@ -83,6 +83,16 @@ class ArrayRef:
                 nested = True
         if not nested:
             self.indices.append(new_index)
+
+    def pop_ref_index(self) -> None:
+        nested = False
+        for i in range(len(self.indices)):
+            index = self.indices[i]
+            if isinstance(index, ArrayRef):
+                index.pop_ref_index()
+                nested = True
+        if not nested:
+            self.indices.pop()
 
     def __str__(self, indent_width: int = 4) -> str:
         return f"{self.array}[{', '.join(map(str, self.indices))}]"
@@ -106,7 +116,7 @@ class Schedule(ABC):
     def replace_symbol(self, old: str, new: str) -> None: ...
 
     @abstractmethod
-    def split_array_ref_index(self, old: str, new: List[Variable]) -> None: ...
+    def replace_all_array_ref_idx(self, old: str, new: List[Variable]) -> None: ...
 
     def get_parent(self, root: Schedule) -> Optional[AxisVisitor]:
         if root is self:
@@ -130,6 +140,11 @@ class Schedule(ABC):
 
     @abstractmethod
     def __str__(self, indent_width: int = 4) -> str: ...
+
+    @abstractmethod
+    def replace_array_ref_idx(
+        self, array_name: str, old: str, new: Variable
+    ) -> None: ...
 
 
 @dataclass(kw_only=True)
@@ -155,11 +170,11 @@ class AtomicFormatOp(Schedule):
             elif arg == old:
                 self.args[i] = new
 
-    def split_array_ref_index(self, old: str, new: List[Variable]) -> None:
+    def replace_all_array_ref_idx(self, old: str, new: List[Variable]) -> None:
         for i in range(len(self.args)):
             arg = self.args[i]
             if isinstance(arg, ArrayRef):
-                arg.split_array_ref_index(old, new)
+                arg.replace_index(old, new)
 
     def __str__(self, indent_width: int = 4) -> str:
         return (
@@ -172,6 +187,21 @@ class AtomicFormatOp(Schedule):
             )
             + "\n}"
         )
+
+    def replace_array_ref_idx(self, array_name: str, old: str, new: Variable) -> None:
+        for i in range(len(self.args)):
+            arg = self.args[i]
+            if isinstance(arg, ArrayRef) and arg.array == array_name:
+                for j in range(len(arg.indices)):
+                    idx = arg.indices[j]
+                    if idx == old:
+                        arg.indices[j] = new
+
+    def append_array_ref_idx(self, array_name: str, new: Variable) -> None:
+        for i in range(len(self.args)):
+            arg = self.args[i]
+            if isinstance(arg, ArrayRef) and arg.array == array_name:
+                arg.indices.append(new)
 
 
 @dataclass(kw_only=True)
@@ -200,8 +230,11 @@ class AxisVisitor(Schedule, ABC):
             )
         self.body.replace_symbol(old, new)
 
-    def split_array_ref_index(self, old: str, new: List[Variable]) -> None:
-        self.body.split_array_ref_index(old, new)
+    def replace_all_array_ref_idx(self, old: str, new: List[Variable]) -> None:
+        self.body.replace_all_array_ref_idx(old, new)
+
+    def replace_array_ref_idx(self, array_name: str, old: str, new: Variable):
+        self.body.replace_array_ref_idx(array_name, old, new)
 
     @property
     @abstractmethod
@@ -209,7 +242,7 @@ class AxisVisitor(Schedule, ABC):
 
     def __str__(self, indent_width: int = 4) -> str:
         return (
-            f"{self.__class__.__name__}({self.axis})"
+            f"for {self.name} in {self.__class__.__name__}({self.axis})"
             + "{\n"
             + indent(f"{self.body.__str__(indent_width)}", indent_width)
             + "\n}"
@@ -370,6 +403,7 @@ DENSE_SCHEDULE: Schedule = AtomicFormatOp(
     type=AtomicFormatType.DENSE,
     args=[
         ArrayRef(array="val", indices=[]),
+        ArrayRef(array="B_val", indices=[]),
     ],
 )
 
@@ -379,6 +413,11 @@ DENSE_ARRAY_DEFS = ArrayDefCollection(
         name="val",
         dims=["X", "Y"],
         type=ArrayType.VAL,
+    ),
+    B_val=ArrayDef(
+        name="B_val",
+        dims=["Y"],
+        type=ArrayType.B_VAL,
     ),
 )
 
@@ -443,7 +482,7 @@ def apply_split_transformation(
         axis_ref.axis = new_axis_outer.name
         axis_ref.body = new_inner_axis_ref
 
-        new_inner_axis_ref.body.split_array_ref_index(
+        new_inner_axis_ref.body.replace_all_array_ref_idx(
             axis_ref.name, [axis_ref.name, new_inner_axis_ref.name]
         )
     elif isinstance(axis_ref, SparseAxisSlicer):
@@ -495,8 +534,11 @@ def apply_split_transformation(
             # Maybe always append to the tail of the refs?
             for arg in axis_ref.args:
                 if isinstance(arg, ArrayRef):
-                    arg.append_ref_index(new_axis_ref.name)
+                    if array_defs[arg.array].indexed_at(new_axis_ref.axis) is not None:
+                        arg.append_ref_index(new_axis_ref.name)
         elif axis_ref.axes[1] == axis_to_split.name:
+            # TODO: This case is actually illegal, but we preserve it for now
+
             # axis_ref is the second axis of the atomic format op
             # we need to move the first axis out of the atomic format op
             # and use the split two new axes as the new two axes of the atomic format op
@@ -507,7 +549,11 @@ def apply_split_transformation(
             axis_ref.axes = new_axis_outer.name, new_axis_inner.name
             for arg in axis_ref.args:
                 if isinstance(arg, ArrayRef):
-                    arg.append_ref_index(new_outer_dense_axis_iter.name)
+                    if (
+                        array_defs[arg.array].indexed_at(new_outer_dense_axis_iter.axis)
+                        is not None
+                    ):
+                        arg.append_ref_index(new_outer_dense_axis_iter.name)
 
             parent_axis_ref = axis_ref.get_parent(schedule)
             if parent_axis_ref is not None:
@@ -586,6 +632,24 @@ def apply_swap_transformation(
             ), f"{axis1_name} must be the first axis of the atomic format op"
             axis0_ref.axis = axis1_name
             axis1_ref.axes = axis0_name, axis1_ref.axes[1]
+
+            # SPECIAL: we need to handle B_val indices following the rules below:
+            # 1. If an axis is swapped into atomic from outside and it belongs to B_val's
+            #    array def, we need to remove the iter var name from the array ref index
+            # 2. If an axis is swapped from atomic to outside and it belongs to B_val's
+            #    array def, we need to append the iter var name to the array ref index
+            for arg in axis1_ref.args:
+                if isinstance(arg, ArrayRef):
+                    if (
+                        array_defs[arg.array].indexed_at(axis0_name) is not None
+                        and axis0_ref.name in arg.indices
+                    ):
+                        arg.pop_ref_index()
+                    if (
+                        array_defs[arg.array].indexed_at(axis1_name) is not None
+                        and axis0_ref.name not in arg.indices
+                    ):
+                        arg.append_ref_index(axis0_ref.name)
         else:
             raise ValueError(
                 f"Unknown axis reference: {axis1_ref} for swap({transform.axes[0]}, {transform.axes[1]})"
@@ -623,6 +687,10 @@ def apply_sparsify_transformation(
 
     # 2. Handle array_defs
     for array_def in array_defs:
+        if array_def.type == ArrayType.B_VAL:
+            new_array_defs.add(array_def)
+            continue
+
         idx = array_def.indexed_at(prev_axis_name)
         if idx is None:
             new_array_defs.add(array_def)
@@ -668,6 +736,13 @@ def apply_sparsify_transformation(
             name=axis_ref.name,
         )
         parent_axis_ref.body = sparse_axis_iter
+
+        axis_ref.body.replace_array_ref_idx(
+            array_name=array_defs[ArrayType.B_VAL][0].name,
+            old=axis_ref.name,
+            new=ArrayRef(array=sparse_idx_def.name, indices=[sparse_axis_iter.name]),
+        )
+
     elif isinstance(axis_ref, AtomicFormatOp):
         parent_axis_ref = axis_ref.get_parent(new_schedule)
         assert isinstance(
@@ -679,6 +754,10 @@ def apply_sparsify_transformation(
         )
         parent_axis_ref.body = sparse_axis_slicer
         axis_ref.replace_symbol(parent_axis_ref.name, sparse_axis_slicer.name)
+        axis_ref.append_array_ref_idx(
+            array_name=array_defs[ArrayType.B_VAL][0].name,
+            new=ArrayRef(array=sparse_idx_def.name, indices=[sparse_axis_slicer.name]),
+        )
         if axis_ref.axes[0] == prev_axis_name:
             axis_ref.axes = axis.name, axis_ref.axes[1]
         elif axis_ref.axes[1] == prev_axis_name:
@@ -794,6 +873,12 @@ def apply_cooize_transformation(
             ArrayRef(array=val_def.name + "_coo_off", indices=[]),
             ArrayRef(array=val_def.name + "_coo_idx", indices=[]),
             ArrayRef(array=val_def.name + "_coo_val", indices=[]),
+            next(
+                filter(
+                    lambda arg: isinstance(arg, ArrayRef) and arg.array == "B_val",
+                    axis_ref.args,
+                )
+            ),
         ],
     )
 
@@ -868,6 +953,12 @@ def apply_mcoize_transformation(
             ArrayRef(array=val_def.name + "_mco_off", indices=[]),
             ArrayRef(array=val_def.name + "_mco_mask", indices=[]),
             ArrayRef(array=val_def.name + "_mco_val", indices=[]),
+            next(
+                filter(
+                    lambda arg: isinstance(arg, ArrayRef) and arg.array == "B_val",
+                    axis_ref.args,
+                )
+            ),
         ],
     )
 

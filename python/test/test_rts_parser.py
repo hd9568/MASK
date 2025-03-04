@@ -10,10 +10,14 @@ from sparsene.logging import get_logger
 
 if __name__ == "__main__":
     logger = get_logger("test")
-    rts = derive_rts(DTC_SPMM_FORMAT)
-    computent = computent_from_rts("dtc_spmm", rts)
 
-    logger.info("DTC-SPMM:")
+    rts = derive_rts(BIT_BSR_FORMAT)
+    computent = computent_from_rts("bit_bsr", rts)
+    logger.info(rts)
+    logger.info(computent)
+
+    rts = derive_rts(BIT_TCF_FORMAT)
+    computent = computent_from_rts("bit_tcf", rts)
     logger.info(rts)
     logger.info(computent)
 
