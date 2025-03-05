@@ -10,7 +10,7 @@ from sparsene.model.format import (
     Symbol,
 )
 from sparsene.model.op import Op
-from sparsene.model.param import Params
+from sparsene.model.param import Params, Param
 
 DTC_SPMM_FORMAT = Format(
     name="DTC-SpMM",
@@ -21,7 +21,7 @@ DTC_SPMM_FORMAT = Format(
     ],
     child=Format(
         axes=[
-            df_axis("Y_so", Direction.COL, length=Symbol("N") / 8),
+            df_axis("Y_so", Direction.COL, length=Symbol("N") / 8), # type: ignore
             df_axis("Y_si", Direction.COL, length=8),
             df_axis("X_i", Direction.ROW, length=16),
         ],
@@ -76,35 +76,35 @@ OP_S = Op(
     params=Params(
         sw_idx=OrderedDict(
             [
-                ("i", "int"),
-                ("TCStart_offset", "int"),
+                ("i", Param("i", "int")),
+                ("TCStart_offset", Param("TCStart_offset", "int")),
             ]
         ),
         const=OrderedDict(
             [
-                ("tileA_size", "int"),
+                ("tileA_size", Param("tileA_size", "int")),
             ]
         ),
         gmem=OrderedDict(
             [
-                ("A_TCFValue", "half*"),
-                ("A_TCOffset", "int*"),
-                ("A_TCFColIdx", "int*"),
-                ("X_Val", "half*"),
-                ("Y_Val", "half*"),
+                ("A_TCFValue", Param("A_TCFValue", "half*")),
+                ("A_TCOffset", Param("A_TCOffset", "int*")),
+                ("A_TCFColIdx", Param("A_TCFColIdx", "int*")),
+                ("X_Val", Param("X_Val", "half*")),
+                ("Y_Val", Param("Y_Val", "half*")),
             ]
         ),
         smem=OrderedDict(
             [
-                ("tileA_block", "half*"),
-                ("sparse_index", "int*"),
+                ("tileA_block", Param("tileA_block", "half*")),
+                ("sparse_index", Param("sparse_index", "int*")),
             ]
         ),
         reg=OrderedDict(
             [
-                ("A", "uint32_t*"),
-                ("B", "half*"),
-                ("C", "float*"),
+                ("A", Param("A", "uint32_t*")),
+                ("B", Param("B", "half*")),
+                ("C", Param("C", "float*")),
             ]
         ),
     ),
@@ -117,35 +117,35 @@ OP_R = Op(
     params=Params(
         sw_idx=OrderedDict(
             [
-                ("i", "int"),
-                ("TCStart_offset", "int"),
+                ("i", Param("i", "int")),
+                ("TCStart_offset", Param("TCStart_offset", "int")),
             ]
         ),
         const=OrderedDict(
             [
-                ("tileA_size", "int"),
+                ("tileA_size", Param("tileA_size", "int")),
             ]
         ),
         gmem=OrderedDict(
             [
-                ("A_TCFValue", "half*"),
-                ("A_TCOffset", "int*"),
-                ("A_TCFColIdx", "int*"),
-                ("X_Val", "half*"),
-                ("Y_Val", "half*"),
+                ("A_TCFValue", Param("A_TCFValue", "half*")),
+                ("A_TCOffset", Param("A_TCOffset", "int*")),
+                ("A_TCFColIdx", Param("A_TCFColIdx", "int*")),
+                ("X_Val", Param("X_Val", "half*")),
+                ("Y_Val", Param("Y_Val", "half*")),
             ]
         ),
         smem=OrderedDict(
             [
-                ("tileA_block", "half*"),
-                ("sparse_index", "int*"),
+                ("tileA_block", Param("tileA_block", "half*")),
+                ("sparse_index", Param("sparse_index", "int*")),
             ]
         ),
         reg=OrderedDict(
             [
-                ("A", "uint32_t*"),
-                ("B", "half*"),
-                ("C", "float*"),
+                ("A", Param("A", "uint32_t*")),
+                ("B", Param("B", "half*")),
+                ("C", Param("C", "float*")),
             ]
         ),
     ),
@@ -158,35 +158,35 @@ OP_MMA = Op(
     params=Params(
         sw_idx=OrderedDict(
             [
-                ("i", "int"),
-                ("TCStart_offset", "int"),
+                ("i", Param("i", "int")),
+                ("TCStart_offset", Param("TCStart_offset", "int")),
             ]
         ),
         const=OrderedDict(
             [
-                ("tileA_size", "int"),
+                ("tileA_size", Param("tileA_size", "int")),
             ]
         ),
         gmem=OrderedDict(
             [
-                ("A_TCFValue", "half*"),
-                ("A_TCOffset", "int*"),
-                ("A_TCFColIdx", "int*"),
-                ("X_Val", "half*"),
-                ("Y_Val", "half*"),
+                ("A_TCFValue", Param("A_TCFValue", "half*")),
+                ("A_TCOffset", Param("A_TCOffset", "int*")),
+                ("A_TCFColIdx", Param("A_TCFColIdx", "int*")),
+                ("X_Val", Param("X_Val", "half*")),
+                ("Y_Val", Param("Y_Val", "half*")),
             ]
         ),
         smem=OrderedDict(
             [
-                ("tileA_block", "half*"),
-                ("sparse_index", "int*"),
+                ("tileA_block", Param("tileA_block", "half*")),
+                ("sparse_index", Param("sparse_index", "int*")),
             ]
         ),
         reg=OrderedDict(
             [
-                ("A", "uint32_t*"),
-                ("B", "half*"),
-                ("C", "float*"),
+                ("A", Param("A", "uint32_t*")),
+                ("B", Param("B", "half*")),
+                ("C", Param("C", "float*")),
             ]
         ),
     ),
@@ -199,35 +199,35 @@ OP_WB = Op(
     params=Params(
         sw_idx=OrderedDict(
             [
-                ("i", "int"),
-                ("TCStart_offset", "int"),
+                ("i", Param("i", "int")),
+                ("TCStart_offset", Param("TCStart_offset", "int")),
             ]
         ),
         const=OrderedDict(
             [
-                ("tileA_size", "int"),
+                ("tileA_size", Param("tileA_size", "int")),
             ]
         ),
         gmem=OrderedDict(
             [
-                ("A_TCFValue", "half*"),
-                ("A_TCOffset", "int*"),
-                ("A_TCFColIdx", "int*"),
-                ("X_Val", "half*"),
-                ("Y_Val", "half*"),
+                ("A_TCFValue", Param("A_TCFValue", "half*")),
+                ("A_TCOffset", Param("A_TCOffset", "int*")),
+                ("A_TCFColIdx", Param("A_TCFColIdx", "int*")),
+                ("X_Val", Param("X_Val", "half*")),
+                ("Y_Val", Param("Y_Val", "half*")),
             ]
         ),
         smem=OrderedDict(
             [
-                ("tileA_block", "half*"),
-                ("sparse_index", "int*"),
+                ("tileA_block", Param("tileA_block", "half*")),
+                ("sparse_index", Param("sparse_index", "int*")),
             ]
         ),
         reg=OrderedDict(
             [
-                ("A", "uint32_t*"),
-                ("B", "half*"),
-                ("C", "float*"),
+                ("A", Param("A", "uint32_t*")),
+                ("B", Param("B", "half*")),
+                ("C", Param("C", "float*")),
             ]
         ),
     ),

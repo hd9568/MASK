@@ -21,6 +21,16 @@ if __name__ == "__main__":
     logger.info(rts)
     logger.info(computent)
 
+    rts = derive_rts(DTC_SPMM_FORMAT)
+    computent = computent_from_rts("dtc_spmm", rts)
+    logger.info(rts)
+    logger.info(computent)
+
+    rts = derive_rts(SR_BCRS_FORMAT)
+    computent = computent_from_rts("sr_bcrs", rts)
+    logger.info(rts)
+    logger.info(computent)
+
     # breakpoint()
 
     # rts = derive_rts(BIT_TCF_FORMAT)

@@ -1,5 +1,6 @@
 import re
 from collections import OrderedDict
+from dataclasses import dataclass
 from enum import Enum
 from itertools import chain
 
@@ -113,33 +114,33 @@ class Param:
 
 
 class Params:
-    HW_IDX: OrderedDict[str, str] = OrderedDict([
-        ("block_idx_x", "int"),
-        ("lane_id", "int"),
+    HW_IDX: OrderedDict[str, Param] = OrderedDict([
+        ("block_idx_x", Param("block_idx_x", "int")),
+        ("lane_id", Param("lane_id", "int")),
     ])
 
     def __init__(self,
-                 sw_idx: OrderedDict[str, str],
-                 const: OrderedDict[str, str],
-                 gmem: OrderedDict[str, str],
-                 smem: OrderedDict[str, str],
-                 reg: OrderedDict[str, str],
+                 sw_idx: OrderedDict[str, Param] = OrderedDict(),
+                 const: OrderedDict[str, Param] = OrderedDict(),
+                 gmem: OrderedDict[str, Param] = OrderedDict(),
+                 smem: OrderedDict[str, Param] = OrderedDict(),
+                 reg: OrderedDict[str, Param] = OrderedDict(),
                  is_global: bool = False):
-        self.sw_idx: OrderedDict[str, Param] = OrderedDict()
-        self.const: OrderedDict[str, Param] = OrderedDict()
-        self.gmem: OrderedDict[str, Param] = OrderedDict()
-        self.smem: OrderedDict[str, Param] = OrderedDict()
-        self.reg: OrderedDict[str, Param] = OrderedDict()
-        self.is_global: bool = False
+        self.sw_idx: OrderedDict[str, Param] = OrderedDict(sw_idx)
+        self.const: OrderedDict[str, Param] = OrderedDict(const)
+        self.gmem: OrderedDict[str, Param] = OrderedDict(gmem)
+        self.smem: OrderedDict[str, Param] = OrderedDict(smem)
+        self.reg: OrderedDict[str, Param] = OrderedDict(reg)
+        self.is_global: bool = is_global
 
     def gen_param_list(self) -> str:
         param_list = f"(\n{',\n'.join('  ' + pt + ' ' + pn for pn, pt in chain(
-            map(lambda p: ("_H_" + p[0], p[1]), self.HW_IDX.items()) if not self.is_global else [],
-            map(lambda p: ("_I_" + p[0], p[1]), self.sw_idx.items()),
-            map(lambda p: ("_C_" + p[0], p[1]), self.const.items()),
-            map(lambda p: ("_G_" + p[0], p[1]), self.gmem.items()),
-            map(lambda p: ("_S_" + p[0], p[1]), self.smem.items()),
-            map(lambda p: ("_R_" + p[0], p[1]), self.reg.items()),
+            map(lambda p: ("_H_" + p[0], p[1].base_type), self.HW_IDX.items()) if not self.is_global else [],
+            map(lambda p: ("_I_" + p[0], p[1].base_type), self.sw_idx.items()),
+            map(lambda p: ("_C_" + p[0], p[1].base_type), self.const.items()),
+            map(lambda p: ("_G_" + p[0], p[1].base_type), self.gmem.items()),
+            map(lambda p: ("_S_" + p[0], p[1].base_type), self.smem.items()),
+            map(lambda p: ("_R_" + p[0], p[1].base_type), self.reg.items()),
         ))}\n)"
         return param_list
 
