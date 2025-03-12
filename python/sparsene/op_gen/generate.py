@@ -1,7 +1,10 @@
+from __future__ import annotations
+
 from sparsene.op_gen.rts_parser import computent_from_rts, Computent
-from sparsene.model.op import Op, SequentialOp, MetaOp
 from sparsene.model.stage import Stage
-from typing import List, Optional
+from sparsene.model.format import Format, Expr, Symbol, Number
+from sparsene.op_gen.rts_parser import ArrayDefCollection
+from typing import Any, List, Optional, Dict, Literal, Tuple
 from sparsene.op_gen.rts_parser import (
     Schedule,
     DenseAxisIterator,
@@ -10,68 +13,156 @@ from sparsene.op_gen.rts_parser import (
     AtomicFormatOp,
     AtomicFormatType,
 )
+from dataclasses import dataclass
+from sparsene.op_gen.op_ir import (
+    Op,
+    DeviceOp,
+    OpBuilder,
+    SymbolTable,
+    ForLoopOp,
+    Value,
+    Index,
+)
 
 
-def generate_from_computent(computent: Computent) -> List:
-    def _handle_dense_axis_iter(schedule: DenseAxisIterator, op_list: List) -> None:
-        pass
+def generate_from_computent(computent: Computent) -> Op:
+    return generate_from_schedule(
+        computent.schedule, computent.array_defs, computent.format
+    )
 
-    def _handle_sparse_axis_iter(schedule: SparseAxisIterator, op_list: List) -> None:
-        op_list.append("[G2R] load soff")
-        op_list.append("[G2S] load AtoB")
-        op_list.append("[S2R] load AtoB")
 
-    def _handle_sparse_axis_slicer(schedule: SparseAxisSlicer, op_list: List) -> None:
-        op_list.append("[G2R] load soff")
-        op_list.append("[G2S] load AtoB")
-        op_list.append("[S2R] load AtoB")
+def generate_from_schedule(
+    schedule: Schedule,
+    array_defs: ArrayDefCollection,
+    format: Format,
+    parent_schedule: Optional[Schedule] = None,
+) -> Op:
+    if isinstance(schedule, DenseAxisIterator):
+        return generate_from_dense_axis_iterator(
+            schedule, array_defs, format, parent_schedule
+        )
+    elif isinstance(schedule, SparseAxisIterator):
+        return generate_from_sparse_axis_iterator(
+            schedule, array_defs, format, parent_schedule
+        )
+    elif isinstance(schedule, SparseAxisSlicer):
+        return generate_from_sparse_axis_slicer(
+            schedule, array_defs, format, parent_schedule
+        )
+    elif isinstance(schedule, AtomicFormatOp):
+        return generate_from_atomic_format_op(
+            schedule, array_defs, format, parent_schedule
+        )
+    else:
+        raise ValueError(f"Unsupported schedule type: {type(schedule)}")
 
-    def _handle_atomic_format_op(schedule: AtomicFormatOp, op_list: List) -> None:
-        match schedule.type:
-            case AtomicFormatType.DENSE:
-                op_list.append("[G2S] load A")
-                op_list.append("[S2R] load A")
-                op_list.append("[G2S] load B")
-                op_list.append("[S2R] load B")
-                op_list.append("mma")
-            case AtomicFormatType.COO:
-                op_list.append("[G2R] load A coo_off")
-                op_list.append("[G2R] load A coo_idx")
-                op_list.append("[R2S] zero A buffer")
-                op_list.append("[G2R] extract A coo_val")
-                op_list.append("[S2R] load A coo_val")
-                op_list.append("[G2S] load B")
-                op_list.append("[S2R] load B")
-                op_list.append("mma")
-            case AtomicFormatType.MCO:
-                op_list.append("load soff")
 
-    def _handle_epilogue(op_list: List) -> None:
-        op_list.append("store C")
+def generate_from_dense_axis_iterator(
+    schedule: DenseAxisIterator,
+    array_defs: ArrayDefCollection,
+    format: Format,
+    parent_schedule: Optional[Schedule] = None,
+) -> Op:
+    l = op_builder.build("l", ConstantOp(value=0))
+    r = op_builder.build("r", ConstantOp(value=format.get_axis(schedule.axis).length))
 
-    def _handle(schedule: Optional[Schedule], op_list: List) -> None:
-        if schedule is None:
-            _handle_epilogue(op_list)
-            return
-        elif isinstance(schedule, DenseAxisIterator):
-            _handle_dense_axis_iter(schedule, op_list)
-        elif isinstance(schedule, SparseAxisIterator):
-            _handle_sparse_axis_iter(schedule, op_list)
-        elif isinstance(schedule, SparseAxisSlicer):
-            _handle_sparse_axis_slicer(schedule, op_list)
-        elif isinstance(schedule, AtomicFormatOp):
-            _handle_atomic_format_op(schedule, op_list)
-        else:
-            raise ValueError(
-                f"Unknown schedule type: {type(schedule)}. schedule: {schedule}"
+    for_loop_op = symbol_table.add_symbol("_", ForLoopOp(
+        range=(l, r),
+        args=[Value(name=schedule.name, type=Index())],
+        body=NoOp(),
+    ))
+
+    loop = (
+        Value(name=schedule.name, type=Index()),
+        Value(name=0, type=Index()),
+        Value(name=format.get_axis(schedule.axis).length, type=Index()),
+    )
+    for_loop_op = ForLoopOp(loop, {}, NoOp())
+    symbol_table[schedule.name] = for_loop_op
+    for_loop_op.body = generate_from_schedule(
+        schedule.body, array_defs, format, symbol_table, schedule
+    )
+    return for_loop_op
+
+
+def generate_from_sparse_axis_iterator(
+    schedule: SparseAxisIterator,
+    array_defs: ArrayDefCollection,
+    format: Format,
+    parent_schedule: Optional[Schedule] = None,
+) -> Op:
+    lr = SparseOffsetLoadOp(
+        mem="G2R",
+        args=[
+            ArrayDef("val_soff"),
+            symbol_table["v5"].,
+        ],
+    )
+    loop = (
+        VarIndex(var_name=schedule.name),
+        ConstantIndex(0),
+        ConstantIndex(format.get_axis(schedule.axis).length),
+    )
+    args = {}
+    body = generate_from_schedule(
+        schedule.body, array_defs, format, parent_schedule
+    )
+    return ForLoopOp(loop, args, body)
+
+
+def generate_from_sparse_axis_slicer(
+    schedule: SparseAxisSlicer,
+    array_defs: ArrayDefCollection,
+    format: Format,
+    parent_schedule: Optional[Schedule] = None,
+) -> Op:
+    pass
+
+
+def generate_from_atomic_format_op(
+    schedule: AtomicFormatOp,
+    array_defs: ArrayDefCollection,
+    format: Format,
+    parent_schedule: Optional[Schedule] = None,
+) -> Op:
+    match schedule.type:
+        case AtomicFormatType.DENSE:
+            return generate_from_dense_atomic_format_op(
+                schedule, array_defs, format, parent_schedule
             )
+        case AtomicFormatType.COO:
+            return generate_from_coo_atomic_format_op(
+                schedule, array_defs, format, parent_schedule
+            )
+        case AtomicFormatType.MCO:
+            return generate_from_mco_atomic_format_op(
+                schedule, array_defs, format, parent_schedule
+            )
+    pass
 
-        _handle(schedule.get_child(), op_list)
 
-    # TODO: IMPLEMENT
-    root_schedule = computent.schedule
-    op_list = []
-    while root_schedule is not None:
-        op_list.append(root_schedule)
-        root_schedule = root_schedule.get_child()
-    return op_list
+def generate_from_dense_atomic_format_op(
+    schedule: AtomicFormatOp,
+    array_defs: ArrayDefCollection,
+    format: Format,
+    parent_schedule: Optional[Schedule] = None,
+) -> Op:
+    pass
+
+
+def generate_from_coo_atomic_format_op(
+    schedule: AtomicFormatOp,
+    array_defs: ArrayDefCollection,
+    format: Format,
+    parent_schedule: Optional[Schedule] = None,
+) -> Op:
+    pass
+
+
+def generate_from_mco_atomic_format_op(
+    schedule: AtomicFormatOp,
+    array_defs: ArrayDefCollection,
+    format: Format,
+    parent_schedule: Optional[Schedule] = None,
+) -> Op:
+    pass

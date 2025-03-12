@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import List, Optional
 from abc import ABC, abstractmethod
-from sympy import Symbol, Expr, sympify
+from sympy import Symbol, Expr, sympify, Number
 
 
 class Direction(Enum):
@@ -107,6 +107,12 @@ class AtomicFormat(FormatBase):
             )
             + "\n)"
         )
+    
+    def get_axis(self, name: str) -> Axis:
+        for axis in self.axes:
+            if axis.name == name:
+                return axis
+        raise ValueError(f"Axis {name} not found in {self}")
 
 
 @dataclass(kw_only=True)
@@ -155,6 +161,14 @@ class Format(FormatBase):
             )
             + "\n)"
         )
+
+    def get_axis(self, name: str) -> Axis:
+        for axis in self.axes:
+            if axis.name == name:
+                return axis
+        if self.child is not None:
+            return self.child.get_axis(name)
+        raise ValueError(f"Axis {name} not found in {self}")
 
 
 def sv_axis(

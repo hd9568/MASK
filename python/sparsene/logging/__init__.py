@@ -2,6 +2,7 @@ import json
 import logging.config
 import logging.handlers
 import pathlib
+from typing import Literal
 
 
 def setup_logging():
@@ -19,3 +20,17 @@ def get_logger(name):
 
 
 root_logger = logging.getLogger("root")
+
+
+def set_logging_level_for_all(
+    level: Literal[
+        "DEBUG",
+        "INFO",
+        "WARNING",
+        "ERROR",
+        "CRITICAL",
+    ],
+):
+    for _, logger in logging.root.manager.loggerDict.items():
+        if isinstance(logger, logging.Logger):
+            logger.setLevel(level)

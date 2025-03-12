@@ -257,27 +257,36 @@ class DenseAxisIterator(AxisVisitor):
 
 
 @dataclass(kw_only=True)
-class SparseAxisIterator(AxisVisitor):
+class SparseAxisVisitor(AxisVisitor):
+    offset_array: str
+
+    @property
+    def is_sparse(self) -> bool:
+        return True
+
+    def __str__(self, indent_width: int = 4) -> str:
+        return (
+            f"for {self.name} in {self.__class__.__name__}({self.axis})(soff={self.offset_array})"
+            + "{\n"
+            + indent(f"{self.body.__str__(indent_width)}", indent_width)
+            + "\n}"
+        )
+
+
+@dataclass(kw_only=True)
+class SparseAxisIterator(SparseAxisVisitor):
     """
     This is a schedule that iterates over a range of an array according to the offset
     array in a sparse format and provide the index to be used in the body.
     """
 
-    @property
-    def is_sparse(self) -> bool:
-        return True
-
 
 @dataclass(kw_only=True)
-class SparseAxisSlicer(AxisVisitor):
+class SparseAxisSlicer(SparseAxisVisitor):
     """
     This is a schedule that slices an array according to the offset array in a sparse
     format and provide the slice to be used in the body.
     """
-
-    @property
-    def is_sparse(self) -> bool:
-        return True
 
 
 class ArrayType(Enum):
@@ -490,6 +499,7 @@ def apply_split_transformation(
             name=axis_ref.name,
             axis=new_axis_outer.name,
             body=axis_ref.body,
+            offset_array=axis_ref.offset_array,
         )
         assert isinstance(axis_ref.body, AtomicFormatOp)
         if axis_ref.body.axes[0] == axis_to_split.name:
@@ -686,6 +696,7 @@ def apply_sparsify_transformation(
     axis.name = new_axis_name
 
     # 2. Handle array_defs
+    soff_array_name = None
     for array_def in array_defs:
         if array_def.type == ArrayType.B_VAL:
             new_array_defs.add(array_def)
@@ -716,6 +727,7 @@ def apply_sparsify_transformation(
             dims=array_def.dims[:idx],
             type=ArrayType.OFFSET,
         )
+        soff_array_name = sparse_off_def.name
 
         new_array_defs.replace(
             [array_def.name], [sparse_val_def, sparse_idx_def, sparse_off_def]
@@ -734,6 +746,7 @@ def apply_sparsify_transformation(
             axis=axis.name,
             body=axis_ref.body,
             name=axis_ref.name,
+            offset_array=soff_array_name or "<ILLEGAL>",
         )
         parent_axis_ref.body = sparse_axis_iter
 
@@ -751,6 +764,7 @@ def apply_sparsify_transformation(
         sparse_axis_slicer = SparseAxisSlicer(
             axis=axis.name,
             body=axis_ref,
+            offset_array=soff_array_name or "<ILLEGAL>",
         )
         parent_axis_ref.body = sparse_axis_slicer
         axis_ref.replace_symbol(parent_axis_ref.name, sparse_axis_slicer.name)
@@ -988,7 +1002,7 @@ def computent_from_rts(name: str, rts: TransformationSequence) -> Computent:
         assert (
             not atomic_format_reached
         ), f"Transforms remaining after atomic format reached: {transform}"
-        logger.info(f"Transform begins: {transform}")
+        logger.debug(f"Transform begins: {transform}")
         if isinstance(transform, SplitTransformation):
             schedule, array_defs, format = apply_split_transformation(
                 schedule, array_defs, format, transform
@@ -1027,10 +1041,10 @@ def computent_from_rts(name: str, rts: TransformationSequence) -> Computent:
         else:
             raise ValueError(f"Unknown transformation: {transform}")
 
-        logger.info(schedule)
-        logger.info(array_defs)
-        logger.info(root_format.child)
-        logger.info("-" * 100)
+        logger.debug(schedule)
+        logger.debug(array_defs)
+        logger.debug(root_format.child)
+        logger.debug("-" * 100)
 
     assert isinstance(root_format.child, Format)
     return Computent(
