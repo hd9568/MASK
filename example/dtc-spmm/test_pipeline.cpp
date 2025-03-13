@@ -142,11 +142,15 @@ void pipeline() {
         op_G2S_val_sidx_load<maxshift_smem, maxshift_reg>(i);
 
         op_G2R_coo_atomic_format_load_off<maxshift_smem, maxshift_reg, i % maxshift_reg>(i);
+        if constexpr (i < shift1) {
+            printf("__pipeline_commit();\n");
+        }
     }
     // (sstage > (K - 1 - (i - sstage)) ? K - 1 - (i - sstage) : sstage)
     if constexpr (0 <= i - shift1 && i - shift1 < K) {
-        op_S2R_val_sidx_load<maxshift_smem, maxshift_reg, (i - shift1) % maxshift_reg, (K > shift1 ? shift1 : K)>(i - shift1);
         op_G2S_coo_atomic_format_load_val<maxshift_smem, maxshift_reg, (i - shift1) % maxshift_reg>(i - shift1);
+        printf("__pipeline_commit();\n");
+        op_S2R_val_sidx_load<maxshift_smem, maxshift_reg, (i - shift1) % maxshift_reg, (K > shift1 ? shift1 : K)>(i - shift1);
         op_G2R_coo_atomic_format_load_idx<maxshift_smem, maxshift_reg, (i - shift1) % maxshift_reg, (i - shift1) % maxshift_reg>(i - shift1);
     }
     if constexpr (0 <= i - shift2 - shift1 && i - shift2 - shift1 < K) {
@@ -185,6 +189,7 @@ void fill_shift1() {
         printf("fill shift1: i = %d\n", i);
         op_G2S_val_sidx_load<maxshift_smem, maxshift_reg>(i);
         op_G2R_coo_atomic_format_load_off<maxshift_smem, maxshift_reg, i % maxshift_reg>(i);
+        printf("__pipeline_commit();\n");
         fill_shift1<shift1, shift2, shift3, maxshift_smem, maxshift_reg, i + 1>();
     }
 }
@@ -194,12 +199,14 @@ void fill_shift2() {
     if constexpr (i == shift2) {
         return;
     } else {
-        printf("fill shift2: i = %d\n", i);
+        printf("fill shift2: i = %d\n", i + shift1);
         op_G2S_val_sidx_load<maxshift_smem, maxshift_reg>(i + shift1);
+        op_G2S_coo_atomic_format_load_val<maxshift_smem, maxshift_reg, i % maxshift_reg>(i);
+        printf("__pipeline_commit();\n");
         op_S2R_val_sidx_load<maxshift_smem, maxshift_reg, i % maxshift_reg, shift1>(i);
         
         op_G2R_coo_atomic_format_load_off<maxshift_smem, maxshift_reg, (i + shift1) % maxshift_reg>(i + shift1);
-        op_G2S_coo_atomic_format_load_val<maxshift_smem, maxshift_reg, i % maxshift_reg>(i);
+        
         op_G2R_coo_atomic_format_load_idx<maxshift_smem, maxshift_reg, i % maxshift_reg, i % maxshift_reg>(i);
 
         fill_shift2<shift1, shift2, shift3, maxshift_smem, maxshift_reg, i + 1>();
@@ -211,12 +218,14 @@ void fill_shift3() {
     if constexpr (i == shift3) {
         return;
     } else {
+        printf("fill shift3: i = %d\n", i + shift1 + shift2);
         op_G2S_val_sidx_load<maxshift_smem, maxshift_reg>(i + shift1 + shift2);
+        op_G2S_coo_atomic_format_load_val<maxshift_smem, maxshift_reg, (i + shift2) % maxshift_reg>(i + shift2);
+        printf("__pipeline_commit();\n");
         op_S2R_val_sidx_load<maxshift_smem, maxshift_reg, (i + shift2) % maxshift_reg, shift1>(i + shift2);
         op_G2R_B_val_load<maxshift_smem, maxshift_reg, i % maxshift_reg, i % maxshift_reg>(i);
 
         op_G2R_coo_atomic_format_load_off<maxshift_smem, maxshift_reg, (i + shift1 + shift2) % maxshift_reg>(i + shift1 + shift2);
-        op_G2S_coo_atomic_format_load_val<maxshift_smem, maxshift_reg, (i + shift2) % maxshift_reg>(i + shift2);
         op_G2R_coo_atomic_format_load_idx<maxshift_smem, maxshift_reg, (i + shift2) % maxshift_reg, (i + shift2) % maxshift_reg>(i + shift2);
         op_S2R_coo_atomic_val_restore<maxshift_smem, maxshift_smem, i % maxshift_reg, shift2>(i);
         
@@ -230,11 +239,13 @@ template <int shift1, int shift2, int shift3, int maxshift_smem, int maxshift_re
 void loop_step(int i) {
     printf("loop step: i = %d, I = %d\n", i, I);
     op_G2S_val_sidx_load<maxshift_smem, maxshift_reg>(i);
+    op_G2S_coo_atomic_format_load_val<maxshift_smem, maxshift_reg, (I + shift3 + shift2) % maxshift_reg>(i - shift1);
+    printf("__pipeline_commit();\n");
     op_S2R_val_sidx_load<maxshift_smem, maxshift_reg, (I + shift3 + shift2) % maxshift_reg, shift1>(i - shift1);
     op_G2R_B_val_load<maxshift_smem, maxshift_reg, (I + shift3) % maxshift_reg, (I + shift3) % maxshift_reg>(i - shift1 - shift2);
 
     op_G2R_coo_atomic_format_load_off<maxshift_smem, maxshift_reg, (I + shift3 + shift2 + shift1) % maxshift_reg>(i);
-    op_G2S_coo_atomic_format_load_val<maxshift_smem, maxshift_reg, (I + shift3 + shift2) % maxshift_reg>(i - shift1);
+    
     op_G2R_coo_atomic_format_load_idx<maxshift_smem, maxshift_reg, (I + shift3 + shift2) % maxshift_reg, (I + shift3 + shift2) % maxshift_reg>(i - shift1);
     op_S2R_coo_atomic_val_restore<maxshift_smem, maxshift_reg, (I + shift3) % maxshift_reg, shift2>(i - shift1 - shift2);
     op_mma<maxshift_smem, maxshift_reg, I % maxshift_reg, I % maxshift_reg>(i - shift1 - shift2 - shift3);
@@ -251,12 +262,15 @@ void remainder(int i) {
     if constexpr (I == K) {
         return;
     } else {
+        printf("remainder: i = %d\n", i);
         op_G2S_val_sidx_load<maxshift_smem, maxshift_reg>(i);
+        op_G2S_coo_atomic_format_load_val<maxshift_smem, maxshift_reg, (I + shift3 + shift2) % maxshift_reg>(i - shift1);
+        printf("__pipeline_commit();\n");
         op_S2R_val_sidx_load<maxshift_smem, maxshift_reg, (I + shift3 + shift2) % maxshift_reg, shift1>(i - shift1);
         op_G2R_B_val_load<maxshift_smem, maxshift_reg, (I + shift3) % maxshift_reg, (I + shift3) % maxshift_reg>(i - shift1 - shift2);
 
         op_G2R_coo_atomic_format_load_off<maxshift_smem, maxshift_reg, (I + shift3 + shift2 + shift1) % maxshift_reg>(i);
-        op_G2S_coo_atomic_format_load_val<maxshift_smem, maxshift_reg, (I + shift3 + shift2) % maxshift_reg>(i - shift1);
+        
         op_G2R_coo_atomic_format_load_idx<maxshift_smem, maxshift_reg, (I + shift3 + shift2) % maxshift_reg, (I + shift3 + shift2) % maxshift_reg>(i - shift1);
         op_S2R_coo_atomic_val_restore<maxshift_smem, maxshift_reg, (I + shift3) % maxshift_reg, shift2>(i - shift1 - shift2);
         op_mma<maxshift_smem, maxshift_reg, I % maxshift_reg, I % maxshift_reg>(i - shift1 - shift2 - shift3);
@@ -287,11 +301,13 @@ void empty_shift1(int i) {  // K is the remain
     } else {
         printf("empty_shift1: i = %d, I = %d\n", i, I);
         // op_G2S_val_sidx_load<maxshift_smem, maxshift_reg>(i);
+        op_G2S_coo_atomic_format_load_val<maxshift_smem, maxshift_reg, (I + shift3 + shift2 + K) % maxshift_reg>(i - shift1);
+        printf("__pipeline_commit();\n");
         op_S2R_val_sidx_load<maxshift_smem, maxshift_reg, (I + shift3 + shift2 + K) % maxshift_reg, shift1/*这里还有commit，所以还是shift1*/>(i - shift1);
         op_G2R_B_val_load<maxshift_smem, maxshift_reg, (I + shift3 + K) % maxshift_reg, (I + shift3 + K) % maxshift_reg>(i - shift1 - shift2);
 
         // op_G2R_coo_atomic_format_load_off<maxshift_smem, maxshift_reg, (I + shift3 + shift2 + shift1) % maxshift_reg>(i);
-        op_G2S_coo_atomic_format_load_val<maxshift_smem, maxshift_reg, (I + shift3 + shift2 + K) % maxshift_reg>(i - shift1);
+        
         op_G2R_coo_atomic_format_load_idx<maxshift_smem, maxshift_reg, (I + shift3 + shift2 + K) % maxshift_reg, (I + shift3 + shift2 + K) % maxshift_reg>(i - shift1);
         op_S2R_coo_atomic_val_restore<maxshift_smem, maxshift_reg, (I + shift3 + K) % maxshift_reg, shift2>(i - shift1 - shift2);
         op_mma<maxshift_smem, maxshift_reg, (I + K) % maxshift_reg, (I + K) % maxshift_reg>(i - shift1 - shift2 - shift3);
@@ -302,7 +318,7 @@ void empty_shift1(int i) {  // K is the remain
 
 template <int shift1, int shift2, int shift3, int maxshift_smem, int maxshift_reg, int K>
 void empty_shift1_switch(int i, int remain) {
-    if constexpr (K == 0) {
+    if constexpr (K < 0) {
         return;
     } else {
         if (K == remain) {
@@ -335,7 +351,7 @@ void empty_shift2(int i) {
 
 template <int shift1, int shift2, int shift3, int maxshift_smem, int maxshift_reg, int K>
 void empty_shift2_switch(int i, int remain) {
-    if constexpr (K == 0) {
+    if constexpr (K < 0) {
         return;
     } else {
         if (remain == K) {
@@ -368,7 +384,7 @@ void empty_shift3(int i) {
 
 template <int shift1, int shift2, int shift3, int maxshift_smem, int maxshift_reg, int K>
 void empty_shift3_switch(int i, int remain) {
-    if constexpr (K == 0) {
+    if constexpr (K < 0) {
         return;
     } else {
         if (K == remain) {

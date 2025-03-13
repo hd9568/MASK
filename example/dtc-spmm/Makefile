@@ -1,0 +1,24 @@
+#compilers
+CC=nvcc
+NVCC_FLAGS = -std=c++17 -g -lineinfo -O3 -m64 -gencode arch=compute_90,code=sm_90
+
+# #ENVIRONMENT_PARAMETERS
+# CUDA_INSTALL_PATH = /usr/local/cuda-12.0
+
+CUDA_LIBS = -lcusparse -lcublas
+LIBS =  -lineinfo $(CUDA_LIBS)
+
+#options
+OPTIONS = -Xcompiler -fopenmp-simd
+
+CURDIR := $(PWD)
+
+dtc: $(CURDIR)/main.cu $(CURDIR)/dtc-spmm.cu
+	$(CC) $(NVCC_FLAGS) $^ -o $@ $(OPTIONS) $(LIBS) 
+
+ 
+
+# Clean rule
+clean:
+	rm -rf *.o
+	rm -rf dtc
