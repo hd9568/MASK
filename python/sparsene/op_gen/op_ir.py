@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from sparsene.model.format import Expr, Symbol, Number
-from typing import Any, List, Dict
+from typing import Any, List, Dict, Tuple, overload, Sequence
 from dataclasses import dataclass
 from copy import deepcopy
+from abc import ABC, abstractmethod
 
 
 class OpIrContext:
@@ -15,6 +16,45 @@ class OpIrContext:
         return self.type_cache[t]
 
 
+class OpBuilder:
+    def __init__(self):
+        pass
+
+    @overload
+    def build(
+        self,
+        op_type: type[ForLoopOp],
+        induction_var: str,
+        range: Tuple[Value, Value],
+        iter_args: Dict[str, Value] = {},
+    ) -> ForLoopOp: ...
+    @overload
+    def build(
+        self, op_type: type[ConstantOp], value: Expr | int | str, type: Type
+    ) -> ConstantOp: ...
+    @overload
+    def build(self, op_type: type[ArrayViewOp], *args, **kwargs) -> ArrayViewOp: ...
+    @overload
+    def build(self, op_type: type[NoOp], *args, **kwargs) -> NoOp: ...
+    @overload
+    def build(self, op_type: type[ArrayRefOp], *args, **kwargs) -> ArrayRefOp: ...
+    @overload
+    def build(self, op_type: type[DeviceOp], *args, **kwargs) -> DeviceOp: ...
+    @overload
+    def build(self, op_type: type[MetaOp], *args, **kwargs) -> MetaOp: ...
+    @overload
+    def build(self, op_type: type[Op], *args, **kwargs) -> Op: ...
+
+    def build(
+        self,
+        op_type: type[Op],
+        *args,
+        **kwargs,
+    ) -> Op:
+        op = op_type(*args, **kwargs)
+        return op
+
+
 @dataclass
 class Type:
     def __str__(self):
@@ -22,17 +62,17 @@ class Type:
 
 
 @dataclass
-class Index(Type):
+class IndexType(Type):
     pass
 
 
 @dataclass
-class Range(Type):
+class RangeType(Type):
     pass
 
 
 @dataclass
-class Array(Type):
+class ArrayType(Type):
     dims: List[Expr]
 
 
@@ -40,50 +80,63 @@ class Array(Type):
 class Value:
     name: str
     type: Type
-    owner: Op
+    defining_op: Op
+    owner: Block
     result_idx_in_owner: int
+    is_defined_by_op: bool
 
-    def __init__(self, name: str, type: Type, owner: Op, result_idx_in_owner: int):
+    def __init__(
+        self,
+        name: str,
+        type: Type,
+        defining_op_or_owner: Op | Block,
+        result_idx_in_owner: int,
+    ):
         object.__setattr__(self, "name", name)
         object.__setattr__(self, "type", type)
-        object.__setattr__(self, "owner", owner)
+        if isinstance(defining_op_or_owner, Op):
+            object.__setattr__(self, "defining_op", defining_op_or_owner)
+            object.__setattr__(self, "defined_by_op", True)
+        else:
+            object.__setattr__(self, "owner", defining_op_or_owner)
+            object.__setattr__(self, "defined_by_op", False)
         object.__setattr__(self, "result_idx_in_owner", result_idx_in_owner)
 
     def __repr__(self):
         return f"Value(name={self.name}, type={self.type}, owner={self.owner}, result_idx_in_owner={self.result_idx_in_owner})"
 
 
-@dataclass(frozen=True, init=False)
+@dataclass(frozen=True)
 class OpOperand:
     source: Value
 
 
-class Block:
-    operations: List[Op]
-    owner: Op
-
-
-class Op:
-    name: str
-    attributes: Dict[str, Any] = {}
-    operands: List[OpOperand] = []
-    results: List[Value] = []
+class Op(ABC):
+    attributes: Dict[str, Any]
+    operands: List[OpOperand]
+    results: List[Value]
     symbol_table: SymbolTable
 
     def __init__(
         self,
-        name: str,
-        attributes: Dict[str, Any],
-        operands: List[OpOperand],
-        results: List[Value],
+        operands: Sequence[OpOperand | Value] = [],
+        results: Sequence[Value] = [],
+        attributes: Dict[str, Any] = {},
     ):
-        self.name = name
-        self.attributes = attributes
-        self.operands = operands
-        self.results = results
+        self.attributes = {**attributes}
+        self.operands = [
+            operand if isinstance(operand, OpOperand) else OpOperand(operand)
+            for operand in operands
+        ]
+        self.results = list(results)
         self.symbol_table = SymbolTable(self)
 
     def add_attribute(self, name: str, value: Any):
+        if name in self.attributes:
+            raise ValueError(f"Attribute {name} already exists")
+        self.attributes[name] = value
+
+    def set_attribute(self, name: str, value: Any):
         self.attributes[name] = value
 
     def add_operand(self, operand: OpOperand):
@@ -92,19 +145,37 @@ class Op:
     def add_result(self, result: Value):
         self.results.append(result)
 
+    def has_single_result(self) -> bool:
+        return len(self.results) == 1
+
     def get_result(self) -> Value:
-        assert len(self.results) == 1
+        assert self.has_single_result()
         return self.results[0]
 
     def get_results(self) -> List[Value]:
         return list(self.results)
 
+    @property
+    def result(self) -> Value:
+        return self.get_result()
+
     def __repr__(self):
         return f"{self.name} {self.operands} -> {self.results}"
 
+    @property
+    @abstractmethod
+    def name(self) -> str: ...
+
+
+class ExternalSymbolOperation(Op):
+    name: str = "external_symbol"
+
+    def __init__(self, symbol: str, type: Type):
+        super().__init__([], [], {})
+        self.attributes = {"type": type, "symbol": symbol}
+
 
 class ConstantOp(Op):
-    name: str = "constant"
 
     def __init__(self, name: str, value: Expr | int | str, type: Type):
         if isinstance(value, str):
@@ -113,26 +184,38 @@ class ConstantOp(Op):
             value = Number(value)
         self.attributes = {"value": value}
         self.results.append(
-            Value(name=name, type=type, owner=self, result_idx_in_owner=0),
+            Value(
+                name=name, type=type, defining_op_or_owner=self, result_idx_in_owner=0
+            ),
         )
+
+    @property
+    def name(self) -> str:
+        return "constant"
 
 
 class ArrayViewOp(Op):
-    name = "array_view"
+    def name(self) -> str:
+        return "array_view"
 
 
 class NoOp(Op):
     def __init__(self):
         super().__init__(
-            name="nop",
             attributes={},
             operands=[],
             results=[],
         )
 
+    @property
+    def name(self) -> str:
+        return "nop"
+
 
 class ArrayRefOp(Op):
-    name = "array_ref"
+    @property
+    def name(self) -> str:
+        return "array_ref"
 
 
 class DeviceOp(Op):
@@ -143,21 +226,72 @@ class DeviceOp(Op):
         mem: Literal["G2S", "G2R", "S2R", "R2S", "R2G", "S2G", "R2R"]
     """
 
+    @property
+    def name(self) -> str:
+        return "device"
+
+
+class Block:
+    operations: List[Op]
+    arguments: List[Value]
+    owner: Op
+
+    def __init__(self, owner: Op):
+        self.operations = []
+        self.arguments = []
+        self.owner = owner
+
+    def add_operation(self, op: Op):
+        self.operations.append(op)
+
 
 class MetaOp(Op):
-    name = "meta"
     block: Block
+
+    def __init__(self):
+        super().__init__(
+            attributes={},
+            operands=[],
+            results=[],
+        )
+        self.block = Block(self)
+
+    @property
+    def name(self) -> str:
+        return "meta"
 
 
 class ForLoopOp(Op):
-    """
-    For loop operation.
+    body: Block
 
-    Attributes:
-        range: Tuple[Value, Value]
-        args: Dict[str, Value]
-        body: Op
-    """
+    def __init__(
+        self,
+        induction_var: str,
+        range: Tuple[Value, Value],
+        iter_args: Dict[str, Value],
+    ):
+        super().__init__(
+            attributes={},
+            operands=[OpOperand(range[0]), OpOperand(range[1])]
+            + [OpOperand(value) for value in iter_args.values()],
+            results=[],
+        )
+        self.body = Block(self)
+        self.body.arguments.append(
+            Value(induction_var, context.get_type(IndexType), self.body, 0)
+        )
+        for name, arg in iter_args.items():
+            self.body.arguments.append(Value(name, arg.type, self.body, 0))
+
+    @property
+    def name(self) -> str:
+        return "for_loop"
+    
+    def get_induction_var(self) -> Value:
+        return self.body.arguments[0]
+    
+    def get_iter_arg(self, idx: int) -> Value:
+        return self.body.arguments[idx + 1]
 
 
 class SymbolTable:
@@ -178,17 +312,5 @@ class SymbolTable:
             raise ValueError(f"Symbol {name} not found")
 
 
-class OpBuilder:
-    def __init__(self, symbol_table: SymbolTable):
-        self.symbol_table = symbol_table
-
-    def build(
-        self,
-        name: str,
-        op_type: type[Op],
-        *args,
-        **kwargs,
-    ) -> Op:
-        op = op_type(*args, **kwargs)
-        self.symbol_table.add_symbol(name, op)
-        return op
+context = OpIrContext()
+op_builder = OpBuilder()

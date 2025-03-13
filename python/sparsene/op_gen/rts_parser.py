@@ -1,6 +1,6 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
-from typing import overload
+from typing import overload, Any
 from copy import deepcopy
 from sparsene.utils.source import indent
 from dataclasses import dataclass
@@ -103,11 +103,17 @@ Variable = ArrayRef | str
 
 @dataclass(kw_only=True)
 class Schedule(ABC):
+    parent: Optional[AxisVisitor]
+
     @abstractmethod
     def is_leaf(self) -> bool: ...
 
     @abstractmethod
     def get_child(self) -> Optional[Schedule]: ...
+
+    @property
+    def child(self) -> Optional[Schedule]:
+        return self.get_child()
 
     @abstractmethod
     def refers_to(self, axis: str) -> bool: ...
@@ -118,17 +124,8 @@ class Schedule(ABC):
     @abstractmethod
     def replace_all_array_ref_idx(self, old: str, new: List[Variable]) -> None: ...
 
-    def get_parent(self, root: Schedule) -> Optional[AxisVisitor]:
-        if root is self:
-            return None
-        parent = root
-        while parent is not None:
-            child = parent.get_child()
-            if child is self:
-                assert isinstance(parent, AxisVisitor)
-                return parent
-            parent = child
-        return parent
+    def get_parent(self) -> Optional[AxisVisitor]:
+        return self.parent
 
     def find_axis_ref(self, axis: str) -> Optional[Schedule]:
         if self.refers_to(axis):
@@ -209,6 +206,7 @@ class AxisVisitor(Schedule, ABC):
     name: str = ""
     axis: str
     body: Schedule
+    metadata: Dict[str, Any] = {}
 
     def __post_init__(self):
         if self.name == "":
@@ -414,6 +412,7 @@ DENSE_SCHEDULE: Schedule = AtomicFormatOp(
         ArrayRef(array="val", indices=[]),
         ArrayRef(array="B_val", indices=[]),
     ],
+    parent=None,
 )
 
 
@@ -487,6 +486,7 @@ def apply_split_transformation(
         new_inner_axis_ref = DenseAxisIterator(
             axis=new_axis_inner.name,
             body=axis_ref.body,
+            parent=axis_ref,
         )
         axis_ref.axis = new_axis_outer.name
         axis_ref.body = new_inner_axis_ref
@@ -500,6 +500,7 @@ def apply_split_transformation(
             axis=new_axis_outer.name,
             body=axis_ref.body,
             offset_array=axis_ref.offset_array,
+            parent=axis_ref.get_parent(),
         )
         assert isinstance(axis_ref.body, AtomicFormatOp)
         if axis_ref.body.axes[0] == axis_to_split.name:
@@ -511,7 +512,7 @@ def apply_split_transformation(
                 f"None of the axes match {axis_to_split.name}: {axis_ref.body.axes}"
             )
 
-        parent_axis_ref = axis_ref.get_parent(schedule)
+        parent_axis_ref = axis_ref.get_parent()
         if parent_axis_ref is not None:
             assert isinstance(
                 parent_axis_ref, AxisVisitor
@@ -529,9 +530,10 @@ def apply_split_transformation(
             new_axis_ref = DenseAxisIterator(
                 axis=new_axis_outer.name,
                 body=axis_ref,
+                parent=axis_ref.get_parent(),
             )
 
-            parent_axis_ref = axis_ref.get_parent(schedule)
+            parent_axis_ref = axis_ref.get_parent()
             if parent_axis_ref is not None:
                 assert isinstance(
                     parent_axis_ref, AxisVisitor
@@ -555,6 +557,7 @@ def apply_split_transformation(
             new_outer_dense_axis_iter = DenseAxisIterator(
                 axis=axis_ref.axes[0],
                 body=axis_ref,
+                parent=axis_ref.get_parent(),
             )
             axis_ref.axes = new_axis_outer.name, new_axis_inner.name
             for arg in axis_ref.args:
@@ -565,7 +568,7 @@ def apply_split_transformation(
                     ):
                         arg.append_ref_index(new_outer_dense_axis_iter.name)
 
-            parent_axis_ref = axis_ref.get_parent(schedule)
+            parent_axis_ref = axis_ref.get_parent()
             if parent_axis_ref is not None:
                 assert isinstance(
                     parent_axis_ref, AxisVisitor
@@ -738,7 +741,7 @@ def apply_sparsify_transformation(
     assert axis_ref is not None
 
     if isinstance(axis_ref, DenseAxisIterator):
-        parent_axis_ref = axis_ref.get_parent(new_schedule)
+        parent_axis_ref = axis_ref.get_parent()
         assert isinstance(
             parent_axis_ref, AxisVisitor
         ), f"Parent axis reference should be an AxisVisitor, got {parent_axis_ref}"
@@ -747,6 +750,7 @@ def apply_sparsify_transformation(
             body=axis_ref.body,
             name=axis_ref.name,
             offset_array=soff_array_name or "<ILLEGAL>",
+            parent=parent_axis_ref,
         )
         parent_axis_ref.body = sparse_axis_iter
 
@@ -757,7 +761,7 @@ def apply_sparsify_transformation(
         )
 
     elif isinstance(axis_ref, AtomicFormatOp):
-        parent_axis_ref = axis_ref.get_parent(new_schedule)
+        parent_axis_ref = axis_ref.get_parent()
         assert isinstance(
             parent_axis_ref, AxisVisitor
         ), f"Parent axis reference should be an AxisVisitor, got {parent_axis_ref}"
@@ -765,6 +769,7 @@ def apply_sparsify_transformation(
             axis=axis.name,
             body=axis_ref,
             offset_array=soff_array_name or "<ILLEGAL>",
+            parent=parent_axis_ref,
         )
         parent_axis_ref.body = sparse_axis_slicer
         axis_ref.replace_symbol(parent_axis_ref.name, sparse_axis_slicer.name)
@@ -894,9 +899,10 @@ def apply_cooize_transformation(
                 )
             ),
         ],
+        parent=axis_ref.get_parent(),
     )
 
-    parent_axis_ref = axis_ref.get_parent(schedule)
+    parent_axis_ref = axis_ref.get_parent()
     if parent_axis_ref is not None:
         assert isinstance(parent_axis_ref, AxisVisitor)
         parent_axis_ref.body = new_axis_ref
@@ -974,9 +980,10 @@ def apply_mcoize_transformation(
                 )
             ),
         ],
+        parent=axis_ref.get_parent(),
     )
 
-    parent_axis_ref = axis_ref.get_parent(schedule)
+    parent_axis_ref = axis_ref.get_parent()
     if parent_axis_ref is not None:
         assert isinstance(parent_axis_ref, AxisVisitor)
         parent_axis_ref.body = new_axis_ref
@@ -988,6 +995,19 @@ def apply_mcoize_transformation(
         schedule = new_axis_ref
 
     return schedule, array_defs, new_format
+
+
+def add_metadata(schedule: Optional[Schedule], format: Format) -> None:
+    while schedule is not None:
+        if (
+            isinstance(schedule, AxisVisitor)
+            and format.get_axis(schedule.axis).direction == Direction.ROW
+        ):
+            schedule.metadata = {
+                "reduction_axis": True,
+            }
+            return
+        schedule = schedule.child
 
 
 def computent_from_rts(name: str, rts: TransformationSequence) -> Computent:
@@ -1047,6 +1067,7 @@ def computent_from_rts(name: str, rts: TransformationSequence) -> Computent:
         logger.debug("-" * 100)
 
     assert isinstance(root_format.child, Format)
+    add_metadata(schedule, root_format.child)
     return Computent(
         name=name,
         schedule=schedule,
