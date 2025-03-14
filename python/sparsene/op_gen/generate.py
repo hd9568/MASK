@@ -47,16 +47,9 @@ from sparsene.op_gen.ops import (
 )
 
 
-def get_array_type(array_def: ArrayDef, format: Format) -> Type:
-    dims = []
-    for dim in array_def.dims:
-        length = format.get_axis(dim).length
-        dims.append(length)
+def get_array_type(array_def: ArrayDef) -> Type:
+    dims = list(array_def.dims)
     return ArrayType(dims)
-
-
-def get_array_name(axis_name: str, format: Format) -> str:
-    return format.get_axis(axis_name).name
 
 
 def generate_from_computent(computent: Computent) -> List[Op]:
@@ -68,7 +61,7 @@ def generate_from_computent(computent: Computent) -> List[Op]:
         array_def_op = op_builder.build(
             ExternalSymbolOperation,
             array_def.name,
-            get_array_type(array_def, computent.format),
+            get_array_type(array_def),
         )
         symbol_table.add_symbol(array_def.name, array_def_op)
 
@@ -101,8 +94,10 @@ def generate_from_dense_axis_iterator(
     format: Format,
     parent_schedule: Optional[Schedule] = None,
 ) -> List[Op]:
-    l = op_builder.build(ConstantOp, 0)
-    r = op_builder.build(ConstantOp, format.get_axis(schedule.axis).length)
+    l = op_builder.build(ConstantOp, 0, context.get_type(IndexType))
+    r = op_builder.build(
+        ConstantOp, format.get_axis(schedule.axis).length, context.get_type(IndexType)
+    )
 
     for_loop_op = op_builder.build(
         ForLoopOp,
@@ -140,11 +135,11 @@ def generate_from_sparse_axis_iterator(
 ) -> List[Op]:
     ops = []
 
-    soff_array_name = get_array_name(schedule.axis, format)
+    soff_array_name = schedule.offset_array
     soff = op_builder.build(
         ExternalSymbolOperation,
         soff_array_name,
-        get_array_type(array_defs[soff_array_name], format),
+        get_array_type(array_defs[soff_array_name]),
     )
     ops.append(soff)
 
@@ -228,7 +223,7 @@ def build_array_def(
     return op_builder.build(
         ExternalSymbolOperation,
         array_def.name,
-        get_array_type(array_def, format),
+        get_array_type(array_def),
     ).result
 
 

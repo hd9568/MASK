@@ -1,11 +1,11 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
-from typing import overload, Any
+from typing import overload
 from copy import deepcopy
 from sparsene.utils.source import indent
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Iterator, List, Optional, Dict, Tuple, Iterable
+from typing import Iterator, List, Optional, Dict, Tuple, Iterable, Sequence, Any
 from sparsene.model.transformation import (
     Transformation,
     TransformationSequence,
@@ -25,6 +25,10 @@ from sparsene.model.format import (
     sv_axis,
     coo_atomic_format,
     mco_atomic_format,
+    Expr,
+    Number,
+    Symbol,
+    VARLEN,
 )
 from sparsene.formats.dense import get_dense_format
 
@@ -296,17 +300,41 @@ class ArrayType(Enum):
     MASK = 5
 
 
-@dataclass(kw_only=True)
 class ArrayDef:
     name: str
-    dims: List[str]
+    axes: List[str]
+    dims: List[Expr]
     type: ArrayType
 
-    def indexed_at(self, axis: str) -> Optional[int]:
-        for i, dim in enumerate(self.dims):
+    def __init__(
+        self,
+        name: str,
+        axes: List[str],
+        dims: Sequence[Expr | int | str],
+        type: ArrayType,
+    ):
+        self.name = name
+        self.axes = axes
+        self.dims = []
+        for dim in dims:
+            if isinstance(dim, int):
+                self.dims.append(Number(dim))
+            elif isinstance(dim, str):
+                self.dims.append(Symbol(dim))
+            elif isinstance(dim, Expr):
+                self.dims.append(dim)
+            else:
+                raise ValueError(f"Unsupported dimension type: {dim}")
+        self.type = type
+
+    def index_of(self, axis: str) -> Optional[int]:
+        for i, dim in enumerate(self.axes):
             if dim == axis:
                 return i
         return None
+
+    def __str__(self) -> str:
+        return f"ArrayDef({self.name}, {self.axes}, {self.dims}, {self.type})"
 
 
 @dataclass(kw_only=True)
@@ -419,21 +447,26 @@ DENSE_SCHEDULE: Schedule = AtomicFormatOp(
 DENSE_ARRAY_DEFS = ArrayDefCollection(
     val=ArrayDef(
         name="val",
-        dims=["X", "Y"],
+        axes=["X", "Y"],
+        dims=["m", "n"],
         type=ArrayType.VAL,
     ),
     B_val=ArrayDef(
         name="B_val",
-        dims=["Y"],
+        axes=["Y"],
+        dims=["n"],
         type=ArrayType.B_VAL,
     ),
 )
+
+DENSE_FORMAT = get_dense_format()
 
 
 def apply_split_transformation(
     schedule: Schedule,
     array_defs: ArrayDefCollection,
     format: Format,
+    root_format: Format,
     transform: SplitTransformation,
 ) -> Tuple[Schedule, ArrayDefCollection, Format]:
     schedule, array_defs, format = (
@@ -473,13 +506,22 @@ def apply_split_transformation(
 
     # 2. Handle array_defs
     for array_def in array_defs:
-        idx_dim = array_def.indexed_at(axis_to_split.name)
+        idx_dim = array_def.index_of(axis_to_split.name)
+
         if idx_dim is None:
             continue
 
-        array_def.dims[idx_dim] = new_axis_outer.name
-        array_def.dims.insert(idx_dim + 1, new_axis_inner.name)
+        if (
+            array_def.type == ArrayType.B_VAL
+            and root_format.get_axis(axis_to_split.name).is_sparse
+        ):
+            continue
 
+        array_def.axes[idx_dim] = new_axis_outer.name
+        array_def.axes.insert(idx_dim + 1, new_axis_inner.name)
+
+        array_def.dims[idx_dim] = new_length_outer
+        array_def.dims.insert(idx_dim + 1, new_length_inner)
     # 3. Handle schedule
     axis_ref = schedule.find_axis_ref(axis_to_split.name)
     if isinstance(axis_ref, (DenseAxisIterator, SparseAxisIterator)):
@@ -548,7 +590,7 @@ def apply_split_transformation(
             # Maybe always append to the tail of the refs?
             for arg in axis_ref.args:
                 if isinstance(arg, ArrayRef):
-                    if array_defs[arg.array].indexed_at(new_axis_ref.axis) is not None:
+                    if array_defs[arg.array].index_of(new_axis_ref.axis) is not None:
                         arg.append_ref_index(new_axis_ref.name)
         elif axis_ref.axes[1] == axis_to_split.name:
             # TODO: This case is actually illegal, but we preserve it for now
@@ -565,7 +607,7 @@ def apply_split_transformation(
             for arg in axis_ref.args:
                 if isinstance(arg, ArrayRef):
                     if (
-                        array_defs[arg.array].indexed_at(new_outer_dense_axis_iter.axis)
+                        array_defs[arg.array].index_of(new_outer_dense_axis_iter.axis)
                         is not None
                     ):
                         arg.append_ref_index(new_outer_dense_axis_iter.name)
@@ -594,6 +636,7 @@ def apply_swap_transformation(
     schedule: Schedule,
     array_defs: ArrayDefCollection,
     format: Format,
+    root_format: Format,
     transform: SwapTransformation,
 ) -> Tuple[Schedule, ArrayDefCollection, Format]:
     schedule, array_defs, format = (
@@ -613,11 +656,15 @@ def apply_swap_transformation(
 
     # 2. Handle array_defs
     for array_def in array_defs:
-        idx_dim_0 = array_def.indexed_at(axis0_name)
-        idx_dim_1 = array_def.indexed_at(axis1_name)
+        idx_dim_0 = array_def.index_of(axis0_name)
+        idx_dim_1 = array_def.index_of(axis1_name)
         if idx_dim_0 is None or idx_dim_1 is None:
             continue
 
+        array_def.axes[idx_dim_0], array_def.axes[idx_dim_1] = (
+            array_def.axes[idx_dim_1],
+            array_def.axes[idx_dim_0],
+        )
         array_def.dims[idx_dim_0], array_def.dims[idx_dim_1] = (
             array_def.dims[idx_dim_1],
             array_def.dims[idx_dim_0],
@@ -657,12 +704,12 @@ def apply_swap_transformation(
             for arg in axis1_ref.args:
                 if isinstance(arg, ArrayRef):
                     if (
-                        array_defs[arg.array].indexed_at(axis0_name) is not None
+                        array_defs[arg.array].index_of(axis0_name) is not None
                         and axis0_ref.name in arg.indices
                     ):
                         arg.pop_ref_index()
                     if (
-                        array_defs[arg.array].indexed_at(axis1_name) is not None
+                        array_defs[arg.array].index_of(axis1_name) is not None
                         and axis0_ref.name not in arg.indices
                     ):
                         arg.append_ref_index(axis0_ref.name)
@@ -683,6 +730,7 @@ def apply_sparsify_transformation(
     schedule: Schedule,
     array_defs: ArrayDefCollection,
     format: Format,
+    root_format: Format,
     transform: SparsifyTransformation,
 ) -> Tuple[Schedule, ArrayDefCollection, Format]:
     new_schedule, new_array_defs, new_format = (
@@ -705,10 +753,13 @@ def apply_sparsify_transformation(
     soff_array_name = None
     for array_def in array_defs:
         if array_def.type == ArrayType.B_VAL:
+            idx = array_def.index_of(prev_axis_name)
+            if idx is not None:
+                array_def.axes[idx] = new_axis_name
             new_array_defs.add(array_def)
             continue
 
-        idx = array_def.indexed_at(prev_axis_name)
+        idx = array_def.index_of(prev_axis_name)
         if idx is None:
             new_array_defs.add(array_def)
             continue
@@ -718,18 +769,21 @@ def apply_sparsify_transformation(
 
         sparse_val_def = ArrayDef(
             name=array_def.name,
-            dims=[axis.name] + array_def.dims[idx + 1 :],
+            axes=[axis.name] + array_def.axes[idx + 1 :],
+            dims=[axis.length] + array_def.dims[idx + 1 :],
             type=ArrayType.VAL,
         )
 
         sparse_idx_def = ArrayDef(
             name=array_def.name + "_sidx",
-            dims=array_def.dims[: idx - 1] + [axis.name],
+            axes=array_def.axes[: idx - 1] + [axis.name],
+            dims=[axis.length] + array_def.dims[: idx - 1],
             type=ArrayType.IDX,
         )
 
         sparse_off_def = ArrayDef(
             name=array_def.name + "_soff",
+            axes=array_def.axes[:idx],
             dims=array_def.dims[:idx],
             type=ArrayType.OFFSET,
         )
@@ -800,6 +854,7 @@ def apply_spawn_transformation(
     schedule: Schedule,
     array_defs: ArrayDefCollection,
     format: Format,
+    root_format: Format,
     transform: SpawnTransformation,
 ) -> Tuple[Schedule, ArrayDefCollection, Format]:
     schedule, array_defs, format = (
@@ -842,6 +897,7 @@ def apply_cooize_transformation(
     schedule: Schedule,
     array_defs: ArrayDefCollection,
     format: Format,
+    root_format: Format,
     transform: CooizeTransformation,
 ) -> Tuple[Schedule, ArrayDefCollection, AtomicFormat]:
     schedule, array_defs = (
@@ -862,22 +918,25 @@ def apply_cooize_transformation(
 
     # 2. Handle array_defs
     for val_def in array_defs[ArrayType.VAL]:
-        idx_x, idx_y = val_def.indexed_at(axis_x), val_def.indexed_at(axis_y)
+        idx_x, idx_y = val_def.index_of(axis_x), val_def.index_of(axis_y)
         # idx_x and idx_y should be the last two dimensions
-        assert idx_x and idx_y and idx_x + 1 == idx_y and idx_y == len(val_def.dims) - 1
+        assert idx_x and idx_y and idx_x + 1 == idx_y and idx_y == len(val_def.axes) - 1
         coo_off_def = ArrayDef(
             name=val_def.name + "_coo_off",
+            axes=val_def.axes[:-2],
             dims=val_def.dims[:-2],
             type=ArrayType.OFFSET,
         )
         coo_idx_def = ArrayDef(
             name=val_def.name + "_coo_idx",
-            dims=[f"{axis_x}_{axis_y}_coo"],
+            axes=[f"{axis_x}_{axis_y}_coo"],
+            dims=[VARLEN],
             type=ArrayType.COO_IDX,
         )
         coo_val_def = ArrayDef(
             name=val_def.name + "_coo_val",
-            dims=[f"{axis_x}_{axis_y}_coo"],
+            axes=[f"{axis_x}_{axis_y}_coo"],
+            dims=[VARLEN],
             type=ArrayType.VAL,
         )
         array_defs.replace([val_def.name], [coo_idx_def, coo_val_def, coo_off_def])
@@ -923,6 +982,7 @@ def apply_mcoize_transformation(
     schedule: Schedule,
     array_defs: ArrayDefCollection,
     format: Format,
+    root_format: Format,
     transform: McoizeTransformation,
 ) -> Tuple[Schedule, ArrayDefCollection, AtomicFormat]:
     schedule, array_defs = (
@@ -943,21 +1003,24 @@ def apply_mcoize_transformation(
 
     # 2. Handle array_defs
     for val_def in array_defs[ArrayType.VAL]:
-        idx_x, idx_y = val_def.indexed_at(axis_x), val_def.indexed_at(axis_y)
+        idx_x, idx_y = val_def.index_of(axis_x), val_def.index_of(axis_y)
         # idx_x and idx_y should be the last two dimensions
-        assert idx_x and idx_y and idx_x + 1 == idx_y and idx_y == len(val_def.dims) - 1
+        assert idx_x and idx_y and idx_x + 1 == idx_y and idx_y == len(val_def.axes) - 1
         mco_mask_def = ArrayDef(
             name=val_def.name + "_mco_mask",
+            axes=val_def.axes[:-2],
             dims=val_def.dims[:-2],
             type=ArrayType.MASK,
         )
         mco_val_def = ArrayDef(
             name=val_def.name + "_mco_val",
-            dims=[f"{axis_x}_{axis_y}_mco"],
+            axes=[f"{axis_x}_{axis_y}_mco"],
+            dims=[VARLEN],
             type=ArrayType.VAL,
         )
         mco_off_def = ArrayDef(
             name=val_def.name + "_mco_off",
+            axes=val_def.axes[:-2],
             dims=val_def.dims[:-2],
             type=ArrayType.OFFSET,
         )
@@ -1014,9 +1077,10 @@ def add_metadata(schedule: Optional[Schedule], format: Format) -> None:
 
 
 def computent_from_rts(name: str, rts: TransformationSequence) -> Computent:
-    format = get_dense_format()
+    format = deepcopy(DENSE_FORMAT)
     print(format)
     root_format = Format(axes=[], child=format)
+    assert isinstance(root_format.child, Format)
     parent_format = root_format
     schedule = deepcopy(DENSE_SCHEDULE)
     array_defs = deepcopy(DENSE_ARRAY_DEFS)
@@ -1029,22 +1093,22 @@ def computent_from_rts(name: str, rts: TransformationSequence) -> Computent:
         logger.debug(f"Transform begins: {transform}")
         if isinstance(transform, SplitTransformation):
             schedule, array_defs, format = apply_split_transformation(
-                schedule, array_defs, format, transform
+                schedule, array_defs, format, root_format.child, transform
             )
             parent_format.child = format
         elif isinstance(transform, SwapTransformation):
             schedule, array_defs, format = apply_swap_transformation(
-                schedule, array_defs, format, transform
+                schedule, array_defs, format, root_format.child, transform
             )
             parent_format.child = format
         elif isinstance(transform, SparsifyTransformation):
             schedule, array_defs, format = apply_sparsify_transformation(
-                schedule, array_defs, format, transform
+                schedule, array_defs, format, root_format.child, transform
             )
             parent_format.child = format
         elif isinstance(transform, SpawnTransformation):
             schedule, array_defs, format = apply_spawn_transformation(
-                schedule, array_defs, format, transform
+                schedule, array_defs, format, root_format.child, transform
             )
             parent_format.child = format
             parent_format = format
@@ -1052,13 +1116,13 @@ def computent_from_rts(name: str, rts: TransformationSequence) -> Computent:
             assert isinstance(format, Format)
         elif isinstance(transform, CooizeTransformation):
             schedule, array_defs, atomic_format = apply_cooize_transformation(
-                schedule, array_defs, format, transform
+                schedule, array_defs, format, root_format.child, transform
             )
             parent_format.child = atomic_format
             atomic_format_reached = True
         elif isinstance(transform, McoizeTransformation):
             schedule, array_defs, atomic_format = apply_mcoize_transformation(
-                schedule, array_defs, format, transform
+                schedule, array_defs, format, root_format.child, transform
             )
             parent_format.child = atomic_format
             atomic_format_reached = True

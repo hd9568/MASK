@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import List, Optional
 from abc import ABC, abstractmethod
-from sympy import Symbol, Expr, sympify, Number
+from sympy import Symbol, Expr, Number
 
 
 class Direction(Enum):
@@ -28,17 +28,19 @@ class Axis:
         self,
         name: str,
         direction: Direction,
+        is_sparse: bool,
+        is_varlen: bool,
         length: int | str | Expr = VARLEN,
-        is_sparse: bool = False,
-        is_varlen: bool = False,
         reorder: Optional[str] = None,
     ):
         self.name = name
         self.direction = direction
         if isinstance(length, Expr):
             self.length = length
+        elif isinstance(length, str):
+            self.length = Symbol(length)
         else:
-            self.length = sympify(length)
+            self.length = Number(length)
         self.is_sparse = is_sparse
         self.is_varlen = is_varlen
         self.reorder = reorder
@@ -65,6 +67,7 @@ class Axis:
             + f"is_varlen={self.is_varlen}, "
             + f"reorder={self.reorder})"
         )
+
 
 @dataclass(kw_only=True)
 class FormatBase(ABC):
@@ -107,7 +110,7 @@ class AtomicFormat(FormatBase):
             )
             + "\n)"
         )
-    
+
     def get_axis(self, name: str) -> Axis:
         for axis in self.axes:
             if axis.name == name:
