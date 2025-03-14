@@ -13,7 +13,10 @@ OPTIONS = -Xcompiler -fopenmp-simd
 
 CURDIR := $(PWD)
 
-dtc: $(CURDIR)/main.cu $(CURDIR)/dtc-spmm.cu
+dtc-spmm.o: dtc-spmm.cu
+	$(CC) $(NVCC_FLAGS) -c $^ -o $@ $(OPTIONS) $(LIBS)
+
+dtc: main.cu dtc-spmm.o
 	$(CC) $(NVCC_FLAGS) $^ -o $@ $(OPTIONS) $(LIBS) 
 
  

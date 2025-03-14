@@ -8,7 +8,7 @@
 #include <cuda_fp16.h>
 #include <bits/stdc++.h>
 #include <sys/stat.h>
-
+#include <cuda_pipeline.h>
 using namespace std;
 
 #define ROW_WINDOW_M 16
@@ -17,6 +17,15 @@ using namespace std;
 
 #define OFFSET_ROW(row, col, lda) ((row) * (lda) + (col))
 #define OFFSET_COL(row, col, lda) ((col) * (lda) + (row))
+
+#define CHECK_CUDA2(func)                                              \
+    {                                                                  \
+        cudaError_t status = (func);                                   \
+        if (status != cudaSuccess) {                                   \
+            printf("CUDA API failed at line %d with error: %s (%d)\n", \
+                   __LINE__, cudaGetErrorString(status), status);      \
+        }                                                              \
+    }
 
 /*
 maxshift_smem = 4;
@@ -99,44 +108,30 @@ op1: 1 -> reg[1]
 
 */
 
+__device__ __forceinline__ void ldmatrix_m8n8k8_x4(uint32_t* fragment, void* ptr) {
+    uint32_t values_tile_int_ptr = static_cast<uint32_t>(__cvta_generic_to_shared(ptr));
+    asm volatile(
+        "ldmatrix.sync.aligned.m8n8.x4.shared.b16 \t"
+        " { %0, %1, %2, %3 }, \t"
+        " [%4];"
+        : "=r"(fragment[0]), "=r"(fragment[1]), "=r"(fragment[2]), "=r"(fragment[3])
+        : "r"(values_tile_int_ptr)
+    );
+}
 
-const int block_idx_x = blockIdx.x;
-const int block_idx_y = blockIdx.y;
-const int lane_id = threadIdx.x % 32;
-constexpr const int tile_sidx_size = 16;
-constexpr const int tile_coo_val_size = 16 * 16;
-
-// constexpr const int maxshift_smem = (shift1 > shift2 ? shift1 : shift2);
-// constexpr const int maxshift_reg = (maxshift_smem > shift3 ? maxshift_smem : shift3) + 1;
-constexpr const int maxshift1_2 = (shift1 > shift2 ? shift1 : shift2);
-constexpr const int maxshift_reg = (maxshift1_2 > shift3 ? maxshift1_2 : shift3) + 1;
-constexpr const int maxshift_smem = maxshift1_2 + 1;
-
-__shared__ int tile_sidx_block[tile_sidx_size * (maxshift_smem)];
-__shared__ half tile_coo_val_block[tile_coo_val_size * (maxshift_smem)];
-__shared__ half tile_coo_restore_val_block[tile_coo_val_size * (maxshift_smem)];
-
-// shift 1
-int coo_scope[2 * maxshift_reg];
-// shift 2
-int val_sidx_reg[tile_sidx_size * maxshift_reg];
-int coo_idx_reg[16 * 16 * maxshift_reg];
-int coo_range_reg[maxshift_reg];
-// shift 3
-// tile A [16 * 16], tile B [16 * 32]
-half REGB[2 * (TILE_B / 8) * maxshift_reg];
-half REGA[4 * maxshift_reg];
-float REGC[4 * (TILE_B / 8)];
-
-int l = dval_soff[block_idx_x];
-int r = dval_soff[block_idx_x + 1];
-
-int k = l - r;
-
+__device__ __forceinline__ void mma_m16n8k16_fp32(float* acc, uint32_t* A, half* half_B) {
+    uint32_t* B = reinterpret_cast<uint32_t*>(half_B);
+    asm volatile(
+        "mma.sync.aligned.m16n8k16.row.col.f32.f16.f16.f32 "
+        "{%0, %1, %2, %3}, {%4, %5, %6, %7}, {%8, %9}, {%0, %1, %2, %3};"
+        : "+f"(acc[0]), "+f"(acc[1]), "+f"(acc[2]), "+f"(acc[3])
+        : "r"(A[0]), "r"(A[1]), "r"(A[2]), "r"(A[3]), "r"(B[0]), "r"(B[1])
+    );
+}
 
 // shift 1
 template <int maxshift_smem, int maxshift_reg>
-void op_G2S_val_sidx_load(int i) {
+__device__ void op_G2S_val_sidx_load(int i, int M, int N, int K, int* dval_sidx, int* dval_soff, half* dB_val, int* dval_coo_idx, half* dval_coo_val, int* dval_coo_off, float* dC_val, const int block_idx_x, const int block_idx_y, const int lane_id, int* tile_sidx_block, half* tile_coo_val_block, half* tile_coo_restore_val_block, int* coo_scope, int* val_sidx_reg, int* coo_idx_reg, int* coo_range_reg, half* REGB, half* REGA, float* REGC, int l, int r, const int tile_sidx_size, const int tile_coo_val_size) {
     printf("op_G2S_val_sidx_load(%d): dval_sidx[%d] -> sval_sidx[%d]\n", i, i, i % maxshift_smem);
     // load block from l to r
     int smem_st_ptr = i % maxshift_smem;
@@ -148,15 +143,15 @@ void op_G2S_val_sidx_load(int i) {
 }
 
 template <int maxshift_smem, int maxshift_reg, int r1>
-void op_G2R_coo_atomic_format_load_off(int i) {
+__device__ void op_G2R_coo_atomic_format_load_off(int i, int M, int N, int K, int* dval_sidx, int* dval_soff, half* dB_val, int* dval_coo_idx, half* dval_coo_val, int* dval_coo_off, float* dC_val, const int block_idx_x, const int block_idx_y, const int lane_id, int* tile_sidx_block, half* tile_coo_val_block, half* tile_coo_restore_val_block, int* coo_scope, int* val_sidx_reg, int* coo_idx_reg, int* coo_range_reg, half* REGB, half* REGA, float* REGC, int l, int r, const int tile_sidx_size, const int tile_coo_val_size) {
     printf("op_G2R_coo_atomic_format_load_off(%d): dval_coo_off[%d] -> coo_scope[%d]\n", i, i, r1);
     coo_scope[2 * r1] = dval_coo_off[l + i];
     coo_scope[2 * r1 + 1] = dval_coo_off[l + i + 1];
 }
 
 // shift 2
-template <int maxshift_smem, int maxshift_reg, int TILE_N, int r1, int wait_num>
-void op_S2R_val_sidx_load(int i) {
+template <int maxshift_smem, int maxshift_reg, int TILE_B, int r1, int wait_num>
+__device__ void op_S2R_val_sidx_load(int i, int M, int N, int K, int* dval_sidx, int* dval_soff, half* dB_val, int* dval_coo_idx, half* dval_coo_val, int* dval_coo_off, float* dC_val, const int block_idx_x, const int block_idx_y, const int lane_id, int* tile_sidx_block, half* tile_coo_val_block, half* tile_coo_restore_val_block, int* coo_scope, int* val_sidx_reg, int* coo_idx_reg, int* coo_range_reg, half* REGB, half* REGA, float* REGC, int l, int r, const int tile_sidx_size, const int tile_coo_val_size) {
     printf("op_S2R_val_sidx_load(%d): wait(%d), sval_sidx[%d] -> val_sidx_reg[%d]\n", i, wait_num, i % maxshift_smem, r1);
     __pipeline_wait_prior(wait_num);
     __syncthreads();
@@ -168,7 +163,7 @@ void op_S2R_val_sidx_load(int i) {
 }
 
 template <int maxshift_smem, int maxshift_reg, int r1>
-void op_G2S_coo_atomic_format_load_val(int i) {
+__device__ void op_G2S_coo_atomic_format_load_val(int i, int M, int N, int K, int* dval_sidx, int* dval_soff, half* dB_val, int* dval_coo_idx, half* dval_coo_val, int* dval_coo_off, float* dC_val, const int block_idx_x, const int block_idx_y, const int lane_id, int* tile_sidx_block, half* tile_coo_val_block, half* tile_coo_restore_val_block, int* coo_scope, int* val_sidx_reg, int* coo_idx_reg, int* coo_range_reg, half* REGB, half* REGA, float* REGC, int l, int r, const int tile_sidx_size, const int tile_coo_val_size) {
     printf("op_G2S_coo_atomic_format_load_val(%d): dval_coo_val[coo_scope[%d]] -> tile_coo_val_block[%d]\n", i, r1, i % maxshift_smem);
     int smem_st_ptr = i % maxshift_smem;
     
@@ -176,40 +171,40 @@ void op_G2S_coo_atomic_format_load_val(int i) {
     int rr = coo_scope[2 * r1 + 1];
     if (lane_id * 8 + ll < rr) {
         float4* src = (float4*)(&dval_coo_val[ll + lane_id * 8]);
-        float4* dst = (float4*)(tile_coo_val_block[smem_st_ptr * tile_coo_val_size + lane_id * 8]);
+        float4* dst = (float4*)(&tile_coo_val_block[smem_st_ptr * tile_coo_val_size + lane_id * 8]);
         __pipeline_memcpy_async(dst, src, sizeof(float4));
     }
     
 }
 
 template <int maxshift_smem, int maxshift_reg, int r1, int r2>
-void op_G2R_coo_atomic_format_load_idx(int i) {
+__device__ void op_G2R_coo_atomic_format_load_idx(int i, int M, int N, int K, int* dval_sidx, int* dval_soff, half* dB_val, int* dval_coo_idx, half* dval_coo_val, int* dval_coo_off, float* dC_val, const int block_idx_x, const int block_idx_y, const int lane_id, int* tile_sidx_block, half* tile_coo_val_block, half* tile_coo_restore_val_block, int* coo_scope, int* val_sidx_reg, int* coo_idx_reg, int* coo_range_reg, half* REGB, half* REGA, float* REGC, int l, int r, const int tile_sidx_size, const int tile_coo_val_size) {
     printf("op_G2R_coo_atomic_format_load_idx(%d): dval_coo_idx[coo_scope[%d]] -> coo_idx_reg[%d]\n", i, r1, r2);
     int ll = coo_scope[2 * r1];
     int rr = coo_scope[2 * r1 + 1];
     coo_range_reg[r2] = rr - ll;
     if (lane_id * 8 + ll < rr) {
         *(int4*)(&coo_idx_reg[r2 * 8]) = *(int4*)(&dval_coo_idx[ll + lane_id * 8]);
-        *(int4*)(&coo_idx_reg[r2 * 8 + 4]) = *(int4)(&dval_coo_idx[ll + lane_id * 8 + 4]);
+        *(int4*)(&coo_idx_reg[r2 * 8 + 4]) = *(int4*)(&dval_coo_idx[ll + lane_id * 8 + 4]);
     }
 }
 
 // shift 3
-template <int maxshift_smem, int maxshift_reg, int r1, int r2, int TILE_N>
-void op_G2R_B_val_load(int i) {
+template <int maxshift_smem, int maxshift_reg, int r1, int r2, int TILE_B>
+__device__ void op_G2R_B_val_load(int i, int M, int N, int K, int* dval_sidx, int* dval_soff, half* dB_val, int* dval_coo_idx, half* dval_coo_val, int* dval_coo_off, float* dC_val, const int block_idx_x, const int block_idx_y, const int lane_id, int* tile_sidx_block, half* tile_coo_val_block, half* tile_coo_restore_val_block, int* coo_scope, int* val_sidx_reg, int* coo_idx_reg, int* coo_range_reg, half* REGB, half* REGA, float* REGC, int l, int r, const int tile_sidx_size, const int tile_coo_val_size) {
     printf("op_G2R_B_val_load(%d): dB_val[val_sidx_reg[%d]] -> REGB[%d]\n", i, r1, r2);
-    for (int n_iter = 0; n_iter < TILE_N / 8; n_iter++) {
+    for (int n_iter = 0; n_iter < TILE_B / 8; n_iter++) {
         int row = lane_id % 4 * 2;
-        int col = block_idx_y * TILE_N + n_iter * 8 + lane_id / 4;
-        ((half2*)(&REGB[r2 * 2 * (TILE_B / 8) + 0]) -> x) = dB[OFFSET_COL(val_sidx_reg[row], col, K)];
-        ((half2*)(&REGB[r2 * 2 * (TILE_B / 8) + 0]) -> y) = dB[OFFSET_COL(val_sidx_reg[row + 1], col, K)];
-        ((half2*)(&REGB[r2 * 2 * (TILE_B / 8) + 1]) -> x) = dB[OFFSET_COL(val_sidx_reg[row + 8], col, K)];
-        ((half2*)(&REGB[r2 * 2 * (TILE_B / 8) + 1]) -> y) = dB[OFFSET_COL(val_sidx_reg[row + 9], col, K)];
+        int col = block_idx_y * TILE_B + n_iter * 8 + lane_id / 4;
+        (((half2*)(&REGB[r2 * 2 * (TILE_B / 8) + 0])) -> x) = dB_val[OFFSET_COL(val_sidx_reg[row], col, K)];
+        (((half2*)(&REGB[r2 * 2 * (TILE_B / 8) + 0])) -> y) = dB_val[OFFSET_COL(val_sidx_reg[row + 1], col, K)];
+        (((half2*)(&REGB[r2 * 2 * (TILE_B / 8) + 1])) -> x) = dB_val[OFFSET_COL(val_sidx_reg[row + 8], col, K)];
+        (((half2*)(&REGB[r2 * 2 * (TILE_B / 8) + 1])) -> y) = dB_val[OFFSET_COL(val_sidx_reg[row + 9], col, K)];
     }
 }
 
 template <int maxshift_smem, int maxshift_reg, int r1, int wait_num>
-void op_S2R_coo_atomic_val_restore(int i) {
+__device__ void op_S2R_coo_atomic_val_restore(int i, int M, int N, int K, int* dval_sidx, int* dval_soff, half* dB_val, int* dval_coo_idx, half* dval_coo_val, int* dval_coo_off, float* dC_val, const int block_idx_x, const int block_idx_y, const int lane_id, int* tile_sidx_block, half* tile_coo_val_block, half* tile_coo_restore_val_block, int* coo_scope, int* val_sidx_reg, int* coo_idx_reg, int* coo_range_reg, half* REGB, half* REGA, float* REGC, int l, int r, const int tile_sidx_size, const int tile_coo_val_size) {
     printf("op_S2R_coo_atomic_val_restore(%d): wait(%d), tile_coo_val_block[%d] -> restore[%d] -> REGA[%d]\n", i, wait_num, i % maxshift_smem, i % maxshift_smem, r1);
     __pipeline_wait_prior(wait_num);
     __syncthreads();
@@ -227,57 +222,57 @@ void op_S2R_coo_atomic_val_restore(int i) {
     __syncthreads();
     int row = lane_id % 16;
     int col = lane_id / 16;
-    ldmatrix_m8n8_x4(&REGA[r1 * 4], &tile_coo_restore_val_block[(row) * (16 + 8) + (col * 8)]);
+    ldmatrix_m8n8k8_x4((uint32_t*)&REGA[r1 * 4], (void*)&tile_coo_restore_val_block[(row) * (16 + 8) + (col * 8)]);
 }
 
 template <int maxshift_smem, int maxshift_reg, int r1, int r2>
-void op_mma(int i) {
+__device__ void op_mma(int i, int M, int N, int K, int* dval_sidx, int* dval_soff, half* dB_val, int* dval_coo_idx, half* dval_coo_val, int* dval_coo_off, float* dC_val, const int block_idx_x, const int block_idx_y, const int lane_id, int* tile_sidx_block, half* tile_coo_val_block, half* tile_coo_restore_val_block, int* coo_scope, int* val_sidx_reg, int* coo_idx_reg, int* coo_range_reg, half* REGB, half* REGA, float* REGC, int l, int r, const int tile_sidx_size, const int tile_coo_val_size) {
     printf("op_mma(%d): REGA[%d] x REGB[%d] -> REGC\n", i, r1, r2);
-    mma_m16n8k16_fp32(&REGA[r1 * 4], &REGB[r2 * 2], REGC);
+    mma_m16n8k16_fp32(REGC, (uint32_t*)&REGA[r1 * 4], &REGB[r2 * 2]);
 }
 
 // =====================================================================================
 
-template <int shift1, int shift2, int shift3, int maxshift_reg, int maxshift_smem, int K, int i>
-void pipeline() {
+template <int shift1, int shift2, int shift3, int maxshift_reg, int maxshift_smem, int TILE_B, int K_total, int i>
+__device__ void pipeline(int M, int N, int K, int* dval_sidx, int* dval_soff, half* dB_val, int* dval_coo_idx, half* dval_coo_val, int* dval_coo_off, float* dC_val, const int block_idx_x, const int block_idx_y, const int lane_id, int* tile_sidx_block, half* tile_coo_val_block, half* tile_coo_restore_val_block, int* coo_scope, int* val_sidx_reg, int* coo_idx_reg, int* coo_range_reg, half* REGB, half* REGA, float* REGC, int l, int r, const int tile_sidx_size, const int tile_coo_val_size) {
     printf("small pipeline %d\n", i);
-    if constexpr (i < K) {
-        op_G2S_val_sidx_load<maxshift_smem, maxshift_reg>(i);
+    if constexpr (i < K_total) {
+        op_G2S_val_sidx_load<maxshift_smem, maxshift_reg>(i, M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC_val, block_idx_x, block_idx_y, lane_id, tile_sidx_block, tile_coo_val_block, tile_coo_restore_val_block, coo_scope, val_sidx_reg, coo_idx_reg, coo_range_reg, REGB, REGA, REGC, l, r, tile_sidx_size, tile_coo_val_size);
 
-        op_G2R_coo_atomic_format_load_off<maxshift_smem, maxshift_reg, i % maxshift_reg>(i);
+        op_G2R_coo_atomic_format_load_off<maxshift_smem, maxshift_reg, i % maxshift_reg>(i, M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC_val, block_idx_x, block_idx_y, lane_id, tile_sidx_block, tile_coo_val_block, tile_coo_restore_val_block, coo_scope, val_sidx_reg, coo_idx_reg, coo_range_reg, REGB, REGA, REGC, l, r, tile_sidx_size, tile_coo_val_size);
         if constexpr (i < shift1) {
             __pipeline_commit();
         }
     }
     // (sstage > (K - 1 - (i - sstage)) ? K - 1 - (i - sstage) : sstage)
-    if constexpr (0 <= i - shift1 && i - shift1 < K) {
-        op_G2S_coo_atomic_format_load_val<maxshift_smem, maxshift_reg, (i - shift1) % maxshift_reg>(i - shift1);
+    if constexpr (0 <= i - shift1 && i - shift1 < K_total) {
+        op_G2S_coo_atomic_format_load_val<maxshift_smem, maxshift_reg, (i - shift1) % maxshift_reg>(i - shift1, M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC_val, block_idx_x, block_idx_y, lane_id, tile_sidx_block, tile_coo_val_block, tile_coo_restore_val_block, coo_scope, val_sidx_reg, coo_idx_reg, coo_range_reg, REGB, REGA, REGC, l, r, tile_sidx_size, tile_coo_val_size);
         __pipeline_commit();
-        op_S2R_val_sidx_load<maxshift_smem, maxshift_reg, (i - shift1) % maxshift_reg, (K > shift1 ? shift1 : K)>(i - shift1);
-        op_G2R_coo_atomic_format_load_idx<maxshift_smem, maxshift_reg, (i - shift1) % maxshift_reg, (i - shift1) % maxshift_reg>(i - shift1);
+        op_S2R_val_sidx_load<maxshift_smem, maxshift_reg, TILE_B, (i - shift1) % maxshift_reg, (K_total > shift1 ? shift1 : K_total)>(i - shift1, M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC_val, block_idx_x, block_idx_y, lane_id, tile_sidx_block, tile_coo_val_block, tile_coo_restore_val_block, coo_scope, val_sidx_reg, coo_idx_reg, coo_range_reg, REGB, REGA, REGC, l, r, tile_sidx_size, tile_coo_val_size);
+        op_G2R_coo_atomic_format_load_idx<maxshift_smem, maxshift_reg, (i - shift1) % maxshift_reg, (i - shift1) % maxshift_reg>(i - shift1, M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC_val, block_idx_x, block_idx_y, lane_id, tile_sidx_block, tile_coo_val_block, tile_coo_restore_val_block, coo_scope, val_sidx_reg, coo_idx_reg, coo_range_reg, REGB, REGA, REGC, l, r, tile_sidx_size, tile_coo_val_size);
     }
-    if constexpr (0 <= i - shift2 - shift1 && i - shift2 - shift1 < K) {
-        op_G2R_B_val_load<maxshift_smem, maxshift_reg, (i - shift1 - shift2) % maxshift_reg, (i - shift1 - shift2) % maxshift_reg>(i - shift1 - shift2);
-        op_S2R_coo_atomic_val_restore<maxshift_smem, maxshift_reg, (i - shift1 - shift2) % maxshift_reg, (shift2 > (K + shift1 + shift2 - 1 - i) ? (K + shift1 + shift2 - 1 - i) : shift2)>(i - shift1 - shift2);
+    if constexpr (0 <= i - shift2 - shift1 && i - shift2 - shift1 < K_total) {
+        op_G2R_B_val_load<maxshift_smem, maxshift_reg, (i - shift1 - shift2) % maxshift_reg, (i - shift1 - shift2) % maxshift_reg, TILE_B>(i - shift1 - shift2, M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC_val, block_idx_x, block_idx_y, lane_id, tile_sidx_block, tile_coo_val_block, tile_coo_restore_val_block, coo_scope, val_sidx_reg, coo_idx_reg, coo_range_reg, REGB, REGA, REGC, l, r, tile_sidx_size, tile_coo_val_size);
+        op_S2R_coo_atomic_val_restore<maxshift_smem, maxshift_reg, (i - shift1 - shift2) % maxshift_reg, (shift2 > (K_total + shift1 + shift2 - 1 - i) ? (K_total + shift1 + shift2 - 1 - i) : shift2)>(i - shift1 - shift2, M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC_val, block_idx_x, block_idx_y, lane_id, tile_sidx_block, tile_coo_val_block, tile_coo_restore_val_block, coo_scope, val_sidx_reg, coo_idx_reg, coo_range_reg, REGB, REGA, REGC, l, r, tile_sidx_size, tile_coo_val_size);
     }
-    if constexpr (0 <= i - shift1 - shift2 - shift3 && i - shift1 - shift2 - shift3 < K) {
-        op_mma<maxshift_smem, maxshift_reg, (i - shift1 - shift2 - shift3) % maxshift_reg, (i - shift1 - shift2 - shift3) % maxshift_reg>(i - shift1 - shift2 - shift3);
+    if constexpr (0 <= i - shift1 - shift2 - shift3 && i - shift1 - shift2 - shift3 < K_total) {
+        op_mma<maxshift_smem, maxshift_reg, (i - shift1 - shift2 - shift3) % maxshift_reg, (i - shift1 - shift2 - shift3) % maxshift_reg>(i - shift1 - shift2 - shift3, M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC_val, block_idx_x, block_idx_y, lane_id, tile_sidx_block, tile_coo_val_block, tile_coo_restore_val_block, coo_scope, val_sidx_reg, coo_idx_reg, coo_range_reg, REGB, REGA, REGC, l, r, tile_sidx_size, tile_coo_val_size);
     }
-    if constexpr (i < K + shift1 + shift2 + shift3) {
-        pipeline<shift1, shift2, shift3, maxshift_reg, maxshift_smem, K, i + 1>();
+    if constexpr (i < K_total + shift1 + shift2 + shift3) {
+        pipeline<shift1, shift2, shift3, maxshift_reg, maxshift_smem, TILE_B, K_total, i + 1>(M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC_val, block_idx_x, block_idx_y, lane_id, tile_sidx_block, tile_coo_val_block, tile_coo_restore_val_block, coo_scope, val_sidx_reg, coo_idx_reg, coo_range_reg, REGB, REGA, REGC, l, r, tile_sidx_size, tile_coo_val_size);
     }
 
 }
 
-template <int shift1, int shift2, int shift3, int maxshift_reg, int maxshift_smem, int K>
-void pipeline_switch(int k) {
-    if constexpr (K == 0) {
+template <int shift1, int shift2, int shift3, int maxshift_reg, int maxshift_smem, int TILE_B, int K_total>
+__device__ void pipeline_switch(int k, int M, int N, int K, int* dval_sidx, int* dval_soff, half* dB_val, int* dval_coo_idx, half* dval_coo_val, int* dval_coo_off, float* dC_val, const int block_idx_x, const int block_idx_y, const int lane_id, int* tile_sidx_block, half* tile_coo_val_block, half* tile_coo_restore_val_block, int* coo_scope, int* val_sidx_reg, int* coo_idx_reg, int* coo_range_reg, half* REGB, half* REGA, float* REGC, int l, int r, const int tile_sidx_size, const int tile_coo_val_size) {
+    if constexpr (K_total == 0) {
         return;
     } else {
-        if (k == K) {
-            pipeline<shift1, shift2, shift3, maxshift_reg, maxshift_smem, K, 0>();
+        if (k == K_total) {
+            pipeline<shift1, shift2, shift3, maxshift_reg, maxshift_smem, TILE_B, K_total, 0>(M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC_val, block_idx_x, block_idx_y, lane_id, tile_sidx_block, tile_coo_val_block, tile_coo_restore_val_block, coo_scope, val_sidx_reg, coo_idx_reg, coo_range_reg, REGB, REGA, REGC, l, r, tile_sidx_size, tile_coo_val_size);
         } else {
-            pipeline_switch<shift1, shift2, shift3, maxshift_reg, maxshift_smem, K - 1>(k);
+            pipeline_switch<shift1, shift2, shift3, maxshift_reg, maxshift_smem, TILE_B, K_total - 1>(k, M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC_val, block_idx_x, block_idx_y, lane_id, tile_sidx_block, tile_coo_val_block, tile_coo_restore_val_block, coo_scope, val_sidx_reg, coo_idx_reg, coo_range_reg, REGB, REGA, REGC, l, r, tile_sidx_size, tile_coo_val_size);
         }
     }
 }
@@ -285,203 +280,203 @@ void pipeline_switch(int k) {
 // =====================================================================================
 
 template <int shift1, int shift2, int shift3, int maxshift_smem, int maxshift_reg, int i>
-void fill_shift1() {
+__device__ void fill_shift1(int M, int N, int K, int* dval_sidx, int* dval_soff, half* dB_val, int* dval_coo_idx, half* dval_coo_val, int* dval_coo_off, float* dC_val, const int block_idx_x, const int block_idx_y, const int lane_id, int* tile_sidx_block, half* tile_coo_val_block, half* tile_coo_restore_val_block, int* coo_scope, int* val_sidx_reg, int* coo_idx_reg, int* coo_range_reg, half* REGB, half* REGA, float* REGC, int l, int r, const int tile_sidx_size, const int tile_coo_val_size) {
     if constexpr (i == shift1) {
         return;
     } else {
         printf("fill shift1: i = %d\n", i);
-        op_G2S_val_sidx_load<maxshift_smem, maxshift_reg>(i);
-        op_G2R_coo_atomic_format_load_off<maxshift_smem, maxshift_reg, i % maxshift_reg>(i);
+        op_G2S_val_sidx_load<maxshift_smem, maxshift_reg>(i, M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC_val, block_idx_x, block_idx_y, lane_id, tile_sidx_block, tile_coo_val_block, tile_coo_restore_val_block, coo_scope, val_sidx_reg, coo_idx_reg, coo_range_reg, REGB, REGA, REGC, l, r, tile_sidx_size, tile_coo_val_size);
+        op_G2R_coo_atomic_format_load_off<maxshift_smem, maxshift_reg, i % maxshift_reg>(i, M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC_val, block_idx_x, block_idx_y, lane_id, tile_sidx_block, tile_coo_val_block, tile_coo_restore_val_block, coo_scope, val_sidx_reg, coo_idx_reg, coo_range_reg, REGB, REGA, REGC, l, r, tile_sidx_size, tile_coo_val_size);
         __pipeline_commit();
-        fill_shift1<shift1, shift2, shift3, maxshift_smem, maxshift_reg, i + 1>();
+        fill_shift1<shift1, shift2, shift3, maxshift_smem, maxshift_reg, i + 1>(M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC_val, block_idx_x, block_idx_y, lane_id, tile_sidx_block, tile_coo_val_block, tile_coo_restore_val_block, coo_scope, val_sidx_reg, coo_idx_reg, coo_range_reg, REGB, REGA, REGC, l, r, tile_sidx_size, tile_coo_val_size);
     }
 }
 
-template <int shift1, int shift2, int shift3, int maxshift_smem, int maxshift_reg, int i>
-void fill_shift2() {
+template <int shift1, int shift2, int shift3, int maxshift_smem, int maxshift_reg, int TILE_B, int i>
+__device__ void fill_shift2(int M, int N, int K, int* dval_sidx, int* dval_soff, half* dB_val, int* dval_coo_idx, half* dval_coo_val, int* dval_coo_off, float* dC_val, const int block_idx_x, const int block_idx_y, const int lane_id, int* tile_sidx_block, half* tile_coo_val_block, half* tile_coo_restore_val_block, int* coo_scope, int* val_sidx_reg, int* coo_idx_reg, int* coo_range_reg, half* REGB, half* REGA, float* REGC, int l, int r, const int tile_sidx_size, const int tile_coo_val_size) {
     if constexpr (i == shift2) {
         return;
     } else {
         printf("fill shift2: i = %d\n", i + shift1);
-        op_G2S_val_sidx_load<maxshift_smem, maxshift_reg>(i + shift1);
-        op_G2S_coo_atomic_format_load_val<maxshift_smem, maxshift_reg, i % maxshift_reg>(i);
+        op_G2S_val_sidx_load<maxshift_smem, maxshift_reg>(i + shift1, M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC_val, block_idx_x, block_idx_y, lane_id, tile_sidx_block, tile_coo_val_block, tile_coo_restore_val_block, coo_scope, val_sidx_reg, coo_idx_reg, coo_range_reg, REGB, REGA, REGC, l, r, tile_sidx_size, tile_coo_val_size);
+        op_G2S_coo_atomic_format_load_val<maxshift_smem, maxshift_reg, i % maxshift_reg>(i, M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC_val, block_idx_x, block_idx_y, lane_id, tile_sidx_block, tile_coo_val_block, tile_coo_restore_val_block, coo_scope, val_sidx_reg, coo_idx_reg, coo_range_reg, REGB, REGA, REGC, l, r, tile_sidx_size, tile_coo_val_size);
         __pipeline_commit();
-        op_S2R_val_sidx_load<maxshift_smem, maxshift_reg, i % maxshift_reg, shift1>(i);
+        op_S2R_val_sidx_load<maxshift_smem, maxshift_reg, TILE_B, i % maxshift_reg, shift1>(i, M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC_val, block_idx_x, block_idx_y, lane_id, tile_sidx_block, tile_coo_val_block, tile_coo_restore_val_block, coo_scope, val_sidx_reg, coo_idx_reg, coo_range_reg, REGB, REGA, REGC, l, r, tile_sidx_size, tile_coo_val_size);
         
-        op_G2R_coo_atomic_format_load_off<maxshift_smem, maxshift_reg, (i + shift1) % maxshift_reg>(i + shift1);
+        op_G2R_coo_atomic_format_load_off<maxshift_smem, maxshift_reg, (i + shift1) % maxshift_reg>(i + shift1, M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC_val, block_idx_x, block_idx_y, lane_id, tile_sidx_block, tile_coo_val_block, tile_coo_restore_val_block, coo_scope, val_sidx_reg, coo_idx_reg, coo_range_reg, REGB, REGA, REGC, l, r, tile_sidx_size, tile_coo_val_size);
         
-        op_G2R_coo_atomic_format_load_idx<maxshift_smem, maxshift_reg, i % maxshift_reg, i % maxshift_reg>(i);
+        op_G2R_coo_atomic_format_load_idx<maxshift_smem, maxshift_reg, i % maxshift_reg, i % maxshift_reg>(i, M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC_val, block_idx_x, block_idx_y, lane_id, tile_sidx_block, tile_coo_val_block, tile_coo_restore_val_block, coo_scope, val_sidx_reg, coo_idx_reg, coo_range_reg, REGB, REGA, REGC, l, r, tile_sidx_size, tile_coo_val_size);
 
-        fill_shift2<shift1, shift2, shift3, maxshift_smem, maxshift_reg, i + 1>();
+        fill_shift2<shift1, shift2, shift3, maxshift_smem, maxshift_reg, TILE_B,  i + 1>(M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC_val, block_idx_x, block_idx_y, lane_id, tile_sidx_block, tile_coo_val_block, tile_coo_restore_val_block, coo_scope, val_sidx_reg, coo_idx_reg, coo_range_reg, REGB, REGA, REGC, l, r, tile_sidx_size, tile_coo_val_size);
     }
 }
 
-template <int shift1, int shift2, int shift3, int maxshift_smem, int maxshift_reg, int i> 
-void fill_shift3() {
+template <int shift1, int shift2, int shift3, int maxshift_smem, int maxshift_reg, int TILE_B, int i> 
+__device__ void fill_shift3(int M, int N, int K, int* dval_sidx, int* dval_soff, half* dB_val, int* dval_coo_idx, half* dval_coo_val, int* dval_coo_off, float* dC_val, const int block_idx_x, const int block_idx_y, const int lane_id, int* tile_sidx_block, half* tile_coo_val_block, half* tile_coo_restore_val_block, int* coo_scope, int* val_sidx_reg, int* coo_idx_reg, int* coo_range_reg, half* REGB, half* REGA, float* REGC, int l, int r, const int tile_sidx_size, const int tile_coo_val_size) {
     if constexpr (i == shift3) {
         return;
     } else {
         printf("fill shift3: i = %d\n", i + shift1 + shift2);
-        op_G2S_val_sidx_load<maxshift_smem, maxshift_reg>(i + shift1 + shift2);
-        op_G2S_coo_atomic_format_load_val<maxshift_smem, maxshift_reg, (i + shift2) % maxshift_reg>(i + shift2);
+        op_G2S_val_sidx_load<maxshift_smem, maxshift_reg>(i + shift1 + shift2, M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC_val, block_idx_x, block_idx_y, lane_id, tile_sidx_block, tile_coo_val_block, tile_coo_restore_val_block, coo_scope, val_sidx_reg, coo_idx_reg, coo_range_reg, REGB, REGA, REGC, l, r, tile_sidx_size, tile_coo_val_size);
+        op_G2S_coo_atomic_format_load_val<maxshift_smem, maxshift_reg, (i + shift2) % maxshift_reg>(i + shift2, M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC_val, block_idx_x, block_idx_y, lane_id, tile_sidx_block, tile_coo_val_block, tile_coo_restore_val_block, coo_scope, val_sidx_reg, coo_idx_reg, coo_range_reg, REGB, REGA, REGC, l, r, tile_sidx_size, tile_coo_val_size);
         __pipeline_commit();
-        op_S2R_val_sidx_load<maxshift_smem, maxshift_reg, (i + shift2) % maxshift_reg, shift1>(i + shift2);
-        op_G2R_B_val_load<maxshift_smem, maxshift_reg, i % maxshift_reg, i % maxshift_reg>(i);
+        op_S2R_val_sidx_load<maxshift_smem, maxshift_reg, TILE_B, (i + shift2) % maxshift_reg, shift1>(i + shift2, M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC_val, block_idx_x, block_idx_y, lane_id, tile_sidx_block, tile_coo_val_block, tile_coo_restore_val_block, coo_scope, val_sidx_reg, coo_idx_reg, coo_range_reg, REGB, REGA, REGC, l, r, tile_sidx_size, tile_coo_val_size);
+        op_G2R_B_val_load<maxshift_smem, maxshift_reg, i % maxshift_reg, i % maxshift_reg, TILE_B>(i, M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC_val, block_idx_x, block_idx_y, lane_id, tile_sidx_block, tile_coo_val_block, tile_coo_restore_val_block, coo_scope, val_sidx_reg, coo_idx_reg, coo_range_reg, REGB, REGA, REGC, l, r, tile_sidx_size, tile_coo_val_size);
 
-        op_G2R_coo_atomic_format_load_off<maxshift_smem, maxshift_reg, (i + shift1 + shift2) % maxshift_reg>(i + shift1 + shift2);
-        op_G2R_coo_atomic_format_load_idx<maxshift_smem, maxshift_reg, (i + shift2) % maxshift_reg, (i + shift2) % maxshift_reg>(i + shift2);
-        op_S2R_coo_atomic_val_restore<maxshift_smem, maxshift_smem, i % maxshift_reg, shift2>(i);
+        op_G2R_coo_atomic_format_load_off<maxshift_smem, maxshift_reg, (i + shift1 + shift2) % maxshift_reg>(i + shift1 + shift2, M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC_val, block_idx_x, block_idx_y, lane_id, tile_sidx_block, tile_coo_val_block, tile_coo_restore_val_block, coo_scope, val_sidx_reg, coo_idx_reg, coo_range_reg, REGB, REGA, REGC, l, r, tile_sidx_size, tile_coo_val_size);
+        op_G2R_coo_atomic_format_load_idx<maxshift_smem, maxshift_reg, (i + shift2) % maxshift_reg, (i + shift2) % maxshift_reg>(i + shift2, M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC_val, block_idx_x, block_idx_y, lane_id, tile_sidx_block, tile_coo_val_block, tile_coo_restore_val_block, coo_scope, val_sidx_reg, coo_idx_reg, coo_range_reg, REGB, REGA, REGC, l, r, tile_sidx_size, tile_coo_val_size);
+        op_S2R_coo_atomic_val_restore<maxshift_smem, maxshift_smem, i % maxshift_reg, shift2>(i, M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC_val, block_idx_x, block_idx_y, lane_id, tile_sidx_block, tile_coo_val_block, tile_coo_restore_val_block, coo_scope, val_sidx_reg, coo_idx_reg, coo_range_reg, REGB, REGA, REGC, l, r, tile_sidx_size, tile_coo_val_size);
         
-        fill_shift3<shift1, shift2, shift3, maxshift_smem, maxshift_reg, i + 1>();
+        fill_shift3<shift1, shift2, shift3, maxshift_smem, maxshift_reg, TILE_B, i + 1>(M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC_val, block_idx_x, block_idx_y, lane_id, tile_sidx_block, tile_coo_val_block, tile_coo_restore_val_block, coo_scope, val_sidx_reg, coo_idx_reg, coo_range_reg, REGB, REGA, REGC, l, r, tile_sidx_size, tile_coo_val_size);
     }
 }
 
 // =====================================================================================
 
-template <int shift1, int shift2, int shift3, int maxshift_smem, int maxshift_reg, int I>
-void loop_step(int i) {
+template <int shift1, int shift2, int shift3, int maxshift_smem, int maxshift_reg, int TILE_B, int I>
+__device__ void loop_step(int i, int M, int N, int K, int* dval_sidx, int* dval_soff, half* dB_val, int* dval_coo_idx, half* dval_coo_val, int* dval_coo_off, float* dC_val, const int block_idx_x, const int block_idx_y, const int lane_id, int* tile_sidx_block, half* tile_coo_val_block, half* tile_coo_restore_val_block, int* coo_scope, int* val_sidx_reg, int* coo_idx_reg, int* coo_range_reg, half* REGB, half* REGA, float* REGC, int l, int r, const int tile_sidx_size, const int tile_coo_val_size) {
     printf("loop step: i = %d, I = %d\n", i, I);
-    op_G2S_val_sidx_load<maxshift_smem, maxshift_reg>(i);
-    op_G2S_coo_atomic_format_load_val<maxshift_smem, maxshift_reg, (I + shift3 + shift2) % maxshift_reg>(i - shift1);
+    op_G2S_val_sidx_load<maxshift_smem, maxshift_reg>(i, M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC_val, block_idx_x, block_idx_y, lane_id, tile_sidx_block, tile_coo_val_block, tile_coo_restore_val_block, coo_scope, val_sidx_reg, coo_idx_reg, coo_range_reg, REGB, REGA, REGC, l, r, tile_sidx_size, tile_coo_val_size);
+    op_G2S_coo_atomic_format_load_val<maxshift_smem, maxshift_reg, (I + shift3 + shift2) % maxshift_reg>(i - shift1, M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC_val, block_idx_x, block_idx_y, lane_id, tile_sidx_block, tile_coo_val_block, tile_coo_restore_val_block, coo_scope, val_sidx_reg, coo_idx_reg, coo_range_reg, REGB, REGA, REGC, l, r, tile_sidx_size, tile_coo_val_size);
     __pipeline_commit();
-    op_S2R_val_sidx_load<maxshift_smem, maxshift_reg, (I + shift3 + shift2) % maxshift_reg, shift1>(i - shift1);
-    op_G2R_B_val_load<maxshift_smem, maxshift_reg, (I + shift3) % maxshift_reg, (I + shift3) % maxshift_reg>(i - shift1 - shift2);
+    op_S2R_val_sidx_load<maxshift_smem, maxshift_reg, TILE_B, (I + shift3 + shift2) % maxshift_reg, shift1>(i - shift1, M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC_val, block_idx_x, block_idx_y, lane_id, tile_sidx_block, tile_coo_val_block, tile_coo_restore_val_block, coo_scope, val_sidx_reg, coo_idx_reg, coo_range_reg, REGB, REGA, REGC, l, r, tile_sidx_size, tile_coo_val_size);
+    op_G2R_B_val_load<maxshift_smem, maxshift_reg, (I + shift3) % maxshift_reg, (I + shift3) % maxshift_reg, TILE_B>(i - shift1 - shift2, M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC_val, block_idx_x, block_idx_y, lane_id, tile_sidx_block, tile_coo_val_block, tile_coo_restore_val_block, coo_scope, val_sidx_reg, coo_idx_reg, coo_range_reg, REGB, REGA, REGC, l, r, tile_sidx_size, tile_coo_val_size);
 
-    op_G2R_coo_atomic_format_load_off<maxshift_smem, maxshift_reg, (I + shift3 + shift2 + shift1) % maxshift_reg>(i);
+    op_G2R_coo_atomic_format_load_off<maxshift_smem, maxshift_reg, (I + shift3 + shift2 + shift1) % maxshift_reg>(i, M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC_val, block_idx_x, block_idx_y, lane_id, tile_sidx_block, tile_coo_val_block, tile_coo_restore_val_block, coo_scope, val_sidx_reg, coo_idx_reg, coo_range_reg, REGB, REGA, REGC, l, r, tile_sidx_size, tile_coo_val_size);
     
-    op_G2R_coo_atomic_format_load_idx<maxshift_smem, maxshift_reg, (I + shift3 + shift2) % maxshift_reg, (I + shift3 + shift2) % maxshift_reg>(i - shift1);
-    op_S2R_coo_atomic_val_restore<maxshift_smem, maxshift_reg, (I + shift3) % maxshift_reg, shift2>(i - shift1 - shift2);
-    op_mma<maxshift_smem, maxshift_reg, I % maxshift_reg, I % maxshift_reg>(i - shift1 - shift2 - shift3);
+    op_G2R_coo_atomic_format_load_idx<maxshift_smem, maxshift_reg, (I + shift3 + shift2) % maxshift_reg, (I + shift3 + shift2) % maxshift_reg>(i - shift1, M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC_val, block_idx_x, block_idx_y, lane_id, tile_sidx_block, tile_coo_val_block, tile_coo_restore_val_block, coo_scope, val_sidx_reg, coo_idx_reg, coo_range_reg, REGB, REGA, REGC, l, r, tile_sidx_size, tile_coo_val_size);
+    op_S2R_coo_atomic_val_restore<maxshift_smem, maxshift_reg, (I + shift3) % maxshift_reg, shift2>(i - shift1 - shift2, M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC_val, block_idx_x, block_idx_y, lane_id, tile_sidx_block, tile_coo_val_block, tile_coo_restore_val_block, coo_scope, val_sidx_reg, coo_idx_reg, coo_range_reg, REGB, REGA, REGC, l, r, tile_sidx_size, tile_coo_val_size);
+    op_mma<maxshift_smem, maxshift_reg, I % maxshift_reg, I % maxshift_reg>(i - shift1 - shift2 - shift3, M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC_val, block_idx_x, block_idx_y, lane_id, tile_sidx_block, tile_coo_val_block, tile_coo_restore_val_block, coo_scope, val_sidx_reg, coo_idx_reg, coo_range_reg, REGB, REGA, REGC, l, r, tile_sidx_size, tile_coo_val_size);
 
     if constexpr (I + 1 < maxshift_reg) {
-        loop_step<shift1, shift2, shift3, maxshift_smem, maxshift_reg, I + 1>(i + 1);
+        loop_step<shift1, shift2, shift3, maxshift_smem, maxshift_reg, TILE_B, I + 1>(i + 1, M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC_val, block_idx_x, block_idx_y, lane_id, tile_sidx_block, tile_coo_val_block, tile_coo_restore_val_block, coo_scope, val_sidx_reg, coo_idx_reg, coo_range_reg, REGB, REGA, REGC, l, r, tile_sidx_size, tile_coo_val_size);
     }
 }
 
 // =====================================================================================
 
-template <int shift1, int shift2, int shift3, int maxshift_smem, int maxshift_reg, int K, int I>
-void remainder(int i) {
-    if constexpr (I == K) {
+template <int shift1, int shift2, int shift3, int maxshift_smem, int maxshift_reg, int TILE_B, int K_remain, int I>
+__device__ void remainder(int i, int M, int N, int K, int* dval_sidx, int* dval_soff, half* dB_val, int* dval_coo_idx, half* dval_coo_val, int* dval_coo_off, float* dC_val, const int block_idx_x, const int block_idx_y, const int lane_id, int* tile_sidx_block, half* tile_coo_val_block, half* tile_coo_restore_val_block, int* coo_scope, int* val_sidx_reg, int* coo_idx_reg, int* coo_range_reg, half* REGB, half* REGA, float* REGC, int l, int r, const int tile_sidx_size, const int tile_coo_val_size) {
+    if constexpr (I == K_remain) {
         return;
     } else {
         printf("remainder: i = %d\n", i);
-        op_G2S_val_sidx_load<maxshift_smem, maxshift_reg>(i);
-        op_G2S_coo_atomic_format_load_val<maxshift_smem, maxshift_reg, (I + shift3 + shift2) % maxshift_reg>(i - shift1);
+        op_G2S_val_sidx_load<maxshift_smem, maxshift_reg>(i, M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC_val, block_idx_x, block_idx_y, lane_id, tile_sidx_block, tile_coo_val_block, tile_coo_restore_val_block, coo_scope, val_sidx_reg, coo_idx_reg, coo_range_reg, REGB, REGA, REGC, l, r, tile_sidx_size, tile_coo_val_size);
+        op_G2S_coo_atomic_format_load_val<maxshift_smem, maxshift_reg, (I + shift3 + shift2) % maxshift_reg>(i - shift1, M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC_val, block_idx_x, block_idx_y, lane_id, tile_sidx_block, tile_coo_val_block, tile_coo_restore_val_block, coo_scope, val_sidx_reg, coo_idx_reg, coo_range_reg, REGB, REGA, REGC, l, r, tile_sidx_size, tile_coo_val_size);
         __pipeline_commit();
-        op_S2R_val_sidx_load<maxshift_smem, maxshift_reg, (I + shift3 + shift2) % maxshift_reg, shift1>(i - shift1);
-        op_G2R_B_val_load<maxshift_smem, maxshift_reg, (I + shift3) % maxshift_reg, (I + shift3) % maxshift_reg>(i - shift1 - shift2);
+        op_S2R_val_sidx_load<maxshift_smem, maxshift_reg, TILE_B, (I + shift3 + shift2) % maxshift_reg, shift1>(i - shift1, M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC_val, block_idx_x, block_idx_y, lane_id, tile_sidx_block, tile_coo_val_block, tile_coo_restore_val_block, coo_scope, val_sidx_reg, coo_idx_reg, coo_range_reg, REGB, REGA, REGC, l, r, tile_sidx_size, tile_coo_val_size);
+        op_G2R_B_val_load<maxshift_smem, maxshift_reg, (I + shift3) % maxshift_reg, (I + shift3) % maxshift_reg, TILE_B>(i - shift1 - shift2, M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC_val, block_idx_x, block_idx_y, lane_id, tile_sidx_block, tile_coo_val_block, tile_coo_restore_val_block, coo_scope, val_sidx_reg, coo_idx_reg, coo_range_reg, REGB, REGA, REGC, l, r, tile_sidx_size, tile_coo_val_size);
 
-        op_G2R_coo_atomic_format_load_off<maxshift_smem, maxshift_reg, (I + shift3 + shift2 + shift1) % maxshift_reg>(i);
+        op_G2R_coo_atomic_format_load_off<maxshift_smem, maxshift_reg, (I + shift3 + shift2 + shift1) % maxshift_reg>(i, M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC_val, block_idx_x, block_idx_y, lane_id, tile_sidx_block, tile_coo_val_block, tile_coo_restore_val_block, coo_scope, val_sidx_reg, coo_idx_reg, coo_range_reg, REGB, REGA, REGC, l, r, tile_sidx_size, tile_coo_val_size);
         
-        op_G2R_coo_atomic_format_load_idx<maxshift_smem, maxshift_reg, (I + shift3 + shift2) % maxshift_reg, (I + shift3 + shift2) % maxshift_reg>(i - shift1);
-        op_S2R_coo_atomic_val_restore<maxshift_smem, maxshift_reg, (I + shift3) % maxshift_reg, shift2>(i - shift1 - shift2);
-        op_mma<maxshift_smem, maxshift_reg, I % maxshift_reg, I % maxshift_reg>(i - shift1 - shift2 - shift3);
+        op_G2R_coo_atomic_format_load_idx<maxshift_smem, maxshift_reg, (I + shift3 + shift2) % maxshift_reg, (I + shift3 + shift2) % maxshift_reg>(i - shift1, M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC_val, block_idx_x, block_idx_y, lane_id, tile_sidx_block, tile_coo_val_block, tile_coo_restore_val_block, coo_scope, val_sidx_reg, coo_idx_reg, coo_range_reg, REGB, REGA, REGC, l, r, tile_sidx_size, tile_coo_val_size);
+        op_S2R_coo_atomic_val_restore<maxshift_smem, maxshift_reg, (I + shift3) % maxshift_reg, shift2>(i - shift1 - shift2, M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC_val, block_idx_x, block_idx_y, lane_id, tile_sidx_block, tile_coo_val_block, tile_coo_restore_val_block, coo_scope, val_sidx_reg, coo_idx_reg, coo_range_reg, REGB, REGA, REGC, l, r, tile_sidx_size, tile_coo_val_size);
+        op_mma<maxshift_smem, maxshift_reg, I % maxshift_reg, I % maxshift_reg>(i - shift1 - shift2 - shift3, M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC_val, block_idx_x, block_idx_y, lane_id, tile_sidx_block, tile_coo_val_block, tile_coo_restore_val_block, coo_scope, val_sidx_reg, coo_idx_reg, coo_range_reg, REGB, REGA, REGC, l, r, tile_sidx_size, tile_coo_val_size);
 
-        remainder<shift1, shift2, shift3, maxshift_smem, maxshift_reg, K, I + 1>(i + 1);
+        remainder<shift1, shift2, shift3, maxshift_smem, maxshift_reg, TILE_B, K_remain, I + 1>(i + 1, M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC_val, block_idx_x, block_idx_y, lane_id, tile_sidx_block, tile_coo_val_block, tile_coo_restore_val_block, coo_scope, val_sidx_reg, coo_idx_reg, coo_range_reg, REGB, REGA, REGC, l, r, tile_sidx_size, tile_coo_val_size);
     }
 }
 
-template <int shift1, int shift2, int shift3, int maxshift_smem, int maxshift_reg, int K>
-void remainder_switch(int i, int k) {
-    if constexpr (K == 0) {
+template <int shift1, int shift2, int shift3, int maxshift_smem, int maxshift_reg, int TILE_B, int K_remain>
+__device__ void remainder_switch(int i, int k, int M, int N, int K, int* dval_sidx, int* dval_soff, half* dB_val, int* dval_coo_idx, half* dval_coo_val, int* dval_coo_off, float* dC_val, const int block_idx_x, const int block_idx_y, const int lane_id, int* tile_sidx_block, half* tile_coo_val_block, half* tile_coo_restore_val_block, int* coo_scope, int* val_sidx_reg, int* coo_idx_reg, int* coo_range_reg, half* REGB, half* REGA, float* REGC, int l, int r, const int tile_sidx_size, const int tile_coo_val_size) {
+    if constexpr (K_remain == 0) {
         return;
     } else {
-        if (k - i == K) {
-            remainder<shift1, shift2, shift3, maxshift_smem, maxshift_reg, K, 0>(i);        
+        if (k - i == K_remain) {
+            remainder<shift1, shift2, shift3, maxshift_smem, maxshift_reg, TILE_B, K_remain, 0>(i, M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC_val, block_idx_x, block_idx_y, lane_id, tile_sidx_block, tile_coo_val_block, tile_coo_restore_val_block, coo_scope, val_sidx_reg, coo_idx_reg, coo_range_reg, REGB, REGA, REGC, l, r, tile_sidx_size, tile_coo_val_size);        
         } else {
-            remainder_switch<shift1, shift2, shift3, maxshift_smem, maxshift_reg, K - 1>(i, k);
+            remainder_switch<shift1, shift2, shift3, maxshift_smem, maxshift_reg, TILE_B, K_remain - 1>(i, k, M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC_val, block_idx_x, block_idx_y, lane_id, tile_sidx_block, tile_coo_val_block, tile_coo_restore_val_block, coo_scope, val_sidx_reg, coo_idx_reg, coo_range_reg, REGB, REGA, REGC, l, r, tile_sidx_size, tile_coo_val_size);
         }
     }
 }
 
 // =====================================================================================
 
-template <int shift1, int shift2, int shift3, int maxshift_smem, int maxshift_reg, int K, int I>
-void empty_shift1(int i) {  // K is the remain
+template <int shift1, int shift2, int shift3, int maxshift_smem, int maxshift_reg, int TILE_B, int K_remain, int I>
+__device__ void empty_shift1(int i, int M, int N, int K, int* dval_sidx, int* dval_soff, half* dB_val, int* dval_coo_idx, half* dval_coo_val, int* dval_coo_off, float* dC_val, const int block_idx_x, const int block_idx_y, const int lane_id, int* tile_sidx_block, half* tile_coo_val_block, half* tile_coo_restore_val_block, int* coo_scope, int* val_sidx_reg, int* coo_idx_reg, int* coo_range_reg, half* REGB, half* REGA, float* REGC, int l, int r, const int tile_sidx_size, const int tile_coo_val_size) {  // K is the remain
     if constexpr (I == shift1) {
         return;
     } else {
         printf("empty_shift1: i = %d, I = %d\n", i, I);
         // op_G2S_val_sidx_load<maxshift_smem, maxshift_reg>(i);
-        op_G2S_coo_atomic_format_load_val<maxshift_smem, maxshift_reg, (I + shift3 + shift2 + K) % maxshift_reg>(i - shift1);
+        op_G2S_coo_atomic_format_load_val<maxshift_smem, maxshift_reg, (I + shift3 + shift2 + K_remain) % maxshift_reg>(i - shift1, M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC_val, block_idx_x, block_idx_y, lane_id, tile_sidx_block, tile_coo_val_block, tile_coo_restore_val_block, coo_scope, val_sidx_reg, coo_idx_reg, coo_range_reg, REGB, REGA, REGC, l, r, tile_sidx_size, tile_coo_val_size);
         __pipeline_commit();
-        op_S2R_val_sidx_load<maxshift_smem, maxshift_reg, (I + shift3 + shift2 + K) % maxshift_reg, shift1/*这里还有commit，所以还是shift1*/>(i - shift1);
-        op_G2R_B_val_load<maxshift_smem, maxshift_reg, (I + shift3 + K) % maxshift_reg, (I + shift3 + K) % maxshift_reg>(i - shift1 - shift2);
+        op_S2R_val_sidx_load<maxshift_smem, maxshift_reg, TILE_B, (I + shift3 + shift2 + K_remain) % maxshift_reg, shift1/*这里还有commit，所以还是shift1*/>(i - shift1, M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC_val, block_idx_x, block_idx_y, lane_id, tile_sidx_block, tile_coo_val_block, tile_coo_restore_val_block, coo_scope, val_sidx_reg, coo_idx_reg, coo_range_reg, REGB, REGA, REGC, l, r, tile_sidx_size, tile_coo_val_size);
+        op_G2R_B_val_load<maxshift_smem, maxshift_reg, (I + shift3 + K_remain) % maxshift_reg, (I + shift3 + K_remain) % maxshift_reg, TILE_B>(i - shift1 - shift2, M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC_val, block_idx_x, block_idx_y, lane_id, tile_sidx_block, tile_coo_val_block, tile_coo_restore_val_block, coo_scope, val_sidx_reg, coo_idx_reg, coo_range_reg, REGB, REGA, REGC, l, r, tile_sidx_size, tile_coo_val_size);
 
         
-        op_G2R_coo_atomic_format_load_idx<maxshift_smem, maxshift_reg, (I + shift3 + shift2 + K) % maxshift_reg, (I + shift3 + shift2 + K) % maxshift_reg>(i - shift1);
-        op_S2R_coo_atomic_val_restore<maxshift_smem, maxshift_reg, (I + shift3 + K) % maxshift_reg, shift2>(i - shift1 - shift2);
-        op_mma<maxshift_smem, maxshift_reg, (I + K) % maxshift_reg, (I + K) % maxshift_reg>(i - shift1 - shift2 - shift3);
+        op_G2R_coo_atomic_format_load_idx<maxshift_smem, maxshift_reg, (I + shift3 + shift2 + K_remain) % maxshift_reg, (I + shift3 + shift2 + K_remain) % maxshift_reg>(i - shift1, M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC_val, block_idx_x, block_idx_y, lane_id, tile_sidx_block, tile_coo_val_block, tile_coo_restore_val_block, coo_scope, val_sidx_reg, coo_idx_reg, coo_range_reg, REGB, REGA, REGC, l, r, tile_sidx_size, tile_coo_val_size);
+        op_S2R_coo_atomic_val_restore<maxshift_smem, maxshift_reg, (I + shift3 + K_remain) % maxshift_reg, shift2>(i - shift1 - shift2, M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC_val, block_idx_x, block_idx_y, lane_id, tile_sidx_block, tile_coo_val_block, tile_coo_restore_val_block, coo_scope, val_sidx_reg, coo_idx_reg, coo_range_reg, REGB, REGA, REGC, l, r, tile_sidx_size, tile_coo_val_size);
+        op_mma<maxshift_smem, maxshift_reg, (I + K_remain) % maxshift_reg, (I + K_remain) % maxshift_reg>(i - shift1 - shift2 - shift3, M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC_val, block_idx_x, block_idx_y, lane_id, tile_sidx_block, tile_coo_val_block, tile_coo_restore_val_block, coo_scope, val_sidx_reg, coo_idx_reg, coo_range_reg, REGB, REGA, REGC, l, r, tile_sidx_size, tile_coo_val_size);
 
-        empty_shift1<shift1, shift2, shift3, maxshift_smem, maxshift_reg, K, I + 1>(i + 1);
+        empty_shift1<shift1, shift2, shift3, maxshift_smem, maxshift_reg, TILE_B, K_remain, I + 1>(i + 1, M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC_val, block_idx_x, block_idx_y, lane_id, tile_sidx_block, tile_coo_val_block, tile_coo_restore_val_block, coo_scope, val_sidx_reg, coo_idx_reg, coo_range_reg, REGB, REGA, REGC, l, r, tile_sidx_size, tile_coo_val_size);
     }
 }
 
-template <int shift1, int shift2, int shift3, int maxshift_smem, int maxshift_reg, int K>
-void empty_shift1_switch(int i, int remain) {
-    if constexpr (K < 0) {
+template <int shift1, int shift2, int shift3, int maxshift_smem, int maxshift_reg, int TILE_B, int K_remain>
+__device__ void empty_shift1_switch(int i, int remain, int M, int N, int K, int* dval_sidx, int* dval_soff, half* dB_val, int* dval_coo_idx, half* dval_coo_val, int* dval_coo_off, float* dC_val, const int block_idx_x, const int block_idx_y, const int lane_id, int* tile_sidx_block, half* tile_coo_val_block, half* tile_coo_restore_val_block, int* coo_scope, int* val_sidx_reg, int* coo_idx_reg, int* coo_range_reg, half* REGB, half* REGA, float* REGC, int l, int r, const int tile_sidx_size, const int tile_coo_val_size) {
+    if constexpr (K_remain < 0) {
         return;
     } else {
-        if (K == remain) {
-            empty_shift1<shift1, shift2, shift3, maxshift_smem, maxshift_reg, K, 0>(i);
+        if (K_remain == remain) {
+            empty_shift1<shift1, shift2, shift3, maxshift_smem, maxshift_reg, TILE_B, K_remain, 0>(i, M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC_val, block_idx_x, block_idx_y, lane_id, tile_sidx_block, tile_coo_val_block, tile_coo_restore_val_block, coo_scope, val_sidx_reg, coo_idx_reg, coo_range_reg, REGB, REGA, REGC, l, r, tile_sidx_size, tile_coo_val_size);
         } else {
-            empty_shift1_switch<shift1, shift2, shift3, maxshift_smem, maxshift_reg, K - 1>(i, remain);
+            empty_shift1_switch<shift1, shift2, shift3, maxshift_smem, maxshift_reg, TILE_B, K_remain - 1>(i, remain, M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC_val, block_idx_x, block_idx_y, lane_id, tile_sidx_block, tile_coo_val_block, tile_coo_restore_val_block, coo_scope, val_sidx_reg, coo_idx_reg, coo_range_reg, REGB, REGA, REGC, l, r, tile_sidx_size, tile_coo_val_size);
         }
     }
 }
 
-template <int shift1, int shift2, int shift3, int maxshift_smem, int maxshift_reg, int K, int I>
-void empty_shift2(int i) {
+template <int shift1, int shift2, int shift3, int maxshift_smem, int maxshift_reg, int TILE_B, int K_remain, int I>
+__device__ void empty_shift2(int i, int M, int N, int K, int* dval_sidx, int* dval_soff, half* dB_val, int* dval_coo_idx, half* dval_coo_val, int* dval_coo_off, float* dC_val, const int block_idx_x, const int block_idx_y, const int lane_id, int* tile_sidx_block, half* tile_coo_val_block, half* tile_coo_restore_val_block, int* coo_scope, int* val_sidx_reg, int* coo_idx_reg, int* coo_range_reg, half* REGB, half* REGA, float* REGC, int l, int r, const int tile_sidx_size, const int tile_coo_val_size) {
     if constexpr (I == shift2) {
         return;
     } else {
         printf("empty shift2: i = %d, I = %d\n", i, I);
     
-        op_G2R_B_val_load<maxshift_smem, maxshift_reg, (I + shift1 + shift3 + K) % maxshift_reg, (I + shift1 + shift3 + K) % maxshift_reg>(i - shift1 - shift2);
+        op_G2R_B_val_load<maxshift_smem, maxshift_reg, (I + shift1 + shift3 + K_remain) % maxshift_reg, (I + shift1 + shift3 + K_remain) % maxshift_reg, TILE_B>(i - shift1 - shift2, M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC_val, block_idx_x, block_idx_y, lane_id, tile_sidx_block, tile_coo_val_block, tile_coo_restore_val_block, coo_scope, val_sidx_reg, coo_idx_reg, coo_range_reg, REGB, REGA, REGC, l, r, tile_sidx_size, tile_coo_val_size);
 
-        op_S2R_coo_atomic_val_restore<maxshift_smem, maxshift_reg, (I + shift1 + shift3 + K) % maxshift_reg, shift2 - (I + 1)>(i - shift1 - shift2);
-        op_mma<maxshift_smem, maxshift_reg, (I + shift1 + K) % maxshift_reg, (I + shift1 + K) % maxshift_reg>(i - shift1 - shift2 - shift3);
+        op_S2R_coo_atomic_val_restore<maxshift_smem, maxshift_reg, (I + shift1 + shift3 + K_remain) % maxshift_reg, shift2 - (I + 1)>(i - shift1 - shift2, M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC_val, block_idx_x, block_idx_y, lane_id, tile_sidx_block, tile_coo_val_block, tile_coo_restore_val_block, coo_scope, val_sidx_reg, coo_idx_reg, coo_range_reg, REGB, REGA, REGC, l, r, tile_sidx_size, tile_coo_val_size);
+        op_mma<maxshift_smem, maxshift_reg, (I + shift1 + K_remain) % maxshift_reg, (I + shift1 + K_remain) % maxshift_reg>(i - shift1 - shift2 - shift3, M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC_val, block_idx_x, block_idx_y, lane_id, tile_sidx_block, tile_coo_val_block, tile_coo_restore_val_block, coo_scope, val_sidx_reg, coo_idx_reg, coo_range_reg, REGB, REGA, REGC, l, r, tile_sidx_size, tile_coo_val_size);
 
-        empty_shift2<shift1, shift2, shift3, maxshift_smem, maxshift_reg, K, I + 1>(i + 1);
+        empty_shift2<shift1, shift2, shift3, maxshift_smem, maxshift_reg, TILE_B, K_remain, I + 1>(i + 1, M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC_val, block_idx_x, block_idx_y, lane_id, tile_sidx_block, tile_coo_val_block, tile_coo_restore_val_block, coo_scope, val_sidx_reg, coo_idx_reg, coo_range_reg, REGB, REGA, REGC, l, r, tile_sidx_size, tile_coo_val_size);
     }
 }
 
-template <int shift1, int shift2, int shift3, int maxshift_smem, int maxshift_reg, int K>
-void empty_shift2_switch(int i, int remain) {
-    if constexpr (K < 0) {
+template <int shift1, int shift2, int shift3, int maxshift_smem, int maxshift_reg, int TILE_B, int K_remain>
+__device__ void empty_shift2_switch(int i, int remain, int M, int N, int K, int* dval_sidx, int* dval_soff, half* dB_val, int* dval_coo_idx, half* dval_coo_val, int* dval_coo_off, float* dC_val, const int block_idx_x, const int block_idx_y, const int lane_id, int* tile_sidx_block, half* tile_coo_val_block, half* tile_coo_restore_val_block, int* coo_scope, int* val_sidx_reg, int* coo_idx_reg, int* coo_range_reg, half* REGB, half* REGA, float* REGC, int l, int r, const int tile_sidx_size, const int tile_coo_val_size) {
+    if constexpr (K_remain < 0) {
         return;
         
     } else {
-        if (remain == K) {
-            empty_shift2<shift1, shift2, shift3, maxshift_smem, maxshift_reg, K, 0>(i);
+        if (remain == K_remain) {
+            empty_shift2<shift1, shift2, shift3, maxshift_smem, maxshift_reg, TILE_B, K_remain, 0>(i, M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC_val, block_idx_x, block_idx_y, lane_id, tile_sidx_block, tile_coo_val_block, tile_coo_restore_val_block, coo_scope, val_sidx_reg, coo_idx_reg, coo_range_reg, REGB, REGA, REGC, l, r, tile_sidx_size, tile_coo_val_size);
         } else {
-            empty_shift2_switch<shift1, shift2, shift3, maxshift_smem, maxshift_reg, K - 1>(i, remain);
+            empty_shift2_switch<shift1, shift2, shift3, maxshift_smem, maxshift_reg, TILE_B, K_remain - 1>(i, remain, M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC_val, block_idx_x, block_idx_y, lane_id, tile_sidx_block, tile_coo_val_block, tile_coo_restore_val_block, coo_scope, val_sidx_reg, coo_idx_reg, coo_range_reg, REGB, REGA, REGC, l, r, tile_sidx_size, tile_coo_val_size);
         }
     }
 }
 
-template <int shift1, int shift2, int shift3, int maxshift_smem, int maxshift_reg, int K, int I>
-void empty_shift3(int i) {
+template <int shift1, int shift2, int shift3, int maxshift_smem, int maxshift_reg, int K_remain, int I>
+__device__ void empty_shift3(int i, int M, int N, int K, int* dval_sidx, int* dval_soff, half* dB_val, int* dval_coo_idx, half* dval_coo_val, int* dval_coo_off, float* dC_val, const int block_idx_x, const int block_idx_y, const int lane_id, int* tile_sidx_block, half* tile_coo_val_block, half* tile_coo_restore_val_block, int* coo_scope, int* val_sidx_reg, int* coo_idx_reg, int* coo_range_reg, half* REGB, half* REGA, float* REGC, int l, int r, const int tile_sidx_size, const int tile_coo_val_size) {
     if constexpr (I == shift3) {
         return;
     } else {
         printf("empty shift3: i = %d, I = %d\n", i, I);
 
-        op_mma<maxshift_smem, maxshift_reg, (I + shift1 + shift2 + K) % maxshift_reg, (I + shift1 + shift2 + K) % maxshift_reg>(i - shift1 - shift2 - shift3);
-        empty_shift3<shift1, shift2, shift3, maxshift_smem, maxshift_reg, K, I + 1>(i + 1);
+        op_mma<maxshift_smem, maxshift_reg, (I + shift1 + shift2 + K_remain) % maxshift_reg, (I + shift1 + shift2 + K_remain) % maxshift_reg>(i - shift1 - shift2 - shift3, M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC_val, block_idx_x, block_idx_y, lane_id, tile_sidx_block, tile_coo_val_block, tile_coo_restore_val_block, coo_scope, val_sidx_reg, coo_idx_reg, coo_range_reg, REGB, REGA, REGC, l, r, tile_sidx_size, tile_coo_val_size);
+        empty_shift3<shift1, shift2, shift3, maxshift_smem, maxshift_reg, K_remain, I + 1>(i + 1, M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC_val, block_idx_x, block_idx_y, lane_id, tile_sidx_block, tile_coo_val_block, tile_coo_restore_val_block, coo_scope, val_sidx_reg, coo_idx_reg, coo_range_reg, REGB, REGA, REGC, l, r, tile_sidx_size, tile_coo_val_size);
     }
 }
 
-template <int shift1, int shift2, int shift3, int maxshift_smem, int maxshift_reg, int K>
-void empty_shift3_switch(int i, int remain) {
-    if constexpr (K < 0) {
+template <int shift1, int shift2, int shift3, int maxshift_smem, int maxshift_reg, int K_remain>
+__device__ void empty_shift3_switch(int i, int remain, int M, int N, int K, int* dval_sidx, int* dval_soff, half* dB_val, int* dval_coo_idx, half* dval_coo_val, int* dval_coo_off, float* dC_val, const int block_idx_x, const int block_idx_y, const int lane_id, int* tile_sidx_block, half* tile_coo_val_block, half* tile_coo_restore_val_block, int* coo_scope, int* val_sidx_reg, int* coo_idx_reg, int* coo_range_reg, half* REGB, half* REGA, float* REGC, int l, int r, const int tile_sidx_size, const int tile_coo_val_size) {
+    if constexpr (K_remain < 0) {
         return;
     } else {
-        if (K == remain) {
-            empty_shift3<shift1, shift2, shift3, maxshift_smem, maxshift_reg, K, 0>(i);
+        if (K_remain == remain) {
+            empty_shift3<shift1, shift2, shift3, maxshift_smem, maxshift_reg, K_remain, 0>(i, M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC_val, block_idx_x, block_idx_y, lane_id, tile_sidx_block, tile_coo_val_block, tile_coo_restore_val_block, coo_scope, val_sidx_reg, coo_idx_reg, coo_range_reg, REGB, REGA, REGC, l, r, tile_sidx_size, tile_coo_val_size);
         } else {
-            empty_shift3_switch<shift1, shift2, shift3, maxshift_smem, maxshift_reg, K - 1>(i, remain);
+            empty_shift3_switch<shift1, shift2, shift3, maxshift_smem, maxshift_reg, K_remain - 1>(i, remain, M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC_val, block_idx_x, block_idx_y, lane_id, tile_sidx_block, tile_coo_val_block, tile_coo_restore_val_block, coo_scope, val_sidx_reg, coo_idx_reg, coo_range_reg, REGB, REGA, REGC, l, r, tile_sidx_size, tile_coo_val_size);
         }
     }
 }
@@ -521,6 +516,7 @@ __global__ void dtc_spmm_kernel_sstage_rstage(
     // shift 2
     int val_sidx_reg[tile_sidx_size * maxshift_reg];
     int coo_idx_reg[16 * 16 * maxshift_reg];
+    int coo_range_reg[maxshift_reg];
     // shift 3
     // tile A [16 * 16], tile B [16 * 32]
     half REGB[2 * (TILE_B / 8) * maxshift_reg];
@@ -531,25 +527,25 @@ __global__ void dtc_spmm_kernel_sstage_rstage(
     int r = dval_soff[block_idx_x + 1];
 
     int k = l - r;
-
+    // , int M, int N, int K, int* dval_sidx, int* dval_soff, half* dB_val, int* dval_coo_idx, half* dval_coo_val, int* dval_coo_off, float* dC_val, const int block_idx_x, const int block_idx_y, const int lane_id, int* tile_sidx_block, half* tile_coo_val_block, half* tile_coo_restore_val_block, int coo_scope, int val_sidx_reg, int coo_idx_reg, half REGB, half REGA, float REGC
     if (k <= shift1 + shift2 + shift3) {
-        pipeline_switch<shift1, shift2, shift3, maxshift_reg, maxshift_smem, shift1 + shift2 + shift3>(k);
+        pipeline_switch<shift1, shift2, shift3, maxshift_reg, maxshift_smem, TILE_B, shift1 + shift2 + shift3>(k, M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC_val, block_idx_x, block_idx_y, lane_id, tile_sidx_block, tile_coo_val_block, tile_coo_restore_val_block, coo_scope, val_sidx_reg, coo_idx_reg, coo_range_reg, REGB, REGA, REGC, l, r, tile_sidx_size, tile_coo_val_size);
     } else {
-        fill_shift1<shift1, shift2, shift3, maxshift_smem, maxshift_reg, 0>();
-        fill_shift2<shift1, shift2, shift3, maxshift_smem, maxshift_reg, 0>();
-        fill_shift3<shift1, shift2, shift3, maxshift_smem, maxshift_reg, 0>();
+        fill_shift1<shift1, shift2, shift3, maxshift_smem, maxshift_reg, 0>(M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC_val, block_idx_x, block_idx_y, lane_id, tile_sidx_block, tile_coo_val_block, tile_coo_restore_val_block, coo_scope, val_sidx_reg, coo_idx_reg, coo_range_reg, REGB, REGA, REGC, l, r, tile_sidx_size, tile_coo_val_size);
+        fill_shift2<shift1, shift2, shift3, maxshift_smem, maxshift_reg, TILE_B, 0>(M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC_val, block_idx_x, block_idx_y, lane_id, tile_sidx_block, tile_coo_val_block, tile_coo_restore_val_block, coo_scope, val_sidx_reg, coo_idx_reg, coo_range_reg, REGB, REGA, REGC, l, r, tile_sidx_size, tile_coo_val_size);
+        fill_shift3<shift1, shift2, shift3, maxshift_smem, maxshift_reg, TILE_B, 0>(M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC_val, block_idx_x, block_idx_y, lane_id, tile_sidx_block, tile_coo_val_block, tile_coo_restore_val_block, coo_scope, val_sidx_reg, coo_idx_reg, coo_range_reg, REGB, REGA, REGC, l, r, tile_sidx_size, tile_coo_val_size);
         int i;
         for (i = shift1 + shift2 + shift3; i + maxshift_reg <= k; i += maxshift_reg) {
-            loop_step<shift1, shift2, shift3, maxshift_smem, maxshift_reg, 0>(i);
+            loop_step<shift1, shift2, shift3, maxshift_smem, maxshift_reg, TILE_B, 0>(i, M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC_val, block_idx_x, block_idx_y, lane_id, tile_sidx_block, tile_coo_val_block, tile_coo_restore_val_block, coo_scope, val_sidx_reg, coo_idx_reg, coo_range_reg, REGB, REGA, REGC, l, r, tile_sidx_size, tile_coo_val_size);
         }
         int remain = k - i;
-        remainder_switch<shift1, shift2, shift3, maxshift_smem, maxshift_reg, maxshift_reg - 1>(i, k);
+        remainder_switch<shift1, shift2, shift3, maxshift_smem, maxshift_reg, TILE_B, maxshift_reg - 1>(i, k, M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC_val, block_idx_x, block_idx_y, lane_id, tile_sidx_block, tile_coo_val_block, tile_coo_restore_val_block, coo_scope, val_sidx_reg, coo_idx_reg, coo_range_reg, REGB, REGA, REGC, l, r, tile_sidx_size, tile_coo_val_size);
         i = k;
-        empty_shift1_switch<shift1, shift2, shift3, maxshift_smem, maxshift_reg, maxshift_reg - 1>(i, remain);
+        empty_shift1_switch<shift1, shift2, shift3, maxshift_smem, maxshift_reg, TILE_B, maxshift_reg - 1>(i, remain, M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC_val, block_idx_x, block_idx_y, lane_id, tile_sidx_block, tile_coo_val_block, tile_coo_restore_val_block, coo_scope, val_sidx_reg, coo_idx_reg, coo_range_reg, REGB, REGA, REGC, l, r, tile_sidx_size, tile_coo_val_size);
         i = k + shift1;
-        empty_shift2_switch<shift1, shift2, shift3, maxshift_smem, maxshift_reg, maxshift_reg - 1>(i, remain);
+        empty_shift2_switch<shift1, shift2, shift3, maxshift_smem, maxshift_reg, TILE_B, maxshift_reg - 1>(i, remain, M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC_val, block_idx_x, block_idx_y, lane_id, tile_sidx_block, tile_coo_val_block, tile_coo_restore_val_block, coo_scope, val_sidx_reg, coo_idx_reg, coo_range_reg, REGB, REGA, REGC, l, r, tile_sidx_size, tile_coo_val_size);
         i = k + shift1 + shift2;
-        empty_shift3_switch<shift1, shift2, shift3, maxshift_smem, maxshift_reg, maxshift_reg - 1>(i, remain);
+        empty_shift3_switch<shift1, shift2, shift3, maxshift_smem, maxshift_reg, maxshift_reg - 1>(i, remain, M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC_val, block_idx_x, block_idx_y, lane_id, tile_sidx_block, tile_coo_val_block, tile_coo_restore_val_block, coo_scope, val_sidx_reg, coo_idx_reg, coo_range_reg, REGB, REGA, REGC, l, r, tile_sidx_size, tile_coo_val_size);
     }
 
     //! write back
@@ -576,8 +572,10 @@ void ncu_test_all(
     int* dval_coo_off,
     float* dC
 ) {
+    dim3 grid(threadblock_num_x, threadblock_num_y);
+    dim3 block(thread_num);
     //! （shift1=1,shift2=1,shift3=1)
-    dtc_spmm_kernel_sstage_rstage<1, 1, 1, 32>(M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, val_coo_val, dval_coo_off, dC);
+    dtc_spmm_kernel_sstage_rstage<1, 1, 1, 32><<<grid, block>>>(M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC);
 
 }
 
@@ -625,8 +623,16 @@ void dtc_spmm_test(
     int threadblock_num_y = N / TILE_B;
     int thread_num = 32;
 
-    ncu_test_all<TILE_B>(threadblock_num_x, threadblock_num_y, thread_num, M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off);
+    ncu_test_all<TILE_B>(threadblock_num_x, threadblock_num_y, thread_num, M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC);
 
     CHECK_CUDA2(cudaMemcpy(C, dC, sizeof(float) * M * N, cudaMemcpyDeviceToHost));
 
 }
+
+template void dtc_spmm_test<32>(
+    int, int, int, 
+    int, int, 
+    int*, int*, half*, 
+    int*, half*, 
+    int*, float*
+);

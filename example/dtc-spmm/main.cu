@@ -23,7 +23,7 @@ extern void dtc_spmm_test(
     half* val_coo_val,
     int* val_coo_off,
     float* C
-)
+);
 
 extern template void dtc_spmm_test<32>(
     int, int, int, 
@@ -86,7 +86,7 @@ void convertToMETCF(
         vector<int>& nnz_per_tc_block = vec_nnz_per_tc_block[i_row_window];
         for (int i_row = 0; i_row < ROW_WINDOW_M; i_row++) {
             int row = i_row_window * ROW_WINDOW_M + i_row;
-            for (int j = csrRowPtrA[row]; j < csrRowPtrA[row + 1]; j++) {
+            for (int j = csrPtrA[row]; j < csrPtrA[row + 1]; j++) {
                 nnz_col[csrColIdxA[j]] = 1;
             }   
         }
@@ -102,9 +102,9 @@ void convertToMETCF(
         nnz_per_tc_block.resize(TCBlock_num, 0);
         for (int i_row = 0; i_row < ROW_WINDOW_M; i_row++) {
             int row = i_row_window * ROW_WINDOW_M + i_row;
-            for (int j = csrRowPtrA[row]; j < csrRowPtrA[row + 1]; j++) {
+            for (int j = csrPtrA[row]; j < csrPtrA[row + 1]; j++) {
                 int col = csrColIdxA[j];
-                int condensed_col = binary_search(nnz_col, 0, nnz_col_num - 1, col);
+                int condensed_col = binarySearch(nnz_col, 0, nnz_col_num - 1, col);
                 int tc_block_id = condensed_col / TC_BLOCK_K;
                 nnz_per_tc_block[tc_block_id]++;
             }
@@ -118,8 +118,8 @@ void convertToMETCF(
     int* val_coo_idx = (int*)malloc(sizeof(int) * nnz);
     memset(val_coo_idx, 0, sizeof(int) * nnz);
     // ok: val_coo_off -> TC Block中非零元个数，类似CSR的PTR array
-    int* val_coo_off = (int*)malloc(sizeof(int) * (TC_Block_num + 1));
-    memset(val_coo_off, 0, sizeof(int) * (TC_Block_num + 1));
+    int* val_coo_off = (int*)malloc(sizeof(int) * (TCBlock_num + 1));
+    memset(val_coo_off, 0, sizeof(int) * (TCBlock_num + 1));
     // ok: val_coo_val -> TC Block中的非零元
     half* val_coo_val = (half*)malloc(sizeof(half) * nnz);
     memset(val_coo_val, 0, sizeof(half) * nnz);
@@ -145,7 +145,7 @@ void convertToMETCF(
         vector<int>& nnz_per_tc_block = vec_nnz_per_tc_block[i_row_window];
         for (int i_row = 0; i_row < ROW_WINDOW_M; i_row++) {
             int row = i_row_window * ROW_WINDOW_M + i_row;
-            for (int j = csrRowPtrA[row]; j < csrRowPtrA[row + 1]; j++) {
+            for (int j = csrPtrA[row]; j < csrPtrA[row + 1]; j++) {
                 nnz_col[csrColIdxA[j]] = 1;
             }
         }
@@ -158,7 +158,7 @@ void convertToMETCF(
             }
         }
         TCBlock_num = (nnz_col_num + TC_BLOCK_K - 1) / TC_BLOCK_K;
-        for (int i_tc_block_col = 0; i_tc_block_col < nnz_col_num; i_tc_block_num++) {
+        for (int i_tc_block_col = 0; i_tc_block_col < nnz_col_num; i_tc_block_col++) {
             tmp_val_sidx[i_tc_block_col] = nnz_col[i_tc_block_col];
         }
         memset(tc_block_nnz_ptr, 0, sizeof(int) * (K + TC_BLOCK_K - 1) / TC_BLOCK_K);
@@ -168,7 +168,7 @@ void convertToMETCF(
         for (int i_row = 0; i_row < ROW_WINDOW_M; i_row++) {
             int row = i_row_window * ROW_WINDOW_M + i_row;
             int col_start_pos = 0;
-            for (int j = csrRowPtrA[row]; j < csrRowPtrA[row + 1]; j++) {
+            for (int j = csrPtrA[row]; j < csrPtrA[row + 1]; j++) {
                 int col = csrColIdxA[j];
                 float value = (float)csrValA[j];
                 int condensed_pos = binarySearch(nnz_col, col_start_pos, nnz_col_num - 1, col);
@@ -182,7 +182,7 @@ void convertToMETCF(
     }
 
     // input to cuda func
-    dtc_spmm_test<32>(M, N, K, TCBlock_num, nnz, val_sidx, val_soff, B_val, val_coo_idx, val_coo_val, val_coo_off, C);
+    dtc_spmm_test<32>(M, N, K, TCBlock_num, nnz, val_sidx, val_soff, B, val_coo_idx, val_coo_val, val_coo_off, C);
 }
 
 int main() {
@@ -229,4 +229,26 @@ int main() {
     }
     float* C_cuda = (float*)malloc(sizeof(float) * M * N);
     convertToMETCF(M, N, K, nnz, csrPtrA, csrColIdxA, csrValA, B, C_cuda);
+
+    //host check
+    float* C_cpu = (float*)malloc(sizeof(float) * M * N);
+    memset(C_cpu, 0, sizeof(float) * M * N);
+    for (int i = 0; i < M; i++) {
+        for (int j = 0; j < N; j++) {
+            int 
+            for (int k = csrPtrA[i]; k < csrPtrA[i + 1]; k++) {
+                int col = csrColIdxA[k];
+                float value = (float)csrValA[k];
+                c_cpu[i * N + j] += value * (float)B[k * N + j];
+            }
+        }
+    }
+    for (int i = 0; i < M; i++) {
+        for (int j = 0; j < N; j++) {
+            if (fabs(C_cpu[i * N + j] - C_cuda[i * N + j]) > 0.01) {
+                printf("Error(%d, %d): %f %f\n", i, j, C_cpu[i * N + j], C_cuda[i * N + j]);
+            }
+        }
+    }
+    return 0;
 }
