@@ -300,11 +300,17 @@ class ArrayType(Enum):
     MASK = 5
 
 
+class DataType(Enum):
+    FLOAT = 0
+    INT = 1
+
+
 class ArrayDef:
     name: str
     axes: List[str]
     dims: List[Expr]
     type: ArrayType
+    datatype: DataType
 
     def __init__(
         self,
@@ -312,6 +318,7 @@ class ArrayDef:
         axes: List[str],
         dims: Sequence[Expr | int | str],
         type: ArrayType,
+        datatype: DataType,
     ):
         self.name = name
         self.axes = axes
@@ -326,6 +333,7 @@ class ArrayDef:
             else:
                 raise ValueError(f"Unsupported dimension type: {dim}")
         self.type = type
+        self.datatype = datatype
 
     def index_of(self, axis: str) -> Optional[int]:
         for i, dim in enumerate(self.axes):
@@ -450,12 +458,14 @@ DENSE_ARRAY_DEFS = ArrayDefCollection(
         axes=["X", "Y"],
         dims=["m", "n"],
         type=ArrayType.VAL,
+        datatype=DataType.FLOAT,
     ),
     B_val=ArrayDef(
         name="B_val",
         axes=["Y"],
         dims=["n"],
         type=ArrayType.B_VAL,
+        datatype=DataType.FLOAT,
     ),
 )
 
@@ -772,6 +782,7 @@ def apply_sparsify_transformation(
             axes=[axis.name] + array_def.axes[idx + 1 :],
             dims=[axis.length] + array_def.dims[idx + 1 :],
             type=ArrayType.VAL,
+            datatype=array_def.datatype,
         )
 
         sparse_idx_def = ArrayDef(
@@ -779,6 +790,7 @@ def apply_sparsify_transformation(
             axes=array_def.axes[: idx - 1] + [axis.name],
             dims=[axis.length] + array_def.dims[: idx - 1],
             type=ArrayType.IDX,
+            datatype=DataType.INT,
         )
 
         sparse_off_def = ArrayDef(
@@ -786,6 +798,7 @@ def apply_sparsify_transformation(
             axes=array_def.axes[:idx],
             dims=array_def.dims[:idx],
             type=ArrayType.OFFSET,
+            datatype=DataType.INT,
         )
         soff_array_name = sparse_off_def.name
 
@@ -926,18 +939,21 @@ def apply_cooize_transformation(
             axes=val_def.axes[:-2],
             dims=val_def.dims[:-2],
             type=ArrayType.OFFSET,
+            datatype=DataType.INT,
         )
         coo_idx_def = ArrayDef(
             name=val_def.name + "_coo_idx",
             axes=[f"{axis_x}_{axis_y}_coo"],
             dims=[VARLEN],
             type=ArrayType.COO_IDX,
+            datatype=DataType.INT,
         )
         coo_val_def = ArrayDef(
             name=val_def.name + "_coo_val",
             axes=[f"{axis_x}_{axis_y}_coo"],
             dims=[VARLEN],
             type=ArrayType.VAL,
+            datatype=val_def.datatype,
         )
         array_defs.replace([val_def.name], [coo_idx_def, coo_val_def, coo_off_def])
 
@@ -1011,18 +1027,21 @@ def apply_mcoize_transformation(
             axes=val_def.axes[:-2],
             dims=val_def.dims[:-2],
             type=ArrayType.MASK,
+            datatype=DataType.INT,
         )
         mco_val_def = ArrayDef(
             name=val_def.name + "_mco_val",
             axes=[f"{axis_x}_{axis_y}_mco"],
             dims=[VARLEN],
             type=ArrayType.VAL,
+            datatype=val_def.datatype,
         )
         mco_off_def = ArrayDef(
             name=val_def.name + "_mco_off",
             axes=val_def.axes[:-2],
             dims=val_def.dims[:-2],
             type=ArrayType.OFFSET,
+            datatype=DataType.INT,
         )
         array_defs.replace([val_def.name], [mco_mask_def, mco_val_def, mco_off_def])
 

@@ -1,5 +1,6 @@
 import argparse
 
+from sparsene.op_gen.opir import printer
 from sparsene.formats.DTC_SpMM import DTC_SPMM_FORMAT
 from sparsene.transform.rts import derive_rts
 from sparsene.op_gen.computent.computent import computent_from_rts
@@ -25,4 +26,4 @@ if __name__ == "__main__":
     logger.info(computent)
 
     ops = generate_from_computent(computent)
-    logger.info(str(ops[0]))
+    logger.info(printer.default_printer.dump(ops))

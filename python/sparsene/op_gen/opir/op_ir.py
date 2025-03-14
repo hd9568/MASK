@@ -11,11 +11,15 @@ class OpIrContext:
     type_cache: Dict[type, Type] = {}
 
     @overload
-    def get_type(self, t: type[IndexType]) -> IndexType: ...
+    def get_type(self, t: type[IntType]) -> IntType: ...
+    @overload
+    def get_type(self, t: type[FloatType]) -> FloatType: ...
     @overload
     def get_type(self, t: type[RangeType]) -> RangeType: ...
     @overload
-    def get_type(self, t: type[ArrayType], dims: List[Expr]) -> ArrayType: ...
+    def get_type(
+        self, t: type[ArrayType], dims: List[Expr], datatype: Type
+    ) -> ArrayType: ...
 
     def get_type(self, t: type, *args, **kwargs) -> Type:
         return t(*args, **kwargs)
@@ -34,7 +38,7 @@ class OpBuilder:
         op_type: type[ForLoopOp],
         induction_var: str,
         range: Tuple[Value, Value],
-        iter_args: Dict[str, Value],
+        iter_args: Dict[str, Value] = {},
     ) -> ForLoopOp: ...
     @overload
     def build(
@@ -47,7 +51,9 @@ class OpBuilder:
     @overload
     def build(self, op_type: type[ArrayRefOp], *args, **kwargs) -> ArrayRefOp: ...
     @overload
-    def build(self, op_type: type[DeviceOp], *args, **kwargs) -> DeviceOp: ...
+    def build(
+        self, op_type: type[DeviceOp], mem: str, operands: Sequence[Value]
+    ) -> DeviceOp: ...
     @overload
     def build(self, op_type: type[MetaOp]) -> MetaOp: ...
     @overload
@@ -67,30 +73,31 @@ class OpBuilder:
 
 @dataclass
 class Type:
-    @abstractmethod
-    def __str__(self) -> str: ...
+    pass
 
 
 @dataclass
-class IndexType(Type):
-    def __str__(self) -> str:
-        return "index"
+class IntType(Type):
+    pass
+
+
+@dataclass
+class FloatType(Type):
+    pass
 
 
 @dataclass
 class RangeType(Type):
-    def __str__(self) -> str:
-        return "range"
+    pass
 
 
 @dataclass
 class ArrayType(Type):
     dims: List[Expr]
-    # element_type: Type
+    datatype: Type
 
-    def __str__(self) -> str:
-        # return f"{self.element_type}[{']['.join(str(dim) for dim in self.dims)}]"
-        return f"array[{']['.join(str(dim) for dim in self.dims)}]"
+    # return f"{self.element_type}[{']['.join(str(dim) for dim in self.dims)}]"
+    # return f"array[{']['.join(str(dim) for dim in self.dims)}]"
 
 
 @dataclass(frozen=True, init=False)
@@ -98,7 +105,7 @@ class Value:
     name: str
     type: Type
     defining_op: Op
-    owner: Optional[Block]
+    owner: Block
     result_idx_in_owner: int
     is_defined_by_op: bool
 
@@ -114,25 +121,17 @@ class Value:
         if isinstance(defining_op_or_owner, Op):
             object.__setattr__(self, "owner", None)
             object.__setattr__(self, "defining_op", defining_op_or_owner)
-            object.__setattr__(self, "defined_by_op", True)
+            object.__setattr__(self, "is_defined_by_op", True)
         else:
             object.__setattr__(self, "owner", defining_op_or_owner)
-            object.__setattr__(self, "defined_by_op", False)
+            object.__setattr__(self, "defining_op", None)
+            object.__setattr__(self, "is_defined_by_op", False)
         object.__setattr__(self, "result_idx_in_owner", result_idx_in_owner)
-
-    def __repr__(self):
-        return f"Value(name={self.name}, type={self.type}, owner={self.owner }, result_idx_in_owner={self.result_idx_in_owner})"
-
-    def __str__(self) -> str:
-        return f"{self.name}: {self.type}"
 
 
 @dataclass(frozen=True)
 class OpOperand:
     source: Value
-
-    def __str__(self) -> str:
-        return f"{self.source}"
 
 
 class Op(ABC):
@@ -183,15 +182,9 @@ class Op(ABC):
     def result(self) -> Value:
         return self.get_result()
 
-    def __repr__(self):
-        return f"{self.name} {self.operands} -> {self.results}"
-
     @property
     @abstractmethod
     def name(self) -> str: ...
-
-    @abstractmethod
-    def __str__(self) -> str: ...
 
 
 class ExternalSymbolOperation(Op):
@@ -212,9 +205,6 @@ class ExternalSymbolOperation(Op):
     @property
     def name(self) -> str:
         return "external_symbol"
-
-    def __str__(self) -> str:
-        return f"external @{self.attributes['symbol']}: {self.result.type})"
 
 
 class ConstantOp(Op):
@@ -240,9 +230,6 @@ class ConstantOp(Op):
     def name(self) -> str:
         return "constant"
 
-    def __str__(self) -> str:
-        return f"constant(value={self.attributes['value']}): {self.result.type}"
-
 
 class ArrayViewOp(Op):
     def name(self) -> str:
@@ -255,15 +242,14 @@ class ArrayViewOp(Op):
             results=[
                 Value(
                     name="array_view",
-                    type=context.get_type(ArrayType, array.type.dims[len(indices) :]),
+                    type=context.get_type(
+                        ArrayType, array.type.dims[len(indices) :], array.type.datatype
+                    ),
                     defining_op_or_owner=self,
                     result_idx_in_owner=0,
                 ),
             ],
         )
-
-    def __str__(self) -> str:
-        return f"array_view(array={self.operands[0].source}): {self.result.type}"
 
 
 class NoOp(Op):
@@ -278,9 +264,6 @@ class NoOp(Op):
     def name(self) -> str:
         return "nop"
 
-    def __str__(self) -> str:
-        return f"nop"
-
 
 class ArrayRefOp(Op):
     def __init__(self, array: Value, indices: Sequence[Value]):
@@ -290,7 +273,9 @@ class ArrayRefOp(Op):
             results=[
                 Value(
                     name="array_ref",
-                    type=context.get_type(ArrayType, array.type.dims[len(indices) :]),
+                    type=context.get_type(
+                        ArrayType, array.type.dims[len(indices) :], array.type.datatype
+                    ),
                     defining_op_or_owner=self,
                     result_idx_in_owner=0,
                 ),
@@ -300,9 +285,6 @@ class ArrayRefOp(Op):
     @property
     def name(self) -> str:
         return "array_ref"
-
-    def __str__(self) -> str:
-        return f"array_ref(array={self.operands[0].source}, indices={', '.join([str(index) for index in self.operands[1:]])}): {self.result.type}"
 
 
 class DeviceOp(Op):
@@ -317,13 +299,6 @@ class DeviceOp(Op):
         super().__init__(operands, results)
         self.set_attribute("mem", mem)
 
-    @property
-    def name(self) -> str:
-        return "device"
-
-    def __str__(self) -> str:
-        return f"{self.name}({', '.join([str(operand) for operand in self.operands])}) attr={self.attributes}: {', '.join([str(result) for result in self.results])}"
-
 
 class Block:
     operations: List[Op]
@@ -337,9 +312,6 @@ class Block:
 
     def add_operation(self, op: Op):
         self.operations.append(op)
-
-    def __str__(self) -> str:
-        return f"block(ops=[{';\n '.join([str(op) for op in self.operations])}], args={', '.join([str(arg) for arg in self.arguments])})"
 
 
 class MetaOp(Op):
@@ -356,9 +328,6 @@ class MetaOp(Op):
     @property
     def name(self) -> str:
         return "meta"
-
-    def __str__(self) -> str:
-        return f"meta(ops={', '.join([str(op) for op in self.block.operations])}, args={', '.join([str(arg) for arg in self.block.arguments])})"
 
 
 class ForLoopOp(Op):
@@ -378,7 +347,7 @@ class ForLoopOp(Op):
         )
         self.body = Block(self)
         self.body.arguments.append(
-            Value(induction_var, context.get_type(IndexType), self.body, 0)
+            Value(induction_var, context.get_type(IntType), self.body, 0)
         )
         for name, arg in iter_args.items():
             self.body.arguments.append(Value(name, arg.type, self.body, 0))
@@ -392,9 +361,6 @@ class ForLoopOp(Op):
 
     def get_iter_arg(self, idx: int) -> Value:
         return self.body.arguments[idx + 1]
-
-    def __str__(self) -> str:
-        return f"for_loop {self.get_induction_var()} = {self.operands[0]} to {self.operands[1]} iter_args({', '.join([str(arg) for arg in self.body.arguments[1:]])}) body={self.body})"
 
 
 class SymbolTable:

@@ -13,6 +13,7 @@ from sparsene.op_gen.computent.computent import (
     AtomicFormatOp,
     AtomicFormatType,
     ArrayRef,
+    DataType,
 )
 from dataclasses import dataclass
 from sparsene.op_gen.opir.op_ir import (
@@ -24,7 +25,7 @@ from sparsene.op_gen.opir.op_ir import (
     ForLoopOp,
     ArrayRefOp,
     Value,
-    IndexType,
+    IntType,
     MetaOp,
     ExternalSymbolOperation,
     op_builder,
@@ -32,10 +33,10 @@ from sparsene.op_gen.opir.op_ir import (
     Type,
     ArrayType,
     OpOperand,
+    FloatType,
 )
 from sparsene.op_gen.opir.ops import (
     SparseOffsetLoadOp,
-    GetFromRangeOp,
     CooAtomicFormatLoadOffOp,
     CooAtomicFormatLoadIdxOp,
     CooAtomicFormatLoadValOp,
@@ -47,9 +48,19 @@ from sparsene.op_gen.opir.ops import (
 )
 
 
+def datatype_to_type(datatype: DataType) -> Type:
+    match datatype:
+        case DataType.FLOAT:
+            return context.get_type(FloatType)
+        case DataType.INT:
+            return context.get_type(IntType)
+        case _:
+            raise ValueError(f"Unsupported datatype: {datatype}")
+
+
 def get_array_type(array_def: ArrayDef) -> Type:
     dims = list(array_def.dims)
-    return ArrayType(dims)
+    return ArrayType(dims, datatype_to_type(array_def.datatype))
 
 
 def generate_from_computent(computent: Computent) -> List[Op]:
@@ -94,9 +105,9 @@ def generate_from_dense_axis_iterator(
     format: Format,
     parent_schedule: Optional[Schedule] = None,
 ) -> List[Op]:
-    l = op_builder.build(ConstantOp, 0, context.get_type(IndexType))
+    l = op_builder.build(ConstantOp, 0, context.get_type(IntType))
     r = op_builder.build(
-        ConstantOp, format.get_axis(schedule.axis).length, context.get_type(IndexType)
+        ConstantOp, format.get_axis(schedule.axis).length, context.get_type(IntType)
     )
 
     for_loop_op = op_builder.build(
@@ -157,7 +168,10 @@ def generate_from_sparse_axis_iterator(
     C_val_tile = op_builder.build(
         ConstantOp,
         0,
-        ArrayType([format.get_axis(schedule.axis).length]),
+        ArrayType(
+            [format.get_axis(schedule.axis).length],
+            context.get_type(FloatType),
+        ),
     )
     ops.append(C_val_tile)
 
@@ -170,6 +184,26 @@ def generate_from_sparse_axis_iterator(
         },
     )
     ops.append(for_loop_op)
+
+    if isinstance(schedule.body, AtomicFormatOp):
+        body_ops = generate_from_atomic_format_op(schedule.body, array_defs, format)
+    elif isinstance(schedule.body, DenseAxisIterator):
+        raise NotImplementedError(
+            "Dense axis iterator as body of sparse axis iterator is not implemented"
+        )
+    elif isinstance(schedule.body, SparseAxisIterator):
+        raise NotImplementedError(
+            "Sparse axis iterator as body of sparse axis iterator is not implemented"
+        )
+    elif isinstance(schedule.body, SparseAxisSlicer):
+        raise NotImplementedError(
+            "Sparse axis slicer as body of sparse axis iterator is not implemented"
+        )
+    else:
+        raise ValueError(f"Unsupported schedule type: {type(schedule.body)}")
+
+    for body_op in body_ops:
+        for_loop_op.body.add_operation(body_op)
 
     C_val_store_op = op_builder.build(
         CValStoreOp,
@@ -240,7 +274,7 @@ def build_array_ref_indices(
             index = op_builder.build(
                 ExternalSymbolOperation,
                 index,
-                context.get_type(IndexType),
+                context.get_type(IntType),
             )
         indices.append(index)
     return indices
@@ -339,7 +373,7 @@ def generate_from_coo_atomic_format_op(
         operands=[
             coo_idx,
             *build_array_ref_indices(schedule.args[1], array_defs, format),
-            lr,
+            *lr.results,
         ],
     )
     ops.append(coo_idx)
@@ -350,7 +384,7 @@ def generate_from_coo_atomic_format_op(
         operands=[
             coo_val,
             *build_array_ref_indices(schedule.args[2], array_defs, format),
-            lr,
+            *lr.results,
         ],
     )
     ops.append(coo_val)
