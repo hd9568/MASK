@@ -1,25 +1,10 @@
 from __future__ import annotations
 
-from sparsene.op_gen.rts_parser import computent_from_rts, Computent
-from sparsene.model.stage import Stage
-from sparsene.model.format import Format, Expr, Symbol, Number
-from sparsene.op_gen.rts_parser import ArrayDefCollection
-from typing import Any, List, Optional, Dict, Literal, Tuple, Sequence
-from sparsene.op_gen.rts_parser import (
-    Schedule,
-    DenseAxisIterator,
-    SparseAxisIterator,
-    SparseAxisSlicer,
-    AtomicFormatOp,
-    AtomicFormatType,
-)
+from typing import Sequence
+
 from dataclasses import dataclass
-from sparsene.op_gen.op_ir import (
-    Op,
+from sparsene.op_gen.opir.op_ir import (
     DeviceOp,
-    OpBuilder,
-    SymbolTable,
-    ForLoopOp,
     Value,
     IndexType,
     context,

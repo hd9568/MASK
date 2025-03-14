@@ -1,6 +1,6 @@
 from collections import OrderedDict
 
-from sparsene.model.format import (
+from sparsene.format.format import (
     Direction,
     Format,
     coo_atomic_format,
@@ -9,8 +9,8 @@ from sparsene.model.format import (
     Expr,
     Symbol,
 )
-from sparsene.model.op import Op
-from sparsene.model.param import Params, Param
+from sparsene.op_gen.nvir.op import Op
+from sparsene.op_gen.nvir.param import Params, Param
 
 DTC_SPMM_FORMAT = Format(
     name="DTC-SpMM",

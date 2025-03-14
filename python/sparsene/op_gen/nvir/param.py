@@ -114,18 +114,22 @@ class Param:
 
 
 class Params:
-    HW_IDX: OrderedDict[str, Param] = OrderedDict([
-        ("block_idx_x", Param("block_idx_x", "int")),
-        ("lane_id", Param("lane_id", "int")),
-    ])
+    HW_IDX: OrderedDict[str, Param] = OrderedDict(
+        [
+            ("block_idx_x", Param("block_idx_x", "int")),
+            ("lane_id", Param("lane_id", "int")),
+        ]
+    )
 
-    def __init__(self,
-                 sw_idx: OrderedDict[str, Param] = OrderedDict(),
-                 const: OrderedDict[str, Param] = OrderedDict(),
-                 gmem: OrderedDict[str, Param] = OrderedDict(),
-                 smem: OrderedDict[str, Param] = OrderedDict(),
-                 reg: OrderedDict[str, Param] = OrderedDict(),
-                 is_global: bool = False):
+    def __init__(
+        self,
+        sw_idx: OrderedDict[str, Param] = OrderedDict(),
+        const: OrderedDict[str, Param] = OrderedDict(),
+        gmem: OrderedDict[str, Param] = OrderedDict(),
+        smem: OrderedDict[str, Param] = OrderedDict(),
+        reg: OrderedDict[str, Param] = OrderedDict(),
+        is_global: bool = False,
+    ):
         self.sw_idx: OrderedDict[str, Param] = OrderedDict(sw_idx)
         self.const: OrderedDict[str, Param] = OrderedDict(const)
         self.gmem: OrderedDict[str, Param] = OrderedDict(gmem)
@@ -145,15 +149,18 @@ class Params:
         return param_list
 
     def gen_arg_list(self, **kwargs) -> str:
-        args = [kwargs[pn] for pn in chain(
-            self.HW_IDX if not self.is_global else [],
-            self.sw_idx,
-            self.const,
-            self.gmem,
-            self.smem,
-            self.reg,
-        )]
-        return ', '.join(map(str, args))
+        args = [
+            kwargs[pn]
+            for pn in chain(
+                self.HW_IDX if not self.is_global else [],
+                self.sw_idx,
+                self.const,
+                self.gmem,
+                self.smem,
+                self.reg,
+            )
+        ]
+        return ", ".join(map(str, args))
 
     def default_kwargs(self):
         return {

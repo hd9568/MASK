@@ -6,7 +6,7 @@ from typing import List
 
 import networkx as nx
 
-from sparsene.model.param import Params
+from .param import Params
 from sparsene.utils.source import indent
 
 NUM_RES_GROUPS_VAR_NAME = "_v_num_res_groups"
@@ -27,8 +27,13 @@ class OpBase(ABC):
         pass
 
     @abstractmethod
-    def gen_targ_list(self, shifts: List[int | str], num_res_groups: int | str, reg_ids: List[int | str],
-                      wait_num: int | str) -> str:
+    def gen_targ_list(
+        self,
+        shifts: List[int | str],
+        num_res_groups: int | str,
+        reg_ids: List[int | str],
+        wait_num: int | str,
+    ) -> str:
         pass
 
     @abstractmethod
@@ -44,8 +49,14 @@ class OpBase(ABC):
         pass
 
     @abstractmethod
-    def gen_func_call(self, shifts: List[int | str], num_res_groups: int | str, reg_ids: List[int | str],
-                      wait_num: int | str, **kwargs) -> str:
+    def gen_func_call(
+        self,
+        shifts: List[int | str],
+        num_res_groups: int | str,
+        reg_ids: List[int | str],
+        wait_num: int | str,
+        **kwargs,
+    ) -> str:
         pass
 
     @abstractmethod
@@ -69,8 +80,13 @@ class Op(OpBase):
             [(WAIT_NUM_VAR_NAME, "int",)],
         ))}>"
 
-    def gen_targ_list(self, shifts: List[int | str], num_res_groups: int | str, reg_ids: List[int | str],
-                      wait_num: int | str) -> str:
+    def gen_targ_list(
+        self,
+        shifts: List[int | str],
+        num_res_groups: int | str,
+        reg_ids: List[int | str],
+        wait_num: int | str,
+    ) -> str:
         return f"<{', '.join(map(str, chain(
             shifts, [num_res_groups], reg_ids, [wait_num]
         )))}>"
@@ -107,10 +123,12 @@ class Op(OpBase):
         body_src = self.gen_func_body(num_stages)
         param_list_src = self.gen_param_list()
 
-        func_src = ("{{tparam_list}}\n"
-                    "__device__ void {{name}}{{param_list}} {\n"
-                    "{{body}}\n"
-                    "}")
+        func_src = (
+            "{{tparam_list}}\n"
+            "__device__ void {{name}}{{param_list}} {\n"
+            "{{body}}\n"
+            "}"
+        )
 
         func_src = func_src.replace("{{name}}", self.name)
         func_src = func_src.replace("{{tparam_list}}", tparam_list_src)
@@ -119,14 +137,18 @@ class Op(OpBase):
 
         return func_src
 
-    def gen_func_call(self, shifts: List[int | str], num_res_groups: int | str, reg_ids: List[int | str],
-                      wait_num: int | str, **kwargs) -> str:
+    def gen_func_call(
+        self,
+        shifts: List[int | str],
+        num_res_groups: int | str,
+        reg_ids: List[int | str],
+        wait_num: int | str,
+        **kwargs,
+    ) -> str:
         targ_list_src = self.gen_targ_list(shifts, num_res_groups, reg_ids, wait_num)
         arg_list_src = self.gen_arg_list(**kwargs)
 
-        func_call_src = ("{{name}}{{targ_list}}(\n"
-                         "    {{arg_list}}\n"
-                         ");")
+        func_call_src = "{{name}}{{targ_list}}(\n" "    {{arg_list}}\n" ");"
 
         func_call_src = func_call_src.replace("{{name}}", self.name)
         func_call_src = func_call_src.replace("{{targ_list}}", targ_list_src)
@@ -136,11 +158,11 @@ class Op(OpBase):
 
     def gen_default_func_call(self, num_stages) -> str:
         return self.gen_func_call(
-            shifts=[f'_v_shift{i}' for i in range(num_stages)],
+            shifts=[f"_v_shift{i}" for i in range(num_stages)],
             num_res_groups=NUM_RES_GROUPS_VAR_NAME,
-            reg_ids=[f'_v_r{i}' for i in range(num_stages + 1)],
+            reg_ids=[f"_v_r{i}" for i in range(num_stages + 1)],
             wait_num=WAIT_NUM_VAR_NAME,
-            **self.get_params().default_kwargs()
+            **self.get_params().default_kwargs(),
         )
 
 
@@ -178,8 +200,13 @@ class SequentialOp(OpBase):
             [(WAIT_NUM_VAR_NAME, "int",)],
         ))}>"
 
-    def gen_targ_list(self, shifts: List[int | str], num_res_groups: int | str, reg_ids: List[int | str],
-                      wait_num: int | str) -> str:
+    def gen_targ_list(
+        self,
+        shifts: List[int | str],
+        num_res_groups: int | str,
+        reg_ids: List[int | str],
+        wait_num: int | str,
+    ) -> str:
         return f"<{', '.join(map(str, chain(
             shifts, [num_res_groups], reg_ids, [wait_num]
         )))}>"
@@ -191,17 +218,21 @@ class SequentialOp(OpBase):
         return self.params.gen_arg_list(**kwargs)
 
     def gen_func_body(self, num_stages: int) -> str:
-        return '\n'.join(map(lambda op: indent(op.gen_default_func_call(num_stages)), self.ops))
+        return "\n".join(
+            map(lambda op: indent(op.gen_default_func_call(num_stages)), self.ops)
+        )
 
     def gen_func_def(self, num_stages: int) -> str:
         tparam_list_src = self.gen_tparam_list(num_stages)
         body_src = self.gen_func_body(num_stages)
         param_list_src = self.gen_param_list()
 
-        func_src = ("{{tparam_list}}\n"
-                    "__device__ void {{name}}{{param_list}} {\n"
-                    "{{body}}\n"
-                    "}")
+        func_src = (
+            "{{tparam_list}}\n"
+            "__device__ void {{name}}{{param_list}} {\n"
+            "{{body}}\n"
+            "}"
+        )
 
         func_src = func_src.replace("{{name}}", self.name)
         func_src = func_src.replace("{{tparam_list}}", tparam_list_src)
@@ -209,14 +240,18 @@ class SequentialOp(OpBase):
         func_src = func_src.replace("{{body}}", body_src.strip("\n"))
         return func_src
 
-    def gen_func_call(self, shifts: List[int | str], num_res_groups: int | str, reg_ids: List[int | str],
-                      wait_num: int | str, **kwargs) -> str:
+    def gen_func_call(
+        self,
+        shifts: List[int | str],
+        num_res_groups: int | str,
+        reg_ids: List[int | str],
+        wait_num: int | str,
+        **kwargs,
+    ) -> str:
         targ_list_src = self.gen_targ_list(shifts, num_res_groups, reg_ids, wait_num)
         arg_list_src = self.gen_arg_list(**kwargs)
 
-        func_call_src = ("{{name}}{{targ_list}}(\n"
-                         "    {{arg_list}}\n"
-                         ");")
+        func_call_src = "{{name}}{{targ_list}}(\n" "    {{arg_list}}\n" ");"
 
         func_call_src = func_call_src.replace("{{name}}", self.name)
         func_call_src = func_call_src.replace("{{targ_list}}", targ_list_src)
@@ -226,9 +261,9 @@ class SequentialOp(OpBase):
 
     def gen_default_func_call(self, num_stages) -> str:
         return self.gen_func_call(
-            shifts=[f'_v_shift{i}' for i in range(num_stages)],
+            shifts=[f"_v_shift{i}" for i in range(num_stages)],
             num_res_groups=NUM_RES_GROUPS_VAR_NAME,
-            reg_ids=[f'_v_r{i}' for i in range(num_stages + 1)],
+            reg_ids=[f"_v_r{i}" for i in range(num_stages + 1)],
             wait_num=WAIT_NUM_VAR_NAME,
-            **self.get_params().default_kwargs()
+            **self.get_params().default_kwargs(),
         )

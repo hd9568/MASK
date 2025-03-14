@@ -6,7 +6,7 @@ from sparsene.utils.source import indent
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Iterator, List, Optional, Dict, Tuple, Iterable, Sequence, Any
-from sparsene.model.transformation import (
+from sparsene.transform.transformation import (
     Transformation,
     TransformationSequence,
     SplitTransformation,
@@ -16,7 +16,7 @@ from sparsene.model.transformation import (
     CooizeTransformation,
     McoizeTransformation,
 )
-from sparsene.model.format import (
+from sparsene.format.format import (
     Direction,
     Format,
     AtomicFormat,

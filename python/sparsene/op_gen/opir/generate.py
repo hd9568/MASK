@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from sparsene.op_gen.rts_parser import computent_from_rts, Computent, ArrayDef
-from sparsene.model.stage import Stage
-from sparsene.model.format import Format, Expr, Symbol, Number
-from sparsene.op_gen.rts_parser import ArrayDefCollection
+from sparsene.op_gen.computent.computent import computent_from_rts, Computent, ArrayDef
+from sparsene.op_gen.nvir.stage import Stage
+from sparsene.format.format import Format, Expr, Symbol, Number
+from sparsene.op_gen.computent.computent import ArrayDefCollection
 from typing import Any, List, Optional, Dict, Literal, Tuple
-from sparsene.op_gen.rts_parser import (
+from sparsene.op_gen.computent.computent import (
     Schedule,
     DenseAxisIterator,
     SparseAxisIterator,
@@ -15,7 +15,7 @@ from sparsene.op_gen.rts_parser import (
     ArrayRef,
 )
 from dataclasses import dataclass
-from sparsene.op_gen.op_ir import (
+from sparsene.op_gen.opir.op_ir import (
     Op,
     DeviceOp,
     OpBuilder,
@@ -33,7 +33,7 @@ from sparsene.op_gen.op_ir import (
     ArrayType,
     OpOperand,
 )
-from sparsene.op_gen.ops import (
+from sparsene.op_gen.opir.ops import (
     SparseOffsetLoadOp,
     GetFromRangeOp,
     CooAtomicFormatLoadOffOp,

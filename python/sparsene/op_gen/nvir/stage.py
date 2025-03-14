@@ -2,8 +2,8 @@ from itertools import chain
 from typing import List
 from dataclasses import dataclass, field
 
-from sparsene.model.op import NUM_RES_GROUPS_VAR_NAME, SequentialOp
-from sparsene.model.param import Params
+from .op import NUM_RES_GROUPS_VAR_NAME, SequentialOp
+from .param import Params
 
 
 @dataclass(kw_only=True)
@@ -16,7 +16,7 @@ class Stage:
 
     def gen_all_kernels(self, num_stages: int) -> str:
         op_kernels = map(lambda op: op.gen_func_def(num_stages), self.seq.ops)
-        return '\n'.join(chain(op_kernels, [self.seq.gen_func_def(num_stages)]))
+        return "\n".join(chain(op_kernels, [self.seq.gen_func_def(num_stages)]))
 
 
 @dataclass(kw_only=True)
@@ -27,9 +27,7 @@ class Pipeline:
     params: Params = field(init=False)
 
     def __post_init__(self):
-        params = Params(
-            is_global=True
-        )
+        params = Params(is_global=True)
         for stage in self.stages:
             opp = stage.seq.get_params()
             params.const.update(opp.const)
@@ -62,10 +60,12 @@ class Pipeline:
         return f"<{', '.join(map(str, chain(self.shifts, [self.num_res_groups()])))}>"
 
     def gen_global_func_def(self):
-        kernel_src = ("{{tparam_list}}\n"
-                      "__global__ void {{name}}{{param_list}} {\n"
-                      "{{body}}\n"
-                      "}")
+        kernel_src = (
+            "{{tparam_list}}\n"
+            "__global__ void {{name}}{{param_list}} {\n"
+            "{{body}}\n"
+            "}"
+        )
 
         tparam_list_src = self.gen_global_tparam_list()
         param_list_src = self.gen_global_param_list()
@@ -82,8 +82,10 @@ class Pipeline:
         return self.gen_global_func_def()
 
     def gen_all_kernels(self) -> str:
-        stage_kernels = map(lambda stage: stage.gen_all_kernels(len(self.stages)), self.stages)
-        return '\n'.join(chain(stage_kernels, [self.gen_kernel()]))
+        stage_kernels = map(
+            lambda stage: stage.gen_all_kernels(len(self.stages)), self.stages
+        )
+        return "\n".join(chain(stage_kernels, [self.gen_kernel()]))
 
     def gen_short_pipe_impl(self, num_steps: int) -> str:
         # TODO

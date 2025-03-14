@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sparsene.model.format import Expr, Symbol, Number
+from sparsene.format.format import Expr, Symbol, Number
 from typing import Any, List, Dict, Tuple, overload, Sequence, Optional
 from dataclasses import dataclass
 from copy import deepcopy

@@ -2,8 +2,8 @@ import argparse
 
 from sparsene.formats.DTC_SpMM import DTC_SPMM_FORMAT
 from sparsene.transform.rts import derive_rts
-from sparsene.op_gen.rts_parser import computent_from_rts
-from sparsene.op_gen.generate import generate_from_computent
+from sparsene.op_gen.computent.computent import computent_from_rts
+from sparsene.op_gen.opir.generate import generate_from_computent
 from sparsene.logging import get_logger, set_logging_level_for_all
 
 

@@ -1,16 +1,11 @@
 from typing import List
-from collections import OrderedDict
-from sparsene.model.format import (
+from sparsene.format.format import (
     Direction,
     Format,
     AtomicFormat,
-    df_axis,
-    sv_axis,
     Axis,
 )
-from sparsene.model.op import Op
-from sparsene.model.param import Params
-from sparsene.model.transformation import (
+from sparsene.transform.transformation import (
     TransformationSequence,
     GoUpTransformation,
     MergeTransformation,

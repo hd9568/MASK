@@ -1,4 +1,4 @@
-from sparsene.model.format import Direction, Format, df_axis
+from sparsene.format.format import Direction, Format, df_axis
 from copy import deepcopy
 
 DENSE_FORMAT = Format(

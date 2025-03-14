@@ -1,8 +1,6 @@
 from collections import OrderedDict
 
-from sparsene.model.format import Direction, Format, dense_atomic_format, df_axis, sv_axis
-from sparsene.model.op import Op
-from sparsene.model.param import Params
+from sparsene.format.format import Direction, Format, dense_atomic_format, df_axis, sv_axis
 
 # df_axis: dense fixed-length axis
 # sv_axis: sparse variable-length axis
