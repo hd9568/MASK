@@ -56,7 +56,7 @@ class Printer:
         induction_var = self.dump_value(op.get_induction_var())
         start = self.dump_op_operand(op.operands[0])
         end = self.dump_op_operand(op.operands[1])
-        iter_args = [self.dump_value(arg) for arg in op.body.arguments[1:]]
+        iter_args = [self.dump_value(arg) for arg in op.body.args[1:]]
         body = self.dump_block(op.body)
 
         # Only split when there's a newline in the output
@@ -99,10 +99,10 @@ class Printer:
         ops_str = ";\n".join(
             [
                 self._indent_lines(self.dump_op(op, level + 1), level + 1)
-                for op in op.block.operations
+                for op in op.block.ops
             ]
         )
-        args_str = ", ".join([self.dump_value(arg) for arg in op.block.arguments])
+        args_str = ", ".join([self.dump_value(arg) for arg in op.block.args])
 
         # Only split when there's a newline in the output
         return self._indent_lines(
@@ -198,9 +198,9 @@ class Printer:
 
     def dump_block(self, block: Block, level: int = 0) -> str:
         ops_str = "\n".join(
-            [self._indent_lines(self.dump_op(op), 1) + ";" for op in block.operations]
+            [self._indent_lines(self.dump_op(op), 1) + ";" for op in block.ops]
         )
-        args_str = ", ".join([self.dump_value(arg) for arg in block.arguments])
+        args_str = ", ".join([self.dump_value(arg) for arg in block.args])
 
         # Only split when there's a newline in the output
         return self._indent_lines(f"{{\n" f"{ops_str}\n}} args ({args_str})\n", level)

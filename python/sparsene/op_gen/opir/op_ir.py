@@ -301,17 +301,17 @@ class DeviceOp(Op):
 
 
 class Block:
-    operations: List[Op]
-    arguments: List[Value]
+    ops: List[Op]
+    args: List[Value]
     owner: Op
 
     def __init__(self, owner: Op):
-        self.operations = []
-        self.arguments = []
+        self.ops = []
+        self.args = []
         self.owner = owner
 
     def add_operation(self, op: Op):
-        self.operations.append(op)
+        self.ops.append(op)
 
 
 class MetaOp(Op):
@@ -346,21 +346,21 @@ class ForLoopOp(Op):
             results=[],
         )
         self.body = Block(self)
-        self.body.arguments.append(
+        self.body.args.append(
             Value(induction_var, context.get_type(IntType), self.body, 0)
         )
         for name, arg in iter_args.items():
-            self.body.arguments.append(Value(name, arg.type, self.body, 0))
+            self.body.args.append(Value(name, arg.type, self.body, 0))
 
     @property
     def name(self) -> str:
         return "for_loop"
 
     def get_induction_var(self) -> Value:
-        return self.body.arguments[0]
+        return self.body.args[0]
 
     def get_iter_arg(self, idx: int) -> Value:
-        return self.body.arguments[idx + 1]
+        return self.body.args[idx + 1]
 
 
 class SymbolTable:
