@@ -10,10 +10,18 @@ from abc import ABC, abstractmethod
 class OpIrContext:
     type_cache: Dict[type, Type] = {}
 
+    @overload
+    def get_type(self, t: type[IndexType]) -> IndexType: ...
+    @overload
+    def get_type(self, t: type[RangeType]) -> RangeType: ...
+    @overload
+    def get_type(self, t: type[ArrayType], dims: List[Expr]) -> ArrayType: ...
+
     def get_type(self, t: type, *args, **kwargs) -> Type:
-        if t not in self.type_cache:
-            self.type_cache[t] = t(*args, **kwargs)
-        return self.type_cache[t]
+        return t(*args, **kwargs)
+        # if t not in self.type_cache:
+        #     self.type_cache[t] = t(*args, **kwargs)
+        # return self.type_cache[t]
 
 
 class OpBuilder:
@@ -213,6 +221,20 @@ class NoOp(Op):
 
 
 class ArrayRefOp(Op):
+    def __init__(self, array: Value, indices: Sequence[Value]):
+        assert isinstance(array.type, ArrayType)
+        super().__init__(
+            operands=[OpOperand(array)] + [OpOperand(index) for index in indices],
+            results=[
+                Value(
+                    name="array_ref",
+                    type=context.get_type(ArrayType, array.type.dims[len(indices) :]),
+                    defining_op_or_owner=self,
+                    result_idx_in_owner=0,
+                ),
+            ],
+        )
+
     @property
     def name(self) -> str:
         return "array_ref"
@@ -225,6 +247,10 @@ class DeviceOp(Op):
     Attributes:
         mem: Literal["G2S", "G2R", "S2R", "R2S", "R2G", "S2G", "R2R"]
     """
+
+    def __init__(self, mem: str, operands: Sequence[Value], results: Sequence[Value]):
+        super().__init__(operands, results)
+        self.set_attribute("mem", mem)
 
     @property
     def name(self) -> str:
@@ -286,10 +312,10 @@ class ForLoopOp(Op):
     @property
     def name(self) -> str:
         return "for_loop"
-    
+
     def get_induction_var(self) -> Value:
         return self.body.arguments[0]
-    
+
     def get_iter_arg(self, idx: int) -> Value:
         return self.body.arguments[idx + 1]
 

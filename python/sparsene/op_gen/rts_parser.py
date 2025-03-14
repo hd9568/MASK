@@ -3,7 +3,7 @@ from abc import ABC, abstractmethod
 from typing import overload, Any
 from copy import deepcopy
 from sparsene.utils.source import indent
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import Iterator, List, Optional, Dict, Tuple, Iterable
 from sparsene.model.transformation import (
@@ -206,7 +206,7 @@ class AxisVisitor(Schedule, ABC):
     name: str = ""
     axis: str
     body: Schedule
-    metadata: Dict[str, Any] = {}
+    metadata: Dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self):
         if self.name == "":
@@ -503,6 +503,7 @@ def apply_split_transformation(
             parent=axis_ref.get_parent(),
         )
         assert isinstance(axis_ref.body, AtomicFormatOp)
+        axis_ref.body.parent = new_axis_ref
         if axis_ref.body.axes[0] == axis_to_split.name:
             axis_ref.body.axes = new_axis_inner.name, axis_ref.body.axes[1]
         elif axis_ref.body.axes[1] == axis_to_split.name:
@@ -541,6 +542,7 @@ def apply_split_transformation(
                 parent_axis_ref.body = new_axis_ref
             else:
                 schedule = new_axis_ref
+            axis_ref.parent = new_axis_ref
 
             # Insert a new dense dim index of x_o into array refs
             # Maybe always append to the tail of the refs?
@@ -576,6 +578,7 @@ def apply_split_transformation(
                 parent_axis_ref.body = new_outer_dense_axis_iter
             else:
                 schedule = new_outer_dense_axis_iter
+            axis_ref.parent = new_outer_dense_axis_iter
         else:
             raise ValueError(
                 f"None of the axes match {axis_to_split.name}: {axis_ref.axes}"
@@ -1012,6 +1015,7 @@ def add_metadata(schedule: Optional[Schedule], format: Format) -> None:
 
 def computent_from_rts(name: str, rts: TransformationSequence) -> Computent:
     format = get_dense_format()
+    print(format)
     root_format = Format(axes=[], child=format)
     parent_format = root_format
     schedule = deepcopy(DENSE_SCHEDULE)

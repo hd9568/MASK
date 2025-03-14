@@ -28,9 +28,9 @@ from sparsene.op_gen.op_ir import (
 
 @dataclass
 class SparseOffsetLoadOp(DeviceOp):
-
     def __init__(self, mem: str, operands: Sequence[Value]):
         super().__init__(
+            mem=mem,
             operands=operands,
             results=[
                 Value(
@@ -47,44 +47,93 @@ class SparseOffsetLoadOp(DeviceOp):
                 ),
             ],
         )
-        self.add_attribute("mem", mem)
 
 
 @dataclass
 class GetFromRangeOp(DeviceOp):
-    pass
+    def __init__(self, mem: str, operands: Sequence[Value]):
+        super().__init__(
+            mem=mem,
+            operands=operands,
+            results=[],
+        )
 
 
 @dataclass
 class CooAtomicFormatLoadOffOp(DeviceOp):
-    pass
+    def __init__(self, mem: str, operands: Sequence[Value]):
+        super().__init__(
+            mem=mem,
+            operands=operands,
+            results=[],
+        )
 
 
 @dataclass
 class CooAtomicFormatLoadIdxOp(DeviceOp):
-    pass
+    def __init__(self, mem: str, operands: Sequence[Value]):
+        super().__init__(
+            mem=mem,
+            operands=operands,
+            results=[],
+        )
 
 
 @dataclass
 class CooAtomicFormatLoadValOp(DeviceOp):
-    pass
+    def __init__(self, mem: str, operands: Sequence[Value]):
+        super().__init__(
+            mem=mem,
+            operands=operands,
+            results=[],
+        )
 
 
 @dataclass
 class ValSidxLoadOp(DeviceOp):
-    pass
+    def __init__(self, mem: str, operands: Sequence[Value]):
+        super().__init__(
+            mem=mem,
+            operands=operands,
+            results=[],
+        )
 
 
 @dataclass
 class BValLoadOp(DeviceOp):
-    pass
+    def __init__(self, mem: str, operands: Sequence[Value]):
+        super().__init__(
+            mem=mem,
+            operands=operands,
+            results=[],
+        )
 
 
 @dataclass
 class CooAtomicValRestoreOp(DeviceOp):
-    pass
+    def __init__(self, mem: str, operands: Sequence[Value]):
+        super().__init__(
+            mem=mem,
+            operands=operands,
+            results=[],
+        )
 
 
 @dataclass
-class MmaOp(Op):
-    pass
+class MmaOp(DeviceOp):
+    def __init__(self, mem: str, operands: Sequence[Value]):
+        super().__init__(
+            mem=mem,
+            operands=operands,
+            results=[],
+        )
+
+
+@dataclass
+class CValStoreOp(DeviceOp):
+    def __init__(self, mem: str, operands: Sequence[Value]):
+        super().__init__(
+            mem=mem,
+            operands=operands,
+            results=[],
+        )
