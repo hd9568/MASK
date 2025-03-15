@@ -29,7 +29,6 @@ from sparsene.op_gen.opir.op_ir import (
     MetaOp,
     ExternalSymbolOperation,
     op_builder,
-    context,
     Type,
     ArrayType,
     OpOperand,
@@ -53,9 +52,9 @@ from sparsene.op_gen.opir.ops import (
 def datatype_to_type(datatype: DataType) -> Type:
     match datatype:
         case DataType.FLOAT:
-            return context.get_type(FloatType)
+            return FloatType()
         case DataType.INT:
-            return context.get_type(IntType)
+            return IntType()
         case _:
             raise ValueError(f"Unsupported datatype: {datatype}")
 
@@ -68,36 +67,26 @@ def get_array_type(array_def: ArrayDef) -> Type:
 def generate_from_computent(computent: Computent) -> MetaOp:
 
     computent_op = op_builder.build(MetaOp)
-    op_builder.push_block(computent_op.block)
-    # for array_def in computent.array_defs:
-    #     array_def_op = op_builder.build(
-    #         ExternalSymbolOperation,
-    #         array_def.name,
-    #         get_array_type(array_def),
-    #     )
-    #     op_builder.add_symbol(array_def.name, array_def_op.result)
-
-    schedule = computent.schedule
-    array_defs = computent.array_defs
-    format = computent.format
-    if isinstance(schedule, DenseAxisIterator):
-        generate_from_dense_axis_iterator(schedule, array_defs, format)
-    elif isinstance(schedule, SparseAxisIterator):
-        raise NotImplementedError(
-            "Sparse axis iterator as root schedule is not implemented"
-        )
-    elif isinstance(schedule, SparseAxisSlicer):
-        raise NotImplementedError(
-            "Sparse axis slicer as root schedule is not implemented"
-        )
-    elif isinstance(schedule, AtomicFormatOp):
-        raise NotImplementedError(
-            "Atomic format op as root schedule is not implemented"
-        )
-    else:
-        raise ValueError(f"Unsupported schedule type: {type(schedule)}")
-
-    op_builder.pop_block()
+    with op_builder.op_scope(computent_op):
+        schedule = computent.schedule
+        array_defs = computent.array_defs
+        format = computent.format
+        if isinstance(schedule, DenseAxisIterator):
+            generate_from_dense_axis_iterator(schedule, array_defs, format)
+        elif isinstance(schedule, SparseAxisIterator):
+            raise NotImplementedError(
+                "Sparse axis iterator as root schedule is not implemented"
+            )
+        elif isinstance(schedule, SparseAxisSlicer):
+            raise NotImplementedError(
+                "Sparse axis slicer as root schedule is not implemented"
+            )
+        elif isinstance(schedule, AtomicFormatOp):
+            raise NotImplementedError(
+                "Atomic format op as root schedule is not implemented"
+            )
+        else:
+            raise ValueError(f"Unsupported schedule type: {type(schedule)}")
     return computent_op
 
 
@@ -107,10 +96,8 @@ def generate_from_dense_axis_iterator(
     format: Format,
     parent_schedule: Optional[Schedule] = None,
 ) -> None:
-    l = op_builder.build(ConstantOp, 0, context.get_type(IntType))
-    r = op_builder.build(
-        ConstantOp, format.get_axis(schedule.axis).length, context.get_type(IntType)
-    )
+    l = op_builder.build(ConstantOp, 0, IntType())
+    r = op_builder.build(ConstantOp, format.get_axis(schedule.axis).length, IntType())
 
     for_loop_op = op_builder.build(
         ForLoopOp,
@@ -118,28 +105,30 @@ def generate_from_dense_axis_iterator(
         range=(l.get_result(), r.get_result()),
     )
 
-    op_builder.push_block(for_loop_op.body)
-    op_builder.add_symbol(schedule.induction_var, for_loop_op.get_induction_var())
-    if isinstance(schedule.body, DenseAxisIterator):
-        raise NotImplementedError(
-            "Dense axis iterator as body of dense axis iterator is not implemented"
-        )
-    elif isinstance(schedule.body, SparseAxisIterator):
-        generate_from_sparse_axis_iterator(
-            schedule.body, array_defs, format, for_loop_op.get_induction_var(), schedule
-        )
-    elif isinstance(schedule.body, SparseAxisSlicer):
-        raise NotImplementedError(
-            "Sparse axis slicer as body of dense axis iterator is not implemented"
-        )
-    elif isinstance(schedule.body, AtomicFormatOp):
-        raise NotImplementedError(
-            "Atomic format op as body of dense axis iterator is not implemented"
-        )
-    else:
-        raise ValueError(f"Unsupported schedule type: {type(schedule.body)}")
-
-    op_builder.pop_block()
+    with op_builder.op_scope(for_loop_op):
+        op_builder.add_symbol(schedule.induction_var, for_loop_op.get_induction_var())
+        if isinstance(schedule.body, DenseAxisIterator):
+            raise NotImplementedError(
+                "Dense axis iterator as body of dense axis iterator is not implemented"
+            )
+        elif isinstance(schedule.body, SparseAxisIterator):
+            generate_from_sparse_axis_iterator(
+                schedule.body,
+                array_defs,
+                format,
+                for_loop_op.get_induction_var(),
+                schedule,
+            )
+        elif isinstance(schedule.body, SparseAxisSlicer):
+            raise NotImplementedError(
+                "Sparse axis slicer as body of dense axis iterator is not implemented"
+            )
+        elif isinstance(schedule.body, AtomicFormatOp):
+            raise NotImplementedError(
+                "Atomic format op as body of dense axis iterator is not implemented"
+            )
+        else:
+            raise ValueError(f"Unsupported schedule type: {type(schedule.body)}")
 
 
 def generate_from_sparse_axis_iterator(
@@ -168,7 +157,7 @@ def generate_from_sparse_axis_iterator(
         0,
         ArrayType(
             [format.get_axis(schedule.axis).length],
-            context.get_type(FloatType),
+            FloatType(),
         ),
     )
 
@@ -181,30 +170,29 @@ def generate_from_sparse_axis_iterator(
         },
     )
 
-    op_builder.push_block(for_loop_op.body)
-    op_builder.add_symbol(schedule.induction_var, for_loop_op.get_induction_var())
-    if isinstance(schedule.body, AtomicFormatOp):
-        op_result = generate_from_atomic_format_op(
-            schedule.body, array_defs, format, for_loop_op.get_iter_arg(0)
-        )
-        op_builder.pop_block()
-        op_builder.build(LoopResultOp, op_result.defining_op)
-    elif isinstance(schedule.body, DenseAxisIterator):
-        raise NotImplementedError(
-            "Dense axis iterator as body of sparse axis iterator is not implemented"
-        )
-    elif isinstance(schedule.body, SparseAxisIterator):
-        raise NotImplementedError(
-            "Sparse axis iterator as body of sparse axis iterator is not implemented"
-        )
-    elif isinstance(schedule.body, SparseAxisSlicer):
-        raise NotImplementedError(
-            "Sparse axis slicer as body of sparse axis iterator is not implemented"
-        )
-    else:
-        raise ValueError(f"Unsupported schedule type: {type(schedule.body)}")
+    with op_builder.op_scope(for_loop_op):
+        op_builder.add_symbol(schedule.induction_var, for_loop_op.get_induction_var())
+        if isinstance(schedule.body, AtomicFormatOp):
+            op_result = generate_from_atomic_format_op(
+                schedule.body, array_defs, format, for_loop_op.get_iter_arg(0)
+            )
+        elif isinstance(schedule.body, DenseAxisIterator):
+            raise NotImplementedError(
+                "Dense axis iterator as body of sparse axis iterator is not implemented"
+            )
+        elif isinstance(schedule.body, SparseAxisIterator):
+            raise NotImplementedError(
+                "Sparse axis iterator as body of sparse axis iterator is not implemented"
+            )
+        elif isinstance(schedule.body, SparseAxisSlicer):
+            raise NotImplementedError(
+                "Sparse axis slicer as body of sparse axis iterator is not implemented"
+            )
+        else:
+            raise ValueError(f"Unsupported schedule type: {type(schedule.body)}")
+    op_builder.build(LoopResultOp, op_result.defining_op)
 
-    C_val_store_op = op_builder.build(
+    op_builder.build(
         CValStoreOp,
         mem="R2S",
         operands=[for_loop_op.result],
@@ -265,7 +253,7 @@ def build_array_ref_indices(
         else:
             index_result = op_builder.lookup_symbol(
                 index,
-                context.get_type(IntType),
+                IntType(),
             )
         indices.append(index_result)
     return indices

@@ -1,34 +1,14 @@
 from __future__ import annotations
 
-from sparsene.format.format import Expr, Symbol, Number
-from typing import Any, List, Dict, Tuple, overload, Sequence, Optional
-from dataclasses import dataclass
-from copy import deepcopy
 from abc import ABC, abstractmethod
+from contextlib import contextmanager
+from dataclasses import dataclass
+from typing import Any, List, Dict, Tuple, overload, Sequence, Optional
+
+from sparsene.format.format import Expr, Symbol, Number
 from sparsene.logging import get_logger
 
 logger = get_logger(__name__)
-
-
-class OpIrContext:
-    type_cache: Dict[type, Type] = {}
-
-    @overload
-    def get_type(self, t: type[IntType]) -> IntType: ...
-    @overload
-    def get_type(self, t: type[FloatType]) -> FloatType: ...
-    @overload
-    def get_type(self, t: type[RangeType]) -> RangeType: ...
-    @overload
-    def get_type(
-        self, t: type[ArrayType], dims: List[Expr], datatype: Type
-    ) -> ArrayType: ...
-
-    def get_type(self, t: type, *args, **kwargs) -> Type:
-        return t(*args, **kwargs)
-        # if t not in self.type_cache:
-        #     self.type_cache[t] = t(*args, **kwargs)
-        # return self.type_cache[t]
 
 
 class OpBuilder:
@@ -42,6 +22,17 @@ class OpBuilder:
 
     def pop_block(self) -> Block:
         return self.block_stack.pop()
+
+    @contextmanager
+    def block_scope(self, block: Block):
+        self.push_block(block)
+        try:
+            yield block
+        finally:
+            self.pop_block()
+
+    def op_scope(self, op: MetaOp | ForLoopOp):
+        return self.block_scope(op.block)
 
     @property
     def current_block(self) -> Optional[Block]:
@@ -59,8 +50,6 @@ class OpBuilder:
     def build(
         self, op_type: type[ConstantOp], value: Expr | int | str, type: Type
     ) -> ConstantOp: ...
-    @overload
-    def build(self, op_type: type[ArrayViewOp], *args, **kwargs) -> ArrayViewOp: ...
     @overload
     def build(self, op_type: type[NoOp]) -> NoOp: ...
     @overload
@@ -290,26 +279,6 @@ class ConstantOp(Op):
         return "constant"
 
 
-class ArrayViewOp(Op):
-    def name(self) -> str:
-        return "array_view"
-
-    def __init__(self, array: Value, indices: Sequence[Value]):
-        assert isinstance(array.type, ArrayType)
-        super().__init__(
-            operands=[array] + list(indices),
-            results=[
-                OpResult(
-                    type=context.get_type(
-                        ArrayType, array.type.dims[len(indices) :], array.type.datatype
-                    ),
-                    defining_op=self,
-                    result_idx_in_owner=0,
-                ),
-            ],
-        )
-
-
 class NoOp(Op):
     def __init__(self):
         super().__init__(
@@ -330,8 +299,8 @@ class ArrayRefOp(Op):
             operands=[array] + list(indices),
             results=[
                 OpResult(
-                    type=context.get_type(
-                        ArrayType, array.type.dims[len(indices) :], array.type.datatype
+                    type=ArrayType(
+                        array.type.dims[len(indices) :], array.type.datatype
                     ),
                     defining_op=self,
                     result_idx_in_owner=0,
@@ -396,7 +365,11 @@ class MetaOp(Op):
 
 
 class ForLoopOp(Op):
-    body: Block
+    block: Block
+
+    @property
+    def body(self) -> Block:
+        return self.block
 
     def __init__(
         self,
@@ -416,10 +389,8 @@ class ForLoopOp(Op):
                 for i, arg in enumerate(iter_args.values())
             ],
         )
-        self.body = Block(self)
-        self.body.args.append(
-            BlockArgument(context.get_type(IntType), self.body, induction_var)
-        )
+        self.block = Block(self)
+        self.body.args.append(BlockArgument(IntType(), self.body, induction_var))
         for name, arg in iter_args.items():
             self.body.args.append(BlockArgument(arg.type, self.body, name))
 
@@ -452,7 +423,6 @@ class SymbolTable:
         self.block = block
 
     def add_symbol(self, name: str, value: Value):
-        logger.debug(f"Adding symbol {name} to {self.block.owning_op.name}")
         self.symbol_table[name] = value
         return value
 
@@ -471,5 +441,4 @@ class SymbolTable:
         return self.lookup_symbol(name)
 
 
-context = OpIrContext()
 op_builder = OpBuilder()

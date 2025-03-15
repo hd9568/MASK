@@ -5,7 +5,6 @@ from .op_ir import (
     ForLoopOp,
     LoopResultOp,
     ConstantOp,
-    ArrayViewOp,
     NoOp,
     ArrayRefOp,
     DeviceOp,
@@ -115,11 +114,6 @@ class Printer:
         value = op.attributes["value"]
         type_str = self.dump_type(op.result.type)
         return self._indent_lines(f"constant {value}: {type_str}", level)
-
-    def dump_array_view_op(self, op: ArrayViewOp, level: int = 0) -> str:
-        array = self.dump_op_operand(op.operands[0])
-        type_str = self.dump_type(op.result.type)
-        return self._indent_lines(f"array_view(array={array}): {type_str}", level)
 
     def dump_no_op(self, op: NoOp, level: int = 0) -> str:
         return self._indent_lines("nop", level)
@@ -283,8 +277,6 @@ class Printer:
             op_str = self.dump_for_loop_op(op, 0)
         elif isinstance(op, ConstantOp):
             op_str = self.dump_constant_op(op, 0)
-        elif isinstance(op, ArrayViewOp):
-            op_str = self.dump_array_view_op(op, 0)
         elif isinstance(op, NoOp):
             op_str = self.dump_no_op(op, 0)
         elif isinstance(op, ArrayRefOp):

@@ -9,7 +9,6 @@ from sparsene.op_gen.opir.op_ir import (
     IntType,
     ArrayType,
     FloatType,
-    context,
     OpResult,
 )
 
@@ -22,12 +21,12 @@ class SparseOffsetLoadOp(DeviceOp):
             operands=operands,
             results=[
                 OpResult(
-                    type=context.get_type(IntType),
+                    type=IntType(),
                     defining_op=self,
                     result_idx_in_owner=0,
                 ),
                 OpResult(
-                    type=context.get_type(IntType),
+                    type=IntType(),
                     defining_op=self,
                     result_idx_in_owner=1,
                 ),
@@ -47,12 +46,12 @@ class CooAtomicFormatLoadOffOp(DeviceOp):
             operands=operands,
             results=[
                 OpResult(
-                    type=context.get_type(IntType),
+                    type=IntType(),
                     defining_op=self,
                     result_idx_in_owner=0,
                 ),
                 OpResult(
-                    type=context.get_type(IntType),
+                    type=IntType(),
                     defining_op=self,
                     result_idx_in_owner=1,
                 ),
@@ -72,7 +71,7 @@ class CooAtomicFormatLoadIdxOp(DeviceOp):
             operands=operands,
             results=[
                 OpResult(
-                    type=context.get_type(ArrayType, [], context.get_type(IntType)),
+                    type=ArrayType([], IntType()),
                     defining_op=self,
                     result_idx_in_owner=0,
                 ),
@@ -92,7 +91,7 @@ class CooAtomicFormatLoadValOp(DeviceOp):
             operands=operands,
             results=[
                 OpResult(
-                    type=context.get_type(ArrayType, [], context.get_type(IntType)),
+                    type=ArrayType([], IntType()),
                     defining_op=self,
                     result_idx_in_owner=0,
                 ),
@@ -114,11 +113,7 @@ class ValSidxLoadOp(DeviceOp):
             operands=operands,
             results=[
                 OpResult(
-                    type=context.get_type(
-                        ArrayType,
-                        array_dims[len(operands) - 1 :],
-                        context.get_type(IntType),
-                    ),
+                    type=ArrayType(array_dims[len(operands) - 1 :], IntType()),
                     defining_op=self,
                     result_idx_in_owner=0,
                 ),
@@ -138,7 +133,7 @@ class BValLoadOp(DeviceOp):
             operands=operands,
             results=[
                 OpResult(
-                    type=context.get_type(ArrayType, [], context.get_type(FloatType)),
+                    type=ArrayType([], FloatType()),
                     defining_op=self,
                     result_idx_in_owner=0,
                 ),
@@ -158,7 +153,7 @@ class CooAtomicValRestoreOp(DeviceOp):
             operands=operands,
             results=[
                 OpResult(
-                    type=context.get_type(ArrayType, [], context.get_type(FloatType)),
+                    type=ArrayType([], FloatType()),
                     defining_op=self,
                     result_idx_in_owner=0,
                 ),
@@ -178,7 +173,7 @@ class MmaOp(DeviceOp):
             operands=operands,
             results=[
                 OpResult(
-                    type=context.get_type(ArrayType, [], context.get_type(FloatType)),
+                    type=ArrayType([], FloatType()),
                     defining_op=self,
                     result_idx_in_owner=0,
                 ),
