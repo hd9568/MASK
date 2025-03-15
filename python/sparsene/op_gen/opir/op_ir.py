@@ -100,33 +100,49 @@ class ArrayType(Type):
     # return f"array[{']['.join(str(dim) for dim in self.dims)}]"
 
 
-@dataclass(frozen=True, init=False)
+@dataclass(frozen=True)
 class Value:
-    name: str
     type: Type
-    defining_op: Op
-    owner: Block
-    result_idx_in_owner: int
-    is_defined_by_op: bool
 
-    def __init__(
-        self,
-        name: str,
-        type: Type,
-        defining_op_or_owner: Op | Block,
-        result_idx_in_owner: int,
-    ):
-        object.__setattr__(self, "name", name)
-        object.__setattr__(self, "type", type)
-        if isinstance(defining_op_or_owner, Op):
-            object.__setattr__(self, "owner", None)
-            object.__setattr__(self, "defining_op", defining_op_or_owner)
-            object.__setattr__(self, "is_defined_by_op", True)
-        else:
-            object.__setattr__(self, "owner", defining_op_or_owner)
-            object.__setattr__(self, "defining_op", None)
-            object.__setattr__(self, "is_defined_by_op", False)
+    def __hash__(self) -> int:
+        return hash(id(self))
+
+    def __eq__(self, other: Any) -> bool:
+        return id(self) == id(other)
+
+
+@dataclass(frozen=True)
+class OpResult(Value):
+    defining_op: Op
+    result_idx_in_owner: int
+
+    def __init__(self, type: Type, defining_op: Op, result_idx_in_owner: int):
+        super().__init__(type)
+        object.__setattr__(self, "defining_op", defining_op)
         object.__setattr__(self, "result_idx_in_owner", result_idx_in_owner)
+
+    def __hash__(self) -> int:
+        return hash(id(self))
+
+    def __eq__(self, other: Any) -> bool:
+        return id(self) == id(other)
+
+
+@dataclass(frozen=True)
+class BlockArgument(Value):
+    owner: Block
+    name_hint: Optional[str]
+
+    def __init__(self, type: Type, owner: Block, name_hint: Optional[str] = None):
+        super().__init__(type)
+        object.__setattr__(self, "owner", owner)
+        object.__setattr__(self, "name_hint", name_hint)
+
+    def __hash__(self) -> int:
+        return hash(id(self))
+
+    def __eq__(self, other: Any) -> bool:
+        return id(self) == id(other)
 
 
 @dataclass(frozen=True)
@@ -137,13 +153,13 @@ class OpOperand:
 class Op(ABC):
     attributes: Dict[str, Any]
     operands: List[OpOperand]
-    results: List[Value]
+    results: List[OpResult]
     symbol_table: SymbolTable
 
     def __init__(
         self,
         operands: Sequence[OpOperand | Value] = [],
-        results: Sequence[Value] = [],
+        results: Sequence[OpResult] = [],
         attributes: Dict[str, Any] = {},
     ):
         self.attributes = {**attributes}
@@ -162,24 +178,32 @@ class Op(ABC):
     def set_attribute(self, name: str, value: Any):
         self.attributes[name] = value
 
+    @property
+    def num_operands(self) -> int:
+        return len(self.operands)
+
+    @property
+    def num_results(self) -> int:
+        return len(self.results)
+
     def add_operand(self, operand: OpOperand):
         self.operands.append(operand)
 
-    def add_result(self, result: Value):
+    def add_result(self, result: OpResult):
         self.results.append(result)
 
     def has_single_result(self) -> bool:
         return len(self.results) == 1
 
-    def get_result(self) -> Value:
+    def get_result(self) -> OpResult:
         assert self.has_single_result()
         return self.results[0]
 
-    def get_results(self) -> List[Value]:
+    def get_results(self) -> List[OpResult]:
         return list(self.results)
 
     @property
-    def result(self) -> Value:
+    def result(self) -> OpResult:
         return self.get_result()
 
     @property
@@ -192,12 +216,7 @@ class ExternalSymbolOperation(Op):
     def __init__(self, symbol: str, type: Type):
         super().__init__(
             results=[
-                Value(
-                    name="external_symbol",
-                    type=type,
-                    defining_op_or_owner=self,
-                    result_idx_in_owner=0,
-                ),
+                OpResult(type=type, defining_op=self, result_idx_in_owner=0),
             ],
             attributes={"symbol": symbol},
         )
@@ -216,12 +235,7 @@ class ConstantOp(Op):
             value = Number(value)
         super().__init__(
             results=[
-                Value(
-                    name="constant",
-                    type=type,
-                    defining_op_or_owner=self,
-                    result_idx_in_owner=0,
-                ),
+                OpResult(type=type, defining_op=self, result_idx_in_owner=0),
             ],
             attributes={"value": value},
         )
@@ -240,12 +254,11 @@ class ArrayViewOp(Op):
         super().__init__(
             operands=[OpOperand(array)] + [OpOperand(index) for index in indices],
             results=[
-                Value(
-                    name="array_view",
+                OpResult(
                     type=context.get_type(
                         ArrayType, array.type.dims[len(indices) :], array.type.datatype
                     ),
-                    defining_op_or_owner=self,
+                    defining_op=self,
                     result_idx_in_owner=0,
                 ),
             ],
@@ -271,12 +284,11 @@ class ArrayRefOp(Op):
         super().__init__(
             operands=[OpOperand(array)] + [OpOperand(index) for index in indices],
             results=[
-                Value(
-                    name="array_ref",
+                OpResult(
                     type=context.get_type(
                         ArrayType, array.type.dims[len(indices) :], array.type.datatype
                     ),
-                    defining_op_or_owner=self,
+                    defining_op=self,
                     result_idx_in_owner=0,
                 ),
             ],
@@ -347,10 +359,10 @@ class ForLoopOp(Op):
         )
         self.body = Block(self)
         self.body.args.append(
-            Value(induction_var, context.get_type(IntType), self.body, 0)
+            BlockArgument(context.get_type(IntType), self.body, induction_var)
         )
         for name, arg in iter_args.items():
-            self.body.args.append(Value(name, arg.type, self.body, 0))
+            self.body.args.append(BlockArgument(arg.type, self.body, name))
 
     @property
     def name(self) -> str:

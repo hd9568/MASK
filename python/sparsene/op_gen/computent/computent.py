@@ -43,7 +43,7 @@ class NameManager:
 
     def new_name(self) -> str:
         self.counter += 1
-        return f"v{self.counter}"
+        return f"i{self.counter}"
 
 
 name_manager = NameManager()
@@ -342,7 +342,11 @@ class ArrayDef:
         return None
 
     def __str__(self) -> str:
-        return f"ArrayDef({self.name}, {self.axes}, {self.dims}, {self.type})"
+        return f"ArrayDef({self.name}, {self.datatype}, {self.axes}, {self.dims}, {self.type})"
+    
+    def __repr__(self) -> str:
+        return f"ArrayDef({self.name}, {self.datatype}, {self.axes}, {self.dims}, {self.type})"
+    
 
 
 @dataclass(kw_only=True)

@@ -4,7 +4,7 @@ from sparsene.op_gen.computent.computent import computent_from_rts, Computent, A
 from sparsene.op_gen.nvir.stage import Stage
 from sparsene.format.format import Format, Expr, Symbol, Number
 from sparsene.op_gen.computent.computent import ArrayDefCollection
-from typing import Any, List, Optional, Dict, Literal, Tuple
+from typing import Any, List, Optional, Dict, Literal, Tuple, Sequence
 from sparsene.op_gen.computent.computent import (
     Schedule,
     DenseAxisIterator,
@@ -34,6 +34,7 @@ from sparsene.op_gen.opir.op_ir import (
     ArrayType,
     OpOperand,
     FloatType,
+    OpResult,
 )
 from sparsene.op_gen.opir.ops import (
     SparseOffsetLoadOp,
@@ -127,14 +128,16 @@ def generate_from_dense_axis_iterator(
             schedule.body, array_defs, format, for_loop_op.get_induction_var(), schedule
         )
     elif isinstance(schedule.body, AtomicFormatOp):
-        ops = generate_from_atomic_format_op(schedule.body, array_defs, format)
+        ops = generate_from_atomic_format_op(
+            schedule.body, array_defs, format, for_loop_op.get_iter_arg(0)
+        )
     else:
         raise ValueError(f"Unsupported schedule type: {type(schedule.body)}")
 
     for op in ops:
         for_loop_op.body.add_operation(op)
 
-    return [for_loop_op]
+    return [l, r, for_loop_op]
 
 
 def generate_from_sparse_axis_iterator(
@@ -186,7 +189,9 @@ def generate_from_sparse_axis_iterator(
     ops.append(for_loop_op)
 
     if isinstance(schedule.body, AtomicFormatOp):
-        body_ops = generate_from_atomic_format_op(schedule.body, array_defs, format)
+        body_ops = generate_from_atomic_format_op(
+            schedule.body, array_defs, format, for_loop_op.get_iter_arg(0)
+        )
     elif isinstance(schedule.body, DenseAxisIterator):
         raise NotImplementedError(
             "Dense axis iterator as body of sparse axis iterator is not implemented"
@@ -231,29 +236,27 @@ def generate_from_atomic_format_op(
     schedule: AtomicFormatOp,
     array_defs: ArrayDefCollection,
     format: Format,
+    C_val_tile: Value,
 ) -> List[Op]:
     match schedule.type:
         case AtomicFormatType.DENSE:
-            return generate_from_dense_atomic_format_op(schedule, array_defs, format)
+            return generate_from_dense_atomic_format_op(
+                schedule, array_defs, format, C_val_tile
+            )
         case AtomicFormatType.COO:
-            return generate_from_coo_atomic_format_op(schedule, array_defs, format)
+            return generate_from_coo_atomic_format_op(
+                schedule, array_defs, format, C_val_tile
+            )
         case AtomicFormatType.MCO:
-            return generate_from_mco_atomic_format_op(schedule, array_defs, format)
-
-
-def generate_from_dense_atomic_format_op(
-    schedule: AtomicFormatOp,
-    array_defs: ArrayDefCollection,
-    format: Format,
-    parent_schedule: Optional[Schedule] = None,
-) -> List[Op]:
-    raise NotImplementedError("Dense atomic format op is not implemented")
+            return generate_from_mco_atomic_format_op(
+                schedule, array_defs, format, C_val_tile
+            )
 
 
 def build_array_def(
     array_def: ArrayDef,
     format: Format,
-) -> Value:
+) -> OpResult:
     return op_builder.build(
         ExternalSymbolOperation,
         array_def.name,
@@ -265,32 +268,39 @@ def build_array_ref_indices(
     array_ref: ArrayRef,
     array_defs: ArrayDefCollection,
     format: Format,
-) -> List[Value]:
-    indices = []
+    op_list: List[Op],
+) -> Sequence[OpResult]:
+    indices: List[OpResult] = []
     for index in array_ref.indices:
         if isinstance(index, ArrayRef):
-            index = build_array_ref(index, array_defs, format)
+            index_result = build_array_ref(index, array_defs, format, op_list)
         else:
-            index = op_builder.build(
+            index_op = op_builder.build(
                 ExternalSymbolOperation,
                 index,
                 context.get_type(IntType),
             )
-        indices.append(index)
+            op_list.append(index_op)
+            index_result = index_op.result
+        indices.append(index_result)
     return indices
 
 
 def build_array_ref(
-    array_ref: ArrayRef, array_defs: ArrayDefCollection, format: Format
-) -> Value:
+    array_ref: ArrayRef,
+    array_defs: ArrayDefCollection,
+    format: Format,
+    op_list: List[Op],
+) -> OpResult:
     array = build_array_def(array_defs[array_ref.array], format)
-    indices = build_array_ref_indices(array_ref, array_defs, format)
+    indices = build_array_ref_indices(array_ref, array_defs, format, op_list)
 
     array_ref_op = op_builder.build(
         ArrayRefOp,
         array,
         indices,
     )
+    op_list.append(array_ref_op)
     return array_ref_op.result
 
 
@@ -298,8 +308,8 @@ def build_mma_op(
     A_val_tile: Value,
     B_val_tile: Value,
     C_val_tile: Value,
-) -> Value:
-    return op_builder.build(MmaOp, A_val_tile, B_val_tile, C_val_tile).result
+) -> OpResult:
+    return op_builder.build(MmaOp, "R2R", [A_val_tile, B_val_tile, C_val_tile]).result
 
 
 def build_coo_atomic_format_op(
@@ -334,7 +344,7 @@ def generate_from_coo_atomic_format_op(
     schedule: AtomicFormatOp,
     array_defs: ArrayDefCollection,
     format: Format,
-    parent_schedule: Optional[Schedule] = None,
+    C_val_tile: Value,
 ) -> List[Op]:
     ops: List[Op] = []
 
@@ -362,7 +372,7 @@ def generate_from_coo_atomic_format_op(
         mem="G2R",
         operands=[
             off,
-            *build_array_ref_indices(schedule.args[0], array_defs, format),
+            *build_array_ref_indices(schedule.args[0], array_defs, format, ops),
         ],
     )
     ops.append(lr)
@@ -372,22 +382,40 @@ def generate_from_coo_atomic_format_op(
         mem="G2R",
         operands=[
             coo_idx,
-            *build_array_ref_indices(schedule.args[1], array_defs, format),
+            *build_array_ref_indices(schedule.args[1], array_defs, format, ops),
             *lr.results,
         ],
-    )
-    ops.append(coo_idx)
+    ).result
+    ops.append(coo_idx.defining_op)
 
     coo_val = op_builder.build(
         CooAtomicFormatLoadValOp,
         mem="G2S",
         operands=[
             coo_val,
-            *build_array_ref_indices(schedule.args[2], array_defs, format),
+            *build_array_ref_indices(schedule.args[2], array_defs, format, ops),
             *lr.results,
         ],
+    ).result
+    ops.append(coo_val.defining_op)
+
+    B_val_tile = op_builder.build(
+        BValLoadOp,
+        mem="G2R",
+        operands=[
+            B_val,
+            *build_array_ref_indices(schedule.args[3], array_defs, format, ops),
+        ],
+    ).result
+    ops.append(B_val_tile.defining_op)
+
+    coo_atomic_format_op = build_coo_atomic_format_op(
+        coo_idx,
+        coo_val,
+        B_val_tile,
+        C_val_tile,
     )
-    ops.append(coo_val)
+    ops.append(coo_atomic_format_op)
 
     return ops
 
@@ -396,6 +424,15 @@ def generate_from_mco_atomic_format_op(
     schedule: AtomicFormatOp,
     array_defs: ArrayDefCollection,
     format: Format,
-    parent_schedule: Optional[Schedule] = None,
+    C_val_tile: Value,
 ) -> List[Op]:
     raise NotImplementedError("MCO atomic format op is not implemented")
+
+
+def generate_from_dense_atomic_format_op(
+    schedule: AtomicFormatOp,
+    array_defs: ArrayDefCollection,
+    format: Format,
+    C_val_tile: Value,
+) -> List[Op]:
+    raise NotImplementedError("Dense atomic format op is not implemented")

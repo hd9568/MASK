@@ -10,6 +10,7 @@ from sparsene.op_gen.opir.op_ir import (
     ArrayType,
     FloatType,
     context,
+    OpResult,
 )
 
 
@@ -20,16 +21,14 @@ class SparseOffsetLoadOp(DeviceOp):
             mem=mem,
             operands=operands,
             results=[
-                Value(
-                    name=f"l",
+                OpResult(
                     type=context.get_type(IntType),
-                    defining_op_or_owner=self,
+                    defining_op=self,
                     result_idx_in_owner=0,
                 ),
-                Value(
-                    name=f"r",
+                OpResult(
                     type=context.get_type(IntType),
-                    defining_op_or_owner=self,
+                    defining_op=self,
                     result_idx_in_owner=1,
                 ),
             ],
@@ -47,16 +46,14 @@ class CooAtomicFormatLoadOffOp(DeviceOp):
             mem=mem,
             operands=operands,
             results=[
-                Value(
-                    name=f"l",
+                OpResult(
                     type=context.get_type(IntType),
-                    defining_op_or_owner=self,
+                    defining_op=self,
                     result_idx_in_owner=0,
                 ),
-                Value(
-                    name=f"r",
+                OpResult(
                     type=context.get_type(IntType),
-                    defining_op_or_owner=self,
+                    defining_op=self,
                     result_idx_in_owner=1,
                 ),
             ],
@@ -74,10 +71,9 @@ class CooAtomicFormatLoadIdxOp(DeviceOp):
             mem=mem,
             operands=operands,
             results=[
-                Value(
-                    name=f"idx",
+                OpResult(
                     type=context.get_type(ArrayType, [], context.get_type(IntType)),
-                    defining_op_or_owner=self,
+                    defining_op=self,
                     result_idx_in_owner=0,
                 ),
             ],
@@ -95,10 +91,9 @@ class CooAtomicFormatLoadValOp(DeviceOp):
             mem=mem,
             operands=operands,
             results=[
-                Value(
-                    name=f"val",
+                OpResult(
                     type=context.get_type(ArrayType, [], context.get_type(IntType)),
-                    defining_op_or_owner=self,
+                    defining_op=self,
                     result_idx_in_owner=0,
                 ),
             ],
@@ -118,10 +113,13 @@ class ValSidxLoadOp(DeviceOp):
             mem=mem,
             operands=operands,
             results=[
-                Value(
-                    name=f"sidx",
-                    type=context.get_type(ArrayType, array_dims[len(operands) - 1 :], context.get_type(IntType)),
-                    defining_op_or_owner=self,
+                OpResult(
+                    type=context.get_type(
+                        ArrayType,
+                        array_dims[len(operands) - 1 :],
+                        context.get_type(IntType),
+                    ),
+                    defining_op=self,
                     result_idx_in_owner=0,
                 ),
             ],
@@ -139,10 +137,9 @@ class BValLoadOp(DeviceOp):
             mem=mem,
             operands=operands,
             results=[
-                Value(
-                    name=f"B_val",
+                OpResult(
                     type=context.get_type(ArrayType, [], context.get_type(FloatType)),
-                    defining_op_or_owner=self,
+                    defining_op=self,
                     result_idx_in_owner=0,
                 ),
             ],
@@ -160,10 +157,9 @@ class CooAtomicValRestoreOp(DeviceOp):
             mem=mem,
             operands=operands,
             results=[
-                Value(
-                    name=f"val",
+                OpResult(
                     type=context.get_type(ArrayType, [], context.get_type(FloatType)),
-                    defining_op_or_owner=self,
+                    defining_op=self,
                     result_idx_in_owner=0,
                 ),
             ],
@@ -181,10 +177,9 @@ class MmaOp(DeviceOp):
             mem=mem,
             operands=operands,
             results=[
-                Value(
-                    name=f"C_val",
+                OpResult(
                     type=context.get_type(ArrayType, [], context.get_type(FloatType)),
-                    defining_op_or_owner=self,
+                    defining_op=self,
                     result_idx_in_owner=0,
                 ),
             ],
