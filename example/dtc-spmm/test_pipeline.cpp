@@ -429,7 +429,7 @@ void spmm(int k) {
 int main() {
     for (int k = 0; k < 20; k++) {
         printf("k = %d\n", k);
-        spmm<3, 3, 2>(k);
+        spmm<1, 1, 1>(k);
         printf("\n\n");
     }
     return 0;

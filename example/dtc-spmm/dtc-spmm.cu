@@ -132,6 +132,7 @@ __device__ __forceinline__ void mma_m16n8k16_fp32(float* acc, uint32_t* A, half*
 // shift 1
 template <int maxshift_smem, int maxshift_reg>
 __device__ void op_G2S_val_sidx_load(int i, int M, int N, int K, int* dval_sidx, int* dval_soff, half* dB_val, int* dval_coo_idx, half* dval_coo_val, int* dval_coo_off, float* dC_val, const int block_idx_x, const int block_idx_y, const int lane_id, int* tile_sidx_block, half* tile_coo_val_block, half* tile_coo_restore_val_block, int* coo_scope, int* val_sidx_reg, int* coo_idx_reg, int* coo_range_reg, half* REGB, half* REGA, float* REGC, int l, int r, const int tile_sidx_size, const int tile_coo_val_size) {
+    if (lane_id == 0)
     printf("op_G2S_val_sidx_load(%d): dval_sidx[%d] -> sval_sidx[%d]\n", i, i, i % maxshift_smem);
     // load block from l to r
     int smem_st_ptr = i % maxshift_smem;
@@ -144,7 +145,11 @@ __device__ void op_G2S_val_sidx_load(int i, int M, int N, int K, int* dval_sidx,
 
 template <int maxshift_smem, int maxshift_reg, int r1>
 __device__ void op_G2R_coo_atomic_format_load_off(int i, int M, int N, int K, int* dval_sidx, int* dval_soff, half* dB_val, int* dval_coo_idx, half* dval_coo_val, int* dval_coo_off, float* dC_val, const int block_idx_x, const int block_idx_y, const int lane_id, int* tile_sidx_block, half* tile_coo_val_block, half* tile_coo_restore_val_block, int* coo_scope, int* val_sidx_reg, int* coo_idx_reg, int* coo_range_reg, half* REGB, half* REGA, float* REGC, int l, int r, const int tile_sidx_size, const int tile_coo_val_size) {
+    if (lane_id == 0)
     printf("op_G2R_coo_atomic_format_load_off(%d): dval_coo_off[%d] -> coo_scope[%d]\n", i, i, r1);
+    if (lane_id == 0) {
+        printf("i=%d, l=%d, dval_coo_off[l+i, l+i+1]=(%d,%d)\n", i, l, dval_coo_off[l + i], dval_coo_off[l + i + 1]);
+    }
     coo_scope[2 * r1] = dval_coo_off[l + i];
     coo_scope[2 * r1 + 1] = dval_coo_off[l + i + 1];
 }
@@ -152,33 +157,45 @@ __device__ void op_G2R_coo_atomic_format_load_off(int i, int M, int N, int K, in
 // shift 2
 template <int maxshift_smem, int maxshift_reg, int TILE_B, int r1, int wait_num>
 __device__ void op_S2R_val_sidx_load(int i, int M, int N, int K, int* dval_sidx, int* dval_soff, half* dB_val, int* dval_coo_idx, half* dval_coo_val, int* dval_coo_off, float* dC_val, const int block_idx_x, const int block_idx_y, const int lane_id, int* tile_sidx_block, half* tile_coo_val_block, half* tile_coo_restore_val_block, int* coo_scope, int* val_sidx_reg, int* coo_idx_reg, int* coo_range_reg, half* REGB, half* REGA, float* REGC, int l, int r, const int tile_sidx_size, const int tile_coo_val_size) {
+    if (lane_id == 0)
     printf("op_S2R_val_sidx_load(%d): wait(%d), sval_sidx[%d] -> val_sidx_reg[%d]\n", i, wait_num, i % maxshift_smem, r1);
     __pipeline_wait_prior(wait_num);
     __syncthreads();
     int smem_ld_ptr = i % maxshift_smem;
-    *(int4*)(val_sidx_reg[0]) = *(int4*)(&tile_sidx_block[smem_ld_ptr * tile_sidx_size + 0]);
-    *(int4*)(val_sidx_reg[4]) = *(int4*)(&tile_sidx_block[smem_ld_ptr * tile_sidx_size + 4]);
-    *(int4*)(val_sidx_reg[8]) = *(int4*)(&tile_sidx_block[smem_ld_ptr * tile_sidx_size + 8]);
-    *(int4*)(val_sidx_reg[12]) = *(int4*)(&tile_sidx_block[smem_ld_ptr * tile_sidx_size + 12]);
+    if (lane_id == 0) {
+        printf("check tile_sidx_block: ");
+        for (int i = 0; i < 16; i++) {
+            printf("%d ", tile_sidx_block[smem_ld_ptr * tile_sidx_size + i]);
+        } printf("\n");
+    }
+    *(int4*)(&val_sidx_reg[0]) = *(int4*)(&tile_sidx_block[smem_ld_ptr * tile_sidx_size + 0]);
+    *(int4*)(&val_sidx_reg[4]) = *(int4*)(&tile_sidx_block[smem_ld_ptr * tile_sidx_size + 4]);
+    *(int4*)(&val_sidx_reg[8]) = *(int4*)(&tile_sidx_block[smem_ld_ptr * tile_sidx_size + 8]);
+    *(int4*)(&val_sidx_reg[12]) = *(int4*)(&tile_sidx_block[smem_ld_ptr * tile_sidx_size + 12]);
 }
 
 template <int maxshift_smem, int maxshift_reg, int r1>
 __device__ void op_G2S_coo_atomic_format_load_val(int i, int M, int N, int K, int* dval_sidx, int* dval_soff, half* dB_val, int* dval_coo_idx, half* dval_coo_val, int* dval_coo_off, float* dC_val, const int block_idx_x, const int block_idx_y, const int lane_id, int* tile_sidx_block, half* tile_coo_val_block, half* tile_coo_restore_val_block, int* coo_scope, int* val_sidx_reg, int* coo_idx_reg, int* coo_range_reg, half* REGB, half* REGA, float* REGC, int l, int r, const int tile_sidx_size, const int tile_coo_val_size) {
+    if (lane_id == 0)
     printf("op_G2S_coo_atomic_format_load_val(%d): dval_coo_val[coo_scope[%d]] -> tile_coo_val_block[%d]\n", i, r1, i % maxshift_smem);
     int smem_st_ptr = i % maxshift_smem;
     
     int ll = coo_scope[2 * r1];
     int rr = coo_scope[2 * r1 + 1];
+    if (lane_id == 0) {
+        printf("i = %d, ll = %d, rr = %d\n", i, ll, rr);
+    }
     if (lane_id * 8 + ll < rr) {
         float4* src = (float4*)(&dval_coo_val[ll + lane_id * 8]);
         float4* dst = (float4*)(&tile_coo_val_block[smem_st_ptr * tile_coo_val_size + lane_id * 8]);
-        __pipeline_memcpy_async(dst, src, sizeof(float4));
+        // __pipeline_memcpy_async(dst, src, sizeof(float4));
     }
     
 }
 
 template <int maxshift_smem, int maxshift_reg, int r1, int r2>
 __device__ void op_G2R_coo_atomic_format_load_idx(int i, int M, int N, int K, int* dval_sidx, int* dval_soff, half* dB_val, int* dval_coo_idx, half* dval_coo_val, int* dval_coo_off, float* dC_val, const int block_idx_x, const int block_idx_y, const int lane_id, int* tile_sidx_block, half* tile_coo_val_block, half* tile_coo_restore_val_block, int* coo_scope, int* val_sidx_reg, int* coo_idx_reg, int* coo_range_reg, half* REGB, half* REGA, float* REGC, int l, int r, const int tile_sidx_size, const int tile_coo_val_size) {
+    if (lane_id == 0)
     printf("op_G2R_coo_atomic_format_load_idx(%d): dval_coo_idx[coo_scope[%d]] -> coo_idx_reg[%d]\n", i, r1, r2);
     int ll = coo_scope[2 * r1];
     int rr = coo_scope[2 * r1 + 1];
@@ -192,6 +209,7 @@ __device__ void op_G2R_coo_atomic_format_load_idx(int i, int M, int N, int K, in
 // shift 3
 template <int maxshift_smem, int maxshift_reg, int r1, int r2, int TILE_B>
 __device__ void op_G2R_B_val_load(int i, int M, int N, int K, int* dval_sidx, int* dval_soff, half* dB_val, int* dval_coo_idx, half* dval_coo_val, int* dval_coo_off, float* dC_val, const int block_idx_x, const int block_idx_y, const int lane_id, int* tile_sidx_block, half* tile_coo_val_block, half* tile_coo_restore_val_block, int* coo_scope, int* val_sidx_reg, int* coo_idx_reg, int* coo_range_reg, half* REGB, half* REGA, float* REGC, int l, int r, const int tile_sidx_size, const int tile_coo_val_size) {
+    if (lane_id == 0)
     printf("op_G2R_B_val_load(%d): dB_val[val_sidx_reg[%d]] -> REGB[%d]\n", i, r1, r2);
     for (int n_iter = 0; n_iter < TILE_B / 8; n_iter++) {
         int row = lane_id % 4 * 2;
@@ -205,6 +223,7 @@ __device__ void op_G2R_B_val_load(int i, int M, int N, int K, int* dval_sidx, in
 
 template <int maxshift_smem, int maxshift_reg, int r1, int wait_num>
 __device__ void op_S2R_coo_atomic_val_restore(int i, int M, int N, int K, int* dval_sidx, int* dval_soff, half* dB_val, int* dval_coo_idx, half* dval_coo_val, int* dval_coo_off, float* dC_val, const int block_idx_x, const int block_idx_y, const int lane_id, int* tile_sidx_block, half* tile_coo_val_block, half* tile_coo_restore_val_block, int* coo_scope, int* val_sidx_reg, int* coo_idx_reg, int* coo_range_reg, half* REGB, half* REGA, float* REGC, int l, int r, const int tile_sidx_size, const int tile_coo_val_size) {
+    if (lane_id == 0)
     printf("op_S2R_coo_atomic_val_restore(%d): wait(%d), tile_coo_val_block[%d] -> restore[%d] -> REGA[%d]\n", i, wait_num, i % maxshift_smem, i % maxshift_smem, r1);
     __pipeline_wait_prior(wait_num);
     __syncthreads();
@@ -220,6 +239,14 @@ __device__ void op_S2R_coo_atomic_val_restore(int i, int M, int N, int K, int* d
         }
     }
     __syncthreads();
+    if (lane_id == 0) {
+        printf("device check tile A: \n");
+        for (int i = 0; i < 16; i++) {
+            for (int j = 0; j < 16; j++) {
+                printf("%.0f ", (float)tile_coo_restore_val_block[smem_ld_ptr * tile_coo_val_size + i * 16 + j]);
+            } printf("\n");
+        } printf("\n");
+    }
     int row = lane_id % 16;
     int col = lane_id / 16;
     ldmatrix_m8n8k8_x4((uint32_t*)&REGA[r1 * 4], (void*)&tile_coo_restore_val_block[(row) * (16 + 8) + (col * 8)]);
@@ -227,6 +254,7 @@ __device__ void op_S2R_coo_atomic_val_restore(int i, int M, int N, int K, int* d
 
 template <int maxshift_smem, int maxshift_reg, int r1, int r2>
 __device__ void op_mma(int i, int M, int N, int K, int* dval_sidx, int* dval_soff, half* dB_val, int* dval_coo_idx, half* dval_coo_val, int* dval_coo_off, float* dC_val, const int block_idx_x, const int block_idx_y, const int lane_id, int* tile_sidx_block, half* tile_coo_val_block, half* tile_coo_restore_val_block, int* coo_scope, int* val_sidx_reg, int* coo_idx_reg, int* coo_range_reg, half* REGB, half* REGA, float* REGC, int l, int r, const int tile_sidx_size, const int tile_coo_val_size) {
+    if (lane_id == 0)
     printf("op_mma(%d): REGA[%d] x REGB[%d] -> REGC\n", i, r1, r2);
     mma_m16n8k16_fp32(REGC, (uint32_t*)&REGA[r1 * 4], &REGB[r2 * 2]);
 }
@@ -235,6 +263,7 @@ __device__ void op_mma(int i, int M, int N, int K, int* dval_sidx, int* dval_sof
 
 template <int shift1, int shift2, int shift3, int maxshift_reg, int maxshift_smem, int TILE_B, int K_total, int i>
 __device__ void pipeline(int M, int N, int K, int* dval_sidx, int* dval_soff, half* dB_val, int* dval_coo_idx, half* dval_coo_val, int* dval_coo_off, float* dC_val, const int block_idx_x, const int block_idx_y, const int lane_id, int* tile_sidx_block, half* tile_coo_val_block, half* tile_coo_restore_val_block, int* coo_scope, int* val_sidx_reg, int* coo_idx_reg, int* coo_range_reg, half* REGB, half* REGA, float* REGC, int l, int r, const int tile_sidx_size, const int tile_coo_val_size) {
+    if (lane_id == 0)
     printf("small pipeline %d\n", i);
     if constexpr (i < K_total) {
         op_G2S_val_sidx_load<maxshift_smem, maxshift_reg>(i, M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC_val, block_idx_x, block_idx_y, lane_id, tile_sidx_block, tile_coo_val_block, tile_coo_restore_val_block, coo_scope, val_sidx_reg, coo_idx_reg, coo_range_reg, REGB, REGA, REGC, l, r, tile_sidx_size, tile_coo_val_size);
@@ -523,10 +552,19 @@ __global__ void dtc_spmm_kernel_sstage_rstage(
     half REGA[4 * maxshift_reg];
     float REGC[4 * (TILE_B / 8)];
 
+    if (threadIdx.x == 0) {
+        printf("[%d,%d,%d][%d,%d,%d]block_idx_x=%d\n", blockIdx.x, blockIdx.y, blockIdx.z, threadIdx.x, threadIdx.y, threadIdx.z, block_idx_x);
+    }
     int l = dval_soff[block_idx_x];
     int r = dval_soff[block_idx_x + 1];
 
-    int k = l - r;
+    if (threadIdx.x == 0) {
+        printf("[%d,%d,%d][%d,%d,%d]k=%d\n", blockIdx.x, blockIdx.y, blockIdx.z, threadIdx.x, threadIdx.y, threadIdx.z, r - l);
+    }
+
+    // return;
+
+    int k = r - l;
     // , int M, int N, int K, int* dval_sidx, int* dval_soff, half* dB_val, int* dval_coo_idx, half* dval_coo_val, int* dval_coo_off, float* dC_val, const int block_idx_x, const int block_idx_y, const int lane_id, int* tile_sidx_block, half* tile_coo_val_block, half* tile_coo_restore_val_block, int coo_scope, int val_sidx_reg, int coo_idx_reg, half REGB, half REGA, float REGC
     if (k <= shift1 + shift2 + shift3) {
         pipeline_switch<shift1, shift2, shift3, maxshift_reg, maxshift_smem, TILE_B, shift1 + shift2 + shift3>(k, M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC_val, block_idx_x, block_idx_y, lane_id, tile_sidx_block, tile_coo_val_block, tile_coo_restore_val_block, coo_scope, val_sidx_reg, coo_idx_reg, coo_range_reg, REGB, REGA, REGC, l, r, tile_sidx_size, tile_coo_val_size);
@@ -603,16 +641,30 @@ void dtc_spmm_test(
 
     int row_window_num = (M + ROW_WINDOW_M - 1) / ROW_WINDOW_M;
 
+    printf("dval_sidx: alloc TCBlock_num * TC_Block_K = %d\n", TCBlock_num * TC_BLOCK_K);
+    printf("dval_soff: alloc row_window_num + 1 = %d\n", sizeof(int) * (row_window_num + 1));
+    printf("dB_val alloc: K * N = %d\n", sizeof(half) * K * N);
+    printf("dval_coo_idx alloc: nnz = %d\n", sizeof(int) * nnz);
+    printf("dval_coo_val alloc: nnz = %d\n", sizeof(half) * nnz);
+    printf("dval_coo_off alloc: TCBlock_num + 1 = %d\n", sizeof(int) * (TCBlock_num + 1));
+    printf("dC alloc: M * N = %d\n", sizeof(float) * M * N);
+
+    // exit(0);
+    
     CHECK_CUDA2(cudaMalloc(&dval_sidx, sizeof(int) * TCBlock_num * TC_BLOCK_K));
-    CHECK_CUDA2(cudaMalloc(&dval_soff, sizeof(int) * row_window_num));
+    // exit(0);
+    
+    CHECK_CUDA2(cudaMalloc(&dval_soff, sizeof(int) * (row_window_num + 1)));
+    // exit(0);
     CHECK_CUDA2(cudaMalloc(&dB_val, sizeof(half) * K * N));
     CHECK_CUDA2(cudaMalloc(&dval_coo_idx, sizeof(int) * nnz));
+    // exit(0);
     CHECK_CUDA2(cudaMalloc(&dval_coo_val, sizeof(half) * nnz));
     CHECK_CUDA2(cudaMalloc(&dval_coo_off, sizeof(int) * (TCBlock_num + 1)));
     CHECK_CUDA2(cudaMalloc(&dC, sizeof(float) * M * N));
-
+    // exit(0);
     CHECK_CUDA2(cudaMemcpy(dval_sidx, val_sidx, sizeof(int) * TCBlock_num * TC_BLOCK_K, cudaMemcpyHostToDevice));
-    CHECK_CUDA2(cudaMemcpy(dval_soff, val_soff, sizeof(int) * row_window_num, cudaMemcpyHostToDevice));
+    CHECK_CUDA2(cudaMemcpy(dval_soff, val_soff, sizeof(int) * (row_window_num + 1), cudaMemcpyHostToDevice));
     CHECK_CUDA2(cudaMemcpy(dB_val, B_val, sizeof(half) * K * N, cudaMemcpyHostToDevice));
     CHECK_CUDA2(cudaMemcpy(dval_coo_idx, val_coo_idx, sizeof(int) * nnz, cudaMemcpyHostToDevice));
     CHECK_CUDA2(cudaMemcpy(dval_coo_val, val_coo_val, sizeof(half) * nnz, cudaMemcpyHostToDevice));
@@ -622,9 +674,11 @@ void dtc_spmm_test(
     int threadblock_num_x = row_window_num;
     int threadblock_num_y = N / TILE_B;
     int thread_num = 32;
-
+    
+    // exit(0);
     ncu_test_all<TILE_B>(threadblock_num_x, threadblock_num_y, thread_num, M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC);
-
+    CHECK_CUDA2(cudaDeviceSynchronize());
+    CHECK_CUDA2(cudaGetLastError());
     CHECK_CUDA2(cudaMemcpy(C, dC, sizeof(float) * M * N, cudaMemcpyDeviceToHost));
 
 }

@@ -41,8 +41,10 @@ void initVector(half* vec, int length) {
 
 void initVector(half* vec, int length, float sparsity) {
     if (sparsity < 0.0f || sparsity > 1.0f) return; 
-    
-    std::srand(std::time(nullptr)); 
+    auto seed = std::time(nullptr);
+    std::srand(1741962880); 
+    cout << seed << endl;
+    // std::srand(1);
     for (int i = 0; i < length; ++i) {
         if (static_cast<float>(rand()) / RAND_MAX < sparsity) {
             vec[i] = half(0.0f); 
@@ -111,6 +113,14 @@ void convertToMETCF(
         }
     }
     val_soff[row_window_num] = TCBlock_num;
+    printf("TCBlock_num = %d, nnz = %d\n", TCBlock_num);
+    {//! debug
+        printf("val_soff: ");
+        for (int i_row_window = 0; i_row_window < row_window_num; i_row_window++) {
+            printf("%d ", val_soff[i_row_window]);
+        }
+        printf("%d\n", val_soff[row_window_num]);
+    }
     // ok: val_sidx -> 每个TC Block中非零列对应的column index
     int* val_sidx = (int*)malloc(sizeof(int) * TCBlock_num * TC_BLOCK_K);
     memset(val_sidx, 0, sizeof(int) * TCBlock_num * TC_BLOCK_K);
@@ -123,6 +133,7 @@ void convertToMETCF(
     // ok: val_coo_val -> TC Block中的非零元
     half* val_coo_val = (half*)malloc(sizeof(half) * nnz);
     memset(val_coo_val, 0, sizeof(half) * nnz);
+    // exit(0);
     // prefix sum 
     int cur_pos = 0;
     int i_tc_block_ptr = 0;
@@ -137,6 +148,21 @@ void convertToMETCF(
         }
         nnz_per_tc_block.push_back(cur_pos);
     }
+    {//! debug
+        printf("final i_tc_block_ptr=%d, TCBlock_num=%d, cur_pos=%d\n", i_tc_block_ptr, TCBlock_num, cur_pos);
+    }
+    val_coo_off[i_tc_block_ptr] = cur_pos;
+    {//! debug
+        printf("nnz_per_tc_block: ");
+        for (int i_row_window = 0; i_row_window < row_window_num; i_row_window++) {
+            vector<int>& nnz_per_tc_block = vec_nnz_per_tc_block[i_row_window];
+            for (int i_tc_block = 0; i_tc_block < nnz_per_tc_block.size(); i_tc_block++) {
+                printf("%d ", nnz_per_tc_block[i_tc_block]);
+            }
+            printf("\n");
+        }
+    }
+    // exit(0);
     int* tc_block_nnz_ptr = (int*)malloc(sizeof(int) * (K + TC_BLOCK_K - 1) / TC_BLOCK_K);
     for (int i_row_window = 0; i_row_window < row_window_num; i_row_window++) {
         int TC_block_offset = val_soff[i_row_window];
@@ -157,14 +183,22 @@ void convertToMETCF(
                 nnz_col_num++;
             }
         }
+        {//! debug
+            printf("nnz_col: ");
+            for (int i = 0; i < nnz_col_num; i++) {
+                printf("%d ", nnz_col[i]);                
+            } printf("\n");
+        }
         TCBlock_num = (nnz_col_num + TC_BLOCK_K - 1) / TC_BLOCK_K;
         for (int i_tc_block_col = 0; i_tc_block_col < nnz_col_num; i_tc_block_col++) {
             tmp_val_sidx[i_tc_block_col] = nnz_col[i_tc_block_col];
         }
+
         memset(tc_block_nnz_ptr, 0, sizeof(int) * (K + TC_BLOCK_K - 1) / TC_BLOCK_K);
         for (int i_tc_block = 0; i_tc_block < TCBlock_num; i_tc_block++) {
             tc_block_nnz_ptr[i_tc_block] = nnz_per_tc_block[i_tc_block];
         }
+        
         for (int i_row = 0; i_row < ROW_WINDOW_M; i_row++) {
             int row = i_row_window * ROW_WINDOW_M + i_row;
             int col_start_pos = 0;
@@ -173,14 +207,15 @@ void convertToMETCF(
                 float value = (float)csrValA[j];
                 int condensed_pos = binarySearch(nnz_col, col_start_pos, nnz_col_num - 1, col);
                 col_start_pos = condensed_pos + 1;
-                int tc_block_id = (condensed_pos + TC_BLOCK_K - 1) / TC_BLOCK_K;
+                int tc_block_id = condensed_pos / TC_BLOCK_K;
                 val_coo_val[tc_block_nnz_ptr[tc_block_id]] = (half)value;
                 val_coo_idx[tc_block_nnz_ptr[tc_block_id]] = i_row * TC_BLOCK_K + (condensed_pos % TC_BLOCK_K);
                 tc_block_nnz_ptr[tc_block_id]++;
+                printf("row=%d,col=%d,val=%.0f,idx=%d,condensed_pos=%d,tc_block_id=%d,col_start_pos=%d\n", row, col, value, i_row * TC_BLOCK_K + (condensed_pos % TC_BLOCK_K), condensed_pos, tc_block_id, col_start_pos);
             }
         }
     }
-
+    // exit(0);
     // input to cuda func
     dtc_spmm_test<32>(M, N, K, TCBlock_num, nnz, val_sidx, val_soff, B, val_coo_idx, val_coo_val, val_coo_off, C);
 }
@@ -197,6 +232,18 @@ int main() {
     float sparsity = 0.5;
     initVector(B, K * N);
     initVector(A, M * K, sparsity);
+    printf("A: \n");
+    for (int i = 0; i < M; i++) {
+        for (int j = 0; j < K; j++) {
+            printf("%.0f ", (float)A[i * K + j]);
+        } printf("\n");
+    }
+    printf("\n\nB: \n");
+    for (int i = 0; i < K; i++) {
+        for (int j = 0; j < N; j++) {
+            printf("%.0f ", (float)B[j * K + i]);
+        } printf("\n");
+    }
 
     // convert A to CSR
     int nnz = 0;
@@ -227,6 +274,21 @@ int main() {
             }
         }
     }
+    {//! debug
+        printf("csrPtrA: ");
+        for (int i = 0; i <= M; i++) {
+            printf("%d ", csrPtrA[i]);
+        }
+        printf("\n");
+        printf("csrColIdxA: ");
+        for (int i = 0; i < nnz; i++) {
+            printf("%d ", csrColIdxA[i]);
+        } printf("\n");
+        printf("csrValA: ");
+        for (int i = 0; i < nnz; i++) {
+            printf("%.0f ", (float)csrValA[i]);
+        } printf("\n");
+    }
     float* C_cuda = (float*)malloc(sizeof(float) * M * N);
     convertToMETCF(M, N, K, nnz, csrPtrA, csrColIdxA, csrValA, B, C_cuda);
 
@@ -235,11 +297,10 @@ int main() {
     memset(C_cpu, 0, sizeof(float) * M * N);
     for (int i = 0; i < M; i++) {
         for (int j = 0; j < N; j++) {
-            int 
             for (int k = csrPtrA[i]; k < csrPtrA[i + 1]; k++) {
                 int col = csrColIdxA[k];
                 float value = (float)csrValA[k];
-                c_cpu[i * N + j] += value * (float)B[k * N + j];
+                C_cpu[i * N + j] += value * (float)B[k * N + j];
             }
         }
     }
