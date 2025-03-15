@@ -5,6 +5,9 @@ from typing import Any, List, Dict, Tuple, overload, Sequence, Optional
 from dataclasses import dataclass
 from copy import deepcopy
 from abc import ABC, abstractmethod
+from sparsene.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class OpIrContext:
@@ -29,8 +32,20 @@ class OpIrContext:
 
 
 class OpBuilder:
+    block_stack: List[Block]
+
     def __init__(self):
-        pass
+        self.block_stack = []
+
+    def push_block(self, block: Block):
+        self.block_stack.append(block)
+
+    def pop_block(self) -> Block:
+        return self.block_stack.pop()
+
+    @property
+    def current_block(self) -> Optional[Block]:
+        return self.block_stack[-1] if self.block_stack else None
 
     @overload
     def build(
@@ -60,6 +75,8 @@ class OpBuilder:
     def build(
         self, op_type: type[ExternalSymbolOperation], symbol: str, type: Type
     ) -> ExternalSymbolOperation: ...
+    @overload
+    def build(self, op_type: type[LoopResultOp], op: Op) -> LoopResultOp: ...
 
     def build(
         self,
@@ -68,7 +85,34 @@ class OpBuilder:
         **kwargs,
     ) -> Op:
         op = op_type(*args, **kwargs)
+        op.residing_block = self.current_block
+        if self.current_block is not None:
+            self.current_block.add_op(op)
         return op
+
+    @property
+    def symbol_table(self) -> SymbolTable:
+        if self.current_block is not None:
+            return self.current_block.symbol_table
+        else:
+            raise ValueError("No symbol table available: not in a block. ")
+
+    def lookup_symbol(self, name: str, type: Optional[Type] = None) -> Value:
+        if (
+            self.current_block is not None
+            and (value := self.current_block.symbol_table[name]) is not None
+        ):
+            return value
+        elif type is not None:
+            return self.build(ExternalSymbolOperation, name, type).result
+        else:
+            raise ValueError(f"Symbol {name} not found")
+
+    def add_symbol(self, name: str, value: Value):
+        if self.current_block is not None:
+            self.current_block.symbol_table.add_symbol(name, value)
+        else:
+            raise ValueError("No symbol table available: not in a block. ")
 
 
 @dataclass
@@ -154,13 +198,14 @@ class Op(ABC):
     attributes: Dict[str, Any]
     operands: List[OpOperand]
     results: List[OpResult]
-    symbol_table: SymbolTable
+    residing_block: Optional[Block]
 
     def __init__(
         self,
-        operands: Sequence[OpOperand | Value] = [],
+        operands: Sequence[Value] = [],
         results: Sequence[OpResult] = [],
         attributes: Dict[str, Any] = {},
+        residing_block: Optional[Block] = None,
     ):
         self.attributes = {**attributes}
         self.operands = [
@@ -168,7 +213,7 @@ class Op(ABC):
             for operand in operands
         ]
         self.results = list(results)
-        self.symbol_table = SymbolTable(self)
+        self.residing_block = residing_block
 
     def add_attribute(self, name: str, value: Any):
         if name in self.attributes:
@@ -252,7 +297,7 @@ class ArrayViewOp(Op):
     def __init__(self, array: Value, indices: Sequence[Value]):
         assert isinstance(array.type, ArrayType)
         super().__init__(
-            operands=[OpOperand(array)] + [OpOperand(index) for index in indices],
+            operands=[array] + list(indices),
             results=[
                 OpResult(
                     type=context.get_type(
@@ -282,7 +327,7 @@ class ArrayRefOp(Op):
     def __init__(self, array: Value, indices: Sequence[Value]):
         assert isinstance(array.type, ArrayType)
         super().__init__(
-            operands=[OpOperand(array)] + [OpOperand(index) for index in indices],
+            operands=[array] + list(indices),
             results=[
                 OpResult(
                     type=context.get_type(
@@ -307,22 +352,26 @@ class DeviceOp(Op):
         mem: Literal["G2S", "G2R", "S2R", "R2S", "R2G", "S2G", "R2R"]
     """
 
-    def __init__(self, mem: str, operands: Sequence[Value], results: Sequence[Value]):
+    def __init__(
+        self, mem: str, operands: Sequence[Value], results: Sequence[OpResult]
+    ):
         super().__init__(operands, results)
         self.set_attribute("mem", mem)
 
 
 class Block:
     ops: List[Op]
-    args: List[Value]
-    owner: Op
+    args: List[BlockArgument]
+    symbol_table: SymbolTable
+    owning_op: Op
 
     def __init__(self, owner: Op):
         self.ops = []
         self.args = []
-        self.owner = owner
+        self.owning_op = owner
+        self.symbol_table = SymbolTable(self)
 
-    def add_operation(self, op: Op):
+    def add_op(self, op: Op):
         self.ops.append(op)
 
 
@@ -341,6 +390,10 @@ class MetaOp(Op):
     def name(self) -> str:
         return "meta"
 
+    @property
+    def symbol_table(self) -> SymbolTable:
+        return self.block.symbol_table
+
 
 class ForLoopOp(Op):
     body: Block
@@ -353,9 +406,15 @@ class ForLoopOp(Op):
     ):
         super().__init__(
             attributes={},
-            operands=[OpOperand(range[0]), OpOperand(range[1])]
-            + [OpOperand(value) for value in iter_args.values()],
-            results=[],
+            operands=[range[0], range[1]] + list(iter_args.values()),
+            results=[
+                OpResult(
+                    type=arg.type,
+                    defining_op=self,
+                    result_idx_in_owner=i,
+                )
+                for i, arg in enumerate(iter_args.values())
+            ],
         )
         self.body = Block(self)
         self.body.args.append(
@@ -368,29 +427,48 @@ class ForLoopOp(Op):
     def name(self) -> str:
         return "for_loop"
 
-    def get_induction_var(self) -> Value:
+    def get_induction_var(self) -> BlockArgument:
         return self.body.args[0]
 
-    def get_iter_arg(self, idx: int) -> Value:
+    def get_iter_arg(self, idx: int) -> BlockArgument:
         return self.body.args[idx + 1]
 
 
+class LoopResultOp(Op):
+    def __init__(self, op: Op):
+        super().__init__(
+            operands=op.results,
+            results=[],
+        )
+
+    @property
+    def name(self) -> str:
+        return "loop_result"
+
+
 class SymbolTable:
-    def __init__(self, owner: Op):
-        self.symbol_table: Dict[str, Op] = {}
-        self.owner = owner
+    def __init__(self, block: Block):
+        self.symbol_table: Dict[str, Value] = {}
+        self.block = block
 
-    def add_symbol(self, name: str, op: Op):
-        self.symbol_table[name] = op
-        return op
+    def add_symbol(self, name: str, value: Value):
+        logger.debug(f"Adding symbol {name} to {self.block.owning_op.name}")
+        self.symbol_table[name] = value
+        return value
 
-    def __getitem__(self, name: str) -> Op:
+    def lookup_symbol(self, name: str) -> Optional[Value]:
         if name in self.symbol_table:
             return self.symbol_table[name]
-        elif self.owner is not None:
-            return self.owner.symbol_table[name]
+        elif self.block.owning_op.residing_block is not None:
+            return self.block.owning_op.residing_block.symbol_table[name]
         else:
-            raise ValueError(f"Symbol {name} not found")
+            return None
+
+    def __setitem__(self, name: str, value: Value):
+        self.add_symbol(name, value)
+
+    def __getitem__(self, name: str) -> Optional[Value]:
+        return self.lookup_symbol(name)
 
 
 context = OpIrContext()

@@ -3,6 +3,7 @@ from .op_ir import (
     Block,
     Op,
     ForLoopOp,
+    LoopResultOp,
     ConstantOp,
     ArrayViewOp,
     NoOp,
@@ -91,13 +92,22 @@ class Printer:
         induction_var = self.dump_value(op.get_induction_var())
         start = self.dump_op_operand(op.operands[0])
         end = self.dump_op_operand(op.operands[1])
-        iter_args = [self.dump_value(arg) for arg in op.body.args[1:]]
+        iter_args = [
+            f"{self.dump_value(arg)} = {self.dump_op_operand(operand, with_type=False)}"
+            for arg, operand in zip(op.body.args[1:], op.operands[2:])
+        ]
         body = self.dump_block(op.body)
 
         # Only split when there's a newline in the output
         return self._indent_lines(
-            f"for_loop {induction_var} = {start} to {end} iter_args ({', '.join(iter_args)})"
+            f"for_loop {induction_var} = {start} to {end} iter_args ({', '.join(iter_args)}) "
             f"{body}",
+            level,
+        )
+
+    def dump_loop_result_op(self, op: LoopResultOp, level: int = 0) -> str:
+        return self._indent_lines(
+            f"loop_result {self.dump_op_operand(op.operands[0], with_type=False)}",
             level,
         )
 
@@ -124,8 +134,15 @@ class Printer:
 
     def dump_device_op(self, op: DeviceOp, level: int = 0) -> str:
         operands = [self.dump_op_operand(operand) for operand in op.operands]
+        other_attrs = {key: val for key, val in op.attributes.items() if key != "mem"}
+        other_attrs_str = (
+            " attr=" + ", ".join(f"{key}={val}" for key, val in other_attrs.items())
+            if other_attrs
+            else ""
+        )
         return self._indent_lines(
-            f"{op.name}({', '.join(operands)}) attr={op.attributes}",
+            f"{op.name}({', '.join(operands)}) mem={op.attributes['mem']}"
+            f"{other_attrs_str}",
             level,
         )
 
@@ -139,9 +156,7 @@ class Printer:
         args_str = ", ".join([self.dump_value(arg) for arg in op.block.args])
 
         # Only split when there's a newline in the output
-        return self._indent_lines(
-            f"{{\n" f"{ops_str}\n"f"}}"  f"args ({args_str})" , level
-        )
+        return self._indent_lines(f"{{\n" f"{ops_str}\n" f"}} args ({args_str})", level)
 
     def dump_external_symbol_operation(
         self, op: ExternalSymbolOperation, level: int = 0
@@ -259,8 +274,8 @@ class Printer:
         else:
             return f"%{self.name_manager.get_name(value)}"
 
-    def dump_op_operand(self, op_operand: OpOperand) -> str:
-        source = self.dump_value(op_operand.source)
+    def dump_op_operand(self, op_operand: OpOperand, with_type: bool = True) -> str:
+        source = self.dump_value(op_operand.source, with_type)
         return source
 
     def dump_op(self, op: Op, level: int = 0) -> str:
@@ -298,14 +313,27 @@ class Printer:
             op_str = self.dump_mma_op(op, 0)
         elif isinstance(op, CValStoreOp):
             op_str = self.dump_c_val_store_op(op, 0)
+        elif isinstance(op, LoopResultOp):
+            op_str = self.dump_loop_result_op(op, 0)
         else:
             raise ValueError(f"Unknown op: {op}")
-        
-        prefix = ", ".join(self.dump_value(result, with_type=False) for result in op.results) + " = "
+
+        prefix_str = (
+            ", ".join(self.dump_value(result, with_type=False) for result in op.results)
+            + " = "
+        )
         result_types = [self.dump_type(result.type) for result in op.results]
         if op.num_results == 0:
-            prefix = ""
-        return self._indent_lines(f"{prefix}{op_str} -> ({', '.join(result_types)})", level)
+            prefix_str = ""
+        return_type_str = f" -> ({', '.join(result_types)})"
+        if op.num_results == 0:
+            return_type_str = ""
+        elif isinstance(op, (ConstantOp, NoOp, ExternalSymbolOperation, ArrayRefOp)):
+            return_type_str = ""
+        return self._indent_lines(
+            f"{prefix_str}{op_str}{return_type_str}",
+            level,
+        )
 
     def dump_type(self, type: Type) -> str:
         if isinstance(type, IntType):

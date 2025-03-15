@@ -35,6 +35,7 @@ from sparsene.op_gen.opir.op_ir import (
     OpOperand,
     FloatType,
     OpResult,
+    LoopResultOp,
 )
 from sparsene.op_gen.opir.ops import (
     SparseOffsetLoadOp,
@@ -64,24 +65,23 @@ def get_array_type(array_def: ArrayDef) -> Type:
     return ArrayType(dims, datatype_to_type(array_def.datatype))
 
 
-def generate_from_computent(computent: Computent) -> List[Op]:
+def generate_from_computent(computent: Computent) -> MetaOp:
 
     computent_op = op_builder.build(MetaOp)
-    assert isinstance(computent_op, Op)
-    symbol_table = SymbolTable(computent_op)
-    for array_def in computent.array_defs:
-        array_def_op = op_builder.build(
-            ExternalSymbolOperation,
-            array_def.name,
-            get_array_type(array_def),
-        )
-        symbol_table.add_symbol(array_def.name, array_def_op)
+    op_builder.push_block(computent_op.block)
+    # for array_def in computent.array_defs:
+    #     array_def_op = op_builder.build(
+    #         ExternalSymbolOperation,
+    #         array_def.name,
+    #         get_array_type(array_def),
+    #     )
+    #     op_builder.add_symbol(array_def.name, array_def_op.result)
 
     schedule = computent.schedule
     array_defs = computent.array_defs
     format = computent.format
     if isinstance(schedule, DenseAxisIterator):
-        ops = generate_from_dense_axis_iterator(schedule, array_defs, format, None)
+        generate_from_dense_axis_iterator(schedule, array_defs, format)
     elif isinstance(schedule, SparseAxisIterator):
         raise NotImplementedError(
             "Sparse axis iterator as root schedule is not implemented"
@@ -97,7 +97,8 @@ def generate_from_computent(computent: Computent) -> List[Op]:
     else:
         raise ValueError(f"Unsupported schedule type: {type(schedule)}")
 
-    return ops
+    op_builder.pop_block()
+    return computent_op
 
 
 def generate_from_dense_axis_iterator(
@@ -105,7 +106,7 @@ def generate_from_dense_axis_iterator(
     array_defs: ArrayDefCollection,
     format: Format,
     parent_schedule: Optional[Schedule] = None,
-) -> List[Op]:
+) -> None:
     l = op_builder.build(ConstantOp, 0, context.get_type(IntType))
     r = op_builder.build(
         ConstantOp, format.get_axis(schedule.axis).length, context.get_type(IntType)
@@ -113,31 +114,32 @@ def generate_from_dense_axis_iterator(
 
     for_loop_op = op_builder.build(
         ForLoopOp,
-        induction_var=schedule.name,
+        induction_var=schedule.induction_var,
         range=(l.get_result(), r.get_result()),
     )
 
+    op_builder.push_block(for_loop_op.body)
+    op_builder.add_symbol(schedule.induction_var, for_loop_op.get_induction_var())
     if isinstance(schedule.body, DenseAxisIterator):
-        ops = generate_from_dense_axis_iterator(schedule.body, array_defs, format)
+        raise NotImplementedError(
+            "Dense axis iterator as body of dense axis iterator is not implemented"
+        )
     elif isinstance(schedule.body, SparseAxisIterator):
-        ops = generate_from_sparse_axis_iterator(
+        generate_from_sparse_axis_iterator(
             schedule.body, array_defs, format, for_loop_op.get_induction_var(), schedule
         )
     elif isinstance(schedule.body, SparseAxisSlicer):
-        ops = generate_from_sparse_axis_slicer(
-            schedule.body, array_defs, format, for_loop_op.get_induction_var(), schedule
+        raise NotImplementedError(
+            "Sparse axis slicer as body of dense axis iterator is not implemented"
         )
     elif isinstance(schedule.body, AtomicFormatOp):
-        ops = generate_from_atomic_format_op(
-            schedule.body, array_defs, format, for_loop_op.get_iter_arg(0)
+        raise NotImplementedError(
+            "Atomic format op as body of dense axis iterator is not implemented"
         )
     else:
         raise ValueError(f"Unsupported schedule type: {type(schedule.body)}")
 
-    for op in ops:
-        for_loop_op.body.add_operation(op)
-
-    return [l, r, for_loop_op]
+    op_builder.pop_block()
 
 
 def generate_from_sparse_axis_iterator(
@@ -146,25 +148,18 @@ def generate_from_sparse_axis_iterator(
     format: Format,
     offset_index: Value,
     parent_schedule: Optional[Schedule] = None,
-) -> List[Op]:
-    ops = []
-
-    soff_array_name = schedule.offset_array
-    soff = op_builder.build(
-        ExternalSymbolOperation,
-        soff_array_name,
-        get_array_type(array_defs[soff_array_name]),
+) -> None:
+    soff = op_builder.lookup_symbol(
+        schedule.offset_array, get_array_type(array_defs[schedule.offset_array])
     )
-    ops.append(soff)
 
     lr = SparseOffsetLoadOp(
         mem="G2R",
         operands=[
-            soff.result,
+            soff,
             offset_index,
         ],
     )
-    ops.append(lr)
     l = lr.results[0]
     r = lr.results[1]
 
@@ -176,22 +171,24 @@ def generate_from_sparse_axis_iterator(
             context.get_type(FloatType),
         ),
     )
-    ops.append(C_val_tile)
 
     for_loop_op = op_builder.build(
         ForLoopOp,
-        induction_var=schedule.name,
+        induction_var=schedule.induction_var,
         range=(l, r),
         iter_args={
             "C_val_tile": C_val_tile.get_result(),
         },
     )
-    ops.append(for_loop_op)
 
+    op_builder.push_block(for_loop_op.body)
+    op_builder.add_symbol(schedule.induction_var, for_loop_op.get_induction_var())
     if isinstance(schedule.body, AtomicFormatOp):
-        body_ops = generate_from_atomic_format_op(
+        op_result = generate_from_atomic_format_op(
             schedule.body, array_defs, format, for_loop_op.get_iter_arg(0)
         )
+        op_builder.pop_block()
+        op_builder.build(LoopResultOp, op_result.defining_op)
     elif isinstance(schedule.body, DenseAxisIterator):
         raise NotImplementedError(
             "Dense axis iterator as body of sparse axis iterator is not implemented"
@@ -207,19 +204,11 @@ def generate_from_sparse_axis_iterator(
     else:
         raise ValueError(f"Unsupported schedule type: {type(schedule.body)}")
 
-    for body_op in body_ops:
-        for_loop_op.body.add_operation(body_op)
-
     C_val_store_op = op_builder.build(
         CValStoreOp,
         mem="R2S",
-        operands=[
-            for_loop_op.get_iter_arg(0),
-        ],
+        operands=[for_loop_op.result],
     )
-    ops.append(C_val_store_op)
-
-    return ops
 
 
 def generate_from_sparse_axis_slicer(
@@ -228,7 +217,7 @@ def generate_from_sparse_axis_slicer(
     format: Format,
     offset_index: Value,
     parent_schedule: Optional[Schedule] = None,
-) -> List[Op]:
+) -> None:
     raise NotImplementedError("Sparse axis slicer is not implemented")
 
 
@@ -237,7 +226,7 @@ def generate_from_atomic_format_op(
     array_defs: ArrayDefCollection,
     format: Format,
     C_val_tile: Value,
-) -> List[Op]:
+) -> OpResult:
     match schedule.type:
         case AtomicFormatType.DENSE:
             return generate_from_dense_atomic_format_op(
@@ -268,20 +257,16 @@ def build_array_ref_indices(
     array_ref: ArrayRef,
     array_defs: ArrayDefCollection,
     format: Format,
-    op_list: List[Op],
-) -> Sequence[OpResult]:
-    indices: List[OpResult] = []
+) -> Sequence[Value]:
+    indices: List[Value] = []
     for index in array_ref.indices:
         if isinstance(index, ArrayRef):
-            index_result = build_array_ref(index, array_defs, format, op_list)
+            index_result = build_array_ref(index, array_defs, format)
         else:
-            index_op = op_builder.build(
-                ExternalSymbolOperation,
+            index_result = op_builder.lookup_symbol(
                 index,
                 context.get_type(IntType),
             )
-            op_list.append(index_op)
-            index_result = index_op.result
         indices.append(index_result)
     return indices
 
@@ -290,17 +275,15 @@ def build_array_ref(
     array_ref: ArrayRef,
     array_defs: ArrayDefCollection,
     format: Format,
-    op_list: List[Op],
 ) -> OpResult:
     array = build_array_def(array_defs[array_ref.array], format)
-    indices = build_array_ref_indices(array_ref, array_defs, format, op_list)
+    indices = build_array_ref_indices(array_ref, array_defs, format)
 
     array_ref_op = op_builder.build(
         ArrayRefOp,
         array,
         indices,
     )
-    op_list.append(array_ref_op)
     return array_ref_op.result
 
 
@@ -309,7 +292,8 @@ def build_mma_op(
     B_val_tile: Value,
     C_val_tile: Value,
 ) -> OpResult:
-    return op_builder.build(MmaOp, "R2R", [A_val_tile, B_val_tile, C_val_tile]).result
+    mma_op = op_builder.build(MmaOp, "R2R", [A_val_tile, B_val_tile, C_val_tile])
+    return mma_op.result
 
 
 def build_coo_atomic_format_op(
@@ -317,13 +301,7 @@ def build_coo_atomic_format_op(
     coo_val: Value,
     B_val_tile: Value,
     C_val_tile: Value,
-) -> MetaOp:
-    meta_op = op_builder.build(MetaOp)
-    meta_op.add_operand(OpOperand(coo_idx))
-    meta_op.add_operand(OpOperand(coo_val))
-    meta_op.add_operand(OpOperand(B_val_tile))
-    meta_op.add_operand(OpOperand(C_val_tile))
-
+) -> OpResult:
     A_val_tile = op_builder.build(
         CooAtomicValRestoreOp,
         mem="S2R",
@@ -332,12 +310,9 @@ def build_coo_atomic_format_op(
             coo_idx,
         ],
     ).result
-    meta_op.block.add_operation(A_val_tile.defining_op)
-
     C_val_tile = build_mma_op(A_val_tile, B_val_tile, C_val_tile)
-    meta_op.block.add_operation(C_val_tile.defining_op)
 
-    return meta_op
+    return C_val_tile
 
 
 def generate_from_coo_atomic_format_op(
@@ -345,79 +320,73 @@ def generate_from_coo_atomic_format_op(
     array_defs: ArrayDefCollection,
     format: Format,
     C_val_tile: Value,
-) -> List[Op]:
-    ops: List[Op] = []
+) -> OpResult:
 
     assert len(schedule.args) == 4
     assert isinstance(schedule.args[0], ArrayRef)
     assert isinstance(schedule.args[1], ArrayRef)
     assert isinstance(schedule.args[2], ArrayRef)
     assert isinstance(schedule.args[3], ArrayRef)
-    off_array_name = schedule.args[0].array
-    idx_array_name = schedule.args[1].array
-    val_array_name = schedule.args[2].array
-    B_val_array_name = schedule.args[3].array
 
-    off = build_array_def(array_defs[off_array_name], format)
-    coo_idx = build_array_def(array_defs[idx_array_name], format)
-    coo_val = build_array_def(array_defs[val_array_name], format)
-    B_val = build_array_def(array_defs[B_val_array_name], format)
-    ops.append(off.defining_op)
-    ops.append(coo_idx.defining_op)
-    ops.append(coo_val.defining_op)
-    ops.append(B_val.defining_op)
+    off_array = op_builder.lookup_symbol(
+        schedule.args[0].array, get_array_type(array_defs[schedule.args[0].array])
+    )
+    idx_array = op_builder.lookup_symbol(
+        schedule.args[1].array, get_array_type(array_defs[schedule.args[1].array])
+    )
+    val_array = op_builder.lookup_symbol(
+        schedule.args[2].array, get_array_type(array_defs[schedule.args[2].array])
+    )
+    B_val_array = op_builder.lookup_symbol(
+        schedule.args[3].array, get_array_type(array_defs[schedule.args[3].array])
+    )
 
     lr = op_builder.build(
         CooAtomicFormatLoadOffOp,
         mem="G2R",
         operands=[
-            off,
-            *build_array_ref_indices(schedule.args[0], array_defs, format, ops),
+            off_array,
+            *build_array_ref_indices(schedule.args[0], array_defs, format),
         ],
     )
-    ops.append(lr)
 
     coo_idx = op_builder.build(
         CooAtomicFormatLoadIdxOp,
         mem="G2R",
         operands=[
-            coo_idx,
-            *build_array_ref_indices(schedule.args[1], array_defs, format, ops),
+            idx_array,
+            *build_array_ref_indices(schedule.args[1], array_defs, format),
             *lr.results,
         ],
     ).result
-    ops.append(coo_idx.defining_op)
 
     coo_val = op_builder.build(
         CooAtomicFormatLoadValOp,
         mem="G2S",
         operands=[
-            coo_val,
-            *build_array_ref_indices(schedule.args[2], array_defs, format, ops),
+            val_array,
+            *build_array_ref_indices(schedule.args[2], array_defs, format),
             *lr.results,
         ],
     ).result
-    ops.append(coo_val.defining_op)
 
     B_val_tile = op_builder.build(
         BValLoadOp,
         mem="G2R",
         operands=[
-            B_val,
-            *build_array_ref_indices(schedule.args[3], array_defs, format, ops),
+            B_val_array,
+            *build_array_ref_indices(schedule.args[3], array_defs, format),
         ],
     ).result
-    ops.append(B_val_tile.defining_op)
 
-    coo_atomic_format_op = build_coo_atomic_format_op(
+    coo_atomic_format_op_result = build_coo_atomic_format_op(
         coo_idx,
         coo_val,
         B_val_tile,
         C_val_tile,
     )
-    ops.append(coo_atomic_format_op)
 
-    return ops
+    return coo_atomic_format_op_result
 
 
 def generate_from_mco_atomic_format_op(
@@ -425,7 +394,7 @@ def generate_from_mco_atomic_format_op(
     array_defs: ArrayDefCollection,
     format: Format,
     C_val_tile: Value,
-) -> List[Op]:
+) -> OpResult:
     raise NotImplementedError("MCO atomic format op is not implemented")
 
 
@@ -434,5 +403,5 @@ def generate_from_dense_atomic_format_op(
     array_defs: ArrayDefCollection,
     format: Format,
     C_val_tile: Value,
-) -> List[Op]:
+) -> OpResult:
     raise NotImplementedError("Dense atomic format op is not implemented")

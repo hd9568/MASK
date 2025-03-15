@@ -207,14 +207,14 @@ class AtomicFormatOp(Schedule):
 
 @dataclass(kw_only=True)
 class AxisVisitor(Schedule, ABC):
-    name: str = ""
+    induction_var: str = ""
     axis: str
     body: Schedule
     metadata: Dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self):
-        if self.name == "":
-            self.name = name_manager.new_name()
+        if self.induction_var == "":
+            self.induction_var = name_manager.new_name()
 
     def is_leaf(self) -> bool:
         return False
@@ -226,7 +226,7 @@ class AxisVisitor(Schedule, ABC):
         return axis == self.axis
 
     def replace_symbol(self, old: str, new: str) -> None:
-        if self.name == old:
+        if self.induction_var == old:
             raise ValueError(
                 f"Cannot replace the name of an {self.__class__.__name__} itself: {self}"
             )
@@ -244,7 +244,7 @@ class AxisVisitor(Schedule, ABC):
 
     def __str__(self, indent_width: int = 4) -> str:
         return (
-            f"for {self.name} in {self.__class__.__name__}({self.axis})"
+            f"for {self.induction_var} in {self.__class__.__name__}({self.axis})"
             + "{\n"
             + indent(f"{self.body.__str__(indent_width)}", indent_width)
             + "\n}"
@@ -268,7 +268,7 @@ class SparseAxisVisitor(AxisVisitor):
 
     def __str__(self, indent_width: int = 4) -> str:
         return (
-            f"for {self.name} in {self.__class__.__name__}({self.axis})(soff={self.offset_array})"
+            f"for {self.induction_var} in {self.__class__.__name__}({self.axis})(soff={self.offset_array})"
             + "{\n"
             + indent(f"{self.body.__str__(indent_width)}", indent_width)
             + "\n}"
@@ -548,11 +548,11 @@ def apply_split_transformation(
         axis_ref.body = new_inner_axis_ref
 
         new_inner_axis_ref.body.replace_all_array_ref_idx(
-            axis_ref.name, [axis_ref.name, new_inner_axis_ref.name]
+            axis_ref.induction_var, [axis_ref.induction_var, new_inner_axis_ref.induction_var]
         )
     elif isinstance(axis_ref, SparseAxisSlicer):
         new_axis_ref = SparseAxisIterator(
-            name=axis_ref.name,
+            induction_var=axis_ref.induction_var,
             axis=new_axis_outer.name,
             body=axis_ref.body,
             offset_array=axis_ref.offset_array,
@@ -605,7 +605,7 @@ def apply_split_transformation(
             for arg in axis_ref.args:
                 if isinstance(arg, ArrayRef):
                     if array_defs[arg.array].index_of(new_axis_ref.axis) is not None:
-                        arg.append_ref_index(new_axis_ref.name)
+                        arg.append_ref_index(new_axis_ref.induction_var)
         elif axis_ref.axes[1] == axis_to_split.name:
             # TODO: This case is actually illegal, but we preserve it for now
 
@@ -624,7 +624,7 @@ def apply_split_transformation(
                         array_defs[arg.array].index_of(new_outer_dense_axis_iter.axis)
                         is not None
                     ):
-                        arg.append_ref_index(new_outer_dense_axis_iter.name)
+                        arg.append_ref_index(new_outer_dense_axis_iter.induction_var)
 
             parent_axis_ref = axis_ref.get_parent()
             if parent_axis_ref is not None:
@@ -719,14 +719,14 @@ def apply_swap_transformation(
                 if isinstance(arg, ArrayRef):
                     if (
                         array_defs[arg.array].index_of(axis0_name) is not None
-                        and axis0_ref.name in arg.indices
+                        and axis0_ref.induction_var in arg.indices
                     ):
                         arg.pop_ref_index()
                     if (
                         array_defs[arg.array].index_of(axis1_name) is not None
-                        and axis0_ref.name not in arg.indices
+                        and axis0_ref.induction_var not in arg.indices
                     ):
-                        arg.append_ref_index(axis0_ref.name)
+                        arg.append_ref_index(axis0_ref.induction_var)
         else:
             raise ValueError(
                 f"Unknown axis reference: {axis1_ref} for swap({transform.axes[0]}, {transform.axes[1]})"
@@ -822,7 +822,7 @@ def apply_sparsify_transformation(
         sparse_axis_iter = SparseAxisIterator(
             axis=axis.name,
             body=axis_ref.body,
-            name=axis_ref.name,
+            induction_var=axis_ref.induction_var,
             offset_array=soff_array_name or "<ILLEGAL>",
             parent=parent_axis_ref,
         )
@@ -830,8 +830,8 @@ def apply_sparsify_transformation(
 
         axis_ref.body.replace_array_ref_idx(
             array_name=array_defs[ArrayType.B_VAL][0].name,
-            old=axis_ref.name,
-            new=ArrayRef(array=sparse_idx_def.name, indices=[sparse_axis_iter.name]),
+            old=axis_ref.induction_var,
+            new=ArrayRef(array=sparse_idx_def.name, indices=[sparse_axis_iter.induction_var]),
         )
 
     elif isinstance(axis_ref, AtomicFormatOp):
@@ -846,10 +846,10 @@ def apply_sparsify_transformation(
             parent=parent_axis_ref,
         )
         parent_axis_ref.body = sparse_axis_slicer
-        axis_ref.replace_symbol(parent_axis_ref.name, sparse_axis_slicer.name)
+        axis_ref.replace_symbol(parent_axis_ref.induction_var, sparse_axis_slicer.induction_var)
         axis_ref.append_array_ref_idx(
             array_name=array_defs[ArrayType.B_VAL][0].name,
-            new=ArrayRef(array=sparse_idx_def.name, indices=[sparse_axis_slicer.name]),
+            new=ArrayRef(array=sparse_idx_def.name, indices=[sparse_axis_slicer.induction_var]),
         )
         if axis_ref.axes[0] == prev_axis_name:
             axis_ref.axes = axis.name, axis_ref.axes[1]
