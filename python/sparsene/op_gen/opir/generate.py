@@ -184,7 +184,7 @@ def generate_from_sparse_axis_iterator(
             )
         else:
             raise ValueError(f"Unsupported schedule type: {type(schedule.body)}")
-    op_builder.build(LoopResultOp, op_result.defining_op)
+        op_builder.build(LoopResultOp, op_result.defining_op)
 
     op_builder.build(
         CValStoreOp,

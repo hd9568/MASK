@@ -1,6 +1,6 @@
 import argparse
 
-from sparsene.op_gen.opgraph.graph import construct_graph_from_block_op, OpGraph
+from sparsene.op_gen.opgraph.graph import construct_graph_from_block_op
 from sparsene.formats.DTC_SpMM import DTC_SPMM_FORMAT
 from sparsene.transform.rts import derive_rts
 from sparsene.op_gen.computent.computent import computent_from_rts
@@ -8,7 +8,8 @@ from sparsene.op_gen.opir.generate import generate_from_computent
 from sparsene.op_gen.opir.op_ir import ForLoopOp, MetaOp
 from sparsene.op_gen.opgraph.printer import GraphPrinter
 from sparsene.logging import get_logger, set_logging_level_for_all
-
+from sparsene.op_gen.opgraph.visualizer import visualize_op_graph as visualize_op_graph
+from sparsene.op_gen.opgraph.visualizerx import visualize_op_graph as visualize_op_graphx
 
 def parse_args():
     args = argparse.ArgumentParser()
@@ -32,8 +33,16 @@ if __name__ == "__main__":
 
     printer = GraphPrinter()
 
-    graph = construct_graph_from_block_op(sparse_for_op)
-    printer.print_graph(graph)
+    sparse_for_op_graph = construct_graph_from_block_op(sparse_for_op)
+    printer.print_graph(sparse_for_op_graph)
+    visualize_op_graph(sparse_for_op_graph, "sparse_for_op_graph.pdf")
+
+    dense_for_op_graph = construct_graph_from_block_op(dense_for_op)
+    printer.print_graph(dense_for_op_graph)
+    visualize_op_graph(dense_for_op_graph, "dense_for_op_graph.pdf")
 
     whole_graph = construct_graph_from_block_op(meta_op)
     printer.print_graph(whole_graph)
+    visualize_op_graph(whole_graph, "op_graph.pdf")
+
+    visualize_op_graphx(whole_graph, "op_graphx.pdf")
