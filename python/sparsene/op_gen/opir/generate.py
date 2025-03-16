@@ -142,13 +142,7 @@ def generate_from_sparse_axis_iterator(
         schedule.offset_array, get_array_type(array_defs[schedule.offset_array])
     )
 
-    lr = SparseOffsetLoadOp(
-        mem="G2R",
-        operands=[
-            soff,
-            offset_index,
-        ],
-    )
+    lr = op_builder.build(SparseOffsetLoadOp, "G2R", [soff, offset_index])
     l = lr.results[0]
     r = lr.results[1]
 

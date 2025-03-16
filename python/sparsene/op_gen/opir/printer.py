@@ -30,7 +30,11 @@ from .ops import (
     MmaOp,
     CValStoreOp,
 )
-from typing import Any, Sequence, Dict, Set, Optional, Tuple
+from typing import Any, Sequence, Dict, Set, Optional
+
+from sparsene.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class NameManager:
@@ -63,31 +67,31 @@ class NameManager:
             name = value.name_hint if isinstance(value, BlockArgument) else None
             while name is None or name in self.used_names:
                 name = self.name_generator.generate(name)
-                print(f"Generated name {name} for {value}")
+                logger.debug(f"Generated name {name} for {value}")
             self.name_map[value] = name
             self.used_names.add(name)
         return self.name_map[value]
 
 
 class Printer:
-    def __init__(self, indent_level: int = 2, debug_indent: bool = False):
+    def __init__(self, indent_size: int = 2, debug_indent: bool = False):
         self.name_manager = NameManager()
         self.debug_chars = "."
 
-        self.indent_level = indent_level
+        self.indent_size = indent_size
         self.debug_indent = debug_indent
 
-    def _get_indent(self, level: int) -> str:
+    def _get_indent(self, indent_level: int) -> str:
         return (
-            (self.debug_chars if self.debug_indent else " ") * level * self.indent_level
+            (self.debug_chars if self.debug_indent else " ") * indent_level * self.indent_size
         )
 
-    def _indent_lines(self, text: str, level: int) -> str:
+    def _indent_lines(self, text: str, indent_level: int) -> str:
         """Helper method to indent all lines in a text string."""
-        indent = self._get_indent(level)
+        indent = self._get_indent(indent_level)
         return "\n".join(f"{indent}{line}" for line in text.split("\n"))
 
-    def dump_for_loop_op(self, op: ForLoopOp, level: int = 0) -> str:
+    def dump_for_loop_op(self, op: ForLoopOp, indent_level: int = 0) -> str:
         induction_var = self.dump_value(op.get_induction_var())
         start = self.dump_op_operand(op.operands[0])
         end = self.dump_op_operand(op.operands[1])
@@ -101,32 +105,32 @@ class Printer:
         return self._indent_lines(
             f"for_loop {induction_var} = {start} to {end} iter_args ({', '.join(iter_args)}) "
             f"{body}",
-            level,
+            indent_level,
         )
 
-    def dump_loop_result_op(self, op: LoopResultOp, level: int = 0) -> str:
+    def dump_loop_result_op(self, op: LoopResultOp, indent_level: int = 0) -> str:
         return self._indent_lines(
             f"loop_result {self.dump_op_operand(op.operands[0], with_type=False)}",
-            level,
+            indent_level,
         )
 
-    def dump_constant_op(self, op: ConstantOp, level: int = 0) -> str:
+    def dump_constant_op(self, op: ConstantOp, indent_level: int = 0) -> str:
         value = op.attributes["value"]
         type_str = self.dump_type(op.result.type)
-        return self._indent_lines(f"constant {value}: {type_str}", level)
+        return self._indent_lines(f"constant {value}: {type_str}", indent_level)
 
-    def dump_no_op(self, op: NoOp, level: int = 0) -> str:
-        return self._indent_lines("nop", level)
+    def dump_no_op(self, op: NoOp, indent_level: int = 0) -> str:
+        return self._indent_lines("nop", indent_level)
 
-    def dump_array_ref_op(self, op: ArrayRefOp, level: int = 0) -> str:
+    def dump_array_ref_op(self, op: ArrayRefOp, indent_level: int = 0) -> str:
         array = self.dump_op_operand(op.operands[0])
         indices = [self.dump_op_operand(index) for index in op.operands[1:]]
         type_str = self.dump_type(op.result.type)
         return self._indent_lines(
-            f"array_ref(array={array}, indices={', '.join(indices)}): {type_str}", level
+            f"array_ref(array={array}, indices={', '.join(indices)}): {type_str}", indent_level
         )
 
-    def dump_device_op(self, op: DeviceOp, level: int = 0) -> str:
+    def dump_device_op(self, op: DeviceOp, indent_level: int = 0) -> str:
         operands = [self.dump_op_operand(operand) for operand in op.operands]
         other_attrs = {key: val for key, val in op.attributes.items() if key != "mem"}
         other_attrs_str = (
@@ -137,116 +141,116 @@ class Printer:
         return self._indent_lines(
             f"{op.name}({', '.join(operands)}) mem={op.attributes['mem']}"
             f"{other_attrs_str}",
-            level,
+            indent_level,
         )
 
-    def dump_meta_op(self, op: MetaOp, level: int = 0) -> str:
+    def dump_meta_op(self, op: MetaOp, indent_level: int = 0) -> str:
         ops_str = "\n".join(
             [
-                self._indent_lines(self.dump_op(op, level + 1), level + 1)
+                self._indent_lines(self.dump_op(op, indent_level + 1), indent_level + 1)
                 for op in op.block.ops
             ]
         )
         args_str = ", ".join([self.dump_value(arg) for arg in op.block.args])
 
         # Only split when there's a newline in the output
-        return self._indent_lines(f"{{\n" f"{ops_str}\n" f"}} args ({args_str})", level)
+        return self._indent_lines(f"{{\n" f"{ops_str}\n" f"}} args ({args_str})", indent_level)
 
     def dump_external_symbol_operation(
-        self, op: ExternalSymbolOperation, level: int = 0
+        self, op: ExternalSymbolOperation, indent_level: int = 0
     ) -> str:
         type_str = self.dump_type(op.result.type)
         return self._indent_lines(
-            f"external @{op.attributes['symbol']}: {type_str}", level
+            f"external @{op.attributes['symbol']}: {type_str}", indent_level
         )
 
-    def dump_sparse_offset_load_op(self, op: SparseOffsetLoadOp, level: int = 0) -> str:
+    def dump_sparse_offset_load_op(self, op: SparseOffsetLoadOp, indent_level: int = 0) -> str:
         operands = [self.dump_op_operand(operand) for operand in op.operands]
         results = [self.dump_value(result) for result in op.results]
         return self._indent_lines(
             f"sparse_offset_load(mem={op.attributes['mem']}, operands={', '.join(operands)}): {', '.join(results)}",
-            level,
+            indent_level,
         )
 
     def dump_coo_atomic_format_load_off_op(
-        self, op: CooAtomicFormatLoadOffOp, level: int = 0
+        self, op: CooAtomicFormatLoadOffOp, indent_level: int = 0
     ) -> str:
         operands = [self.dump_op_operand(operand) for operand in op.operands]
         results = [self.dump_value(result) for result in op.results]
         return self._indent_lines(
             f"coo_atomic_format_load_off(mem={op.attributes['mem']}, operands={', '.join(operands)}): {', '.join(results)}",
-            level,
+            indent_level,
         )
 
     def dump_coo_atomic_format_load_idx_op(
-        self, op: CooAtomicFormatLoadIdxOp, level: int = 0
+        self, op: CooAtomicFormatLoadIdxOp, indent_level: int = 0
     ) -> str:
         operands = [self.dump_op_operand(operand) for operand in op.operands]
         results = [self.dump_value(result) for result in op.results]
         return self._indent_lines(
             f"coo_atomic_format_load_idx(mem={op.attributes['mem']}, operands={', '.join(operands)}): {', '.join(results)}",
-            level,
+            indent_level,
         )
 
     def dump_coo_atomic_format_load_val_op(
-        self, op: CooAtomicFormatLoadValOp, level: int = 0
+        self, op: CooAtomicFormatLoadValOp, indent_level: int = 0
     ) -> str:
         operands = [self.dump_op_operand(operand) for operand in op.operands]
         results = [self.dump_value(result) for result in op.results]
         return self._indent_lines(
             f"coo_atomic_format_load_val(mem={op.attributes['mem']}, operands={', '.join(operands)}): {', '.join(results)}",
-            level,
+            indent_level,
         )
 
-    def dump_val_sidx_load_op(self, op: ValSidxLoadOp, level: int = 0) -> str:
+    def dump_val_sidx_load_op(self, op: ValSidxLoadOp, indent_level: int = 0) -> str:
         operands = [self.dump_op_operand(operand) for operand in op.operands]
         results = [self.dump_value(result) for result in op.results]
         return self._indent_lines(
             f"val_sidx_load(mem={op.attributes['mem']}, operands={', '.join(operands)}): {', '.join(results)}",
-            level,
+            indent_level,
         )
 
-    def dump_b_val_load_op(self, op: BValLoadOp, level: int = 0) -> str:
+    def dump_b_val_load_op(self, op: BValLoadOp, indent_level: int = 0) -> str:
         operands = [self.dump_op_operand(operand) for operand in op.operands]
         results = [self.dump_value(result) for result in op.results]
         return self._indent_lines(
             f"b_val_load(mem={op.attributes['mem']}, operands={', '.join(operands)}): {', '.join(results)}",
-            level,
+            indent_level,
         )
 
     def dump_coo_atomic_val_restore_op(
-        self, op: CooAtomicValRestoreOp, level: int = 0
+        self, op: CooAtomicValRestoreOp, indent_level: int = 0
     ) -> str:
         operands = [self.dump_op_operand(operand) for operand in op.operands]
         results = [self.dump_value(result) for result in op.results]
         return self._indent_lines(
             f"coo_atomic_val_restore(mem={op.attributes['mem']}, operands={', '.join(operands)}): {', '.join(results)}",
-            level,
+            indent_level,
         )
 
-    def dump_mma_op(self, op: MmaOp, level: int = 0) -> str:
+    def dump_mma_op(self, op: MmaOp, indent_level: int = 0) -> str:
         operands = [self.dump_op_operand(operand) for operand in op.operands]
         results = [self.dump_value(result) for result in op.results]
         return self._indent_lines(
             f"mma(mem={op.attributes['mem']}, operands={', '.join(operands)}): {', '.join(results)}",
-            level,
+            indent_level,
         )
 
-    def dump_c_val_store_op(self, op: CValStoreOp, level: int = 0) -> str:
+    def dump_c_val_store_op(self, op: CValStoreOp, indent_level: int = 0) -> str:
         operands = [self.dump_op_operand(operand) for operand in op.operands]
         return self._indent_lines(
             f"c_val_store(mem={op.attributes['mem']}, operands={', '.join(operands)})",
-            level,
+            indent_level,
         )
 
-    def dump_block(self, block: Block, level: int = 0) -> str:
+    def dump_block(self, block: Block, indent_level: int = 0) -> str:
         ops_str = "\n".join(
             [self._indent_lines(self.dump_op(op), 1) for op in block.ops]
         )
         args_str = ", ".join([self.dump_value(arg) for arg in block.args])
 
         # Only split when there's a newline in the output
-        return self._indent_lines(f"{{\n" f"{ops_str}\n}} args ({args_str})", level)
+        return self._indent_lines(f"{{\n" f"{ops_str}\n}} args ({args_str})", indent_level)
 
     def dump_int_type(self, type: IntType) -> str:
         return "int"
@@ -272,7 +276,7 @@ class Printer:
         source = self.dump_value(op_operand.source, with_type)
         return source
 
-    def dump_op(self, op: Op, level: int = 0) -> str:
+    def dump_op(self, op: Op, indent_level: int = 0) -> str:
         if isinstance(op, ForLoopOp):
             op_str = self.dump_for_loop_op(op, 0)
         elif isinstance(op, ConstantOp):
@@ -324,7 +328,7 @@ class Printer:
             return_type_str = ""
         return self._indent_lines(
             f"{prefix_str}{op_str}{return_type_str}",
-            level,
+            indent_level,
         )
 
     def dump_type(self, type: Type) -> str:
@@ -339,24 +343,24 @@ class Printer:
         else:
             raise ValueError(f"Unknown type: {type}")
 
-    def dump_ops(self, ops: Sequence[Op], level: int = 0) -> str:
+    def dump_ops(self, ops: Sequence[Op], indent_level: int = 0) -> str:
         # Only split when there's a newline in the output
         return self._indent_lines(
             f"[\n"
-            f"{'\n'.join([self._indent_lines(self.dump_op(op, level + 1), level + 1) for op in ops])}\n"
+            f"{'\n'.join([self._indent_lines(self.dump_op(op, indent_level + 1), indent_level + 1) for op in ops])}\n"
             f"]",
-            level,
+            indent_level,
         )
 
-    def dump(self, obj: Any, level: int = 0) -> str:
+    def dump(self, obj: Any, indent_level: int = 0) -> str:
         if isinstance(obj, Op):
-            return self.dump_op(obj, level)
+            return self.dump_op(obj, indent_level)
         elif isinstance(obj, Sequence) and all(isinstance(op, Op) for op in obj):
-            return self.dump_ops(obj, level)
+            return self.dump_ops(obj, indent_level)
         elif isinstance(obj, Type):
             return self.dump_type(obj)
         elif isinstance(obj, Block):
-            return self.dump_block(obj, level)
+            return self.dump_block(obj, indent_level)
         elif isinstance(obj, Value):
             return self.dump_value(obj)
         elif isinstance(obj, OpOperand):
@@ -366,4 +370,4 @@ class Printer:
 
 
 # Create a default printer instance for backward compatibility
-default_printer = Printer(indent_level=3)
+default_printer = Printer(indent_size=3)

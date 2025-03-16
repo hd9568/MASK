@@ -344,29 +344,33 @@ class Block:
         self.ops.append(op)
 
 
-class MetaOp(Op):
+class BlockOp(Op):
     block: Block
 
-    def __init__(self):
+    def __init__(
+        self,
+        operands: Sequence[Value] = [],
+        results: Sequence[OpResult] = [],
+        attributes: Dict[str, Any] = {},
+        residing_block: Optional[Block] = None,
+    ):
         super().__init__(
-            attributes={},
-            operands=[],
-            results=[],
+            operands=operands,
+            results=results,
+            attributes=attributes,
+            residing_block=residing_block,
         )
         self.block = Block(self)
+
+
+class MetaOp(BlockOp):
 
     @property
     def name(self) -> str:
         return "meta"
 
-    @property
-    def symbol_table(self) -> SymbolTable:
-        return self.block.symbol_table
 
-
-class ForLoopOp(Op):
-    block: Block
-
+class ForLoopOp(BlockOp):
     @property
     def body(self) -> Block:
         return self.block
@@ -389,7 +393,6 @@ class ForLoopOp(Op):
                 for i, arg in enumerate(iter_args.values())
             ],
         )
-        self.block = Block(self)
         self.body.args.append(BlockArgument(IntType(), self.body, induction_var))
         for name, arg in iter_args.items():
             self.body.args.append(BlockArgument(arg.type, self.body, name))

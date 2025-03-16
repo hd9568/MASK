@@ -1101,7 +1101,6 @@ def add_metadata(schedule: Optional[Schedule], format: Format) -> None:
 
 def computent_from_rts(name: str, rts: TransformationSequence) -> Computent:
     format = deepcopy(DENSE_FORMAT)
-    print(format)
     root_format = Format(axes=[], child=format)
     assert isinstance(root_format.child, Format)
     parent_format = root_format

@@ -8,36 +8,48 @@ from sparsene.logging import get_logger
 logger = get_logger(__name__)
 
 
-class Graph:
+class OpGraph:
     class Node:
         id: int
-        op: op_ir.Op
-        inputs: List[Graph.Edge]
-        outputs: List[Graph.Edge]
+        inputs: List[OpGraph.Edge]
+        outputs: List[OpGraph.Edge]
 
-        def __init__(self, op: op_ir.Op):
-            self.id = id(op)
-            self.op = op
+        def __init__(self, id: int):
+            self.id = id
             self.inputs = []
             self.outputs = []
 
-    class SuperNode:
-        # TODO: Implement nested SuperNode
-        graph: Graph
+    class BlockArgNode(Node):
+        block_arg: op_ir.BlockArgument
 
-        def __init__(self, graph: Graph):
+        def __init__(self, block_arg: op_ir.BlockArgument):
+            super().__init__(id(block_arg))
+            self.block_arg = block_arg
+
+    class OpNode(Node):
+        op: op_ir.Op
+
+        def __init__(self, op: op_ir.Op):
+            super().__init__(id(op))
+            self.op = op
+
+    class SuperNode(OpNode):
+        graph: OpGraph
+
+        def __init__(self, op: op_ir.Op, graph: OpGraph):
+            super().__init__(op)
             self.graph = graph
 
     class Edge:
-        src: Graph.Node
-        dst: Graph.Node
+        src: OpGraph.Node
+        dst: OpGraph.Node
 
-        def __init__(self, src: Graph.Node, dst: Graph.Node):
+        def __init__(self, src: OpGraph.Node, dst: OpGraph.Node):
             self.src = src
             self.dst = dst
 
-        nodes: Dict[int, Graph.Node]
-        edges: List[Graph.Edge]
+    nodes: Dict[int, Node]
+    edges: List[Edge]
 
     def __init__(self):
         self.nodes = {}
@@ -62,39 +74,48 @@ class Graph:
         self.nodes[edge.dst.id].inputs.append(edge)
 
 
-def construct_graph_from_block(block: op_ir.Block) -> Graph:
-    # TODO: Buggy. no edges are derived TnT
-    graph = Graph()
+def construct_graph_from_block_op(block_op: op_ir.BlockOp) -> OpGraph:
+    graph = OpGraph()
 
     # Add nodes
-    for op in block.ops:
-        logger.debug(f"Adding node {id(op)}")
-        graph.add_node(Graph.Node(op))
+    logger.debug(f"Adding OpNodes")
+    for op in block_op.block.ops:
+        logger.debug(f"Adding node {id(op)}: {op}")
+        if isinstance(op, op_ir.BlockOp):
+            subgraph = construct_graph_from_block_op(op)
+            graph.add_node(OpGraph.SuperNode(op, subgraph))
+        else:
+            graph.add_node(OpGraph.OpNode(op))
+
+    logger.debug(f"Adding BlockArgument nodes")
+    for arg in block_op.block.args:
+        logger.debug(f"Adding node {id(arg)}: {arg}")
+        graph.add_node(OpGraph.BlockArgNode(arg))
+
     logger.debug(f"Nodes: {graph.nodes}")
 
     # Add edges
-    for op in block.ops:
+    for op in block_op.block.ops:
         for operand in op.operands:
-            src_id = id(operand.source.defining_op)
+            src_value = operand.source
+            if isinstance(src_value, op_ir.BlockArgument):
+                src = src_value
+            elif isinstance(src_value, op_ir.OpResult):
+                src = src_value.defining_op
+            else:
+                raise ValueError(f"Operand type {type(src_value)} not supported")
+
+            src_id = id(src)
             dst_id = id(op)
-            logger.debug(f"src({src_id}): {operand.source.defining_op}")
+            logger.debug(f"src({src_id}): {src}")
             logger.debug(f"dst({dst_id}): {op}")
-            logger.debug(f"Adding edge from {src_id} to {dst_id}")
-            logger.debug(f"src_id in graph.nodes: {src_id in graph.nodes}")
-            logger.debug(f"dst_id in graph.nodes: {dst_id in graph.nodes}")
+            logger.debug(
+                f"Adding edge from {src_id} to {dst_id} "
+                f"(Nodes exist: src={src_id in graph.nodes}, dst={dst_id in graph.nodes})"
+            )
             if src_id in graph.nodes and dst_id in graph.nodes:
-                logger.debug(f"Added")
-                graph.add_edge(Graph.Edge(graph.nodes[src_id], graph.nodes[dst_id]))
+                logger.debug(f"Added edge from {src_id} to {dst_id}")
+                graph.add_edge(OpGraph.Edge(graph.nodes[src_id], graph.nodes[dst_id]))
+    logger.debug(f"Edges: {graph.edges}")
 
     return graph
-
-
-# class OpGraph:
-#     class Node:
-#         pass
-
-#     class Edge:
-#         pass
-
-#     nodes: Dict[int, Node]
-#     edges: List[Edge]
