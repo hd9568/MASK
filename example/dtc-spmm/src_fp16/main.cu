@@ -8,6 +8,10 @@
 #include <cuda_fp16.h>
 #include <bits/stdc++.h>
 #include <sys/stat.h>
+#include <cusparse.h>
+
+#include "common.h"
+#include "utils.h"
 
 using namespace std;
 
@@ -70,6 +74,110 @@ int binarySearch(int* arr, int l, int r, int target) {
         else r = mid - 1;
     }
     return -1; // 未找到
+}
+
+void cusparse_spmm_all(
+    half* cu_ValA, int* cu_RowPtrA, int* cu_ColIdxA,
+    half* cu_B, float* cu_C, int M, int N, int K, int nnz
+) {
+    int A_num_rows = M;
+    int A_num_cols = K;
+    int B_num_rows = K;
+    int B_num_cols = N;
+    int ldb = B_num_rows;   // B: column first
+    int B_size = ldb * B_num_cols;
+    int C_num_rows = M;
+    int C_num_cols = N;
+    int ldc = C_num_cols;            // C: row first
+    int C_size = C_num_rows * ldc;
+    float alpha = 1.0f;
+    float beta = 0.0f;
+    // device memory management
+    int* dA_rpt;
+    int* dA_cid;
+    half* dA_val;
+    half* dB;
+    float* dC;
+    CHECK_CUDA(cudaMalloc(&dA_rpt, sizeof(int) * (M + 1)));
+    CHECK_CUDA(cudaMalloc(&dA_cid, sizeof(int) * nnz));
+    CHECK_CUDA(cudaMalloc(&dA_val, sizeof(half) * nnz));
+    CHECK_CUDA(cudaMalloc(&dB, sizeof(half) * B_size));
+    CHECK_CUDA(cudaMalloc(&dC, sizeof(float) * C_size));
+
+    CHECK_CUDA(cudaMemcpy(dA_rpt, cu_RowPtrA, sizeof(int) * (M + 1), cudaMemcpyHostToDevice));
+    CHECK_CUDA(cudaMemcpy(dA_cid, cu_ColIdxA, sizeof(int) * nnz, cudaMemcpyHostToDevice));
+    CHECK_CUDA(cudaMemcpy(dA_val, cu_ValA, sizeof(half) * nnz, cudaMemcpyHostToDevice));
+    CHECK_CUDA(cudaMemcpy(dB, cu_B, sizeof(half) * B_size, cudaMemcpyHostToDevice));
+    CHECK_CUDA(cudaMemset(dC, 0, sizeof(float) * C_size));
+
+    // cuSPARSE APIs
+    cusparseHandle_t handle = NULL;
+    cusparseSpMatDescr_t matA;
+    cusparseDnMatDescr_t matB, matC;
+    void* dBuffer = NULL;
+    size_t bufferSize = 0;
+    CHECK_CUSPARSE(cusparseCreate(&handle));
+    // Create sparse matrix A in CSR format
+    CHECK_CUSPARSE(cusparseCreateCsr(&matA, A_num_rows, A_num_cols, nnz, 
+                                    dA_rpt, dA_cid, dA_val, 
+                                    CUSPARSE_INDEX_32I, CUSPARSE_INDEX_32I, CUSPARSE_INDEX_BASE_ZERO, CUDA_R_16F));
+    CHECK_CUSPARSE(cusparseCreateDnMat(&matB, B_num_rows, B_num_cols, ldb, dB,
+                                    CUDA_R_16F, CUSPARSE_ORDER_COL))
+    CHECK_CUSPARSE(cusparseCreateDnMat(&matC, C_num_rows, C_num_cols, ldc, dC,
+                                    CUDA_R_32F, CUSPARSE_ORDER_ROW));
+    // allocate an external buffer if needed
+    CHECK_CUSPARSE(cusparseSpMM_bufferSize(handle,
+        CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_OPERATION_NON_TRANSPOSE,
+        &alpha, matA, matB, &beta, matC, CUDA_R_32F,
+        CUSPARSE_SPMM_ALG_DEFAULT, &bufferSize));
+    CHECK_CUDA(cudaMalloc(&dBuffer, bufferSize));
+
+    // execute preprocess (optional)
+    CHECK_CUSPARSE( cusparseSpMM_preprocess(
+        handle,
+        CUSPARSE_OPERATION_NON_TRANSPOSE,
+        CUSPARSE_OPERATION_NON_TRANSPOSE,
+        &alpha, matA, matB, &beta, matC, CUDA_R_32F,
+        CUSPARSE_SPMM_ALG_DEFAULT, dBuffer) )
+
+    // execute SpMM
+    CHECK_CUSPARSE( cusparseSpMM(handle,
+            CUSPARSE_OPERATION_NON_TRANSPOSE,
+            CUSPARSE_OPERATION_NON_TRANSPOSE,
+            &alpha, matA, matB, &beta, matC, CUDA_R_32F,
+            CUSPARSE_SPMM_ALG_DEFAULT, dBuffer) )
+
+    CHECK_CUDA(cudaMemcpy(cu_C, dC, sizeof(float) * C_size, cudaMemcpyDeviceToHost));
+
+    // destroy matrix/vector descriptors
+    CHECK_CUSPARSE( cusparseDestroySpMat(matA) )
+    CHECK_CUSPARSE( cusparseDestroyDnMat(matB) )
+    CHECK_CUSPARSE( cusparseDestroyDnMat(matC) )
+    CHECK_CUSPARSE( cusparseDestroy(handle) )
+
+    //--------------------------------------------------------------------------
+    // device memory deallocation
+    CHECK_CUDA( cudaFree(dBuffer) )
+    CHECK_CUDA( cudaFree(dA_cid) )
+    CHECK_CUDA( cudaFree(dA_rpt) )
+    CHECK_CUDA( cudaFree(dA_val) )
+    CHECK_CUDA( cudaFree(dB) )
+    CHECK_CUDA( cudaFree(dC) )
+    return;
+}
+
+void verify_new(float* C_cpu, float* C_cuda, int M, int N) {
+    for (int i = 0; i < M; i++) {
+        for (int j = 0; j < N; j++) {
+            float cusparse_val = C_cpu[OFFSET_ROW(i, j, N)];
+            float mykernel_val = C_cuda[OFFSET_ROW(i, j, N)];
+            if (fabs(cusparse_val - mykernel_val) > 0.01) {
+                printf("Error(%d, %d): cusp(%.1f) mykernel(%.1f)\n", i, j, cusparse_val, mykernel_val);
+            }
+            // if (i == 0)
+            // printf("check(%d, %d): cusp(%.1f) mykernel(%.1f)\n", i, j, cusparse_val, mykernel_val);
+        }
+    }
 }
 
 void convertToMETCF(
@@ -207,117 +315,75 @@ void convertToMETCF(
     dtc_spmm_test<32>(M, N, K, total_TCBlock_num, nnz_pad, val_sidx, val_soff, B, val_coo_idx, val_coo_val, val_coo_off, C);
 }
 
-int main() {
-    int M = 2304;
-    int N = 1536;
-    int K = 16384;
-    half* B = (half*)malloc(sizeof(half) * K * N);
-    half* A = (half*)malloc(sizeof(half) * M * K);
-    
-    memset(A, 0, sizeof(half) * M * K);
-    memset(B, 0, sizeof(half) * K * N);
-    float sparsity = 0.5;
-    initVector(B, K * N);
-    initVector(A, M * K, sparsity);
-    // printf("A: \n");
-    // for (int i = 0; i < M; i++) {
-    //     for (int j = 0; j < K; j++) {
-    //         if (j % 16 == 0)
-    //             printf("| %.0f ", (float)A[i * K + j]);
-    //         else
-    //             printf("%.0f ", (float)A[i * K + j]);
-    //     } printf("\n");
-    // }
-    // printf("\n\nB: \n");
-    // for (int i = 0; i < K; i++) {
-    //     for (int j = 0; j < N; j++) {
-    //         printf("%.0f ", (float)B[j * K + i]);
-    //     } printf("\n");
-    // }
-    {//! debug check C
-        // float* C_check = (float*)malloc(sizeof(float) * 16 * 8);
-        // memset(C_check, 0, sizeof(float) * 16 * 8);
-        // for (int k_ptr = 0; k_ptr < K / 16; k_ptr++) {
-        //     printf("k_ptr = %d\n", k_ptr);
-        //     for (int i = 0; i < 16; i++) {
-        //         for (int j = 0; j < 8; j++) {
-        //             for (int k = 0; k < 16; k++) {
-        //                 C_check[OFFSET_ROW(i, j, 8)] += (float)A[i * K + (k_ptr * 16 + k)] * (float)B[j * K + (k_ptr * 16 + k)];
-        //             }
-        //         }
-        //     }
-        //     for (int i = 0; i < 16; i++) {
-        //         for (int j = 0; j < 8; j++) {
-        //             printf("%.0f ", C_check[OFFSET_ROW(i, j, 8)]);
-        //         } printf("\n");
-        //     }
-        // }
-
+void parseInput(int argc, char** argv, string& filename, int& N) {
+    unordered_map<string, string> options;
+    for (int i = 1; i < argc; i+=2) {
+        string option = argv[i];
+        string value = argv[i + 1];
+        if (option[0] != '-') {
+            cerr << "Invalid option: " << option << endl;
+            exit(-1);
+        }
+        option = option.substr(1);
+        options[option] = value;
     }
+    if (options.find("filename") != options.end()) {
+        std::cout << "input sparse filename: " << options["filename"] << endl;
+        filename = options["filename"];
+    }
+    if (options.find("N") != options.end()) {
+        std::cout << "dense matrix column N: " << options["N"] << endl;
+        N = stoi(options["N"]);
+    }
+}
+
+int main(int argc, char** argv) {
+    int N = 512;
+    string filename;
+    parseInput(argc, argv, filename, N);
 
     // convert A to CSR
+    int rowA, colA;
     int nnz = 0;
-    int* csrPtrA = (int*)malloc(sizeof(int) * (M + 1));
+    int isSymmetricA;
+    int* csrPtrA;
+    int* csrColIdxA;
+    half* csrValA;
     
-    for (int i = 0; i < M; i++) {
-        csrPtrA[i] = nnz;
-        for (int k = 0; k < K; k++) {
-            float value = (float)A[i * K + k];
-            if (value != 0) {
-                nnz++;
-            }
-        }
-    } 
-    csrPtrA[M] = nnz;
-    int* csrColIdxA = (int*)malloc(sizeof(int) * nnz);
-    half* csrValA = (half*)malloc(sizeof(half) * nnz);
-    memset(csrColIdxA, 0, sizeof(int) * nnz);
-    memset(csrValA, 0, sizeof(half) * nnz);
-    int ptr = 0;
-    for (int i = 0; i < M; i++) {
-        for (int k = 0; k < K; k++) {
-            float value = (float)A[i * K + k];
-            if (value != 0) {
-                csrColIdxA[ptr] = k;
-                csrValA[ptr] = (half)value;
-                ptr++;
-            }
-        }
-    }
-    {//! debug
-        // printf("csrPtrA: ");
-        // for (int i = 0; i <= M; i++) {
-        //     printf("%d ", csrPtrA[i]);
-        // }
-        // printf("\n");
-        // printf("csrColIdxA: ");
-        // for (int i = 0; i < nnz; i++) {
-        //     printf("%d ", csrColIdxA[i]);
-        // } printf("\n");
-        // printf("csrValA: ");
-        // for (int i = 0; i < nnz; i++) {
-        //     printf("%.0f ", (float)csrValA[i]);
-        // } printf("\n");
-    }
+    mmio_allinone(&rowA, &colA, &nnz, &isSymmetricA, &csrPtrA, &csrColIdxA, &csrValA, filename.c_str());
+    int M = rowA;
+    int K = colA;
+    printf("HALF: Sparse A[%d,%d] x B[%d,%d] = C[%d,%d]\n", M, K, K, N, M, N);
+
+    half* B = (half*)malloc(sizeof(half) * K * N);
+    initVector(B, K * N);
+    initVector(csrValA, nnz);
     float* C_cuda = (float*)malloc(sizeof(float) * M * N);
     convertToMETCF(M, N, K, nnz, csrPtrA, csrColIdxA, csrValA, B, C_cuda);
 
     //host check
     float* C_cpu = (float*)malloc(sizeof(float) * M * N);
     memset(C_cpu, 0, sizeof(float) * M * N);
+    cusparse_spmm_all(csrValA, csrPtrA, csrColIdxA, B, C_cpu, M, N, K, nnz);
+    verify_new(C_cpu, C_cuda, M, N);
+
+    printf("check nan: cusp %.1f mykernel %.1f\n", C_cpu[0], C_cuda[0]);
+
+    // float* C_host = (float*)malloc(sizeof(float) * M * N);
+    // memset(C_host, 0, sizeof(float) * M * N);
     // for (int i = 0; i < M; i++) {
     //     for (int j = 0; j < N; j++) {
     //         for (int k = csrPtrA[i]; k < csrPtrA[i + 1]; k++) {
     //             int col = csrColIdxA[k];
     //             float value = (float)csrValA[k];
-    //             C_cpu[i * N + j] += value * (float)B[j * K + col];
+    //             C_host[i * N + j] += value * (float)B[j * K + col];
     //         }
     //     }
     // }
     // for (int i = 0; i < M; i++) {
     //     for (int j = 0; j < N; j++) {
-    //         if (fabs(C_cpu[i * N + j] - C_cuda[i * N + j]) > 0.01) {
-    //             printf("Error(%d, %d): %f %f\n", i, j, C_cpu[i * N + j], C_cuda[i * N + j]);
+    //         if (fabs(C_host[i * N + j] - C_cpu[i * N + j]) > 0.01) {
+    //             printf("Error(%d, %d): %f %f\n", i, j, C_host[i * N + j], C_cpu[i * N + j]);
     //         }
     //     }
     // }

@@ -38,7 +38,7 @@ file(GLOB_RECURSE SRC_CUDA_FILES ${SRCDIR}/*.cu)
 set(SRCDIR_FP16 ${CMAKE_CURRENT_SOURCE_DIR}/src_fp16)
 file(GLOB_RECURSE SRC_FP16_CUDA_FILES ${SRCDIR_FP16}/*.cu)
 add_executable(dtc_half ${SRC_CUDA_FILES} ${SRC_FP16_CUDA_FILES})
-target_compile_options(dtc_half PRIVATE ${CUDA_NVCC_FLAGS})
+target_compile_options(dtc_half PRIVATE ${CUDA_NVCC_FLAGS} -I${SRCDIR})
 target_link_libraries(dtc_half PRIVATE ${CUDA_LIBS})
 
 # SRC_FP32 directory
