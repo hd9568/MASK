@@ -1,5 +1,6 @@
 #include "common.h"
 #include "utils.h"
+#include <bits/stdc++.h>
 
 int BinarySearch(int* arr, int len, int target) {
     int low  = 0;
@@ -89,8 +90,9 @@ void quick_sort_key_idx(int* key, int* len, int length) {
 void initVec(MAT_VAL_TYPE* vec, int length) {
     for (int i = 0; i < length; ++i) {
         // vec[i] = rand() % 10 * 0.01 + 0.1;
-        vec[i] = rand() % 2 + 1;
-        vec[i] = 1;
+        // vec[i] = rand() % 2 + 1;
+        vec[i] = (MAT_VAL_TYPE)(rand() % 5 + 1);
+        // vec[i] = 1;
     }
 }
 
@@ -174,3 +176,7 @@ void radix_sort_asce(int* arr, int* idx, int len) {
         count_sort_asce(arr, idx, len, exp);
     }
 }
+
+using namespace std;
+
+

@@ -36,10 +36,20 @@ file(GLOB_RECURSE SRC_CUDA_FILES ${SRCDIR}/*.cu)
 
 # SRC_FP16 directory
 set(SRCDIR_FP16 ${CMAKE_CURRENT_SOURCE_DIR}/src_fp16)
-file(GLOB_RECURSE SRC_FP16_CUDA_FILES ${SRCDIR_FP16}/*.cu)
-add_executable(dtc_half ${SRC_CUDA_FILES} ${SRC_FP16_CUDA_FILES})
-target_compile_options(dtc_half PRIVATE ${CUDA_NVCC_FLAGS} -I${SRCDIR})
-target_link_libraries(dtc_half PRIVATE ${CUDA_LIBS})
+# file(GLOB_RECURSE SRC_FP16_CUDA_FILES ${SRCDIR_FP16}/*.cu)
+# set(SRCDIR_FP16_EXCLUDE_FILES ${SRCDIR_FP16}/main_row_majorB.cu ${SRCDIR_FP16}/main_col_majorB.cu)
+# list(REMOVE_ITEM SRC_FP16_CUDA_FILES ${SRCDIR_FP16_EXCLUDE_FILES})
+#> col major B
+file(GLOB_RECURSE SRC_FP16_COLMAJORB_FILES ${SRCDIR_FP16}/col_majorB/*.cu)
+add_executable(dtc_half_col_majorB ${SRC_CUDA_FILES} ${SRC_FP16_COLMAJORB_FILES})
+target_compile_options(dtc_half_col_majorB PRIVATE ${CUDA_NVCC_FLAGS} -I${SRCDIR})
+target_link_libraries(dtc_half_col_majorB PRIVATE ${CUDA_LIBS})
+#> row major B
+file(GLOB_RECURSE SRC_FP16_ROWMAJORB_FILES ${SRCDIR_FP16}/row_majorB/*.cu)
+add_executable(dtc_half_row_majorB ${SRC_CUDA_FILES} ${SRC_FP16_ROWMAJORB_FILES})
+target_compile_options(dtc_half_row_majorB PRIVATE ${CUDA_NVCC_FLAGS} -I${SRCDIR})
+target_link_libraries(dtc_half_row_majorB PRIVATE ${CUDA_LIBS})
+
 
 # SRC_FP32 directory
 set(SRCDIR_FP32 ${CMAKE_CURRENT_SOURCE_DIR}/src_fp32)

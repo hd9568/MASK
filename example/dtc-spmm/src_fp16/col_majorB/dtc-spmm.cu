@@ -498,7 +498,34 @@ void ncu_test_all(
     dim3 block(thread_num);
     //! （shift1=1,shift2=1,shift3=1)
     dtc_spmm_kernel_sstage_rstage<1, 1, 1, 32><<<grid, block>>>(M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC);
-
+    // dtc_spmm_kernel_sstage_rstage<1, 1, 2, 32><<<grid, block>>>(M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC);
+    // dtc_spmm_kernel_sstage_rstage<1, 1, 3, 32><<<grid, block>>>(M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC);
+    // dtc_spmm_kernel_sstage_rstage<1, 2, 1, 32><<<grid, block>>>(M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC);
+    // dtc_spmm_kernel_sstage_rstage<1, 2, 2, 32><<<grid, block>>>(M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC);
+    // dtc_spmm_kernel_sstage_rstage<1, 2, 3, 32><<<grid, block>>>(M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC);
+    // dtc_spmm_kernel_sstage_rstage<1, 3, 1, 32><<<grid, block>>>(M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC);
+    // dtc_spmm_kernel_sstage_rstage<1, 3, 2, 32><<<grid, block>>>(M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC);
+    // dtc_spmm_kernel_sstage_rstage<1, 3, 3, 32><<<grid, block>>>(M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC);
+    //! (shift1=2,shif2=2,shift3=2)
+    // dtc_spmm_kernel_sstage_rstage<2, 1, 1, 32><<<grid, block>>>(M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC);
+    // dtc_spmm_kernel_sstage_rstage<2, 1, 2, 32><<<grid, block>>>(M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC);
+    // dtc_spmm_kernel_sstage_rstage<2, 1, 3, 32><<<grid, block>>>(M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC);
+    // dtc_spmm_kernel_sstage_rstage<2, 2, 1, 32><<<grid, block>>>(M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC);
+    dtc_spmm_kernel_sstage_rstage<2, 2, 2, 32><<<grid, block>>>(M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC);
+    // dtc_spmm_kernel_sstage_rstage<2, 2, 3, 32><<<grid, block>>>(M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC);
+    // dtc_spmm_kernel_sstage_rstage<2, 3, 1, 32><<<grid, block>>>(M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC);
+    // dtc_spmm_kernel_sstage_rstage<2, 3, 2, 32><<<grid, block>>>(M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC);
+    // dtc_spmm_kernel_sstage_rstage<2, 3, 3, 32><<<grid, block>>>(M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC);
+    //! (shift1=3,shift2=3,shift3=3)
+    // dtc_spmm_kernel_sstage_rstage<3, 1, 1, 32><<<grid, block>>>(M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC);
+    // dtc_spmm_kernel_sstage_rstage<3, 1, 2, 32><<<grid, block>>>(M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC);
+    // dtc_spmm_kernel_sstage_rstage<3, 1, 3, 32><<<grid, block>>>(M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC);
+    // dtc_spmm_kernel_sstage_rstage<3, 2, 1, 32><<<grid, block>>>(M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC);
+    // dtc_spmm_kernel_sstage_rstage<3, 2, 2, 32><<<grid, block>>>(M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC);
+    // dtc_spmm_kernel_sstage_rstage<3, 2, 3, 32><<<grid, block>>>(M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC);
+    // dtc_spmm_kernel_sstage_rstage<3, 3, 1, 32><<<grid, block>>>(M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC);
+    // dtc_spmm_kernel_sstage_rstage<3, 3, 2, 32><<<grid, block>>>(M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC);
+    dtc_spmm_kernel_sstage_rstage<3, 3, 3, 32><<<grid, block>>>(M, N, K, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC);
 }
 
 
