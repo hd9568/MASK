@@ -211,6 +211,9 @@ int main() {
     int M = 2304;
     int N = 1536;
     int K = 16384;
+    // M = 1024;
+    // N = 1024;
+    // K = 1024;
     half* B = (half*)malloc(sizeof(half) * K * N);
     half* A = (half*)malloc(sizeof(half) * M * K);
     
@@ -303,23 +306,26 @@ int main() {
     convertToMETCF(M, N, K, nnz, csrPtrA, csrColIdxA, csrValA, B, C_cuda);
 
     //host check
-    float* C_cpu = (float*)malloc(sizeof(float) * M * N);
-    memset(C_cpu, 0, sizeof(float) * M * N);
-    // for (int i = 0; i < M; i++) {
-    //     for (int j = 0; j < N; j++) {
-    //         for (int k = csrPtrA[i]; k < csrPtrA[i + 1]; k++) {
-    //             int col = csrColIdxA[k];
-    //             float value = (float)csrValA[k];
-    //             C_cpu[i * N + j] += value * (float)B[j * K + col];
-    //         }
-    //     }
-    // }
-    // for (int i = 0; i < M; i++) {
-    //     for (int j = 0; j < N; j++) {
-    //         if (fabs(C_cpu[i * N + j] - C_cuda[i * N + j]) > 0.01) {
-    //             printf("Error(%d, %d): %f %f\n", i, j, C_cpu[i * N + j], C_cuda[i * N + j]);
-    //         }
-    //     }
-    // }
+    if (0) {
+        float* C_cpu = (float*)malloc(sizeof(float) * M * N);
+        memset(C_cpu, 0, sizeof(float) * M * N);
+        for (int i = 0; i < M; i++) {
+            for (int j = 0; j < N; j++) {
+                for (int k = csrPtrA[i]; k < csrPtrA[i + 1]; k++) {
+                    int col = csrColIdxA[k];
+                    float value = (float)csrValA[k];
+                    C_cpu[i * N + j] += value * (float)B[j * K + col];
+                }
+            }
+        }
+        for (int i = 0; i < M; i++) {
+            for (int j = 0; j < N; j++) {
+                if (fabs(C_cpu[i * N + j] - C_cuda[i * N + j]) > 0.01) {
+                    printf("Error(%d, %d): %f %f\n", i, j, C_cpu[i * N + j], C_cuda[i * N + j]);
+                }
+            }
+        }
+    }
+
     return 0;
 }

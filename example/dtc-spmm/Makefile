@@ -14,14 +14,17 @@ OPTIONS = -Xcompiler -fopenmp-simd
 CURDIR := $(PWD)
 
 dtc-spmm.o: dtc-spmm.cu
-	$(CC) $(NVCC_FLAGS) -c $^ -o $@ $(OPTIONS) $(LIBS)
+	$(CC) $(NVCC_FLAGS) -Icutlass/include -Icutlass/examples/common -Icutlass/tools/util/include -c $^ -o $@ $(OPTIONS) $(LIBS) 
 
 dtc: main.cu dtc-spmm.o
-	$(CC) $(NVCC_FLAGS) $^ -o $@ $(OPTIONS) $(LIBS) 
+	$(CC) $(NVCC_FLAGS) -Icutlass/include -Icutlass/examples/common -Icutlass/tools/util/include $^ -o $@ $(OPTIONS) $(LIBS)
 
+test_cute: test_cute.cu
+	$(CC) $(NVCC_FLAGS) -Icutlass/include -Icutlass/examples/common -Icutlass/tools/util/include $^ -o $@ $(OPTIONS) $(LIBS)
  
 
 # Clean rule
 clean:
 	rm -rf *.o
 	rm -rf dtc
+	rm -rf test_cute
