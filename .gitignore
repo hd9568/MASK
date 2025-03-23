@@ -8,3 +8,5 @@ cmake-build-*
 logs
 **/*.log
 example/dtc-spmm/build/
+
+example/dtc-spmm/report/
