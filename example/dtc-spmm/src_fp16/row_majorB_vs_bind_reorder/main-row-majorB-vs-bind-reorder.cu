@@ -35,7 +35,7 @@ extern void dtc_spmm_test_val_sidx_bind_reorder(
     float* C
 );
 
-extern template void dtc_spmm_test_val_sidx_bind_reorder<32>(
+extern template void dtc_spmm_test_val_sidx_bind_reorder<64>(
     int M, int N, int K,
     int TCBlock_num, 
     int nnz,
@@ -266,7 +266,7 @@ void convertToMETCF(
     // exit(0);
     // input to cuda func
     // dtc_spmm_test<32>(M, N, K, total_TCBlock_num, nnz_pad, val_sidx, val_soff, B, val_coo_idx, val_coo_val, val_coo_off, C);
-    dtc_spmm_test_val_sidx_bind_reorder<32>(M, N, K, total_TCBlock_num, nnz_pad, val_sidx, val_soff, B, val_coo_val_idx_bind, val_coo_off, C);
+    dtc_spmm_test_val_sidx_bind_reorder<64>(M, N, K, total_TCBlock_num, nnz_pad, val_sidx, val_soff, B, val_coo_val_idx_bind, val_coo_off, C);
 
     {//! debug check sparse AtoB array
         // printf("check sparse AtoB array: ");

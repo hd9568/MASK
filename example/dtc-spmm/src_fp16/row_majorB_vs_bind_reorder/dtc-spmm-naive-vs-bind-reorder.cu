@@ -84,13 +84,18 @@ __device__ __forceinline__ void op_memcpy_async_sparse_encoding_value_load(
     int ll = dval_coo_off[2 * (l + i)];
     int rr = dval_coo_off[2 * (l + i) + 1];
     coo_range_reg[smem_st_ptr] = rr - ll;
-    if (lane_id * 8 + ll < rr) {
-        int4* src = (int4*)(&dval_coo_val_idx_bind[ll + lane_id * 8]);
-        int4* src2 = (int4*)(&dval_coo_val_idx_bind[ll + lane_id * 8 + 4]);
-        int4* dst = (int4*)(&tileA_coo_val_idx_bind_block[smem_st_ptr * (16 * 16) + lane_id * 8]);
-        int4* dst2 = (int4*)(&tileA_coo_val_idx_bind_block[smem_st_ptr * (16 * 16) + lane_id * 8 + 4]);
+    // if (lane_id * 8 + ll < rr) {
+    //     int4* src = (int4*)(&dval_coo_val_idx_bind[ll + lane_id * 8]);
+    //     int4* src2 = (int4*)(&dval_coo_val_idx_bind[ll + lane_id * 8 + 4]);
+    //     int4* dst = (int4*)(&tileA_coo_val_idx_bind_block[smem_st_ptr * (16 * 16) + lane_id * 8]);
+    //     int4* dst2 = (int4*)(&tileA_coo_val_idx_bind_block[smem_st_ptr * (16 * 16) + lane_id * 8 + 4]);
+    //     __pipeline_memcpy_async(dst, src, sizeof(int4));
+    //     __pipeline_memcpy_async(dst2, src2, sizeof(int4));
+    // }
+    for (int i_load = lane_id * 4; i_load + ll < rr; i_load += 32 * 4) {
+        int4* src = (int4*)(&dval_coo_val_idx_bind[ll + i_load]);
+        int4* dst = (int4*)(&tileA_coo_val_idx_bind_block[smem_st_ptr * (16 * 16) + i_load]);
         __pipeline_memcpy_async(dst, src, sizeof(int4));
-        __pipeline_memcpy_async(dst2, src2, sizeof(int4));
     }
 }
 
@@ -112,7 +117,16 @@ __device__ __forceinline__ void op_restore_matrix_A(
     int nnz_num = coo_range_reg[smem_ld_ptr];
     // 16 * 16 half = 32 * 8 half = 32 * 4 float
     for (int i_o2s = lane_id; i_o2s < tile_coo_val_size / 2; i_o2s += 32) {
-        *((float*)(&tile_coo_restore_val_block[smem_st_ptr * tile_coo_val_size]) + i_o2s) = 0;
+        // *((float*)(&tile_coo_restore_val_block[smem_st_ptr * tile_coo_val_size]) + i_o2s) = 0;
+    }
+    *((float*)(&tile_coo_restore_val_block[smem_st_ptr * tile_coo_val_size]) + lane_id) = 0;
+    *((float*)(&tile_coo_restore_val_block[smem_st_ptr * tile_coo_val_size]) + lane_id + 32) = 0;
+    *((float*)(&tile_coo_restore_val_block[smem_st_ptr * tile_coo_val_size]) + lane_id + 32 * 2) = 0;
+    *((float*)(&tile_coo_restore_val_block[smem_st_ptr * tile_coo_val_size]) + lane_id + 32 * 3) = 0;
+    *((float*)(&tile_coo_restore_val_block[smem_st_ptr * tile_coo_val_size]) + lane_id + 32 * 4) = 0;
+    *((float*)(&tile_coo_restore_val_block[smem_st_ptr * tile_coo_val_size]) + lane_id + 32 * 5) = 0;
+    for (int i_o2s = lane_id * 4; i_o2s < tile_coo_val_size / 2 / 4; i_o2s += 32 * 4) {
+        // *((float4*)(&tile_coo_restore_val_block[smem_st_ptr * tile_coo_val_size] + i_o2s)) = (float4)0;
     }
     __syncthreads();
     //! val_idx_bind
@@ -141,30 +155,39 @@ __device__ __forceinline__ void op_memcpy_async_matrix_B_load(
     int i, int smem_st_ptr, int smem_ld_ptr, int lane_id, int* tile_sidx_block, int tile_sidx_size, half* tileB_block, int tile_B_size, int tile_B_row_num, half* dB_val, int N, int block_idx_y
 ) {
     int n_iter = 0;
-    for (n_iter = 0; n_iter + 1 < TILE_B / 8; n_iter += 2) {
-        int row = lane_id % 16;
-        int col = lane_id / 16 + n_iter;
+    // for (n_iter = 0; n_iter + 1 < TILE_B / 8; n_iter += 2) {
+    //     int row = lane_id % 16;
+    //     int col = lane_id / 16 + n_iter;
+    //     int sidx = tile_sidx_block[smem_ld_ptr * tile_sidx_size + row];
+    //     int gmem_col = block_idx_y * TILE_B + n_iter * 8 + lane_id / 16 * 8;
+    //     float4* dst = (float4*)(&tileB_block[smem_st_ptr * tile_B_size + OFFSET_ROW(row, col * 8, tile_B_row_num)]);
+    //     float4* src = (float4*)(&dB_val[OFFSET_ROW(sidx, gmem_col, N)]);
+    //     __pipeline_memcpy_async(dst, src, sizeof(float4));
+    //     if (i == 0 && blockIdx.x == 0 && blockIdx.y == 0) {
+    //         // printf("[%d,%d][%d]tile B,i=%d, bank = %d\n", blockIdx.x, blockIdx.y, lane_id, lane_id / 8, (smem_st_ptr * tile_B_size + OFFSET_ROW(row, col * 8, tile_B_row_num)) / 8 % 8);
+    //     }
+    // }
+    // for (; n_iter < TILE_B / 8; n_iter++) {
+    //     if (lane_id < 16) {
+    //         int row = lane_id % 16;
+    //         int col = lane_id / 16 + n_iter;
+    //         int sidx = tile_sidx_block[smem_ld_ptr * tile_sidx_size + row];
+    //         int gmem_col = block_idx_y * TILE_B + n_iter * 8 + lane_id / 16 * 8;
+    //         float4* dst = (float4*)(&tileB_block[smem_st_ptr * tile_B_size + OFFSET_ROW(row, col * 8, tile_B_row_num)]);
+    //         // if (blockIdx.y == 1 && blockIdx.x == 0)
+    //         // printf("[%d,%d][%d]sidx=%d,col=%d\n", blockIdx.x, blockIdx.y, threadIdx.x, sidx, gmem_col);
+    //         float4* src = (float4*)(&dB_val[OFFSET_ROW(sidx, gmem_col, N)]);
+    //         __pipeline_memcpy_async(dst, src, sizeof(float4));
+    //     }
+    // }
+    for (int tileK_iter_inner = 0; tileK_iter_inner < 4; tileK_iter_inner++) {
+        int row = tileK_iter_inner * 4 + lane_id / 8;
+        int col = lane_id % 8 * 8;
+        int gmem_col = block_idx_y * TILE_B + col;
         int sidx = tile_sidx_block[smem_ld_ptr * tile_sidx_size + row];
-        int gmem_col = block_idx_y * TILE_B + n_iter * 8 + lane_id / 16 * 8;
-        float4* dst = (float4*)(&tileB_block[smem_st_ptr * tile_B_size + OFFSET_ROW(row, col * 8, tile_B_row_num)]);
+        float4* dst = (float4*)(&tileB_block[smem_st_ptr * tile_B_size + OFFSET_ROW(row, col, (64 + 8))]);
         float4* src = (float4*)(&dB_val[OFFSET_ROW(sidx, gmem_col, N)]);
         __pipeline_memcpy_async(dst, src, sizeof(float4));
-        if (i == 0 && blockIdx.x == 0 && blockIdx.y == 0) {
-            // printf("[%d,%d][%d]tile B,i=%d, bank = %d\n", blockIdx.x, blockIdx.y, lane_id, lane_id / 8, (smem_st_ptr * tile_B_size + OFFSET_ROW(row, col * 8, tile_B_row_num)) / 8 % 8);
-        }
-    }
-    for (; n_iter < TILE_B / 8; n_iter++) {
-        if (lane_id < 16) {
-            int row = lane_id % 16;
-            int col = lane_id / 16 + n_iter;
-            int sidx = tile_sidx_block[smem_ld_ptr * tile_sidx_size + row];
-            int gmem_col = block_idx_y * TILE_B + n_iter * 8 + lane_id / 16 * 8;
-            float4* dst = (float4*)(&tileB_block[smem_st_ptr * tile_B_size + OFFSET_ROW(row, col * 8, tile_B_row_num)]);
-            // if (blockIdx.y == 1 && blockIdx.x == 0)
-            // printf("[%d,%d][%d]sidx=%d,col=%d\n", blockIdx.x, blockIdx.y, threadIdx.x, sidx, gmem_col);
-            float4* src = (float4*)(&dB_val[OFFSET_ROW(sidx, gmem_col, N)]);
-            __pipeline_memcpy_async(dst, src, sizeof(float4));
-        }
     }
 }
 
@@ -213,7 +236,7 @@ __global__ void dtc_spmm_kernel_fp16_val_idx_bind_stage2(
     
     __shared__ int tile_sidx_block[tile_sidx_size * stages];
     //! val_idx_bind 不需要coo_val_block   
-    __shared__ half tile_coo_restore_val_block[tile_coo_val_size * stages];
+    __shared__ __align__(32) half tile_coo_restore_val_block[tile_coo_val_size * stages];
     __shared__ half tileB_block[tile_B_size * stages];
     __shared__ uint32_t tileA_coo_val_idx_bind_block[16 * 16 * stages];
 
@@ -372,7 +395,7 @@ void dtc_spmm_test_val_sidx_bind_reorder(
     CHECK_CUDA2(cudaMemcpy(C, dC, sizeof(float) * M * N, cudaMemcpyDeviceToHost));
 }
 
-template void dtc_spmm_test_val_sidx_bind_reorder<32>(
+template void dtc_spmm_test_val_sidx_bind_reorder<64>(
     int M, int N, int K,
     int TCBlock_num, 
     int nnz,
