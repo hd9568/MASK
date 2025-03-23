@@ -362,7 +362,7 @@ int main(int argc, char** argv) {
     float* C_cpu = (float*)malloc(sizeof(float) * M * N);
     memset(C_cpu, 0, sizeof(half) * M * N);
     cusparse_spmm_all(csrValA, csrPtrA, csrColIdxA, B, C_cpu, M, N, K, nnz);
-    // verify_new(C_cpu, C_cuda, M, N);
+    verify_new(C_cpu, C_cuda, M, N);
 
     printf("check nan: cusp %.1f mykernel %.1f\n", C_cpu[0], C_cuda[0]);
 
