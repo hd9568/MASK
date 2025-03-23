@@ -136,6 +136,7 @@ class ArrayType(Type):
 @dataclass(frozen=True)
 class Value:
     type: Type
+    name_hint: Optional[str]
 
     def __hash__(self) -> int:
         return hash(id(self))
@@ -149,10 +150,11 @@ class OpResult(Value):
     defining_op: Op
     result_idx_in_owner: int
 
-    def __init__(self, type: Type, defining_op: Op, result_idx_in_owner: int):
+    def __init__(self, type: Type, defining_op: Op, result_idx_in_owner: int, name_hint: Optional[str] = None):
         super().__init__(type)
         object.__setattr__(self, "defining_op", defining_op)
         object.__setattr__(self, "result_idx_in_owner", result_idx_in_owner)
+        object.__setattr__(self, "name_hint", name_hint)
 
     def __hash__(self) -> int:
         return hash(id(self))
