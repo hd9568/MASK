@@ -77,7 +77,7 @@ template <
 	class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK,
 	{{all_parameters}}
 	{{shifts}}
-	int nbuf_rmem, int nbuf_smem>
+	int nbuf_smem, int nbuf_rmem>
 __global__ void {{kernel_name}}(
 	{{gmem_ptrs}}
 	{{varlens}}

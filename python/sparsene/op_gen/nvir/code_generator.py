@@ -15,6 +15,25 @@ from sparsene.op_gen.nvir.nvop import (
 )
 from itertools import chain
 
+import re
+
+
+def convert_name(name: str, to_snake: bool = True) -> str:
+    if to_snake:
+        return re.sub(r"(?<!^)(?=[A-Z])", "_", name).lower()
+    else:
+        return re.sub(
+            r"_([a-z])", lambda match: match.group(1).upper(), name
+        ).capitalize()
+
+
+def to_snake(name: str) -> str:
+    return convert_name(name, to_snake=True)
+
+
+def to_pascal(name: str) -> str:
+    return convert_name(name, to_snake=False)
+
 
 class NvIrCodeGenerator:
     def __init__(self, indent_size: int = 4, debug_indent: bool = False):
@@ -34,7 +53,7 @@ class NvIrCodeGenerator:
         indent = self._get_indent(indent_level)
         return "\n".join(f"{indent}{line}" for line in text.split("\n"))
 
-    def dump_nvop(self, op: NvOp, indent_level: int = 0) -> str:
+    def dump_nvop_class_def(self, op: NvOp, indent_level: int = 0) -> str:
         parameter_types_strs = [
             f"class {param} = Int<{op.parameters[param]}>" for param in op.parameters
         ]
@@ -183,7 +202,7 @@ class NvIrCodeGenerator:
         make_shape_str = self.dump_decl_make_shape(shape, is_output=False)
         decl_shape_str = f"decltype({make_shape_str})"
         return f"using Shape_i{idx} = {decl_shape_str};"
-    
+
     def dump_decl_make_shape(self, shape: Shape, *, is_output: bool) -> str:
         shape_strs = []
         for s in shape:
@@ -194,7 +213,9 @@ class NvIrCodeGenerator:
             elif isinstance(s, VarlenShape):
                 shape_strs.append("VARLEN")
             elif isinstance(s, MnkShape):
-                shape_strs.append(f"get<{0 if s.mnk == 'm' else 1 if s.mnk == 'n' else 2}>({s.param}{{}})")
+                shape_strs.append(
+                    f"get<{0 if s.mnk == 'm' else 1 if s.mnk == 'n' else 2}>({s.param}{{}})"
+                )
             elif isinstance(s, Shape):
                 shape_strs.append(self.dump_decl_make_shape(s, is_output=False))
             else:
@@ -259,7 +280,9 @@ class NvIrCodeGenerator:
     ) -> List[str]:
         init_strs = []
         for idx, inp in enumerate(op.inputs):
-            make_shape_str, varlen_idx = self.dump_init_make_shape(idx, inp.shape, is_output=False)
+            make_shape_str, varlen_idx = self.dump_init_make_shape(
+                idx, inp.shape, is_output=False
+            )
             if varlen_idx > 0:
                 init_strs.append(f"shape_i{idx}({make_shape_str})")
         return init_strs
@@ -269,12 +292,16 @@ class NvIrCodeGenerator:
     ) -> List[str]:
         init_strs = []
         for idx, out in enumerate(op.outputs):
-            make_shape_str, varlen_idx = self.dump_init_make_shape(idx, out.shape, is_output=True)
+            make_shape_str, varlen_idx = self.dump_init_make_shape(
+                idx, out.shape, is_output=True
+            )
             if varlen_idx > 0:
                 init_strs.append(f"shape_o{idx}({make_shape_str})")
         return init_strs
 
-    def dump_init_make_shape(self, idx: int, shape: Shape, *, is_output: bool) -> Tuple[str, int]:
+    def dump_init_make_shape(
+        self, idx: int, shape: Shape, *, is_output: bool
+    ) -> Tuple[str, int]:
         shape_strs = []
         varlen_idx: int = 0
         for i, s in enumerate(shape):
@@ -286,7 +313,9 @@ class NvIrCodeGenerator:
                 shape_strs.append(f"mode_{'o' if is_output else 'i'}{idx}_{varlen_idx}")
                 varlen_idx += 1
             elif isinstance(s, MnkShape):
-                shape_strs.append(f"get<{0 if s.mnk == 'm' else 1 if s.mnk == 'n' else 2}>({s.param}{{}})")
+                shape_strs.append(
+                    f"get<{0 if s.mnk == 'm' else 1 if s.mnk == 'n' else 2}>({s.param}{{}})"
+                )
             elif isinstance(s, Shape):
                 shape_strs.append(self.dump_decl_make_shape(s, is_output=False))
             else:
@@ -296,3 +325,59 @@ class NvIrCodeGenerator:
         comma_seperated_shapes = ", ".join(shape_strs)
         return f"make_shape({comma_seperated_shapes})", varlen_idx
 
+    def dump_nvop_create(self, op: NvOp, indent_level: int = 0) -> str:
+        snake_name = to_snake(op.name)
+        rmem_outputs = [out for out in op.outputs if out.mem == "rmem"]
+        smem_outputs = [out for out in op.outputs if out.mem == "smem"]
+        gmem_outputs = [out for out in op.outputs if out.mem == "gmem"]
+
+        template_args = []
+        if op.attrs.get("reduction", False) == True:
+            template_args.append("Int<1> /* reduction */")
+        else:
+            if smem_outputs:
+                template_args.append("Int<nbuf_smem>")
+            if rmem_outputs:
+                template_args.append("Int<nbuf_rmem>")
+        template_args.extend(["BLK_MNK", "MMA_MNK", "BLK_MMA_MNK"])
+        template_args.extend([parameter for parameter in op.parameters])
+        template_args_str = ", ".join(template_args)
+        using_type_str = f"using {snake_name}_t = {op.name}<{template_args_str}>;"
+
+        smem_output_shapes = [
+            f"using {snake_name}_shape_o{out.idx} = typename {snake_name}_t::Shape_o{out.idx};"
+            for out in smem_outputs
+        ]
+        smem_output_array_defs = [
+            f"__shared__ {out.dtype} {out.name}[cosize_v<Layout<{snake_name}_shape_o{out.idx}>>];"
+            for out in smem_outputs
+        ]
+
+        varlen_modes = []
+        for io in chain(op.inputs, op.outputs):
+            for s in io.shape:
+                if isinstance(s, VarlenShape):
+                    varlen_modes.append(s.name)
+
+        args_0 = ["tid", "lid", "wid"]
+        args_1 = [out.name for out in smem_outputs]
+        args_2 = varlen_modes
+        if args_0 and args_1 and args_2:
+            args_str = ", ".join(args_0) + ", \n" + ", ".join(args_1) + ", \n" + ", ".join(args_2) + ","
+        elif args_0 and args_1:
+            args_str = ", ".join(args_0) + ", \n" + ", ".join(args_1) + ","
+        elif args_0 and args_2:
+            args_str = ", ".join(args_0) + ", \n" + ", ".join(args_2) + ","
+        else:
+            args_str = ", ".join(args_0) + ","
+        op_var_def_str = (
+            f"{snake_name}_t {snake_name}{{\n" + self._indent_lines(args_str) + "\n" + "};"
+        )
+
+        return self._indent_lines(
+            using_type_str
+            + "\n"
+            + (("\n".join(smem_output_shapes) + "\n") if smem_output_shapes else "")
+            + (("\n".join(smem_output_array_defs) + "\n") if smem_output_array_defs else "")
+            + op_var_def_str
+        , indent_level)

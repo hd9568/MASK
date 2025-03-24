@@ -3,7 +3,6 @@ from sparsene.op_gen.nvir.code_generator import (
     NvOpInput,
     NvOpOutput,
     NvOpImpl,
-    ShapeEle,
     IntShape,
     ParamShape,
     Shape,
@@ -16,12 +15,12 @@ g2s_val_sidx_load_op = NvOp(
     inputs=[
         NvOpInput(
             idx=0,
-            shape=Shape(ParamShape("tile_sidx_size"), VarlenShape("nnz_blk")),
+            shape=Shape(ParamShape("tile_sidx_size"), VarlenShape("nnz_block")),
             mem="gmem",
             name="dval_sidx",
             dtype="int",
         ),
-        NvOpInput(idx=1, shape=[], mem="rmem", name="i", dtype="int"),
+        NvOpInput(idx=1, shape=Shape(), mem="rmem", name="i", dtype="int"),
     ],
     outputs=[
         NvOpOutput(
@@ -50,7 +49,7 @@ g2r_coo_atomic_format_load_off_op = NvOp(
     inputs=[
         NvOpInput(
             idx=0,
-            shape=Shape(IntShape(2), VarlenShape("nnz_blk")),
+            shape=Shape(IntShape(2), VarlenShape("nnz_block")),
             mem="gmem",
             name="dval_coo_off",
             dtype="int",
@@ -177,7 +176,7 @@ g2r_b_val_load_op = NvOp(
     inputs=[
         NvOpInput(
             idx=0,
-            shape=Shape(VarlenShape("k"), VarlenShape("n")),
+            shape=Shape(VarlenShape("K"), VarlenShape("N")),
             mem="gmem",
             name="B_val",
             dtype="half",
@@ -210,7 +209,7 @@ g2r_b_val_load_op = NvOp(
 }"""
     ),
     mem_type=("g", "r"),
-    parameters={"tile_coo_val_size": 16},
+    parameters={},
 )
 
 s2s_coo_atomic_val_restore_op = NvOp(
@@ -335,6 +334,7 @@ mma_op = NvOp(
     ),
     mem_type=("r", "r"),
     parameters={},
+    reduction=True,
 )
 
 
@@ -342,22 +342,46 @@ if __name__ == "__main__":
     from sparsene.op_gen.nvir.code_generator import NvIrCodeGenerator
 
     print("// shift 1")
-    print(NvIrCodeGenerator().dump_nvop(g2s_val_sidx_load_op))
+    print(NvIrCodeGenerator().dump_nvop_class_def(g2s_val_sidx_load_op))
     print()
-    print(NvIrCodeGenerator().dump_nvop(g2r_coo_atomic_format_load_off_op))
+    print(NvIrCodeGenerator().dump_nvop_class_def(g2r_coo_atomic_format_load_off_op))
     print()
     print("// shift 2")
-    print(NvIrCodeGenerator().dump_nvop(s2r_val_sidx_load_op))
+    print(NvIrCodeGenerator().dump_nvop_class_def(s2r_val_sidx_load_op))
     print()
-    print(NvIrCodeGenerator().dump_nvop(g2s_coo_atomic_format_load_val_op))
+    print(NvIrCodeGenerator().dump_nvop_class_def(g2s_coo_atomic_format_load_val_op))
     print()
-    print(NvIrCodeGenerator().dump_nvop(g2r_coo_atomic_format_load_idx_op))
+    print(NvIrCodeGenerator().dump_nvop_class_def(g2r_coo_atomic_format_load_idx_op))
     print()
     print("// shift 3")
-    print(NvIrCodeGenerator().dump_nvop(g2r_b_val_load_op))
+    print(NvIrCodeGenerator().dump_nvop_class_def(g2r_b_val_load_op))
     print()
-    print(NvIrCodeGenerator().dump_nvop(s2s_coo_atomic_val_restore_op))
+    print(NvIrCodeGenerator().dump_nvop_class_def(s2s_coo_atomic_val_restore_op))
     print()
-    print(NvIrCodeGenerator().dump_nvop(s2r_a_val_load_op))
+    print(NvIrCodeGenerator().dump_nvop_class_def(s2r_a_val_load_op))
     print()
-    print(NvIrCodeGenerator().dump_nvop(mma_op))
+    print(NvIrCodeGenerator().dump_nvop_class_def(mma_op))
+    print()
+    print()
+    print("    // shift 1")
+    print(NvIrCodeGenerator().dump_nvop_create(g2s_val_sidx_load_op, 1))
+    print()
+    print(NvIrCodeGenerator().dump_nvop_create(g2r_coo_atomic_format_load_off_op, 1))
+    print()
+    print("    // shift 2")
+    print(NvIrCodeGenerator().dump_nvop_create(s2r_val_sidx_load_op, 1))
+    print()
+    print(NvIrCodeGenerator().dump_nvop_create(g2s_coo_atomic_format_load_val_op, 1))
+    print()
+    print(NvIrCodeGenerator().dump_nvop_create(g2r_coo_atomic_format_load_idx_op, 1))
+    print()
+    print("    // shift 3")
+    print(NvIrCodeGenerator().dump_nvop_create(g2r_b_val_load_op, 1))
+    print()
+    print(NvIrCodeGenerator().dump_nvop_create(s2s_coo_atomic_val_restore_op, 1))
+    print()
+    print(NvIrCodeGenerator().dump_nvop_create(s2r_a_val_load_op, 1))
+    print()
+    print(NvIrCodeGenerator().dump_nvop_create(mma_op, 1))
+    print()
+    

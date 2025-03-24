@@ -38,13 +38,6 @@ if __name__ == "__main__":
     logger.info(rts)
     logger.info(computent)
 
-    # rts = derive_rts(SR_BCRS_FORMAT)
-    # computent = computent_from_rts("sr_bcrs", rts)
-    # logger.info(rts)
-    # logger.info(computent)
-
-    # breakpoint()
-
     # rts = derive_rts(BIT_TCF_FORMAT)
     # computent = generate_from_rts("bit_tcf", rts)
 
@@ -64,7 +57,7 @@ if __name__ == "__main__":
     # breakpoint()
 
     # rts = derive_rts(SR_BCRS_FORMAT)
-    # computent = generate_from_rts("sr_bcr", rts)
+    # computent = generate_from_rts("sr_bcrs", rts)
 
     # logger.info("SR-BCRS:")
     # logger.info(rts)

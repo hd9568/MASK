@@ -458,7 +458,7 @@ public:
 };
 // =====================================================================================
 
-template <int shift1, int shift2, int shift3, int nbuf_rmem, int nbuf_smem, int K_total, int i, class T_G2sValSidxLoadOp, class T_G2rCooAtomicFormatLoadOff, class T_G2sCooAtomicFormatLoadValOp, class T_G2rCooAtomicFormatLoadIdxOp, class T_S2rValSidxLoadOp,  class T_val_sidx, class T_val_soff, class T_B_val, class T_val_coo_val, class T_val_coo_idx, class T_val_coo_off, class T_G2rBValLoadOp, class T_S2sCooAtomicValRestoreOp, class T_S2rAValLoadOp, class T_MmaOp>
+template <int shift1, int shift2, int shift3, int nbuf_smem, int nbuf_rmem, int K_total, int i, class T_G2sValSidxLoadOp, class T_G2rCooAtomicFormatLoadOff, class T_G2sCooAtomicFormatLoadValOp, class T_G2rCooAtomicFormatLoadIdxOp, class T_S2rValSidxLoadOp,  class T_val_sidx, class T_val_soff, class T_B_val, class T_val_coo_val, class T_val_coo_idx, class T_val_coo_off, class T_G2rBValLoadOp, class T_S2sCooAtomicValRestoreOp, class T_S2rAValLoadOp, class T_MmaOp>
 __device__ void pipeline(int l, int r, T_G2sValSidxLoadOp &g2s_val_sidx_load_op, T_G2rCooAtomicFormatLoadOff &g2r_coo_atomic_format_load_off_op, T_S2rValSidxLoadOp &s2r_val_sidx_load_op, T_G2sCooAtomicFormatLoadValOp &g2s_coo_atomic_format_load_val_op, T_G2rCooAtomicFormatLoadIdxOp &g2r_coo_atomic_format_load_idx_op, T_G2rBValLoadOp &g2r_b_val_load_op, T_S2sCooAtomicValRestoreOp &s2s_coo_atomic_val_restore_op, T_S2rAValLoadOp &s2r_a_val_load_op, T_val_sidx &val_sidx, T_val_soff &val_soff, T_B_val &B_val,  T_val_coo_val &val_coo_val,  T_val_coo_idx &val_coo_idx,  T_val_coo_off &val_coo_off, T_MmaOp &mma_op) {
     if constexpr (i < K_total) {
         g2s_val_sidx_load_op.f<i % nbuf_smem>(val_sidx, l + i);
@@ -499,20 +499,20 @@ __device__ void pipeline(int l, int r, T_G2sValSidxLoadOp &g2s_val_sidx_load_op,
         );
     }
     if constexpr (i < K_total + shift1 + shift2 + shift3) {
-        pipeline<shift1, shift2, shift3, nbuf_rmem, nbuf_smem, K_total, i + 1>(l, r, g2s_val_sidx_load_op, g2r_coo_atomic_format_load_off_op, s2r_val_sidx_load_op, g2s_coo_atomic_format_load_val_op, g2r_coo_atomic_format_load_idx_op, g2r_b_val_load_op, s2s_coo_atomic_val_restore_op, s2r_a_val_load_op, val_sidx, val_soff, B_val, val_coo_val, val_coo_idx, val_coo_off, mma_op);
+        pipeline<shift1, shift2, shift3, nbuf_smem, nbuf_rmem, K_total, i + 1>(l, r, g2s_val_sidx_load_op, g2r_coo_atomic_format_load_off_op, s2r_val_sidx_load_op, g2s_coo_atomic_format_load_val_op, g2r_coo_atomic_format_load_idx_op, g2r_b_val_load_op, s2s_coo_atomic_val_restore_op, s2r_a_val_load_op, val_sidx, val_soff, B_val, val_coo_val, val_coo_idx, val_coo_off, mma_op);
     }
 
 }
 
-template <int shift1, int shift2, int shift3, int nbuf_rmem, int nbuf_smem, int K_total, class T_G2sValSidxLoadOp, class T_G2rCooAtomicFormatLoadOff, class T_G2sCooAtomicFormatLoadValOp, class T_G2rCooAtomicFormatLoadIdxOp, class T_S2rValSidxLoadOp,  class T_val_sidx, class T_val_soff, class T_B_val, class T_val_coo_val, class T_val_coo_idx, class T_val_coo_off, class T_G2rBValLoadOp, class T_S2sCooAtomicValRestoreOp, class T_S2rAValLoadOp, class T_MmaOp>
+template <int shift1, int shift2, int shift3, int nbuf_smem, int nbuf_rmem, int K_total, class T_G2sValSidxLoadOp, class T_G2rCooAtomicFormatLoadOff, class T_G2sCooAtomicFormatLoadValOp, class T_G2rCooAtomicFormatLoadIdxOp, class T_S2rValSidxLoadOp,  class T_val_sidx, class T_val_soff, class T_B_val, class T_val_coo_val, class T_val_coo_idx, class T_val_coo_off, class T_G2rBValLoadOp, class T_S2sCooAtomicValRestoreOp, class T_S2rAValLoadOp, class T_MmaOp>
 __device__ void pipeline_switch(int k, int l, int r, T_G2sValSidxLoadOp &g2s_val_sidx_load_op, T_G2rCooAtomicFormatLoadOff &g2r_coo_atomic_format_load_off_op, T_S2rValSidxLoadOp &s2r_val_sidx_load_op, T_G2sCooAtomicFormatLoadValOp &g2s_coo_atomic_format_load_val_op, T_G2rCooAtomicFormatLoadIdxOp &g2r_coo_atomic_format_load_idx_op, T_G2rBValLoadOp &g2r_b_val_load_op, T_S2sCooAtomicValRestoreOp &s2s_coo_atomic_val_restore_op, T_S2rAValLoadOp &s2r_a_val_load_op, T_val_sidx &val_sidx, T_val_soff &val_soff, T_B_val &B_val,  T_val_coo_val &val_coo_val,  T_val_coo_idx &val_coo_idx,  T_val_coo_off &val_coo_off, T_MmaOp &mma_op) {
     if constexpr (K_total == 0) {
         return;
     } else {
         if (k == K_total) {
-            pipeline<shift1, shift2, shift3, nbuf_rmem, nbuf_smem, K_total, 0>(l, r, g2s_val_sidx_load_op, g2r_coo_atomic_format_load_off_op, s2r_val_sidx_load_op, g2s_coo_atomic_format_load_val_op, g2r_coo_atomic_format_load_idx_op, g2r_b_val_load_op, s2s_coo_atomic_val_restore_op, s2r_a_val_load_op, val_sidx, val_soff, B_val, val_coo_val, val_coo_idx, val_coo_off, mma_op);
+            pipeline<shift1, shift2, shift3, nbuf_smem, nbuf_rmem, K_total, 0>(l, r, g2s_val_sidx_load_op, g2r_coo_atomic_format_load_off_op, s2r_val_sidx_load_op, g2s_coo_atomic_format_load_val_op, g2r_coo_atomic_format_load_idx_op, g2r_b_val_load_op, s2s_coo_atomic_val_restore_op, s2r_a_val_load_op, val_sidx, val_soff, B_val, val_coo_val, val_coo_idx, val_coo_off, mma_op);
         } else {
-            pipeline_switch<shift1, shift2, shift3, nbuf_rmem, nbuf_smem, K_total - 1>(k, l, r, g2s_val_sidx_load_op, g2r_coo_atomic_format_load_off_op, s2r_val_sidx_load_op, g2s_coo_atomic_format_load_val_op, g2r_coo_atomic_format_load_idx_op, g2r_b_val_load_op, s2s_coo_atomic_val_restore_op, s2r_a_val_load_op, val_sidx, val_soff, B_val, val_coo_val, val_coo_idx, val_coo_off, mma_op);
+            pipeline_switch<shift1, shift2, shift3, nbuf_smem, nbuf_rmem, K_total - 1>(k, l, r, g2s_val_sidx_load_op, g2r_coo_atomic_format_load_off_op, s2r_val_sidx_load_op, g2s_coo_atomic_format_load_val_op, g2r_coo_atomic_format_load_idx_op, g2r_b_val_load_op, s2s_coo_atomic_val_restore_op, s2r_a_val_load_op, val_sidx, val_soff, B_val, val_coo_val, val_coo_idx, val_coo_off, mma_op);
         }
     }
 }
@@ -796,7 +796,7 @@ __device__ void empty_shift3_switch(int i, int remain, int l, int r, T_G2sValSid
 template <
     class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK,
     class tile_sidx_size, class tile_coo_val_size,
-    int shift1, int shift2, int shift3, int nbuf_rmem, int nbuf_smem
+    int shift1, int shift2, int shift3, int nbuf_smem, int nbuf_rmem
 >
 __global__ void dtc_spmm_kernel_sstage_rstage(
     int* dval_sidx,
@@ -821,18 +821,18 @@ __global__ void dtc_spmm_kernel_sstage_rstage(
     auto C_val = make_tensor(make_gmem_ptr(dC_val), make_layout(make_shape(M, N), make_stride(N, 1)));
 
     // shift 1
-    using g2s_val_sidx_load_op_t = G2sValSidxLoadOp<Int<nbuf_smem>, BLK_MNK, MMA_MNK, BLK_MMA_MNK>;
+    using g2s_val_sidx_load_op_t = G2sValSidxLoadOp<Int<nbuf_smem>, BLK_MNK, MMA_MNK, BLK_MMA_MNK, tile_sidx_size>;
     using g2s_val_sidx_load_op_shape_o0 = typename g2s_val_sidx_load_op_t::Shape_o0;
     __shared__ int tile_sidx_block[cosize_v<Layout<g2s_val_sidx_load_op_shape_o0>>];
     g2s_val_sidx_load_op_t g2s_val_sidx_load_op{
-        tid, lid, wid,
-        tile_sidx_block,
+        tid, lid, wid, 
+        tile_sidx_block, 
         nnz_block,
     };
 
-    using g2r_coo_atomic_format_load_off_op_t = G2rCooAtomicFormatLoadOffOp<Int<nbuf_smem>, BLK_MNK, MMA_MNK, BLK_MMA_MNK>;
+    using g2r_coo_atomic_format_load_off_op_t = G2rCooAtomicFormatLoadOffOp<Int<nbuf_rmem>, BLK_MNK, MMA_MNK, BLK_MMA_MNK>;
     g2r_coo_atomic_format_load_off_op_t g2r_coo_atomic_format_load_off_op{
-        tid, lid, wid,
+        tid, lid, wid, 
         nnz_block,
     };
 
@@ -846,21 +846,21 @@ __global__ void dtc_spmm_kernel_sstage_rstage(
     using g2s_coo_atomic_format_load_val_op_shape_o0 = typename g2s_coo_atomic_format_load_val_op_t::Shape_o0;
     __shared__ half tile_coo_val_block[cosize_v<Layout<g2s_coo_atomic_format_load_val_op_shape_o0>>];
     g2s_coo_atomic_format_load_val_op_t g2s_coo_atomic_format_load_val_op{
-        tid, lid, wid,
-        tile_coo_val_block,
+        tid, lid, wid, 
+        tile_coo_val_block, 
         nnz,
     };
 
     using g2r_coo_atomic_format_load_idx_op_t = G2rCooAtomicFormatLoadIdxOp<Int<nbuf_rmem>, BLK_MNK, MMA_MNK, BLK_MMA_MNK, tile_coo_val_size>;
     g2r_coo_atomic_format_load_idx_op_t g2r_coo_atomic_format_load_idx_op{
-        tid, lid, wid,
+        tid, lid, wid, 
         nnz,
     };
 
     // shift 3
     using g2r_b_val_load_op_t = G2rBValLoadOp<Int<nbuf_rmem>, BLK_MNK, MMA_MNK, BLK_MMA_MNK>;
     g2r_b_val_load_op_t g2r_b_val_load_op{
-        tid, lid, wid,
+        tid, lid, wid, 
         K, N,
     };
 
@@ -868,16 +868,16 @@ __global__ void dtc_spmm_kernel_sstage_rstage(
     using s2s_coo_atomic_val_restore_op_shape_o0 = typename s2s_coo_atomic_val_restore_op_t::Shape_o0;
     __shared__ half tile_coo_restore_val_block[cosize_v<Layout<s2s_coo_atomic_val_restore_op_shape_o0>>];
     s2s_coo_atomic_val_restore_op_t s2s_coo_atomic_val_restore_op{
-        tid, lid, wid,
+        tid, lid, wid, 
         tile_coo_restore_val_block,
     };
 
-    using s2r_a_val_load_op_t = S2rAValLoadOp<Int<nbuf_smem>, BLK_MNK, MMA_MNK, BLK_MMA_MNK>;
+    using s2r_a_val_load_op_t = S2rAValLoadOp<Int<nbuf_rmem>, BLK_MNK, MMA_MNK, BLK_MMA_MNK>;
     s2r_a_val_load_op_t s2r_a_val_load_op{
         tid, lid, wid,
     };
 
-    using mma_op_t = MmaOp<_1, BLK_MNK, MMA_MNK, BLK_MMA_MNK>;
+    using mma_op_t = MmaOp<Int<1> /* reduction */, BLK_MNK, MMA_MNK, BLK_MMA_MNK>;
     mma_op_t mma_op{
         tid, lid, wid,
     };
@@ -887,7 +887,7 @@ __global__ void dtc_spmm_kernel_sstage_rstage(
     int k = r - l;
 
     if (k <= shift1 + shift2 + shift3) {
-        pipeline_switch<shift1, shift2, shift3, nbuf_rmem, nbuf_smem, shift1 + shift2 + shift3>(k, l, r, g2s_val_sidx_load_op, g2r_coo_atomic_format_load_off_op, s2r_val_sidx_load_op, g2s_coo_atomic_format_load_val_op, g2r_coo_atomic_format_load_idx_op, g2r_b_val_load_op, s2s_coo_atomic_val_restore_op, s2r_a_val_load_op, val_sidx, val_soff, B_val, val_coo_val, val_coo_idx, val_coo_off, mma_op);
+        pipeline_switch<shift1, shift2, shift3, nbuf_smem, nbuf_rmem, shift1 + shift2 + shift3>(k, l, r, g2s_val_sidx_load_op, g2r_coo_atomic_format_load_off_op, s2r_val_sidx_load_op, g2s_coo_atomic_format_load_val_op, g2r_coo_atomic_format_load_idx_op, g2r_b_val_load_op, s2s_coo_atomic_val_restore_op, s2r_a_val_load_op, val_sidx, val_soff, B_val, val_coo_val, val_coo_idx, val_coo_off, mma_op);
     } else {
         fill_shift1<shift1, shift2, shift3, nbuf_smem, nbuf_rmem, 0>(l, r, g2s_val_sidx_load_op, g2r_coo_atomic_format_load_off_op, s2r_val_sidx_load_op, g2s_coo_atomic_format_load_val_op, g2r_coo_atomic_format_load_idx_op, g2r_b_val_load_op, s2s_coo_atomic_val_restore_op, s2r_a_val_load_op, val_sidx, val_soff, B_val, val_coo_val, val_coo_idx, val_coo_off, mma_op);
         fill_shift2<shift1, shift2, shift3, nbuf_smem, nbuf_rmem, 0>(l, r, g2s_val_sidx_load_op, g2r_coo_atomic_format_load_off_op, s2r_val_sidx_load_op, g2s_coo_atomic_format_load_val_op, g2r_coo_atomic_format_load_idx_op, g2r_b_val_load_op, s2s_coo_atomic_val_restore_op, s2r_a_val_load_op, val_sidx, val_soff, B_val, val_coo_val, val_coo_idx, val_coo_off, mma_op);
@@ -960,7 +960,7 @@ void ncu_test_all(
     dtc_spmm_kernel_sstage_rstage<
         BLK_MNK, MMA_MNK, BLK_MMA_MNK,
         tile_sidx_size, tile_coo_val_size,
-        shift1, shift2, shift3, nbuf_rmem, nbuf_smem
+        shift1, shift2, shift3, nbuf_smem, nbuf_rmem
     ><<<grid, block>>>(dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC, M, N, K, Mo, nnz_block, nnz);
 
 }
