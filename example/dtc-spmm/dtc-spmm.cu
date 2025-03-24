@@ -62,41 +62,29 @@ __device__ __forceinline__ void mma_m16n8k16_fp32(float* acc, uint32_t* A, half*
 }
 
 // shift 1
-template<class nbuf, class tile_sidx_size>
+template<class NBUF, class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class tile_sidx_size = Int<16>, class TI0 = int, class TI1 = int, class TO0 = int>
 class G2sValSidxLoadOp {
-    public:
+public:
     // Inputs
-    // !! shape is unknown until runtime, how to handle this?
-    // Solution: since the shape is runtile defined, we have to pass them into the contructor of op
-    // during the codegen, we record all unknown runtime dimensions in a sequential list in order
-    // and pass them into the constructor of op
-    //     they are named mode0, mode1, ...
-    // We only define the type of shapes here because we do not know the actual shape when runtime lengths are used,
-    // and the actual value of shape would be determined on class construction.
     using Shape_i0 = decltype(make_shape(tile_sidx_size{}, VARLEN));
-    using Tensor_i0 = decltype(make_tensor(make_gmem_ptr((int*)nullptr), Shape_i0{}));
+    using Tensor_i0 = decltype(make_tensor(make_gmem_ptr((TI0*)nullptr), Shape_i0{}));
     Shape_i0 shape_i0;
     // Tensor_i0 dval_sidx;
+    // TI1 i;
 
     // Outputs
-    using Shape_o0 = decltype(make_shape(tile_sidx_size{}, nbuf{}));
-    using Tensor_o0 = decltype(make_tensor(make_smem_ptr((int*)nullptr), Shape_o0{}));
+    using Shape_o0 = decltype(make_shape(tile_sidx_size{}, NBUF{}));
+    using Tensor_o0 = decltype(make_tensor(make_smem_ptr((TO0*)nullptr), Shape_o0{}));
     Shape_o0 shape_o0;
     Tensor_o0 tile_sidx_block;
 
     // Hardware parameters
     int tid, lid, wid;
-    decltype(make_coord(VARLEN)) thr_coord;
-    decltype(make_shape(Int<4>{})) thr_tiler;
 
-    CUTE_DEVICE G2sValSidxLoadOp(int tid, int lid, int wid, int* tile_sidx_block, int mode0)
-      : tid(tid), lid(lid), wid(wid),
-      thr_coord(make_coord(lid)),
-        // dval_sidx(make_tensor(make_gmem_ptr(dval_sidx), Shape_i0{})),
-        shape_i0(make_shape(tile_sidx_size{}, mode0)),
-        tile_sidx_block(make_tensor(make_smem_ptr(tile_sidx_block), shape_o0)) {}
+    CUTE_DEVICE G2sValSidxLoadOp(int tid, int lid, int wid, int *tile_sidx_block, int mode_i0_0)
+    : tid(tid), lid(lid), wid(wid), shape_i0(make_shape(tile_sidx_size{}, mode_i0_0)), tile_sidx_block(make_tensor(make_smem_ptr(tile_sidx_block), Shape_o0{})) {}
 
-    template<size_t buf_idx, size_t output_idx=0>
+    template<size_t buf_idx, size_t output_idx>
     CUTE_DEVICE auto output() {
         if constexpr (output_idx == 0) {
             return tile_sidx_block(_, buf_idx);
@@ -104,69 +92,73 @@ class G2sValSidxLoadOp {
     }
 
     template<size_t buf_idx>
-    CUTE_DEVICE void f(Tensor_i0 dval_sidx, int i) {
+    CUTE_DEVICE void f(Tensor_i0 dval_sidx, TI1 i) {
         if (lid < 4) {
-            auto src = local_tile(dval_sidx(_, i), thr_tiler, thr_coord);
-            auto dst = local_tile(tile_sidx_block(_, buf_idx), thr_tiler, thr_coord);
-            copy(Copy_Atom<UniversalCopy<uint128_t>, int>{}, src, dst);
+        auto thr_tiler = make_shape(Int<4>{});
+        auto thr_coord = make_coord(lid);
+        auto src = local_tile(dval_sidx(_, i), thr_tiler, thr_coord);
+        auto dst = local_tile(tile_sidx_block(_, buf_idx), thr_tiler, thr_coord);
+        copy(Copy_Atom<UniversalCopy<uint128_t>, int>{}, src, dst);
         }
     }
 };
 
-template<class nbuf>
+template<class NBUF, class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class TI0 = int, class TI1 = int, class TO0 = int, class TO1 = int>
 class G2rCooAtomicFormatLoadOffOp {
-    public:
-
+public:
     // Inputs
-    using Shape_i0 = decltype(make_shape(_2{}, VARLEN));
-    using Tensor_i0 = decltype(make_tensor(make_gmem_ptr((int*)nullptr), Shape_i0{}));
+    using Shape_i0 = decltype(make_shape(Int<2>{}, VARLEN));
+    using Tensor_i0 = decltype(make_tensor(make_gmem_ptr((TI0*)nullptr), Shape_i0{}));
     Shape_i0 shape_i0;
-    // Tensor_io dval_coo_off
+    // Tensor_i0 dval_coo_off;
+    // TI1 i;
 
     // Outputs
-    using Shape_o0 = decltype(make_shape(nbuf{}));
-    using Shape_o1 = decltype(make_shape(nbuf{}));
-    using Tensor_o0 = decltype(make_tensor<int>(Shape_o0{}));
-    using Tensor_o1 = decltype(make_tensor<int>(Shape_o1{}));
+    using Shape_o0 = decltype(make_shape(NBUF{}));
+    using Tensor_o0 = decltype(make_tensor<TO0>(Shape_o0{}));
+    Shape_o0 shape_o0;
     Tensor_o0 l;
+    using Shape_o1 = decltype(make_shape(NBUF{}));
+    using Tensor_o1 = decltype(make_tensor<TO1>(Shape_o1{}));
+    Shape_o1 shape_o1;
     Tensor_o1 r;
 
+    // Hardware parameters
     int tid, lid, wid;
 
-    CUTE_HOST_DEVICE G2rCooAtomicFormatLoadOffOp(int tid, int lid, int wid, int mode0)
-    : tid(tid), lid(lid), wid(wid),
-    shape_i0(make_shape(_2{}, mode0)) {}
+    CUTE_DEVICE G2rCooAtomicFormatLoadOffOp(int tid, int lid, int wid, int mode_i0_0)
+    : tid(tid), lid(lid), wid(wid), shape_i0(make_shape(Int<2>{}, mode_i0_0)) {}
 
     template<size_t buf_idx, size_t output_idx>
     CUTE_DEVICE auto output() {
         if constexpr (output_idx == 0) {
             return l(buf_idx);
-        } else if constexpr (output_idx == 1) {
+        }
+        if constexpr (output_idx == 1) {
             return r(buf_idx);
         }
     }
 
     template<size_t buf_idx>
-    CUTE_DEVICE void f(Tensor_i0 dval_coo_off, int i) {
+    CUTE_DEVICE void f(Tensor_i0 dval_coo_off, TI1 i) {
         l(buf_idx) = dval_coo_off(0, i);
         r(buf_idx) = dval_coo_off(1, i);
     }
 };
 
 // shift 2
-template<class nbuf, class tile_sidx_size>
+template<class NBUF, class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class tile_sidx_size = Int<16>, class TI0 = int, class TO0 = int>
 class S2rValSidxLoadOp {
-    public:
-
+public:
     // Inputs
     using Shape_i0 = decltype(make_shape(tile_sidx_size{}));
-    using Tensor_i0 = decltype(make_tensor(make_smem_ptr((int*)nullptr), Shape_i0{}));
+    using Tensor_i0 = decltype(make_tensor(make_smem_ptr((TI0*)nullptr), Shape_i0{}));
     Shape_i0 shape_i0;
     // Tensor_i0 tile_sidx_block;
 
     // Outputs
-    using Shape_o0 = decltype(make_shape(tile_sidx_size{}, nbuf{}));
-    using Tensor_o0 = decltype(make_tensor<int>(Shape_o0{}));
+    using Shape_o0 = decltype(make_shape(tile_sidx_size{}, NBUF{}));
+    using Tensor_o0 = decltype(make_tensor<TO0>(Shape_o0{}));
     Shape_o0 shape_o0;
     Tensor_o0 val_sidx_reg;
 
@@ -174,9 +166,9 @@ class S2rValSidxLoadOp {
     int tid, lid, wid;
 
     CUTE_DEVICE S2rValSidxLoadOp(int tid, int lid, int wid)
-      : tid(tid), lid(lid), wid(wid) {}
+    : tid(tid), lid(lid), wid(wid) {}
 
-    template<size_t buf_idx, size_t output_idx=0>
+    template<size_t buf_idx, size_t output_idx>
     CUTE_DEVICE auto output() {
         if constexpr (output_idx == 0) {
             return val_sidx_reg(_, buf_idx);
@@ -193,35 +185,30 @@ class S2rValSidxLoadOp {
     }
 };
 
-template <class nbuf, class tile_coo_val_size, class DT=half>
+template<class NBUF, class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class tile_coo_val_size = Int<16>, class TI0 = half, class TI1 = int, class TI2 = int, class TO0 = half>
 class G2sCooAtomicFormatLoadValOp {
-    public:
+public:
     // Inputs
     using Shape_i0 = decltype(make_shape(VARLEN));
-    using Tensor_i0 = decltype(make_tensor(make_gmem_ptr((DT*)nullptr), Shape_i0{}));
+    using Tensor_i0 = decltype(make_tensor(make_gmem_ptr((TI0*)nullptr), Shape_i0{}));
     Shape_i0 shape_i0;
-    // Tensor_i0 val_coo_val;
-    // int ll;
-    // int rr;
+    // Tensor_i0 dval_coo_val;
+    // TI1 ll;
+    // TI2 rr;
 
     // Outputs
-    using Shape_o0 = decltype(make_shape(tile_coo_val_size{}, nbuf{}));
-    using Tensor_o0 = decltype(make_tensor(make_smem_ptr((DT*)nullptr), Shape_o0{}));
+    using Shape_o0 = decltype(make_shape(tile_coo_val_size{}, NBUF{}));
+    using Tensor_o0 = decltype(make_tensor(make_smem_ptr((TO0*)nullptr), Shape_o0{}));
     Shape_o0 shape_o0;
     Tensor_o0 tile_coo_val_block;
 
     // Hardware parameters
     int tid, lid, wid;
-    decltype(make_coord(VARLEN)) thr_coord;
-    decltype(make_shape(_8{})) thr_tiler;
 
-    CUTE_DEVICE G2sCooAtomicFormatLoadValOp(int tid, int lid, int wid, DT* tile_coo_val_block, int mode0)
-    : tid(tid), lid(lid), wid(wid),
-      thr_coord(make_coord(lid)),
-      shape_i0(make_shape(mode0)),
-      tile_coo_val_block(make_tensor(make_smem_ptr(tile_coo_val_block), shape_o0)) {}
+    CUTE_DEVICE G2sCooAtomicFormatLoadValOp(int tid, int lid, int wid, half *tile_coo_val_block, int mode_i0_0)
+    : tid(tid), lid(lid), wid(wid), shape_i0(make_shape(mode_i0_0)), tile_coo_val_block(make_tensor(make_smem_ptr(tile_coo_val_block), Shape_o0{})) {}
 
-    template<size_t buf_idx, size_t output_idx=0>
+    template<size_t buf_idx, size_t output_idx>
     CUTE_DEVICE auto output() {
         if constexpr (output_idx == 0) {
             return tile_coo_val_block(_, buf_idx);
@@ -229,10 +216,12 @@ class G2sCooAtomicFormatLoadValOp {
     }
 
     template<size_t buf_idx>
-    CUTE_DEVICE void f(Tensor_i0 val_coo_val, int ll, int rr) {
-        auto input = make_tensor(val_coo_val.data() + ll, make_shape(tile_coo_val_size{}));
+    CUTE_DEVICE void f(Tensor_i0 dval_coo_val, TI1 ll, TI2 rr) {
+        auto thr_tiler = make_shape(_8{});
+        auto thr_coord = make_coord(lid);
+        auto input = make_tensor(dval_coo_val.data() + ll, make_shape(tile_coo_val_size{}));
         auto output = tile_coo_val_block(_, buf_idx);
-
+        
         if (lid * 8 < rr - ll) {
             auto src = local_tile(input, thr_tiler, thr_coord);
             auto dst = local_tile(output, thr_tiler, thr_coord);
@@ -241,49 +230,48 @@ class G2sCooAtomicFormatLoadValOp {
     }
 };
 
-template <class nbuf, class tile_coo_val_size>
+template<class NBUF, class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class tile_coo_val_size = Int<16>, class TI0 = int, class TI1 = int, class TI2 = int, class TO0 = int, class TO1 = int>
 class G2rCooAtomicFormatLoadIdxOp {
-    public:
+public:
     // Inputs
     using Shape_i0 = decltype(make_shape(VARLEN));
-    using Tensor_i0 = decltype(make_tensor(make_gmem_ptr((int*)nullptr), Shape_i0{}));
+    using Tensor_i0 = decltype(make_tensor(make_gmem_ptr((TI0*)nullptr), Shape_i0{}));
     Shape_i0 shape_i0;
-    // Tensor_i0 val_coo_idx;
-    // int ll;
-    // int rr;
+    // Tensor_i0 dval_coo_idx;
+    // TI1 ll;
+    // TI2 rr;
 
     // Outputs
-    using Shape_o0 = decltype(make_shape(_8{}, nbuf{}));
-    using Tensor_o0 = decltype(make_tensor<int>(Shape_o0{}));
+    using Shape_o0 = decltype(make_shape(Int<8>{}, NBUF{}));
+    using Tensor_o0 = decltype(make_tensor<TO0>(Shape_o0{}));
     Shape_o0 shape_o0;
     Tensor_o0 coo_idx_reg;
-    using Shape_o1 = decltype(make_shape(nbuf{}));
-    using Tensor_o1 = decltype(make_tensor<int>(Shape_o1{}));
+    using Shape_o1 = decltype(make_shape(NBUF{}));
+    using Tensor_o1 = decltype(make_tensor<TO1>(Shape_o1{}));
     Shape_o1 shape_o1;
     Tensor_o1 coo_range_reg;
 
     // Hardware parameters
     int tid, lid, wid;
-    decltype(make_coord(VARLEN)) thr_coord;
-    decltype(make_shape(_8{})) thr_tiler;
 
-    CUTE_DEVICE G2rCooAtomicFormatLoadIdxOp(int tid, int lid, int wid, int mode0)
-    : tid(tid), lid(lid), wid(wid),
-      thr_coord(make_coord(lid)),
-      shape_i0(make_shape(mode0)) {}
+    CUTE_DEVICE G2rCooAtomicFormatLoadIdxOp(int tid, int lid, int wid, int mode_i0_0)
+    : tid(tid), lid(lid), wid(wid), shape_i0(make_shape(mode_i0_0)) {}
 
-    template<size_t buf_idx, size_t output_idx=0>
+    template<size_t buf_idx, size_t output_idx>
     CUTE_DEVICE auto output() {
         if constexpr (output_idx == 0) {
             return coo_idx_reg(_, buf_idx);
-        } else if constexpr (output_idx == 1) {
+        }
+        if constexpr (output_idx == 1) {
             return coo_range_reg(buf_idx);
         }
     }
 
     template<size_t buf_idx>
-    CUTE_DEVICE void f(Tensor_i0 val_coo_idx, int ll, int rr) {
-        auto input = make_tensor(val_coo_idx.data() + ll, make_shape(tile_coo_val_size{}));
+    CUTE_DEVICE void f(Tensor_i0 dval_coo_idx, TI1 ll, TI2 rr) {
+        auto thr_tiler = make_shape(_8{});
+        auto thr_coord = make_coord(lid);
+        auto input = make_tensor(dval_coo_idx.data() + ll, make_shape(tile_coo_val_size{}));
         coo_range_reg(buf_idx) = rr - ll;
         if (lid * 8 < rr - ll) {
             auto src = local_tile(input, thr_tiler, thr_coord);
@@ -294,33 +282,32 @@ class G2rCooAtomicFormatLoadIdxOp {
 };
 
 // shift 3
-template <class NBUF, class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class DT=half>
+template<class NBUF, class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class tile_coo_val_size = Int<16>, class TI0 = half, class TI1 = int, class TO0 = half>
 class G2rBValLoadOp {
-    public:
+public:
     // Inputs
     using Shape_i0 = decltype(make_shape(VARLEN, VARLEN));
-    using Tensor_i0 = decltype(make_tensor(make_gmem_ptr((DT*)nullptr), Shape_i0{}));
+    using Tensor_i0 = decltype(make_tensor(make_gmem_ptr((TI0*)nullptr), Shape_i0{}));
     Shape_i0 shape_i0;
-    using Shape_i1 = decltype(make_shape(get<2>(BLK_MNK{})));
-    using Tensor_i1 = decltype(make_tensor(make_rmem_ptr((int*)nullptr), Shape_i1{}));
-    Shape_i1 shape_i1;
     // Tensor_i0 B_val;
+    using Shape_i1 = decltype(make_shape(get<2>(BLK_MNK{})));
+    using Tensor_i1 = decltype(make_tensor(make_rmem_ptr((TI1*)nullptr), Shape_i1{}));
+    Shape_i1 shape_i1;
     // Tensor_i1 val_sidx_reg;
 
     // Outputs
-    using Shape_o0 = decltype(make_shape(_4{}, get<1>(BLK_MMA_MNK{}), NBUF{}));
-    using Tensor_o0 = decltype(make_tensor<DT>(Shape_o0{}));
+    using Shape_o0 = decltype(make_shape(Int<4>{}, get<1>(BLK_MMA_MNK{}), NBUF{}));
+    using Tensor_o0 = decltype(make_tensor<TO0>(Shape_o0{}));
     Shape_o0 shape_o0;
     Tensor_o0 REGB;
 
     // Hardware parameters
     int tid, lid, wid;
 
-    CUTE_DEVICE G2rBValLoadOp(int tid, int lid, int wid, int mode0, int mode1)
-    : tid(tid), lid(lid), wid(wid),
-      shape_i0(make_shape(mode0, mode1)) {}
+    CUTE_DEVICE G2rBValLoadOp(int tid, int lid, int wid, int mode_i0_0, int mode_i0_1)
+    : tid(tid), lid(lid), wid(wid), shape_i0(make_shape(mode_i0_0, mode_i0_1)) {}
 
-    template<size_t buf_idx, size_t output_idx=0>
+    template<size_t buf_idx, size_t output_idx>
     CUTE_DEVICE auto output() {
         if constexpr (output_idx == 0) {
             return REGB(_, _, buf_idx);
@@ -340,34 +327,33 @@ class G2rBValLoadOp {
     }
 };
 
-template<class NBUF, class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class tile_coo_val_size, class DT=half>
+template<class NBUF, class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class tile_coo_val_size = Int<16>, class TI0 = half, class TI1 = int, class TI2 = int, class TO0 = half>
 class S2sCooAtomicValRestoreOp {
-    public:
+public:
     // Inputs
     using Shape_i0 = decltype(make_shape(tile_coo_val_size{}));
-    using Tensor_i0 = decltype(make_tensor(make_smem_ptr((DT*)nullptr), Shape_i0{}));
+    using Tensor_i0 = decltype(make_tensor(make_smem_ptr((TI0*)nullptr), Shape_i0{}));
     Shape_i0 shape_i0;
-    using Shape_i1 = decltype(make_shape(_8{}));
-    using Tensor_i1 = decltype(make_tensor(make_rmem_ptr((int*)nullptr), Shape_i1{}));
-    Shape_i1 shape_i1;
     // Tensor_i0 tile_coo_val_block;
+    using Shape_i1 = decltype(make_shape(Int<8>{}));
+    using Tensor_i1 = decltype(make_tensor(make_rmem_ptr((TI1*)nullptr), Shape_i1{}));
+    Shape_i1 shape_i1;
     // Tensor_i1 coo_idx_reg;
-    // int nnz_num;
+    // TI2 nnz_num;
 
     // Outputs
-    using Shape_o0 = decltype(make_shape(get<0>(BLK_MNK{}), get<2>(BLK_MNK{}), NBUF{})); // (BLK_M, BLK_K, NBUF)
-    using Tensor_o0 = decltype(make_tensor(make_smem_ptr((DT*)nullptr), Shape_o0{}));
+    using Shape_o0 = decltype(make_shape(get<0>(BLK_MNK{}), get<2>(BLK_MNK{}), NBUF{}));
+    using Tensor_o0 = decltype(make_tensor(make_smem_ptr((TO0*)nullptr), Shape_o0{}));
     Shape_o0 shape_o0;
     Tensor_o0 tile_coo_restore_val_block;
 
     // Hardware parameters
     int tid, lid, wid;
 
-    CUTE_DEVICE S2sCooAtomicValRestoreOp(int tid, int lid, int wid, DT* tile_coo_restore_val_block)
-    : tid(tid), lid(lid), wid(wid),
-      tile_coo_restore_val_block(make_tensor(make_smem_ptr(tile_coo_restore_val_block), shape_o0)) {}
+    CUTE_DEVICE S2sCooAtomicValRestoreOp(int tid, int lid, int wid, half *tile_coo_restore_val_block)
+    : tid(tid), lid(lid), wid(wid), tile_coo_restore_val_block(make_tensor(make_smem_ptr(tile_coo_restore_val_block), Shape_o0{})) {}
 
-    template<size_t buf_idx, size_t output_idx=0>
+    template<size_t buf_idx, size_t output_idx>
     CUTE_DEVICE auto output() {
         if constexpr (output_idx == 0) {
             return tile_coo_restore_val_block(_, _, buf_idx);
@@ -375,7 +361,7 @@ class S2sCooAtomicValRestoreOp {
     }
 
     template<size_t buf_idx, size_t wait_num>
-    CUTE_DEVICE void f(Tensor_i0 tile_coo_val_block, Tensor_i1 coo_idx_reg, int nnz_num) {
+    CUTE_DEVICE void f(Tensor_i0 tile_coo_val_block, Tensor_i1 coo_idx_reg, TI2 nnz_num) {
         __pipeline_wait_prior(wait_num);
         __syncthreads();
         // TODO: use tiler to distribute the tensor and use clear(Tensor) to set zero
@@ -392,18 +378,18 @@ class S2sCooAtomicValRestoreOp {
     }
 };
 
-template<class NBUF, class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class DT=half>
+template<class NBUF, class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class TI0 = half, class TO0 = half>
 class S2rAValLoadOp {
-    public:
+public:
     // Inputs
-    using Shape_i0 = decltype(make_shape(get<0>(BLK_MNK{}), get<2>(BLK_MNK{}))); // (BLK_M, BLK_K, NBUF)
-    using Tensor_i0 = decltype(make_tensor(make_smem_ptr((DT*)nullptr), Shape_i0{}));
+    using Shape_i0 = decltype(make_shape(get<0>(BLK_MNK{}), get<2>(BLK_MNK{})));
+    using Tensor_i0 = decltype(make_tensor(make_smem_ptr((TI0*)nullptr), Shape_i0{}));
     Shape_i0 shape_i0;
-    // Tensor_i0 tile_coo_restore_val_block
+    // Tensor_i0 tile_coo_restore_val_block;
 
     // Outputs
-    using Shape_o0 = decltype(make_shape(_8{}, get<0>(BLK_MMA_MNK{}), NBUF{}));
-    using Tensor_o0 = decltype(make_tensor<DT>(Shape_o0{}));
+    using Shape_o0 = decltype(make_shape(Int<8>{}, get<0>(BLK_MMA_MNK{}), NBUF{}));
+    using Tensor_o0 = decltype(make_tensor<TO0>(Shape_o0{}));
     Shape_o0 shape_o0;
     Tensor_o0 REGA;
 
@@ -413,7 +399,7 @@ class S2rAValLoadOp {
     CUTE_DEVICE S2rAValLoadOp(int tid, int lid, int wid)
     : tid(tid), lid(lid), wid(wid) {}
 
-    template<size_t buf_idx, size_t output_idx=0>
+    template<size_t buf_idx, size_t output_idx>
     CUTE_DEVICE auto output() {
         if constexpr (output_idx == 0) {
             return REGA(_, _, buf_idx);
@@ -436,22 +422,22 @@ class S2rAValLoadOp {
     }
 };
 
-template<class NBUF, class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class TI=half, class TO=float>
+template<class NBUF, class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class TI0 = half, class TI1 = half, class TO0 = float>
 class MmaOp {
-    public:
+public:
     // Inputs
-    using Shape_i0 = decltype(make_shape(_8{}, get<0>(BLK_MMA_MNK{})));
-    using Tensor_i0 = decltype(make_tensor(make_rmem_ptr((TI*)nullptr), Shape_i0{}));
+    using Shape_i0 = decltype(make_shape(Int<8>{}, get<0>(BLK_MMA_MNK{})));
+    using Tensor_i0 = decltype(make_tensor(make_rmem_ptr((TI0*)nullptr), Shape_i0{}));
     Shape_i0 shape_i0;
-    using Shape_i1 = decltype(make_shape(_4{}, get<1>(BLK_MMA_MNK{})));
-    using Tensor_i1 = decltype(make_tensor(make_rmem_ptr((TI*)nullptr), Shape_i1{}));
+    // Tensor_i0 REGA;
+    using Shape_i1 = decltype(make_shape(Int<4>{}, get<1>(BLK_MMA_MNK{})));
+    using Tensor_i1 = decltype(make_tensor(make_rmem_ptr((TI1*)nullptr), Shape_i1{}));
     Shape_i1 shape_i1;
-    // Tensor_i0 REGA
-    // Tensor_i1 REGB
+    // Tensor_i1 REGB;
 
     // Outputs
-    using Shape_o0 = decltype(make_shape(_4{}, select<0, 1>(BLK_MMA_MNK{}), NBUF{}));
-    using Tensor_o0 = decltype(make_tensor<TO>(Shape_o0{}));
+    using Shape_o0 = decltype(make_shape(Int<4>{}, make_shape(get<0>(BLK_MMA_MNK{}), get<1>(BLK_MMA_MNK{})), NBUF{}));
+    using Tensor_o0 = decltype(make_tensor<TO0>(Shape_o0{}));
     Shape_o0 shape_o0;
     Tensor_o0 REGC;
 
@@ -461,7 +447,7 @@ class MmaOp {
     CUTE_DEVICE MmaOp(int tid, int lid, int wid)
     : tid(tid), lid(lid), wid(wid) {}
 
-    template<size_t buf_idx, size_t output_idx=0>
+    template<size_t buf_idx, size_t output_idx>
     CUTE_DEVICE auto output() {
         if constexpr (output_idx == 0) {
             return REGC(_, _, buf_idx);
@@ -477,7 +463,6 @@ class MmaOp {
         }
     }
 };
-
 // =====================================================================================
 
 template <int shift1, int shift2, int shift3, int maxshift_reg, int maxshift_smem, int TILE_B, int K_total, int i, class T_G2sValSidxLoadOp, class T_G2rCooAtomicFormatLoadOff, class T_G2sCooAtomicFormatLoadValOp, class T_G2rCooAtomicFormatLoadIdxOp, class T_S2rValSidxLoadOp,  class T_val_sidx, class T_val_soff, class T_B_val, class T_val_coo_val, class T_val_coo_idx, class T_val_coo_off, class T_G2rBValLoadOp, class T_S2sCooAtomicValRestoreOp, class T_S2rAValLoadOp, class T_MmaOp>
@@ -860,27 +845,32 @@ __global__ void dtc_spmm_kernel_sstage_rstage(
 
     // shift 1
     __shared__ int tile_sidx_block[tile_sidx_size * (maxshift_smem)];
-    G2sValSidxLoadOp<Int<maxshift_smem>, decltype(tile_sidx_size)> g2s_val_sidx_load_op{
+    G2sValSidxLoadOp<Int<maxshift_smem>, decltype(blk_mnk), decltype(mma_mnk), decltype(blk_mma_mnk)> 
+    g2s_val_sidx_load_op{
         tid, lid, wid,
         tile_sidx_block,
         nnz_block,
     };
-    G2rCooAtomicFormatLoadOffOp<Int<maxshift_smem>> g2r_coo_atomic_format_load_off_op{
+    G2rCooAtomicFormatLoadOffOp<Int<maxshift_smem>, decltype(blk_mnk), decltype(mma_mnk), decltype(blk_mma_mnk)>
+    g2r_coo_atomic_format_load_off_op{
         tid, lid, wid,
         nnz_block,
     };
 
     // shift 2
-    S2rValSidxLoadOp<Int<maxshift_reg>, Int<tile_sidx_size>> s2r_val_sidx_load_op{
+    S2rValSidxLoadOp<Int<maxshift_reg>, decltype(blk_mnk), decltype(mma_mnk), decltype(blk_mma_mnk), Int<tile_sidx_size>>
+    s2r_val_sidx_load_op{
         tid, lid, wid,
     };
     __shared__ half tile_coo_val_block[tile_coo_val_size * (maxshift_smem)];
-    G2sCooAtomicFormatLoadValOp<Int<maxshift_smem>, Int<tile_coo_val_size>> g2s_coo_atomic_format_load_val_op{
+    G2sCooAtomicFormatLoadValOp<Int<maxshift_smem>, decltype(blk_mnk), decltype(mma_mnk), decltype(blk_mma_mnk), Int<tile_coo_val_size>> 
+    g2s_coo_atomic_format_load_val_op{
         tid, lid, wid,
         tile_coo_val_block,
         nnz,
     };
-    G2rCooAtomicFormatLoadIdxOp<Int<maxshift_reg>, Int<tile_coo_val_size>> g2r_coo_atomic_format_load_idx_op{
+    G2rCooAtomicFormatLoadIdxOp<Int<maxshift_reg>, decltype(blk_mnk), decltype(mma_mnk), decltype(blk_mma_mnk), Int<tile_coo_val_size>> 
+    g2r_coo_atomic_format_load_idx_op{
         tid, lid, wid,
         nnz,
     };

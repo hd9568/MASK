@@ -207,13 +207,7 @@ void convertToMETCF(
     dtc_spmm_test<32>(M, N, K, total_TCBlock_num, nnz_pad, val_sidx, val_soff, B, val_coo_idx, val_coo_val, val_coo_off, C);
 }
 
-int main() {
-    int M = 2304;
-    int N = 1536;
-    int K = 16384;
-    // M = 1024;
-    // N = 1024;
-    // K = 1024;
+void test(int M, int N, int K, bool check) {
     half* B = (half*)malloc(sizeof(half) * K * N);
     half* A = (half*)malloc(sizeof(half) * M * K);
     
@@ -306,7 +300,7 @@ int main() {
     convertToMETCF(M, N, K, nnz, csrPtrA, csrColIdxA, csrValA, B, C_cuda);
 
     //host check
-    if (0) {
+    if (check) {
         float* C_cpu = (float*)malloc(sizeof(float) * M * N);
         memset(C_cpu, 0, sizeof(float) * M * N);
         for (int i = 0; i < M; i++) {
@@ -326,6 +320,10 @@ int main() {
             }
         }
     }
+}
 
+int main() {
+    test(2304, 1536, 16384, false);
+    test(1024, 1024, 1024, true);
     return 0;
 }
