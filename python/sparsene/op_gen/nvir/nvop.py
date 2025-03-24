@@ -1,4 +1,6 @@
-from typing import Literal, List, Dict, Union, Tuple, Any
+from __future__ import annotations
+
+from typing import Literal, List, Dict, Union, Tuple, Any, Optional
 from sparsene.op_gen.opir.op_ir import Op
 from sparsene.op_gen.nvir.op_impl import NvOpImpl
 from itertools import chain
@@ -77,6 +79,7 @@ class NvOpInput:
     mem: IoMemType
     name: str
     dtype: str
+    source: Optional[Tuple[NvOp, int] | str]
 
     def __init__(self, idx: int, shape: Shape, mem: IoMemType, name: str, dtype: str):
         self.idx = idx

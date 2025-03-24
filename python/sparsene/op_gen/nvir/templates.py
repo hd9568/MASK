@@ -44,6 +44,8 @@ using namespace cute;
 
 {{empty_device_functions}}
 
+{{loop_step_device_functions}}
+
 {{remainder_device_functions}}
 
 {{generic_kernel}}
@@ -85,6 +87,8 @@ __global__ void {{kernel_name}}(
     const int tid = threadIdx.x;
     const int lid = tid % 32;
     const int wid = tid / 32;
+
+    {{gmem_tensor_init}}
 
 	{{op_init}}
 

@@ -385,3 +385,15 @@ if __name__ == "__main__":
     print(NvIrCodeGenerator().dump_nvop_create(mma_op, 1))
     print()
     
+
+
+
+# 1. op之间的依赖关系 (source: Optional[Tuple[NvOp, int] | str]) (dtc_ops.py)
+# 2. 生成short_pipe, fill, empty, remainder, loop_step (commit和wait_group写在外面)
+#    输入NvOpPipeline,输出字符串
+# 3. 生成write_back
+
+# codegen的输入：
+# stages: List[List[NvOp]]
+# shifts: List[int]
+# constraints: len(shifts) = len(stages) - 1

@@ -1,17 +1,17 @@
-from sparsene.op_gen.opir.op_ir import Op
+from sparsene.op_gen.nvir.nvop import NvOp
 from typing import List
 
-class OpStage:
-	ops: List[Op]
+class NvOpStage:
+	ops: List[NvOp]
 
-	def __init__(self, ops: List[Op]):
+	def __init__(self, ops: List[NvOp]):
 		self.ops = ops
 
-class OpPipeline:
-	stages: List[OpStage]
+class NvOpPipeline:
+	stages: List[NvOpStage]
 	shifts: List[int]
 
-	def __init__(self, stages: List[OpStage], shifts: List[int]):
+	def __init__(self, stages: List[NvOpStage], shifts: List[int]):
 		self.stages = stages
 		self.shifts = shifts
 
@@ -21,19 +21,19 @@ class OpPipeline:
 	def num_buf(self) -> int:
 		return max(self.shifts) + 1
 	
-	def gen_fill(self, fill_stage: int) -> List[Op]:
+	def gen_fill(self, fill_stage: int) -> List[NvOp]:
 		pass
 
-	def gen_empty(self, empty_stage: int) -> List[Op]:
+	def gen_empty(self, empty_stage: int) -> List[NvOp]:
 		pass
 
-	def gen_small_kernel(self, num_iters: int) -> List[Op]:
+	def gen_small_kernel(self, num_iters: int) -> List[NvOp]:
 		pass
 
-	def gen_loop_body(self, induction_var: str) -> List[Op]:
+	def gen_loop_body(self, induction_var: str) -> List[NvOp]:
 		pass
 
-	def gen_pipeline(self) -> List[Op]:
+	def gen_pipeline(self) -> List[NvOp]:
 		pass
 
 	def gen_kernel(self):
