@@ -22,14 +22,7 @@
 using namespace std;
 using namespace cute;
 
-#define ROW_WINDOW_M 16
-#define TC_BLOCK_K 16
-#define TC_BLOCK_M 16
-
 #define VARLEN 0
-
-#define OFFSET_ROW(row, col, lda) ((row) * (lda) + (col))
-#define OFFSET_COL(row, col, lda) ((col) * (lda) + (row))
 
 #define CHECK_CUDA2(func)                                              \
     {                                                                  \
@@ -465,467 +458,463 @@ public:
 };
 // =====================================================================================
 
-template <int shift1, int shift2, int shift3, int maxshift_reg, int maxshift_smem, int TILE_B, int K_total, int i, class T_G2sValSidxLoadOp, class T_G2rCooAtomicFormatLoadOff, class T_G2sCooAtomicFormatLoadValOp, class T_G2rCooAtomicFormatLoadIdxOp, class T_S2rValSidxLoadOp,  class T_val_sidx, class T_val_soff, class T_B_val, class T_val_coo_val, class T_val_coo_idx, class T_val_coo_off, class T_G2rBValLoadOp, class T_S2sCooAtomicValRestoreOp, class T_S2rAValLoadOp, class T_MmaOp>
-__device__ void pipeline(int l, int r, const int tile_sidx_size, const int tile_coo_val_size, T_G2sValSidxLoadOp &g2s_val_sidx_load_op, T_G2rCooAtomicFormatLoadOff &g2r_coo_atomic_format_load_off_op, T_S2rValSidxLoadOp &s2r_val_sidx_load_op, T_G2sCooAtomicFormatLoadValOp &g2s_coo_atomic_format_load_val_op, T_G2rCooAtomicFormatLoadIdxOp &g2r_coo_atomic_format_load_idx_op, T_G2rBValLoadOp &g2r_b_val_load_op, T_S2sCooAtomicValRestoreOp &s2s_coo_atomic_val_restore_op, T_S2rAValLoadOp &s2r_a_val_load_op, T_val_sidx &val_sidx, T_val_soff &val_soff, T_B_val &B_val,  T_val_coo_val &val_coo_val,  T_val_coo_idx &val_coo_idx,  T_val_coo_off &val_coo_off, T_MmaOp &mma_op, int nnz_block) {
+template <int shift1, int shift2, int shift3, int nbuf_rmem, int nbuf_smem, int K_total, int i, class T_G2sValSidxLoadOp, class T_G2rCooAtomicFormatLoadOff, class T_G2sCooAtomicFormatLoadValOp, class T_G2rCooAtomicFormatLoadIdxOp, class T_S2rValSidxLoadOp,  class T_val_sidx, class T_val_soff, class T_B_val, class T_val_coo_val, class T_val_coo_idx, class T_val_coo_off, class T_G2rBValLoadOp, class T_S2sCooAtomicValRestoreOp, class T_S2rAValLoadOp, class T_MmaOp>
+__device__ void pipeline(int l, int r, T_G2sValSidxLoadOp &g2s_val_sidx_load_op, T_G2rCooAtomicFormatLoadOff &g2r_coo_atomic_format_load_off_op, T_S2rValSidxLoadOp &s2r_val_sidx_load_op, T_G2sCooAtomicFormatLoadValOp &g2s_coo_atomic_format_load_val_op, T_G2rCooAtomicFormatLoadIdxOp &g2r_coo_atomic_format_load_idx_op, T_G2rBValLoadOp &g2r_b_val_load_op, T_S2sCooAtomicValRestoreOp &s2s_coo_atomic_val_restore_op, T_S2rAValLoadOp &s2r_a_val_load_op, T_val_sidx &val_sidx, T_val_soff &val_soff, T_B_val &B_val,  T_val_coo_val &val_coo_val,  T_val_coo_idx &val_coo_idx,  T_val_coo_off &val_coo_off, T_MmaOp &mma_op) {
     if constexpr (i < K_total) {
-        g2s_val_sidx_load_op.f<i % maxshift_smem>(val_sidx, l + i);
+        g2s_val_sidx_load_op.f<i % nbuf_smem>(val_sidx, l + i);
 
-        g2r_coo_atomic_format_load_off_op.f<i % maxshift_reg>(val_coo_off, l + i);
+        g2r_coo_atomic_format_load_off_op.f<i % nbuf_rmem>(val_coo_off, l + i);
         if constexpr (i < shift1) {
             __pipeline_commit();
         }
     }
     // (sstage > (K - 1 - (i - sstage)) ? K - 1 - (i - sstage) : sstage)
     if constexpr (0 <= i - shift1 && i - shift1 < K_total) {
-        g2s_coo_atomic_format_load_val_op.template f<(i - shift1) % maxshift_reg>(val_coo_val,
-            g2r_coo_atomic_format_load_off_op.template output<(i - shift1) % maxshift_reg, 0>(),
-            g2r_coo_atomic_format_load_off_op.template output<(i - shift1) % maxshift_reg, 1>()
+        g2s_coo_atomic_format_load_val_op.template f<(i - shift1) % nbuf_rmem>(val_coo_val,
+            g2r_coo_atomic_format_load_off_op.template output<(i - shift1) % nbuf_rmem, 0>(),
+            g2r_coo_atomic_format_load_off_op.template output<(i - shift1) % nbuf_rmem, 1>()
         );
         __pipeline_commit();
-        s2r_val_sidx_load_op.f<(i - shift1) % maxshift_reg, (K_total > shift1 ? shift1 : K_total)>(g2s_val_sidx_load_op.template output<(i - shift1) % maxshift_reg, 0>());
-        g2r_coo_atomic_format_load_idx_op.f<(i - shift1) % maxshift_reg>(val_coo_idx,
-            g2r_coo_atomic_format_load_off_op.template output<(i - shift1) % maxshift_reg, 0>(),
-            g2r_coo_atomic_format_load_off_op.template output<(i - shift1) % maxshift_reg, 1>()
+        s2r_val_sidx_load_op.f<(i - shift1) % nbuf_rmem, (K_total > shift1 ? shift1 : K_total)>(g2s_val_sidx_load_op.template output<(i - shift1) % nbuf_rmem, 0>());
+        g2r_coo_atomic_format_load_idx_op.f<(i - shift1) % nbuf_rmem>(val_coo_idx,
+            g2r_coo_atomic_format_load_off_op.template output<(i - shift1) % nbuf_rmem, 0>(),
+            g2r_coo_atomic_format_load_off_op.template output<(i - shift1) % nbuf_rmem, 1>()
         );
     }
     if constexpr (0 <= i - shift2 - shift1 && i - shift2 - shift1 < K_total) {
-        g2r_b_val_load_op.template f<(i - shift1 - shift2) % maxshift_reg>(B_val, s2r_val_sidx_load_op.template output<(i - shift1 - shift2) % maxshift_reg, 0>());
-        s2s_coo_atomic_val_restore_op.f<(i - shift1 - shift2) % maxshift_reg, (shift2 > (K_total + shift1 + shift2 - 1 - i) ? (K_total + shift1 + shift2 - 1 - i) : shift2)>(
-            g2s_coo_atomic_format_load_val_op.template output<(i - shift1 - shift2) % maxshift_reg, 0>(),
-            g2r_coo_atomic_format_load_idx_op.template output<(i - shift1 - shift2) % maxshift_reg, 0>(),
-            g2r_coo_atomic_format_load_idx_op.template output<(i - shift1 - shift2) % maxshift_reg, 1>()
+        g2r_b_val_load_op.template f<(i - shift1 - shift2) % nbuf_rmem>(B_val, s2r_val_sidx_load_op.template output<(i - shift1 - shift2) % nbuf_rmem, 0>());
+        s2s_coo_atomic_val_restore_op.f<(i - shift1 - shift2) % nbuf_rmem, (shift2 > (K_total + shift1 + shift2 - 1 - i) ? (K_total + shift1 + shift2 - 1 - i) : shift2)>(
+            g2s_coo_atomic_format_load_val_op.template output<(i - shift1 - shift2) % nbuf_rmem, 0>(),
+            g2r_coo_atomic_format_load_idx_op.template output<(i - shift1 - shift2) % nbuf_rmem, 0>(),
+            g2r_coo_atomic_format_load_idx_op.template output<(i - shift1 - shift2) % nbuf_rmem, 1>()
         );
-        s2r_a_val_load_op.f<(i - shift1 - shift2) % maxshift_reg, (shift2 > (K_total + shift1 + shift2 - 1 - i) ? (K_total + shift1 + shift2 - 1 - i) : shift2)>(
-            s2s_coo_atomic_val_restore_op.template output<(i - shift1 - shift2) % maxshift_reg, 0>()
+        s2r_a_val_load_op.f<(i - shift1 - shift2) % nbuf_rmem, (shift2 > (K_total + shift1 + shift2 - 1 - i) ? (K_total + shift1 + shift2 - 1 - i) : shift2)>(
+            s2s_coo_atomic_val_restore_op.template output<(i - shift1 - shift2) % nbuf_rmem, 0>()
         );
     }
     if constexpr (0 <= i - shift1 - shift2 - shift3 && i - shift1 - shift2 - shift3 < K_total) {
         mma_op.f<0>(
-            s2r_a_val_load_op.template output<(i - shift1 - shift2 - shift3) % maxshift_reg, 0>(),
-            g2r_b_val_load_op.template output<(i - shift1 - shift2 - shift3) % maxshift_reg, 0>()
+            s2r_a_val_load_op.template output<(i - shift1 - shift2 - shift3) % nbuf_rmem, 0>(),
+            g2r_b_val_load_op.template output<(i - shift1 - shift2 - shift3) % nbuf_rmem, 0>()
         );
     }
     if constexpr (i < K_total + shift1 + shift2 + shift3) {
-        pipeline<shift1, shift2, shift3, maxshift_reg, maxshift_smem, TILE_B, K_total, i + 1>(l, r, tile_sidx_size, tile_coo_val_size, g2s_val_sidx_load_op, g2r_coo_atomic_format_load_off_op, s2r_val_sidx_load_op, g2s_coo_atomic_format_load_val_op, g2r_coo_atomic_format_load_idx_op, g2r_b_val_load_op, s2s_coo_atomic_val_restore_op, s2r_a_val_load_op, val_sidx, val_soff, B_val, val_coo_val, val_coo_idx, val_coo_off, mma_op, nnz_block);
+        pipeline<shift1, shift2, shift3, nbuf_rmem, nbuf_smem, K_total, i + 1>(l, r, g2s_val_sidx_load_op, g2r_coo_atomic_format_load_off_op, s2r_val_sidx_load_op, g2s_coo_atomic_format_load_val_op, g2r_coo_atomic_format_load_idx_op, g2r_b_val_load_op, s2s_coo_atomic_val_restore_op, s2r_a_val_load_op, val_sidx, val_soff, B_val, val_coo_val, val_coo_idx, val_coo_off, mma_op);
     }
 
 }
 
-template <int shift1, int shift2, int shift3, int maxshift_reg, int maxshift_smem, int TILE_B, int K_total, class T_G2sValSidxLoadOp, class T_G2rCooAtomicFormatLoadOff, class T_G2sCooAtomicFormatLoadValOp, class T_G2rCooAtomicFormatLoadIdxOp, class T_S2rValSidxLoadOp,  class T_val_sidx, class T_val_soff, class T_B_val, class T_val_coo_val, class T_val_coo_idx, class T_val_coo_off, class T_G2rBValLoadOp, class T_S2sCooAtomicValRestoreOp, class T_S2rAValLoadOp, class T_MmaOp>
-__device__ void pipeline_switch(int k, int l, int r, const int tile_sidx_size, const int tile_coo_val_size, T_G2sValSidxLoadOp &g2s_val_sidx_load_op, T_G2rCooAtomicFormatLoadOff &g2r_coo_atomic_format_load_off_op, T_S2rValSidxLoadOp &s2r_val_sidx_load_op, T_G2sCooAtomicFormatLoadValOp &g2s_coo_atomic_format_load_val_op, T_G2rCooAtomicFormatLoadIdxOp &g2r_coo_atomic_format_load_idx_op, T_G2rBValLoadOp &g2r_b_val_load_op, T_S2sCooAtomicValRestoreOp &s2s_coo_atomic_val_restore_op, T_S2rAValLoadOp &s2r_a_val_load_op, T_val_sidx &val_sidx, T_val_soff &val_soff, T_B_val &B_val,  T_val_coo_val &val_coo_val,  T_val_coo_idx &val_coo_idx,  T_val_coo_off &val_coo_off, T_MmaOp &mma_op, int nnz_block) {
+template <int shift1, int shift2, int shift3, int nbuf_rmem, int nbuf_smem, int K_total, class T_G2sValSidxLoadOp, class T_G2rCooAtomicFormatLoadOff, class T_G2sCooAtomicFormatLoadValOp, class T_G2rCooAtomicFormatLoadIdxOp, class T_S2rValSidxLoadOp,  class T_val_sidx, class T_val_soff, class T_B_val, class T_val_coo_val, class T_val_coo_idx, class T_val_coo_off, class T_G2rBValLoadOp, class T_S2sCooAtomicValRestoreOp, class T_S2rAValLoadOp, class T_MmaOp>
+__device__ void pipeline_switch(int k, int l, int r, T_G2sValSidxLoadOp &g2s_val_sidx_load_op, T_G2rCooAtomicFormatLoadOff &g2r_coo_atomic_format_load_off_op, T_S2rValSidxLoadOp &s2r_val_sidx_load_op, T_G2sCooAtomicFormatLoadValOp &g2s_coo_atomic_format_load_val_op, T_G2rCooAtomicFormatLoadIdxOp &g2r_coo_atomic_format_load_idx_op, T_G2rBValLoadOp &g2r_b_val_load_op, T_S2sCooAtomicValRestoreOp &s2s_coo_atomic_val_restore_op, T_S2rAValLoadOp &s2r_a_val_load_op, T_val_sidx &val_sidx, T_val_soff &val_soff, T_B_val &B_val,  T_val_coo_val &val_coo_val,  T_val_coo_idx &val_coo_idx,  T_val_coo_off &val_coo_off, T_MmaOp &mma_op) {
     if constexpr (K_total == 0) {
         return;
     } else {
         if (k == K_total) {
-            pipeline<shift1, shift2, shift3, maxshift_reg, maxshift_smem, TILE_B, K_total, 0>(l, r, tile_sidx_size, tile_coo_val_size, g2s_val_sidx_load_op, g2r_coo_atomic_format_load_off_op, s2r_val_sidx_load_op, g2s_coo_atomic_format_load_val_op, g2r_coo_atomic_format_load_idx_op, g2r_b_val_load_op, s2s_coo_atomic_val_restore_op, s2r_a_val_load_op, val_sidx, val_soff, B_val, val_coo_val, val_coo_idx, val_coo_off, mma_op, nnz_block);
+            pipeline<shift1, shift2, shift3, nbuf_rmem, nbuf_smem, K_total, 0>(l, r, g2s_val_sidx_load_op, g2r_coo_atomic_format_load_off_op, s2r_val_sidx_load_op, g2s_coo_atomic_format_load_val_op, g2r_coo_atomic_format_load_idx_op, g2r_b_val_load_op, s2s_coo_atomic_val_restore_op, s2r_a_val_load_op, val_sidx, val_soff, B_val, val_coo_val, val_coo_idx, val_coo_off, mma_op);
         } else {
-            pipeline_switch<shift1, shift2, shift3, maxshift_reg, maxshift_smem, TILE_B, K_total - 1>(k, l, r, tile_sidx_size, tile_coo_val_size, g2s_val_sidx_load_op, g2r_coo_atomic_format_load_off_op, s2r_val_sidx_load_op, g2s_coo_atomic_format_load_val_op, g2r_coo_atomic_format_load_idx_op, g2r_b_val_load_op, s2s_coo_atomic_val_restore_op, s2r_a_val_load_op, val_sidx, val_soff, B_val, val_coo_val, val_coo_idx, val_coo_off, mma_op, nnz_block);
+            pipeline_switch<shift1, shift2, shift3, nbuf_rmem, nbuf_smem, K_total - 1>(k, l, r, g2s_val_sidx_load_op, g2r_coo_atomic_format_load_off_op, s2r_val_sidx_load_op, g2s_coo_atomic_format_load_val_op, g2r_coo_atomic_format_load_idx_op, g2r_b_val_load_op, s2s_coo_atomic_val_restore_op, s2r_a_val_load_op, val_sidx, val_soff, B_val, val_coo_val, val_coo_idx, val_coo_off, mma_op);
         }
     }
 }
 
 // =====================================================================================
 
-template <int shift1, int shift2, int shift3, int maxshift_smem, int maxshift_reg, int i, class T_G2sValSidxLoadOp, class T_G2rCooAtomicFormatLoadOff, class T_G2sCooAtomicFormatLoadValOp, class T_G2rCooAtomicFormatLoadIdxOp, class T_S2rValSidxLoadOp,  class T_val_sidx, class T_val_soff, class T_B_val, class T_val_coo_val, class T_val_coo_idx, class T_val_coo_off, class T_G2rBValLoadOp, class T_S2sCooAtomicValRestoreOp, class T_S2rAValLoadOp, class T_MmaOp>
-__device__ void fill_shift1(int l, int r, const int tile_sidx_size, const int tile_coo_val_size, T_G2sValSidxLoadOp &g2s_val_sidx_load_op, T_G2rCooAtomicFormatLoadOff &g2r_coo_atomic_format_load_off_op, T_S2rValSidxLoadOp &s2r_val_sidx_load_op, T_G2sCooAtomicFormatLoadValOp &g2s_coo_atomic_format_load_val_op, T_G2rCooAtomicFormatLoadIdxOp &g2r_coo_atomic_format_load_idx_op, T_G2rBValLoadOp &g2r_b_val_load_op, T_S2sCooAtomicValRestoreOp &s2s_coo_atomic_val_restore_op, T_S2rAValLoadOp &s2r_a_val_load_op, T_val_sidx &val_sidx, T_val_soff &val_soff, T_B_val &B_val,  T_val_coo_val &val_coo_val,  T_val_coo_idx &val_coo_idx,  T_val_coo_off &val_coo_off, T_MmaOp &mma_op, int nnz_block) {
+template <int shift1, int shift2, int shift3, int nbuf_smem, int nbuf_rmem, int i, class T_G2sValSidxLoadOp, class T_G2rCooAtomicFormatLoadOff, class T_G2sCooAtomicFormatLoadValOp, class T_G2rCooAtomicFormatLoadIdxOp, class T_S2rValSidxLoadOp,  class T_val_sidx, class T_val_soff, class T_B_val, class T_val_coo_val, class T_val_coo_idx, class T_val_coo_off, class T_G2rBValLoadOp, class T_S2sCooAtomicValRestoreOp, class T_S2rAValLoadOp, class T_MmaOp>
+__device__ void fill_shift1(int l, int r, T_G2sValSidxLoadOp &g2s_val_sidx_load_op, T_G2rCooAtomicFormatLoadOff &g2r_coo_atomic_format_load_off_op, T_S2rValSidxLoadOp &s2r_val_sidx_load_op, T_G2sCooAtomicFormatLoadValOp &g2s_coo_atomic_format_load_val_op, T_G2rCooAtomicFormatLoadIdxOp &g2r_coo_atomic_format_load_idx_op, T_G2rBValLoadOp &g2r_b_val_load_op, T_S2sCooAtomicValRestoreOp &s2s_coo_atomic_val_restore_op, T_S2rAValLoadOp &s2r_a_val_load_op, T_val_sidx &val_sidx, T_val_soff &val_soff, T_B_val &B_val,  T_val_coo_val &val_coo_val,  T_val_coo_idx &val_coo_idx,  T_val_coo_off &val_coo_off, T_MmaOp &mma_op) {
     if constexpr (i == shift1) {
         return;
     } else {
-        g2s_val_sidx_load_op.f<i % maxshift_smem>(val_sidx, l + i);
-        g2r_coo_atomic_format_load_off_op.f<i % maxshift_reg>(val_coo_off, l + i);
+        g2s_val_sidx_load_op.f<i % nbuf_smem>(val_sidx, l + i);
+        g2r_coo_atomic_format_load_off_op.f<i % nbuf_rmem>(val_coo_off, l + i);
         __pipeline_commit();
-        fill_shift1<shift1, shift2, shift3, maxshift_smem, maxshift_reg, i + 1>(l, r, tile_sidx_size, tile_coo_val_size, g2s_val_sidx_load_op, g2r_coo_atomic_format_load_off_op, s2r_val_sidx_load_op, g2s_coo_atomic_format_load_val_op, g2r_coo_atomic_format_load_idx_op, g2r_b_val_load_op, s2s_coo_atomic_val_restore_op, s2r_a_val_load_op, val_sidx, val_soff, B_val, val_coo_val, val_coo_idx, val_coo_off, mma_op, nnz_block);
+        fill_shift1<shift1, shift2, shift3, nbuf_smem, nbuf_rmem, i + 1>(l, r, g2s_val_sidx_load_op, g2r_coo_atomic_format_load_off_op, s2r_val_sidx_load_op, g2s_coo_atomic_format_load_val_op, g2r_coo_atomic_format_load_idx_op, g2r_b_val_load_op, s2s_coo_atomic_val_restore_op, s2r_a_val_load_op, val_sidx, val_soff, B_val, val_coo_val, val_coo_idx, val_coo_off, mma_op);
     }
 }
 
-template <int shift1, int shift2, int shift3, int maxshift_smem, int maxshift_reg, int TILE_B, int i, class T_G2sValSidxLoadOp, class T_G2rCooAtomicFormatLoadOff, class T_G2sCooAtomicFormatLoadValOp, class T_G2rCooAtomicFormatLoadIdxOp, class T_S2rValSidxLoadOp,  class T_val_sidx, class T_val_soff, class T_B_val, class T_val_coo_val, class T_val_coo_idx, class T_val_coo_off, class T_G2rBValLoadOp, class T_S2sCooAtomicValRestoreOp, class T_S2rAValLoadOp, class T_MmaOp>
-__device__ void fill_shift2(int l, int r, const int tile_sidx_size, const int tile_coo_val_size, T_G2sValSidxLoadOp &g2s_val_sidx_load_op, T_G2rCooAtomicFormatLoadOff &g2r_coo_atomic_format_load_off_op, T_S2rValSidxLoadOp &s2r_val_sidx_load_op, T_G2sCooAtomicFormatLoadValOp &g2s_coo_atomic_format_load_val_op, T_G2rCooAtomicFormatLoadIdxOp &g2r_coo_atomic_format_load_idx_op, T_G2rBValLoadOp &g2r_b_val_load_op, T_S2sCooAtomicValRestoreOp &s2s_coo_atomic_val_restore_op, T_S2rAValLoadOp &s2r_a_val_load_op, T_val_sidx &val_sidx, T_val_soff &val_soff, T_B_val &B_val,  T_val_coo_val &val_coo_val,  T_val_coo_idx &val_coo_idx,  T_val_coo_off &val_coo_off, T_MmaOp &mma_op, int nnz_block) {
+template <int shift1, int shift2, int shift3, int nbuf_smem, int nbuf_rmem, int i, class T_G2sValSidxLoadOp, class T_G2rCooAtomicFormatLoadOff, class T_G2sCooAtomicFormatLoadValOp, class T_G2rCooAtomicFormatLoadIdxOp, class T_S2rValSidxLoadOp,  class T_val_sidx, class T_val_soff, class T_B_val, class T_val_coo_val, class T_val_coo_idx, class T_val_coo_off, class T_G2rBValLoadOp, class T_S2sCooAtomicValRestoreOp, class T_S2rAValLoadOp, class T_MmaOp>
+__device__ void fill_shift2(int l, int r, T_G2sValSidxLoadOp &g2s_val_sidx_load_op, T_G2rCooAtomicFormatLoadOff &g2r_coo_atomic_format_load_off_op, T_S2rValSidxLoadOp &s2r_val_sidx_load_op, T_G2sCooAtomicFormatLoadValOp &g2s_coo_atomic_format_load_val_op, T_G2rCooAtomicFormatLoadIdxOp &g2r_coo_atomic_format_load_idx_op, T_G2rBValLoadOp &g2r_b_val_load_op, T_S2sCooAtomicValRestoreOp &s2s_coo_atomic_val_restore_op, T_S2rAValLoadOp &s2r_a_val_load_op, T_val_sidx &val_sidx, T_val_soff &val_soff, T_B_val &B_val,  T_val_coo_val &val_coo_val,  T_val_coo_idx &val_coo_idx,  T_val_coo_off &val_coo_off, T_MmaOp &mma_op) {
     if constexpr (i == shift2) {
         return;
     } else {
-        g2s_val_sidx_load_op.f<(i + shift1) % maxshift_smem>(val_sidx, l + i + shift1);
-        g2s_coo_atomic_format_load_val_op.template f<i % maxshift_reg>(val_coo_val,
-            g2r_coo_atomic_format_load_off_op.template output<i % maxshift_reg, 0>(),
-            g2r_coo_atomic_format_load_off_op.template output<i % maxshift_reg, 1>()
+        g2s_val_sidx_load_op.f<(i + shift1) % nbuf_smem>(val_sidx, l + i + shift1);
+        g2s_coo_atomic_format_load_val_op.template f<i % nbuf_rmem>(val_coo_val,
+            g2r_coo_atomic_format_load_off_op.template output<i % nbuf_rmem, 0>(),
+            g2r_coo_atomic_format_load_off_op.template output<i % nbuf_rmem, 1>()
         );
         __pipeline_commit();
-        s2r_val_sidx_load_op.f<i % maxshift_reg, shift1>(g2s_val_sidx_load_op.template output<i % maxshift_reg, 0>());
+        s2r_val_sidx_load_op.f<i % nbuf_rmem, shift1>(g2s_val_sidx_load_op.template output<i % nbuf_rmem, 0>());
 
-        g2r_coo_atomic_format_load_off_op.f<(i + shift1) % maxshift_reg>(val_coo_off, l + i + shift1);
+        g2r_coo_atomic_format_load_off_op.f<(i + shift1) % nbuf_rmem>(val_coo_off, l + i + shift1);
 
-        g2r_coo_atomic_format_load_idx_op.f<i % maxshift_reg>(val_coo_idx,
-            g2r_coo_atomic_format_load_off_op.template output<i % maxshift_reg, 0>(),
-            g2r_coo_atomic_format_load_off_op.template output<i % maxshift_reg, 1>()
+        g2r_coo_atomic_format_load_idx_op.f<i % nbuf_rmem>(val_coo_idx,
+            g2r_coo_atomic_format_load_off_op.template output<i % nbuf_rmem, 0>(),
+            g2r_coo_atomic_format_load_off_op.template output<i % nbuf_rmem, 1>()
         );
 
-        fill_shift2<shift1, shift2, shift3, maxshift_smem, maxshift_reg, TILE_B,  i + 1>(l, r, tile_sidx_size, tile_coo_val_size, g2s_val_sidx_load_op, g2r_coo_atomic_format_load_off_op, s2r_val_sidx_load_op, g2s_coo_atomic_format_load_val_op, g2r_coo_atomic_format_load_idx_op, g2r_b_val_load_op, s2s_coo_atomic_val_restore_op, s2r_a_val_load_op, val_sidx, val_soff, B_val, val_coo_val, val_coo_idx, val_coo_off, mma_op, nnz_block);
+        fill_shift2<shift1, shift2, shift3, nbuf_smem, nbuf_rmem,  i + 1>(l, r, g2s_val_sidx_load_op, g2r_coo_atomic_format_load_off_op, s2r_val_sidx_load_op, g2s_coo_atomic_format_load_val_op, g2r_coo_atomic_format_load_idx_op, g2r_b_val_load_op, s2s_coo_atomic_val_restore_op, s2r_a_val_load_op, val_sidx, val_soff, B_val, val_coo_val, val_coo_idx, val_coo_off, mma_op);
     }
 }
 
-template <int shift1, int shift2, int shift3, int maxshift_smem, int maxshift_reg, int TILE_B, int i, class T_G2sValSidxLoadOp, class T_G2rCooAtomicFormatLoadOff, class T_G2sCooAtomicFormatLoadValOp, class T_G2rCooAtomicFormatLoadIdxOp, class T_S2rValSidxLoadOp,  class T_val_sidx, class T_val_soff, class T_B_val, class T_val_coo_val, class T_val_coo_idx, class T_val_coo_off, class T_G2rBValLoadOp, class T_S2sCooAtomicValRestoreOp, class T_S2rAValLoadOp, class T_MmaOp>
-__device__ void fill_shift3(int l, int r, const int tile_sidx_size, const int tile_coo_val_size, T_G2sValSidxLoadOp &g2s_val_sidx_load_op, T_G2rCooAtomicFormatLoadOff &g2r_coo_atomic_format_load_off_op, T_S2rValSidxLoadOp &s2r_val_sidx_load_op, T_G2sCooAtomicFormatLoadValOp &g2s_coo_atomic_format_load_val_op, T_G2rCooAtomicFormatLoadIdxOp &g2r_coo_atomic_format_load_idx_op, T_G2rBValLoadOp &g2r_b_val_load_op, T_S2sCooAtomicValRestoreOp &s2s_coo_atomic_val_restore_op, T_S2rAValLoadOp &s2r_a_val_load_op, T_val_sidx &val_sidx, T_val_soff &val_soff, T_B_val &B_val,  T_val_coo_val &val_coo_val,  T_val_coo_idx &val_coo_idx,  T_val_coo_off &val_coo_off, T_MmaOp &mma_op, int nnz_block) {
+template <int shift1, int shift2, int shift3, int nbuf_smem, int nbuf_rmem, int i, class T_G2sValSidxLoadOp, class T_G2rCooAtomicFormatLoadOff, class T_G2sCooAtomicFormatLoadValOp, class T_G2rCooAtomicFormatLoadIdxOp, class T_S2rValSidxLoadOp,  class T_val_sidx, class T_val_soff, class T_B_val, class T_val_coo_val, class T_val_coo_idx, class T_val_coo_off, class T_G2rBValLoadOp, class T_S2sCooAtomicValRestoreOp, class T_S2rAValLoadOp, class T_MmaOp>
+__device__ void fill_shift3(int l, int r, T_G2sValSidxLoadOp &g2s_val_sidx_load_op, T_G2rCooAtomicFormatLoadOff &g2r_coo_atomic_format_load_off_op, T_S2rValSidxLoadOp &s2r_val_sidx_load_op, T_G2sCooAtomicFormatLoadValOp &g2s_coo_atomic_format_load_val_op, T_G2rCooAtomicFormatLoadIdxOp &g2r_coo_atomic_format_load_idx_op, T_G2rBValLoadOp &g2r_b_val_load_op, T_S2sCooAtomicValRestoreOp &s2s_coo_atomic_val_restore_op, T_S2rAValLoadOp &s2r_a_val_load_op, T_val_sidx &val_sidx, T_val_soff &val_soff, T_B_val &B_val,  T_val_coo_val &val_coo_val,  T_val_coo_idx &val_coo_idx,  T_val_coo_off &val_coo_off, T_MmaOp &mma_op) {
     if constexpr (i == shift3) {
         return;
     } else {
-        g2s_val_sidx_load_op.f<(i + shift1 + shift2) % maxshift_smem>(val_sidx, l + i + shift1 + shift2);
-        g2s_coo_atomic_format_load_val_op.template f<(i + shift2) % maxshift_reg>(val_coo_val,
-            g2r_coo_atomic_format_load_off_op.template output<(i + shift2) % maxshift_reg, 0>(),
-            g2r_coo_atomic_format_load_off_op.template output<(i + shift2) % maxshift_reg, 1>()
+        g2s_val_sidx_load_op.f<(i + shift1 + shift2) % nbuf_smem>(val_sidx, l + i + shift1 + shift2);
+        g2s_coo_atomic_format_load_val_op.template f<(i + shift2) % nbuf_rmem>(val_coo_val,
+            g2r_coo_atomic_format_load_off_op.template output<(i + shift2) % nbuf_rmem, 0>(),
+            g2r_coo_atomic_format_load_off_op.template output<(i + shift2) % nbuf_rmem, 1>()
         );
         __pipeline_commit();
-        s2r_val_sidx_load_op.f<(i + shift2) % maxshift_reg, shift1>(g2s_val_sidx_load_op.template output<(i + shift2) % maxshift_reg, 0>());
-        g2r_b_val_load_op.template f<i % maxshift_reg>(B_val, s2r_val_sidx_load_op.template output<i % maxshift_reg, 0>());
+        s2r_val_sidx_load_op.f<(i + shift2) % nbuf_rmem, shift1>(g2s_val_sidx_load_op.template output<(i + shift2) % nbuf_rmem, 0>());
+        g2r_b_val_load_op.template f<i % nbuf_rmem>(B_val, s2r_val_sidx_load_op.template output<i % nbuf_rmem, 0>());
 
-        g2r_coo_atomic_format_load_off_op.f<(i + shift1 + shift2) % maxshift_reg>(val_coo_off, l + i + shift1 + shift2);
-        g2r_coo_atomic_format_load_idx_op.f<(i + shift2) % maxshift_reg>(val_coo_idx,
-            g2r_coo_atomic_format_load_off_op.template output<(i + shift2) % maxshift_reg, 0>(),
-            g2r_coo_atomic_format_load_off_op.template output<(i + shift2) % maxshift_reg, 1>()
+        g2r_coo_atomic_format_load_off_op.f<(i + shift1 + shift2) % nbuf_rmem>(val_coo_off, l + i + shift1 + shift2);
+        g2r_coo_atomic_format_load_idx_op.f<(i + shift2) % nbuf_rmem>(val_coo_idx,
+            g2r_coo_atomic_format_load_off_op.template output<(i + shift2) % nbuf_rmem, 0>(),
+            g2r_coo_atomic_format_load_off_op.template output<(i + shift2) % nbuf_rmem, 1>()
         );
-        s2s_coo_atomic_val_restore_op.f<i % maxshift_reg, shift2>(
-            g2s_coo_atomic_format_load_val_op.template output<i % maxshift_reg, 0>(),
-            g2r_coo_atomic_format_load_idx_op.template output<i % maxshift_reg, 0>(),
-            g2r_coo_atomic_format_load_idx_op.template output<i % maxshift_reg, 1>()
+        s2s_coo_atomic_val_restore_op.f<i % nbuf_rmem, shift2>(
+            g2s_coo_atomic_format_load_val_op.template output<i % nbuf_rmem, 0>(),
+            g2r_coo_atomic_format_load_idx_op.template output<i % nbuf_rmem, 0>(),
+            g2r_coo_atomic_format_load_idx_op.template output<i % nbuf_rmem, 1>()
         );
-        s2r_a_val_load_op.f<i % maxshift_reg, shift2>(
-            s2s_coo_atomic_val_restore_op.template output<i % maxshift_reg, 0>()
+        s2r_a_val_load_op.f<i % nbuf_rmem, shift2>(
+            s2s_coo_atomic_val_restore_op.template output<i % nbuf_rmem, 0>()
         );
 
-        fill_shift3<shift1, shift2, shift3, maxshift_smem, maxshift_reg, TILE_B, i + 1>(l, r, tile_sidx_size, tile_coo_val_size, g2s_val_sidx_load_op, g2r_coo_atomic_format_load_off_op, s2r_val_sidx_load_op, g2s_coo_atomic_format_load_val_op, g2r_coo_atomic_format_load_idx_op, g2r_b_val_load_op, s2s_coo_atomic_val_restore_op, s2r_a_val_load_op, val_sidx, val_soff, B_val, val_coo_val, val_coo_idx, val_coo_off, mma_op, nnz_block);
+        fill_shift3<shift1, shift2, shift3, nbuf_smem, nbuf_rmem, i + 1>(l, r, g2s_val_sidx_load_op, g2r_coo_atomic_format_load_off_op, s2r_val_sidx_load_op, g2s_coo_atomic_format_load_val_op, g2r_coo_atomic_format_load_idx_op, g2r_b_val_load_op, s2s_coo_atomic_val_restore_op, s2r_a_val_load_op, val_sidx, val_soff, B_val, val_coo_val, val_coo_idx, val_coo_off, mma_op);
     }
 }
 
 // =====================================================================================
 
-template <int shift1, int shift2, int shift3, int maxshift_smem, int maxshift_reg, int TILE_B, int I, class T_G2sValSidxLoadOp, class T_G2rCooAtomicFormatLoadOff, class T_G2sCooAtomicFormatLoadValOp, class T_G2rCooAtomicFormatLoadIdxOp, class T_S2rValSidxLoadOp,  class T_val_sidx, class T_val_soff, class T_B_val, class T_val_coo_val, class T_val_coo_idx, class T_val_coo_off, class T_G2rBValLoadOp, class T_S2sCooAtomicValRestoreOp, class T_S2rAValLoadOp, class T_MmaOp>
-__device__ void loop_step(int i, int l, int r, const int tile_sidx_size, const int tile_coo_val_size, T_G2sValSidxLoadOp &g2s_val_sidx_load_op, T_G2rCooAtomicFormatLoadOff &g2r_coo_atomic_format_load_off_op, T_S2rValSidxLoadOp &s2r_val_sidx_load_op, T_G2sCooAtomicFormatLoadValOp &g2s_coo_atomic_format_load_val_op, T_G2rCooAtomicFormatLoadIdxOp &g2r_coo_atomic_format_load_idx_op, T_G2rBValLoadOp &g2r_b_val_load_op, T_S2sCooAtomicValRestoreOp &s2s_coo_atomic_val_restore_op, T_S2rAValLoadOp &s2r_a_val_load_op, T_val_sidx &val_sidx, T_val_soff &val_soff, T_B_val &B_val,  T_val_coo_val &val_coo_val,  T_val_coo_idx &val_coo_idx,  T_val_coo_off &val_coo_off, T_MmaOp &mma_op, int nnz_block) {
-    g2s_val_sidx_load_op.f<(I + shift1 + shift2 + shift3) % maxshift_smem>(val_sidx, l + i);
-    g2s_coo_atomic_format_load_val_op.template f<(I + shift3 + shift2) % maxshift_reg>(val_coo_val,
-        g2r_coo_atomic_format_load_off_op.template output<(I + shift3 + shift2) % maxshift_reg, 0>(),
-        g2r_coo_atomic_format_load_off_op.template output<(I + shift3 + shift2) % maxshift_reg, 1>()
+template <int shift1, int shift2, int shift3, int nbuf_smem, int nbuf_rmem, int I, class T_G2sValSidxLoadOp, class T_G2rCooAtomicFormatLoadOff, class T_G2sCooAtomicFormatLoadValOp, class T_G2rCooAtomicFormatLoadIdxOp, class T_S2rValSidxLoadOp,  class T_val_sidx, class T_val_soff, class T_B_val, class T_val_coo_val, class T_val_coo_idx, class T_val_coo_off, class T_G2rBValLoadOp, class T_S2sCooAtomicValRestoreOp, class T_S2rAValLoadOp, class T_MmaOp>
+__device__ void loop_step(int i, int l, int r, T_G2sValSidxLoadOp &g2s_val_sidx_load_op, T_G2rCooAtomicFormatLoadOff &g2r_coo_atomic_format_load_off_op, T_S2rValSidxLoadOp &s2r_val_sidx_load_op, T_G2sCooAtomicFormatLoadValOp &g2s_coo_atomic_format_load_val_op, T_G2rCooAtomicFormatLoadIdxOp &g2r_coo_atomic_format_load_idx_op, T_G2rBValLoadOp &g2r_b_val_load_op, T_S2sCooAtomicValRestoreOp &s2s_coo_atomic_val_restore_op, T_S2rAValLoadOp &s2r_a_val_load_op, T_val_sidx &val_sidx, T_val_soff &val_soff, T_B_val &B_val,  T_val_coo_val &val_coo_val,  T_val_coo_idx &val_coo_idx,  T_val_coo_off &val_coo_off, T_MmaOp &mma_op) {
+    g2s_val_sidx_load_op.f<(I + shift1 + shift2 + shift3) % nbuf_smem>(val_sidx, l + i);
+    g2s_coo_atomic_format_load_val_op.template f<(I + shift3 + shift2) % nbuf_rmem>(val_coo_val,
+        g2r_coo_atomic_format_load_off_op.template output<(I + shift3 + shift2) % nbuf_rmem, 0>(),
+        g2r_coo_atomic_format_load_off_op.template output<(I + shift3 + shift2) % nbuf_rmem, 1>()
     );
     __pipeline_commit();
-    s2r_val_sidx_load_op.f<(I + shift3 + shift2) % maxshift_reg, shift1>(g2s_val_sidx_load_op.template output<(I + shift3 + shift2) % maxshift_reg, 0>());
-        g2r_b_val_load_op.template f<(I + shift3) % maxshift_reg>(B_val, s2r_val_sidx_load_op.template output<(I + shift3) % maxshift_reg, 0>());
+    s2r_val_sidx_load_op.f<(I + shift3 + shift2) % nbuf_rmem, shift1>(g2s_val_sidx_load_op.template output<(I + shift3 + shift2) % nbuf_rmem, 0>());
+        g2r_b_val_load_op.template f<(I + shift3) % nbuf_rmem>(B_val, s2r_val_sidx_load_op.template output<(I + shift3) % nbuf_rmem, 0>());
 
-    g2r_coo_atomic_format_load_off_op.f<(I + shift3 + shift1 + shift2) % maxshift_reg>(val_coo_off, l + i);
+    g2r_coo_atomic_format_load_off_op.f<(I + shift3 + shift1 + shift2) % nbuf_rmem>(val_coo_off, l + i);
 
-    g2r_coo_atomic_format_load_idx_op.f<(I + shift3 + shift2) % maxshift_reg>(val_coo_idx,
-        g2r_coo_atomic_format_load_off_op.template output<(I + shift3 + shift2) % maxshift_reg, 0>(),
-        g2r_coo_atomic_format_load_off_op.template output<(I + shift3 + shift2) % maxshift_reg, 1>()
+    g2r_coo_atomic_format_load_idx_op.f<(I + shift3 + shift2) % nbuf_rmem>(val_coo_idx,
+        g2r_coo_atomic_format_load_off_op.template output<(I + shift3 + shift2) % nbuf_rmem, 0>(),
+        g2r_coo_atomic_format_load_off_op.template output<(I + shift3 + shift2) % nbuf_rmem, 1>()
     );
-    s2s_coo_atomic_val_restore_op.f<(I + shift3) % maxshift_reg, shift2>(
-        g2s_coo_atomic_format_load_val_op.template output<(I + shift3) % maxshift_reg, 0>(),
-        g2r_coo_atomic_format_load_idx_op.template output<(I + shift3) % maxshift_reg, 0>(),
-        g2r_coo_atomic_format_load_idx_op.template output<(I + shift3) % maxshift_reg, 1>()
+    s2s_coo_atomic_val_restore_op.f<(I + shift3) % nbuf_rmem, shift2>(
+        g2s_coo_atomic_format_load_val_op.template output<(I + shift3) % nbuf_rmem, 0>(),
+        g2r_coo_atomic_format_load_idx_op.template output<(I + shift3) % nbuf_rmem, 0>(),
+        g2r_coo_atomic_format_load_idx_op.template output<(I + shift3) % nbuf_rmem, 1>()
     );
-    s2r_a_val_load_op.f<(I + shift3) % maxshift_reg, shift2>(
-        s2s_coo_atomic_val_restore_op.template output<(I + shift3) % maxshift_reg, 0>()
+    s2r_a_val_load_op.f<(I + shift3) % nbuf_rmem, shift2>(
+        s2s_coo_atomic_val_restore_op.template output<(I + shift3) % nbuf_rmem, 0>()
     );
     mma_op.f<0>(
-        s2r_a_val_load_op.template output<I % maxshift_reg, 0>(),
-        g2r_b_val_load_op.template output<I % maxshift_reg, 0>()
+        s2r_a_val_load_op.template output<I % nbuf_rmem, 0>(),
+        g2r_b_val_load_op.template output<I % nbuf_rmem, 0>()
     );
 
-    if constexpr (I + 1 < maxshift_reg) {
-        loop_step<shift1, shift2, shift3, maxshift_smem, maxshift_reg, TILE_B, I + 1>(i + 1, l, r, tile_sidx_size, tile_coo_val_size, g2s_val_sidx_load_op, g2r_coo_atomic_format_load_off_op, s2r_val_sidx_load_op, g2s_coo_atomic_format_load_val_op, g2r_coo_atomic_format_load_idx_op, g2r_b_val_load_op, s2s_coo_atomic_val_restore_op, s2r_a_val_load_op, val_sidx, val_soff, B_val, val_coo_val, val_coo_idx, val_coo_off, mma_op, nnz_block);
+    if constexpr (I + 1 < nbuf_rmem) {
+        loop_step<shift1, shift2, shift3, nbuf_smem, nbuf_rmem, I + 1>(i + 1, l, r, g2s_val_sidx_load_op, g2r_coo_atomic_format_load_off_op, s2r_val_sidx_load_op, g2s_coo_atomic_format_load_val_op, g2r_coo_atomic_format_load_idx_op, g2r_b_val_load_op, s2s_coo_atomic_val_restore_op, s2r_a_val_load_op, val_sidx, val_soff, B_val, val_coo_val, val_coo_idx, val_coo_off, mma_op);
     }
 }
 
 // =====================================================================================
 
-template <int shift1, int shift2, int shift3, int maxshift_smem, int maxshift_reg, int TILE_B, int K_remain, int I, class T_G2sValSidxLoadOp, class T_G2rCooAtomicFormatLoadOff, class T_G2sCooAtomicFormatLoadValOp, class T_G2rCooAtomicFormatLoadIdxOp, class T_S2rValSidxLoadOp,  class T_val_sidx, class T_val_soff, class T_B_val, class T_val_coo_val, class T_val_coo_idx, class T_val_coo_off, class T_G2rBValLoadOp, class T_S2sCooAtomicValRestoreOp, class T_S2rAValLoadOp, class T_MmaOp>
-__device__ void remainder(int i, int l, int r, const int tile_sidx_size, const int tile_coo_val_size, T_G2sValSidxLoadOp &g2s_val_sidx_load_op, T_G2rCooAtomicFormatLoadOff &g2r_coo_atomic_format_load_off_op, T_S2rValSidxLoadOp &s2r_val_sidx_load_op, T_G2sCooAtomicFormatLoadValOp &g2s_coo_atomic_format_load_val_op, T_G2rCooAtomicFormatLoadIdxOp &g2r_coo_atomic_format_load_idx_op, T_G2rBValLoadOp &g2r_b_val_load_op, T_S2sCooAtomicValRestoreOp &s2s_coo_atomic_val_restore_op, T_S2rAValLoadOp &s2r_a_val_load_op, T_val_sidx &val_sidx, T_val_soff &val_soff, T_B_val &B_val,  T_val_coo_val &val_coo_val,  T_val_coo_idx &val_coo_idx,  T_val_coo_off &val_coo_off, T_MmaOp &mma_op, int nnz_block) {
+template <int shift1, int shift2, int shift3, int nbuf_smem, int nbuf_rmem, int K_remain, int I, class T_G2sValSidxLoadOp, class T_G2rCooAtomicFormatLoadOff, class T_G2sCooAtomicFormatLoadValOp, class T_G2rCooAtomicFormatLoadIdxOp, class T_S2rValSidxLoadOp,  class T_val_sidx, class T_val_soff, class T_B_val, class T_val_coo_val, class T_val_coo_idx, class T_val_coo_off, class T_G2rBValLoadOp, class T_S2sCooAtomicValRestoreOp, class T_S2rAValLoadOp, class T_MmaOp>
+__device__ void remainder(int i, int l, int r, T_G2sValSidxLoadOp &g2s_val_sidx_load_op, T_G2rCooAtomicFormatLoadOff &g2r_coo_atomic_format_load_off_op, T_S2rValSidxLoadOp &s2r_val_sidx_load_op, T_G2sCooAtomicFormatLoadValOp &g2s_coo_atomic_format_load_val_op, T_G2rCooAtomicFormatLoadIdxOp &g2r_coo_atomic_format_load_idx_op, T_G2rBValLoadOp &g2r_b_val_load_op, T_S2sCooAtomicValRestoreOp &s2s_coo_atomic_val_restore_op, T_S2rAValLoadOp &s2r_a_val_load_op, T_val_sidx &val_sidx, T_val_soff &val_soff, T_B_val &B_val,  T_val_coo_val &val_coo_val,  T_val_coo_idx &val_coo_idx,  T_val_coo_off &val_coo_off, T_MmaOp &mma_op) {
     if constexpr (I == K_remain) {
         return;
     } else {
-        g2s_val_sidx_load_op.f<(I + shift1 + shift2 + shift3) % maxshift_smem>(val_sidx, l + i);
-        g2s_coo_atomic_format_load_val_op.template f<(I + shift3 + shift2) % maxshift_reg>(val_coo_val,
-            g2r_coo_atomic_format_load_off_op.template output<(I + shift3 + shift2) % maxshift_reg, 0>(),
-            g2r_coo_atomic_format_load_off_op.template output<(I + shift3 + shift2) % maxshift_reg, 1>()
+        g2s_val_sidx_load_op.f<(I + shift1 + shift2 + shift3) % nbuf_smem>(val_sidx, l + i);
+        g2s_coo_atomic_format_load_val_op.template f<(I + shift3 + shift2) % nbuf_rmem>(val_coo_val,
+            g2r_coo_atomic_format_load_off_op.template output<(I + shift3 + shift2) % nbuf_rmem, 0>(),
+            g2r_coo_atomic_format_load_off_op.template output<(I + shift3 + shift2) % nbuf_rmem, 1>()
         );
         __pipeline_commit();
-        s2r_val_sidx_load_op.f<(I + shift3 + shift2) % maxshift_reg, shift1>(g2s_val_sidx_load_op.template output<(I + shift3 + shift2) % maxshift_reg, 0>());
-        g2r_b_val_load_op.template f<(I + shift3) % maxshift_reg>(B_val, s2r_val_sidx_load_op.template output<(I + shift3) % maxshift_reg, 0>());
+        s2r_val_sidx_load_op.f<(I + shift3 + shift2) % nbuf_rmem, shift1>(g2s_val_sidx_load_op.template output<(I + shift3 + shift2) % nbuf_rmem, 0>());
+        g2r_b_val_load_op.template f<(I + shift3) % nbuf_rmem>(B_val, s2r_val_sidx_load_op.template output<(I + shift3) % nbuf_rmem, 0>());
 
-        g2r_coo_atomic_format_load_off_op.f<(I + shift3 + shift1 + shift2) % maxshift_reg>(val_coo_off, l + i);
+        g2r_coo_atomic_format_load_off_op.f<(I + shift3 + shift1 + shift2) % nbuf_rmem>(val_coo_off, l + i);
 
-        g2r_coo_atomic_format_load_idx_op.f<(I + shift3 + shift2) % maxshift_reg>(val_coo_idx,
-            g2r_coo_atomic_format_load_off_op.template output<(I + shift3 + shift2) % maxshift_reg, 0>(),
-            g2r_coo_atomic_format_load_off_op.template output<(I + shift3 + shift2) % maxshift_reg, 1>()
+        g2r_coo_atomic_format_load_idx_op.f<(I + shift3 + shift2) % nbuf_rmem>(val_coo_idx,
+            g2r_coo_atomic_format_load_off_op.template output<(I + shift3 + shift2) % nbuf_rmem, 0>(),
+            g2r_coo_atomic_format_load_off_op.template output<(I + shift3 + shift2) % nbuf_rmem, 1>()
         );
-        s2s_coo_atomic_val_restore_op.f<(I + shift3) % maxshift_reg, shift2>(
-            g2s_coo_atomic_format_load_val_op.template output<(I + shift3) % maxshift_reg, 0>(),
-            g2r_coo_atomic_format_load_idx_op.template output<(I + shift3) % maxshift_reg, 0>(),
-            g2r_coo_atomic_format_load_idx_op.template output<(I + shift3) % maxshift_reg, 1>()
+        s2s_coo_atomic_val_restore_op.f<(I + shift3) % nbuf_rmem, shift2>(
+            g2s_coo_atomic_format_load_val_op.template output<(I + shift3) % nbuf_rmem, 0>(),
+            g2r_coo_atomic_format_load_idx_op.template output<(I + shift3) % nbuf_rmem, 0>(),
+            g2r_coo_atomic_format_load_idx_op.template output<(I + shift3) % nbuf_rmem, 1>()
         );
-        s2r_a_val_load_op.f<(I + shift3) % maxshift_reg, shift2>(
-            s2s_coo_atomic_val_restore_op.template output<(I + shift3) % maxshift_reg, 0>()
+        s2r_a_val_load_op.f<(I + shift3) % nbuf_rmem, shift2>(
+            s2s_coo_atomic_val_restore_op.template output<(I + shift3) % nbuf_rmem, 0>()
         );
         mma_op.f<0>(
-            s2r_a_val_load_op.template output<I % maxshift_reg, 0>(),
-            g2r_b_val_load_op.template output<I % maxshift_reg, 0>()
+            s2r_a_val_load_op.template output<I % nbuf_rmem, 0>(),
+            g2r_b_val_load_op.template output<I % nbuf_rmem, 0>()
         );
 
-        remainder<shift1, shift2, shift3, maxshift_smem, maxshift_reg, TILE_B, K_remain, I + 1>(i + 1, l, r, tile_sidx_size, tile_coo_val_size, g2s_val_sidx_load_op, g2r_coo_atomic_format_load_off_op, s2r_val_sidx_load_op, g2s_coo_atomic_format_load_val_op, g2r_coo_atomic_format_load_idx_op, g2r_b_val_load_op, s2s_coo_atomic_val_restore_op, s2r_a_val_load_op, val_sidx, val_soff, B_val, val_coo_val, val_coo_idx, val_coo_off, mma_op, nnz_block);
+        remainder<shift1, shift2, shift3, nbuf_smem, nbuf_rmem, K_remain, I + 1>(i + 1, l, r, g2s_val_sidx_load_op, g2r_coo_atomic_format_load_off_op, s2r_val_sidx_load_op, g2s_coo_atomic_format_load_val_op, g2r_coo_atomic_format_load_idx_op, g2r_b_val_load_op, s2s_coo_atomic_val_restore_op, s2r_a_val_load_op, val_sidx, val_soff, B_val, val_coo_val, val_coo_idx, val_coo_off, mma_op);
     }
 }
 
-template <int shift1, int shift2, int shift3, int maxshift_smem, int maxshift_reg, int TILE_B, int K_remain, class T_G2sValSidxLoadOp, class T_G2rCooAtomicFormatLoadOff, class T_G2sCooAtomicFormatLoadValOp, class T_G2rCooAtomicFormatLoadIdxOp, class T_S2rValSidxLoadOp,  class T_val_sidx, class T_val_soff, class T_B_val, class T_val_coo_val, class T_val_coo_idx, class T_val_coo_off, class T_G2rBValLoadOp, class T_S2sCooAtomicValRestoreOp, class T_S2rAValLoadOp, class T_MmaOp>
-__device__ void remainder_switch(int i, int k, int l, int r, const int tile_sidx_size, const int tile_coo_val_size, T_G2sValSidxLoadOp &g2s_val_sidx_load_op, T_G2rCooAtomicFormatLoadOff &g2r_coo_atomic_format_load_off_op, T_S2rValSidxLoadOp &s2r_val_sidx_load_op, T_G2sCooAtomicFormatLoadValOp &g2s_coo_atomic_format_load_val_op, T_G2rCooAtomicFormatLoadIdxOp &g2r_coo_atomic_format_load_idx_op, T_G2rBValLoadOp &g2r_b_val_load_op, T_S2sCooAtomicValRestoreOp &s2s_coo_atomic_val_restore_op, T_S2rAValLoadOp &s2r_a_val_load_op, T_val_sidx &val_sidx, T_val_soff &val_soff, T_B_val &B_val,  T_val_coo_val &val_coo_val,  T_val_coo_idx &val_coo_idx,  T_val_coo_off &val_coo_off, T_MmaOp &mma_op, int nnz_block) {
+template <int shift1, int shift2, int shift3, int nbuf_smem, int nbuf_rmem, int K_remain, class T_G2sValSidxLoadOp, class T_G2rCooAtomicFormatLoadOff, class T_G2sCooAtomicFormatLoadValOp, class T_G2rCooAtomicFormatLoadIdxOp, class T_S2rValSidxLoadOp,  class T_val_sidx, class T_val_soff, class T_B_val, class T_val_coo_val, class T_val_coo_idx, class T_val_coo_off, class T_G2rBValLoadOp, class T_S2sCooAtomicValRestoreOp, class T_S2rAValLoadOp, class T_MmaOp>
+__device__ void remainder_switch(int i, int k, int l, int r, T_G2sValSidxLoadOp &g2s_val_sidx_load_op, T_G2rCooAtomicFormatLoadOff &g2r_coo_atomic_format_load_off_op, T_S2rValSidxLoadOp &s2r_val_sidx_load_op, T_G2sCooAtomicFormatLoadValOp &g2s_coo_atomic_format_load_val_op, T_G2rCooAtomicFormatLoadIdxOp &g2r_coo_atomic_format_load_idx_op, T_G2rBValLoadOp &g2r_b_val_load_op, T_S2sCooAtomicValRestoreOp &s2s_coo_atomic_val_restore_op, T_S2rAValLoadOp &s2r_a_val_load_op, T_val_sidx &val_sidx, T_val_soff &val_soff, T_B_val &B_val,  T_val_coo_val &val_coo_val,  T_val_coo_idx &val_coo_idx,  T_val_coo_off &val_coo_off, T_MmaOp &mma_op) {
     if constexpr (K_remain == 0) {
         return;
     } else {
         if (k - i == K_remain) {
-            remainder<shift1, shift2, shift3, maxshift_smem, maxshift_reg, TILE_B, K_remain, 0>(i, l, r, tile_sidx_size, tile_coo_val_size, g2s_val_sidx_load_op, g2r_coo_atomic_format_load_off_op, s2r_val_sidx_load_op, g2s_coo_atomic_format_load_val_op, g2r_coo_atomic_format_load_idx_op, g2r_b_val_load_op, s2s_coo_atomic_val_restore_op, s2r_a_val_load_op, val_sidx, val_soff, B_val, val_coo_val, val_coo_idx, val_coo_off, mma_op, nnz_block);
+            remainder<shift1, shift2, shift3, nbuf_smem, nbuf_rmem, K_remain, 0>(i, l, r, g2s_val_sidx_load_op, g2r_coo_atomic_format_load_off_op, s2r_val_sidx_load_op, g2s_coo_atomic_format_load_val_op, g2r_coo_atomic_format_load_idx_op, g2r_b_val_load_op, s2s_coo_atomic_val_restore_op, s2r_a_val_load_op, val_sidx, val_soff, B_val, val_coo_val, val_coo_idx, val_coo_off, mma_op);
         } else {
-            remainder_switch<shift1, shift2, shift3, maxshift_smem, maxshift_reg, TILE_B, K_remain - 1>(i, k, l, r, tile_sidx_size, tile_coo_val_size, g2s_val_sidx_load_op, g2r_coo_atomic_format_load_off_op, s2r_val_sidx_load_op, g2s_coo_atomic_format_load_val_op, g2r_coo_atomic_format_load_idx_op, g2r_b_val_load_op, s2s_coo_atomic_val_restore_op, s2r_a_val_load_op, val_sidx, val_soff, B_val, val_coo_val, val_coo_idx, val_coo_off, mma_op, nnz_block);
+            remainder_switch<shift1, shift2, shift3, nbuf_smem, nbuf_rmem, K_remain - 1>(i, k, l, r, g2s_val_sidx_load_op, g2r_coo_atomic_format_load_off_op, s2r_val_sidx_load_op, g2s_coo_atomic_format_load_val_op, g2r_coo_atomic_format_load_idx_op, g2r_b_val_load_op, s2s_coo_atomic_val_restore_op, s2r_a_val_load_op, val_sidx, val_soff, B_val, val_coo_val, val_coo_idx, val_coo_off, mma_op);
         }
     }
 }
 
 // =====================================================================================
 
-template <int shift1, int shift2, int shift3, int maxshift_smem, int maxshift_reg, int TILE_B, int K_remain, int I, class T_G2sValSidxLoadOp, class T_G2rCooAtomicFormatLoadOff, class T_G2sCooAtomicFormatLoadValOp, class T_G2rCooAtomicFormatLoadIdxOp, class T_S2rValSidxLoadOp,  class T_val_sidx, class T_val_soff, class T_B_val, class T_val_coo_val, class T_val_coo_idx, class T_val_coo_off, class T_G2rBValLoadOp, class T_S2sCooAtomicValRestoreOp, class T_S2rAValLoadOp, class T_MmaOp>
-__device__ void empty_shift1(int i, int l, int r, const int tile_sidx_size, const int tile_coo_val_size, T_G2sValSidxLoadOp &g2s_val_sidx_load_op, T_G2rCooAtomicFormatLoadOff &g2r_coo_atomic_format_load_off_op, T_S2rValSidxLoadOp &s2r_val_sidx_load_op, T_G2sCooAtomicFormatLoadValOp &g2s_coo_atomic_format_load_val_op, T_G2rCooAtomicFormatLoadIdxOp &g2r_coo_atomic_format_load_idx_op, T_G2rBValLoadOp &g2r_b_val_load_op, T_S2sCooAtomicValRestoreOp &s2s_coo_atomic_val_restore_op, T_S2rAValLoadOp &s2r_a_val_load_op, T_val_sidx &val_sidx, T_val_soff &val_soff, T_B_val &B_val,  T_val_coo_val &val_coo_val,  T_val_coo_idx &val_coo_idx,  T_val_coo_off &val_coo_off, T_MmaOp &mma_op, int nnz_block) {  // K is the remain
+template <int shift1, int shift2, int shift3, int nbuf_smem, int nbuf_rmem, int K_remain, int I, class T_G2sValSidxLoadOp, class T_G2rCooAtomicFormatLoadOff, class T_G2sCooAtomicFormatLoadValOp, class T_G2rCooAtomicFormatLoadIdxOp, class T_S2rValSidxLoadOp,  class T_val_sidx, class T_val_soff, class T_B_val, class T_val_coo_val, class T_val_coo_idx, class T_val_coo_off, class T_G2rBValLoadOp, class T_S2sCooAtomicValRestoreOp, class T_S2rAValLoadOp, class T_MmaOp>
+__device__ void empty_shift1(int i, int l, int r, T_G2sValSidxLoadOp &g2s_val_sidx_load_op, T_G2rCooAtomicFormatLoadOff &g2r_coo_atomic_format_load_off_op, T_S2rValSidxLoadOp &s2r_val_sidx_load_op, T_G2sCooAtomicFormatLoadValOp &g2s_coo_atomic_format_load_val_op, T_G2rCooAtomicFormatLoadIdxOp &g2r_coo_atomic_format_load_idx_op, T_G2rBValLoadOp &g2r_b_val_load_op, T_S2sCooAtomicValRestoreOp &s2s_coo_atomic_val_restore_op, T_S2rAValLoadOp &s2r_a_val_load_op, T_val_sidx &val_sidx, T_val_soff &val_soff, T_B_val &B_val,  T_val_coo_val &val_coo_val,  T_val_coo_idx &val_coo_idx,  T_val_coo_off &val_coo_off, T_MmaOp &mma_op) {  // K is the remain
     if constexpr (I == shift1) {
         return;
     } else {
-        g2s_coo_atomic_format_load_val_op.template f<(I + shift3 + shift2 + K_remain) % maxshift_reg>(val_coo_val,
-            g2r_coo_atomic_format_load_off_op.template output<(I + shift3 + shift2 + K_remain) % maxshift_reg, 0>(),
-            g2r_coo_atomic_format_load_off_op.template output<(I + shift3 + shift2 + K_remain) % maxshift_reg, 1>()
+        g2s_coo_atomic_format_load_val_op.template f<(I + shift3 + shift2 + K_remain) % nbuf_rmem>(val_coo_val,
+            g2r_coo_atomic_format_load_off_op.template output<(I + shift3 + shift2 + K_remain) % nbuf_rmem, 0>(),
+            g2r_coo_atomic_format_load_off_op.template output<(I + shift3 + shift2 + K_remain) % nbuf_rmem, 1>()
         );
         __pipeline_commit();
-        s2r_val_sidx_load_op.f<(I + shift3 + shift2 + K_remain) % maxshift_reg, shift1>(g2s_val_sidx_load_op.template output<(I + shift3 + shift2 + K_remain) % maxshift_reg, 0>());
-        g2r_b_val_load_op.template f<(I + shift3 + K_remain) % maxshift_reg>(B_val, s2r_val_sidx_load_op.template output<(I + shift3 + K_remain) % maxshift_reg, 0>());
+        s2r_val_sidx_load_op.f<(I + shift3 + shift2 + K_remain) % nbuf_rmem, shift1>(g2s_val_sidx_load_op.template output<(I + shift3 + shift2 + K_remain) % nbuf_rmem, 0>());
+        g2r_b_val_load_op.template f<(I + shift3 + K_remain) % nbuf_rmem>(B_val, s2r_val_sidx_load_op.template output<(I + shift3 + K_remain) % nbuf_rmem, 0>());
 
 
-        g2r_coo_atomic_format_load_idx_op.f<(I + shift3 + shift2 + K_remain) % maxshift_reg>(val_coo_idx,
-            g2r_coo_atomic_format_load_off_op.template output<(I + shift3 + shift2 + K_remain) % maxshift_reg, 0>(),
-            g2r_coo_atomic_format_load_off_op.template output<(I + shift3 + shift2 + K_remain) % maxshift_reg, 1>()
+        g2r_coo_atomic_format_load_idx_op.f<(I + shift3 + shift2 + K_remain) % nbuf_rmem>(val_coo_idx,
+            g2r_coo_atomic_format_load_off_op.template output<(I + shift3 + shift2 + K_remain) % nbuf_rmem, 0>(),
+            g2r_coo_atomic_format_load_off_op.template output<(I + shift3 + shift2 + K_remain) % nbuf_rmem, 1>()
         );
-        s2s_coo_atomic_val_restore_op.f<(I + shift3 + K_remain) % maxshift_reg, shift2>(
-            g2s_coo_atomic_format_load_val_op.template output<(I + shift3 + K_remain) % maxshift_reg, 0>(),
-            g2r_coo_atomic_format_load_idx_op.template output<(I + shift3 + K_remain) % maxshift_reg, 0>(),
-            g2r_coo_atomic_format_load_idx_op.template output<(I + shift3 + K_remain) % maxshift_reg, 1>()
+        s2s_coo_atomic_val_restore_op.f<(I + shift3 + K_remain) % nbuf_rmem, shift2>(
+            g2s_coo_atomic_format_load_val_op.template output<(I + shift3 + K_remain) % nbuf_rmem, 0>(),
+            g2r_coo_atomic_format_load_idx_op.template output<(I + shift3 + K_remain) % nbuf_rmem, 0>(),
+            g2r_coo_atomic_format_load_idx_op.template output<(I + shift3 + K_remain) % nbuf_rmem, 1>()
         );
-        s2r_a_val_load_op.f<(I + shift3 + K_remain) % maxshift_reg, shift2>(
-            s2s_coo_atomic_val_restore_op.template output<(I + shift3 + K_remain) % maxshift_reg, 0>()
+        s2r_a_val_load_op.f<(I + shift3 + K_remain) % nbuf_rmem, shift2>(
+            s2s_coo_atomic_val_restore_op.template output<(I + shift3 + K_remain) % nbuf_rmem, 0>()
         );
         mma_op.f<0>(
-            s2r_a_val_load_op.template output<(I + K_remain) % maxshift_reg, 0>(),
-            g2r_b_val_load_op.template output<(I + K_remain) % maxshift_reg, 0>()
+            s2r_a_val_load_op.template output<(I + K_remain) % nbuf_rmem, 0>(),
+            g2r_b_val_load_op.template output<(I + K_remain) % nbuf_rmem, 0>()
         );
 
-        empty_shift1<shift1, shift2, shift3, maxshift_smem, maxshift_reg, TILE_B, K_remain, I + 1>(i + 1, l, r, tile_sidx_size, tile_coo_val_size, g2s_val_sidx_load_op, g2r_coo_atomic_format_load_off_op, s2r_val_sidx_load_op, g2s_coo_atomic_format_load_val_op, g2r_coo_atomic_format_load_idx_op, g2r_b_val_load_op, s2s_coo_atomic_val_restore_op, s2r_a_val_load_op, val_sidx, val_soff, B_val, val_coo_val, val_coo_idx, val_coo_off, mma_op, nnz_block);
+        empty_shift1<shift1, shift2, shift3, nbuf_smem, nbuf_rmem, K_remain, I + 1>(i + 1, l, r, g2s_val_sidx_load_op, g2r_coo_atomic_format_load_off_op, s2r_val_sidx_load_op, g2s_coo_atomic_format_load_val_op, g2r_coo_atomic_format_load_idx_op, g2r_b_val_load_op, s2s_coo_atomic_val_restore_op, s2r_a_val_load_op, val_sidx, val_soff, B_val, val_coo_val, val_coo_idx, val_coo_off, mma_op);
     }
 }
 
-template <int shift1, int shift2, int shift3, int maxshift_smem, int maxshift_reg, int TILE_B, int K_remain, class T_G2sValSidxLoadOp, class T_G2rCooAtomicFormatLoadOff, class T_G2sCooAtomicFormatLoadValOp, class T_G2rCooAtomicFormatLoadIdxOp, class T_S2rValSidxLoadOp,  class T_val_sidx, class T_val_soff, class T_B_val, class T_val_coo_val, class T_val_coo_idx, class T_val_coo_off, class T_G2rBValLoadOp, class T_S2sCooAtomicValRestoreOp, class T_S2rAValLoadOp, class T_MmaOp>
-__device__ void empty_shift1_switch(int i, int remain, int l, int r, const int tile_sidx_size, const int tile_coo_val_size, T_G2sValSidxLoadOp &g2s_val_sidx_load_op, T_G2rCooAtomicFormatLoadOff &g2r_coo_atomic_format_load_off_op, T_S2rValSidxLoadOp &s2r_val_sidx_load_op, T_G2sCooAtomicFormatLoadValOp &g2s_coo_atomic_format_load_val_op, T_G2rCooAtomicFormatLoadIdxOp &g2r_coo_atomic_format_load_idx_op, T_G2rBValLoadOp &g2r_b_val_load_op, T_S2sCooAtomicValRestoreOp &s2s_coo_atomic_val_restore_op, T_S2rAValLoadOp &s2r_a_val_load_op, T_val_sidx &val_sidx, T_val_soff &val_soff, T_B_val &B_val,  T_val_coo_val &val_coo_val,  T_val_coo_idx &val_coo_idx,  T_val_coo_off &val_coo_off, T_MmaOp &mma_op, int nnz_block) {
+template <int shift1, int shift2, int shift3, int nbuf_smem, int nbuf_rmem, int K_remain, class T_G2sValSidxLoadOp, class T_G2rCooAtomicFormatLoadOff, class T_G2sCooAtomicFormatLoadValOp, class T_G2rCooAtomicFormatLoadIdxOp, class T_S2rValSidxLoadOp,  class T_val_sidx, class T_val_soff, class T_B_val, class T_val_coo_val, class T_val_coo_idx, class T_val_coo_off, class T_G2rBValLoadOp, class T_S2sCooAtomicValRestoreOp, class T_S2rAValLoadOp, class T_MmaOp>
+__device__ void empty_shift1_switch(int i, int remain, int l, int r, T_G2sValSidxLoadOp &g2s_val_sidx_load_op, T_G2rCooAtomicFormatLoadOff &g2r_coo_atomic_format_load_off_op, T_S2rValSidxLoadOp &s2r_val_sidx_load_op, T_G2sCooAtomicFormatLoadValOp &g2s_coo_atomic_format_load_val_op, T_G2rCooAtomicFormatLoadIdxOp &g2r_coo_atomic_format_load_idx_op, T_G2rBValLoadOp &g2r_b_val_load_op, T_S2sCooAtomicValRestoreOp &s2s_coo_atomic_val_restore_op, T_S2rAValLoadOp &s2r_a_val_load_op, T_val_sidx &val_sidx, T_val_soff &val_soff, T_B_val &B_val,  T_val_coo_val &val_coo_val,  T_val_coo_idx &val_coo_idx,  T_val_coo_off &val_coo_off, T_MmaOp &mma_op) {
     if constexpr (K_remain < 0) {
         return;
     } else {
         if (K_remain == remain) {
-            empty_shift1<shift1, shift2, shift3, maxshift_smem, maxshift_reg, TILE_B, K_remain, 0>(i, l, r, tile_sidx_size, tile_coo_val_size, g2s_val_sidx_load_op, g2r_coo_atomic_format_load_off_op, s2r_val_sidx_load_op, g2s_coo_atomic_format_load_val_op, g2r_coo_atomic_format_load_idx_op, g2r_b_val_load_op, s2s_coo_atomic_val_restore_op, s2r_a_val_load_op, val_sidx, val_soff, B_val, val_coo_val, val_coo_idx, val_coo_off, mma_op, nnz_block);
+            empty_shift1<shift1, shift2, shift3, nbuf_smem, nbuf_rmem, K_remain, 0>(i, l, r, g2s_val_sidx_load_op, g2r_coo_atomic_format_load_off_op, s2r_val_sidx_load_op, g2s_coo_atomic_format_load_val_op, g2r_coo_atomic_format_load_idx_op, g2r_b_val_load_op, s2s_coo_atomic_val_restore_op, s2r_a_val_load_op, val_sidx, val_soff, B_val, val_coo_val, val_coo_idx, val_coo_off, mma_op);
         } else {
-            empty_shift1_switch<shift1, shift2, shift3, maxshift_smem, maxshift_reg, TILE_B, K_remain - 1>(i, remain, l, r, tile_sidx_size, tile_coo_val_size, g2s_val_sidx_load_op, g2r_coo_atomic_format_load_off_op, s2r_val_sidx_load_op, g2s_coo_atomic_format_load_val_op, g2r_coo_atomic_format_load_idx_op, g2r_b_val_load_op, s2s_coo_atomic_val_restore_op, s2r_a_val_load_op, val_sidx, val_soff, B_val, val_coo_val, val_coo_idx, val_coo_off, mma_op, nnz_block);
+            empty_shift1_switch<shift1, shift2, shift3, nbuf_smem, nbuf_rmem, K_remain - 1>(i, remain, l, r, g2s_val_sidx_load_op, g2r_coo_atomic_format_load_off_op, s2r_val_sidx_load_op, g2s_coo_atomic_format_load_val_op, g2r_coo_atomic_format_load_idx_op, g2r_b_val_load_op, s2s_coo_atomic_val_restore_op, s2r_a_val_load_op, val_sidx, val_soff, B_val, val_coo_val, val_coo_idx, val_coo_off, mma_op);
         }
     }
 }
 
-template <int shift1, int shift2, int shift3, int maxshift_smem, int maxshift_reg, int TILE_B, int K_remain, int I, class T_G2sValSidxLoadOp, class T_G2rCooAtomicFormatLoadOff, class T_G2sCooAtomicFormatLoadValOp, class T_G2rCooAtomicFormatLoadIdxOp, class T_S2rValSidxLoadOp,  class T_val_sidx, class T_val_soff, class T_B_val, class T_val_coo_val, class T_val_coo_idx, class T_val_coo_off, class T_G2rBValLoadOp, class T_S2sCooAtomicValRestoreOp, class T_S2rAValLoadOp, class T_MmaOp>
-__device__ void empty_shift2(int i, int l, int r, const int tile_sidx_size, const int tile_coo_val_size, T_G2sValSidxLoadOp &g2s_val_sidx_load_op, T_G2rCooAtomicFormatLoadOff &g2r_coo_atomic_format_load_off_op, T_S2rValSidxLoadOp &s2r_val_sidx_load_op, T_G2sCooAtomicFormatLoadValOp &g2s_coo_atomic_format_load_val_op, T_G2rCooAtomicFormatLoadIdxOp &g2r_coo_atomic_format_load_idx_op, T_G2rBValLoadOp &g2r_b_val_load_op, T_S2sCooAtomicValRestoreOp &s2s_coo_atomic_val_restore_op, T_S2rAValLoadOp &s2r_a_val_load_op, T_val_sidx &val_sidx, T_val_soff &val_soff, T_B_val &B_val,  T_val_coo_val &val_coo_val,  T_val_coo_idx &val_coo_idx,  T_val_coo_off &val_coo_off, T_MmaOp &mma_op, int nnz_block) {
+template <int shift1, int shift2, int shift3, int nbuf_smem, int nbuf_rmem, int K_remain, int I, class T_G2sValSidxLoadOp, class T_G2rCooAtomicFormatLoadOff, class T_G2sCooAtomicFormatLoadValOp, class T_G2rCooAtomicFormatLoadIdxOp, class T_S2rValSidxLoadOp,  class T_val_sidx, class T_val_soff, class T_B_val, class T_val_coo_val, class T_val_coo_idx, class T_val_coo_off, class T_G2rBValLoadOp, class T_S2sCooAtomicValRestoreOp, class T_S2rAValLoadOp, class T_MmaOp>
+__device__ void empty_shift2(int i, int l, int r, T_G2sValSidxLoadOp &g2s_val_sidx_load_op, T_G2rCooAtomicFormatLoadOff &g2r_coo_atomic_format_load_off_op, T_S2rValSidxLoadOp &s2r_val_sidx_load_op, T_G2sCooAtomicFormatLoadValOp &g2s_coo_atomic_format_load_val_op, T_G2rCooAtomicFormatLoadIdxOp &g2r_coo_atomic_format_load_idx_op, T_G2rBValLoadOp &g2r_b_val_load_op, T_S2sCooAtomicValRestoreOp &s2s_coo_atomic_val_restore_op, T_S2rAValLoadOp &s2r_a_val_load_op, T_val_sidx &val_sidx, T_val_soff &val_soff, T_B_val &B_val,  T_val_coo_val &val_coo_val,  T_val_coo_idx &val_coo_idx,  T_val_coo_off &val_coo_off, T_MmaOp &mma_op) {
     if constexpr (I == shift2) {
         return;
     } else {
 
-        g2r_b_val_load_op.template f<(I + shift1 + shift3 + K_remain) % maxshift_reg>(B_val, s2r_val_sidx_load_op.template output<(I + shift1 + shift3 + K_remain) % maxshift_reg, 0>());
+        g2r_b_val_load_op.template f<(I + shift1 + shift3 + K_remain) % nbuf_rmem>(B_val, s2r_val_sidx_load_op.template output<(I + shift1 + shift3 + K_remain) % nbuf_rmem, 0>());
 
-        s2s_coo_atomic_val_restore_op.f<(I + shift1 + shift3 + K_remain) % maxshift_reg, shift2 - (I + 1)>(
-            g2s_coo_atomic_format_load_val_op.template output<(I + shift1 + shift3 + K_remain) % maxshift_reg, 0>(),
-            g2r_coo_atomic_format_load_idx_op.template output<(I + shift1 + shift3 + K_remain) % maxshift_reg, 0>(),
-            g2r_coo_atomic_format_load_idx_op.template output<(I + shift1 + shift3 + K_remain) % maxshift_reg, 1>()
+        s2s_coo_atomic_val_restore_op.f<(I + shift1 + shift3 + K_remain) % nbuf_rmem, shift2 - (I + 1)>(
+            g2s_coo_atomic_format_load_val_op.template output<(I + shift1 + shift3 + K_remain) % nbuf_rmem, 0>(),
+            g2r_coo_atomic_format_load_idx_op.template output<(I + shift1 + shift3 + K_remain) % nbuf_rmem, 0>(),
+            g2r_coo_atomic_format_load_idx_op.template output<(I + shift1 + shift3 + K_remain) % nbuf_rmem, 1>()
         );
-        s2r_a_val_load_op.f<(I + shift1 + shift3 + K_remain) % maxshift_reg, shift2 - (I + 1)>(
-            s2s_coo_atomic_val_restore_op.template output<(I + shift1 + shift3 + K_remain) % maxshift_reg, 0>()
+        s2r_a_val_load_op.f<(I + shift1 + shift3 + K_remain) % nbuf_rmem, shift2 - (I + 1)>(
+            s2s_coo_atomic_val_restore_op.template output<(I + shift1 + shift3 + K_remain) % nbuf_rmem, 0>()
         );
         mma_op.f<0>(
-            s2r_a_val_load_op.template output<(I + shift1 + K_remain) % maxshift_reg, 0>(),
-            g2r_b_val_load_op.template output<(I + shift1 + K_remain) % maxshift_reg, 0>()
+            s2r_a_val_load_op.template output<(I + shift1 + K_remain) % nbuf_rmem, 0>(),
+            g2r_b_val_load_op.template output<(I + shift1 + K_remain) % nbuf_rmem, 0>()
         );
 
-        empty_shift2<shift1, shift2, shift3, maxshift_smem, maxshift_reg, TILE_B, K_remain, I + 1>(i + 1, l, r, tile_sidx_size, tile_coo_val_size, g2s_val_sidx_load_op, g2r_coo_atomic_format_load_off_op, s2r_val_sidx_load_op, g2s_coo_atomic_format_load_val_op, g2r_coo_atomic_format_load_idx_op, g2r_b_val_load_op, s2s_coo_atomic_val_restore_op, s2r_a_val_load_op, val_sidx, val_soff, B_val, val_coo_val, val_coo_idx, val_coo_off, mma_op, nnz_block);
+        empty_shift2<shift1, shift2, shift3, nbuf_smem, nbuf_rmem, K_remain, I + 1>(i + 1, l, r, g2s_val_sidx_load_op, g2r_coo_atomic_format_load_off_op, s2r_val_sidx_load_op, g2s_coo_atomic_format_load_val_op, g2r_coo_atomic_format_load_idx_op, g2r_b_val_load_op, s2s_coo_atomic_val_restore_op, s2r_a_val_load_op, val_sidx, val_soff, B_val, val_coo_val, val_coo_idx, val_coo_off, mma_op);
     }
 }
 
-template <int shift1, int shift2, int shift3, int maxshift_smem, int maxshift_reg, int TILE_B, int K_remain, class T_G2sValSidxLoadOp, class T_G2rCooAtomicFormatLoadOff, class T_G2sCooAtomicFormatLoadValOp, class T_G2rCooAtomicFormatLoadIdxOp, class T_S2rValSidxLoadOp,  class T_val_sidx, class T_val_soff, class T_B_val, class T_val_coo_val, class T_val_coo_idx, class T_val_coo_off, class T_G2rBValLoadOp, class T_S2sCooAtomicValRestoreOp, class T_S2rAValLoadOp, class T_MmaOp>
-__device__ void empty_shift2_switch(int i, int remain, int l, int r, const int tile_sidx_size, const int tile_coo_val_size, T_G2sValSidxLoadOp &g2s_val_sidx_load_op, T_G2rCooAtomicFormatLoadOff &g2r_coo_atomic_format_load_off_op, T_S2rValSidxLoadOp &s2r_val_sidx_load_op, T_G2sCooAtomicFormatLoadValOp &g2s_coo_atomic_format_load_val_op, T_G2rCooAtomicFormatLoadIdxOp &g2r_coo_atomic_format_load_idx_op, T_G2rBValLoadOp &g2r_b_val_load_op, T_S2sCooAtomicValRestoreOp &s2s_coo_atomic_val_restore_op, T_S2rAValLoadOp &s2r_a_val_load_op, T_val_sidx &val_sidx, T_val_soff &val_soff, T_B_val &B_val,  T_val_coo_val &val_coo_val,  T_val_coo_idx &val_coo_idx,  T_val_coo_off &val_coo_off, T_MmaOp &mma_op, int nnz_block) {
+template <int shift1, int shift2, int shift3, int nbuf_smem, int nbuf_rmem, int K_remain, class T_G2sValSidxLoadOp, class T_G2rCooAtomicFormatLoadOff, class T_G2sCooAtomicFormatLoadValOp, class T_G2rCooAtomicFormatLoadIdxOp, class T_S2rValSidxLoadOp,  class T_val_sidx, class T_val_soff, class T_B_val, class T_val_coo_val, class T_val_coo_idx, class T_val_coo_off, class T_G2rBValLoadOp, class T_S2sCooAtomicValRestoreOp, class T_S2rAValLoadOp, class T_MmaOp>
+__device__ void empty_shift2_switch(int i, int remain, int l, int r, T_G2sValSidxLoadOp &g2s_val_sidx_load_op, T_G2rCooAtomicFormatLoadOff &g2r_coo_atomic_format_load_off_op, T_S2rValSidxLoadOp &s2r_val_sidx_load_op, T_G2sCooAtomicFormatLoadValOp &g2s_coo_atomic_format_load_val_op, T_G2rCooAtomicFormatLoadIdxOp &g2r_coo_atomic_format_load_idx_op, T_G2rBValLoadOp &g2r_b_val_load_op, T_S2sCooAtomicValRestoreOp &s2s_coo_atomic_val_restore_op, T_S2rAValLoadOp &s2r_a_val_load_op, T_val_sidx &val_sidx, T_val_soff &val_soff, T_B_val &B_val,  T_val_coo_val &val_coo_val,  T_val_coo_idx &val_coo_idx,  T_val_coo_off &val_coo_off, T_MmaOp &mma_op) {
     if constexpr (K_remain < 0) {
         return;
 
     } else {
         if (remain == K_remain) {
-            empty_shift2<shift1, shift2, shift3, maxshift_smem, maxshift_reg, TILE_B, K_remain, 0>(i, l, r, tile_sidx_size, tile_coo_val_size, g2s_val_sidx_load_op, g2r_coo_atomic_format_load_off_op, s2r_val_sidx_load_op, g2s_coo_atomic_format_load_val_op, g2r_coo_atomic_format_load_idx_op, g2r_b_val_load_op, s2s_coo_atomic_val_restore_op, s2r_a_val_load_op, val_sidx, val_soff, B_val, val_coo_val, val_coo_idx, val_coo_off, mma_op, nnz_block);
+            empty_shift2<shift1, shift2, shift3, nbuf_smem, nbuf_rmem, K_remain, 0>(i, l, r, g2s_val_sidx_load_op, g2r_coo_atomic_format_load_off_op, s2r_val_sidx_load_op, g2s_coo_atomic_format_load_val_op, g2r_coo_atomic_format_load_idx_op, g2r_b_val_load_op, s2s_coo_atomic_val_restore_op, s2r_a_val_load_op, val_sidx, val_soff, B_val, val_coo_val, val_coo_idx, val_coo_off, mma_op);
         } else {
-            empty_shift2_switch<shift1, shift2, shift3, maxshift_smem, maxshift_reg, TILE_B, K_remain - 1>(i, remain, l, r, tile_sidx_size, tile_coo_val_size, g2s_val_sidx_load_op, g2r_coo_atomic_format_load_off_op, s2r_val_sidx_load_op, g2s_coo_atomic_format_load_val_op, g2r_coo_atomic_format_load_idx_op, g2r_b_val_load_op, s2s_coo_atomic_val_restore_op, s2r_a_val_load_op, val_sidx, val_soff, B_val, val_coo_val, val_coo_idx, val_coo_off, mma_op, nnz_block);
+            empty_shift2_switch<shift1, shift2, shift3, nbuf_smem, nbuf_rmem, K_remain - 1>(i, remain, l, r, g2s_val_sidx_load_op, g2r_coo_atomic_format_load_off_op, s2r_val_sidx_load_op, g2s_coo_atomic_format_load_val_op, g2r_coo_atomic_format_load_idx_op, g2r_b_val_load_op, s2s_coo_atomic_val_restore_op, s2r_a_val_load_op, val_sidx, val_soff, B_val, val_coo_val, val_coo_idx, val_coo_off, mma_op);
         }
     }
 }
 
-template <int shift1, int shift2, int shift3, int maxshift_smem, int maxshift_reg, int TILE_B, int K_remain, int I, class T_G2sValSidxLoadOp, class T_G2rCooAtomicFormatLoadOff, class T_G2sCooAtomicFormatLoadValOp, class T_G2rCooAtomicFormatLoadIdxOp, class T_S2rValSidxLoadOp,  class T_val_sidx, class T_val_soff, class T_B_val, class T_val_coo_val, class T_val_coo_idx, class T_val_coo_off, class T_G2rBValLoadOp, class T_S2sCooAtomicValRestoreOp, class T_S2rAValLoadOp, class T_MmaOp>
-__device__ void empty_shift3(int i, int l, int r, const int tile_sidx_size, const int tile_coo_val_size, T_G2sValSidxLoadOp &g2s_val_sidx_load_op, T_G2rCooAtomicFormatLoadOff &g2r_coo_atomic_format_load_off_op, T_S2rValSidxLoadOp &s2r_val_sidx_load_op, T_G2sCooAtomicFormatLoadValOp &g2s_coo_atomic_format_load_val_op, T_G2rCooAtomicFormatLoadIdxOp &g2r_coo_atomic_format_load_idx_op, T_G2rBValLoadOp &g2r_b_val_load_op, T_S2sCooAtomicValRestoreOp &s2s_coo_atomic_val_restore_op, T_S2rAValLoadOp &s2r_a_val_load_op, T_val_sidx &val_sidx, T_val_soff &val_soff, T_B_val &B_val,  T_val_coo_val &val_coo_val,  T_val_coo_idx &val_coo_idx,  T_val_coo_off &val_coo_off, T_MmaOp &mma_op, int nnz_block) {
+template <int shift1, int shift2, int shift3, int nbuf_smem, int nbuf_rmem, int K_remain, int I, class T_G2sValSidxLoadOp, class T_G2rCooAtomicFormatLoadOff, class T_G2sCooAtomicFormatLoadValOp, class T_G2rCooAtomicFormatLoadIdxOp, class T_S2rValSidxLoadOp,  class T_val_sidx, class T_val_soff, class T_B_val, class T_val_coo_val, class T_val_coo_idx, class T_val_coo_off, class T_G2rBValLoadOp, class T_S2sCooAtomicValRestoreOp, class T_S2rAValLoadOp, class T_MmaOp>
+__device__ void empty_shift3(int i, int l, int r, T_G2sValSidxLoadOp &g2s_val_sidx_load_op, T_G2rCooAtomicFormatLoadOff &g2r_coo_atomic_format_load_off_op, T_S2rValSidxLoadOp &s2r_val_sidx_load_op, T_G2sCooAtomicFormatLoadValOp &g2s_coo_atomic_format_load_val_op, T_G2rCooAtomicFormatLoadIdxOp &g2r_coo_atomic_format_load_idx_op, T_G2rBValLoadOp &g2r_b_val_load_op, T_S2sCooAtomicValRestoreOp &s2s_coo_atomic_val_restore_op, T_S2rAValLoadOp &s2r_a_val_load_op, T_val_sidx &val_sidx, T_val_soff &val_soff, T_B_val &B_val,  T_val_coo_val &val_coo_val,  T_val_coo_idx &val_coo_idx,  T_val_coo_off &val_coo_off, T_MmaOp &mma_op) {
     if constexpr (I == shift3) {
         return;
     } else {
         mma_op.f<0>(
-            s2r_a_val_load_op.template output<(I + shift1 + shift2 + K_remain) % maxshift_reg, 0>(),
-            g2r_b_val_load_op.template output<(I + shift1 + shift2 + K_remain) % maxshift_reg, 0>()
+            s2r_a_val_load_op.template output<(I + shift1 + shift2 + K_remain) % nbuf_rmem, 0>(),
+            g2r_b_val_load_op.template output<(I + shift1 + shift2 + K_remain) % nbuf_rmem, 0>()
         );
-        empty_shift3<shift1, shift2, shift3, maxshift_smem, maxshift_reg, TILE_B, K_remain, I + 1>(i + 1, l, r, tile_sidx_size, tile_coo_val_size, g2s_val_sidx_load_op, g2r_coo_atomic_format_load_off_op, s2r_val_sidx_load_op, g2s_coo_atomic_format_load_val_op, g2r_coo_atomic_format_load_idx_op, g2r_b_val_load_op, s2s_coo_atomic_val_restore_op, s2r_a_val_load_op, val_sidx, val_soff, B_val, val_coo_val, val_coo_idx, val_coo_off, mma_op, nnz_block);
+        empty_shift3<shift1, shift2, shift3, nbuf_smem, nbuf_rmem, K_remain, I + 1>(i + 1, l, r, g2s_val_sidx_load_op, g2r_coo_atomic_format_load_off_op, s2r_val_sidx_load_op, g2s_coo_atomic_format_load_val_op, g2r_coo_atomic_format_load_idx_op, g2r_b_val_load_op, s2s_coo_atomic_val_restore_op, s2r_a_val_load_op, val_sidx, val_soff, B_val, val_coo_val, val_coo_idx, val_coo_off, mma_op);
     }
 }
 
-template <int shift1, int shift2, int shift3, int maxshift_smem, int maxshift_reg, int TILE_B, int K_remain, class T_G2sValSidxLoadOp, class T_G2rCooAtomicFormatLoadOff, class T_G2sCooAtomicFormatLoadValOp, class T_G2rCooAtomicFormatLoadIdxOp, class T_S2rValSidxLoadOp,  class T_val_sidx, class T_val_soff, class T_B_val, class T_val_coo_val, class T_val_coo_idx, class T_val_coo_off, class T_G2rBValLoadOp, class T_S2sCooAtomicValRestoreOp, class T_S2rAValLoadOp, class T_MmaOp>
-__device__ void empty_shift3_switch(int i, int remain, int l, int r, const int tile_sidx_size, const int tile_coo_val_size, T_G2sValSidxLoadOp &g2s_val_sidx_load_op, T_G2rCooAtomicFormatLoadOff &g2r_coo_atomic_format_load_off_op, T_S2rValSidxLoadOp &s2r_val_sidx_load_op, T_G2sCooAtomicFormatLoadValOp &g2s_coo_atomic_format_load_val_op, T_G2rCooAtomicFormatLoadIdxOp &g2r_coo_atomic_format_load_idx_op, T_G2rBValLoadOp &g2r_b_val_load_op, T_S2sCooAtomicValRestoreOp &s2s_coo_atomic_val_restore_op, T_S2rAValLoadOp &s2r_a_val_load_op, T_val_sidx &val_sidx, T_val_soff &val_soff, T_B_val &B_val,  T_val_coo_val &val_coo_val,  T_val_coo_idx &val_coo_idx,  T_val_coo_off &val_coo_off, T_MmaOp &mma_op, int nnz_block) {
+template <int shift1, int shift2, int shift3, int nbuf_smem, int nbuf_rmem, int K_remain, class T_G2sValSidxLoadOp, class T_G2rCooAtomicFormatLoadOff, class T_G2sCooAtomicFormatLoadValOp, class T_G2rCooAtomicFormatLoadIdxOp, class T_S2rValSidxLoadOp,  class T_val_sidx, class T_val_soff, class T_B_val, class T_val_coo_val, class T_val_coo_idx, class T_val_coo_off, class T_G2rBValLoadOp, class T_S2sCooAtomicValRestoreOp, class T_S2rAValLoadOp, class T_MmaOp>
+__device__ void empty_shift3_switch(int i, int remain, int l, int r, T_G2sValSidxLoadOp &g2s_val_sidx_load_op, T_G2rCooAtomicFormatLoadOff &g2r_coo_atomic_format_load_off_op, T_S2rValSidxLoadOp &s2r_val_sidx_load_op, T_G2sCooAtomicFormatLoadValOp &g2s_coo_atomic_format_load_val_op, T_G2rCooAtomicFormatLoadIdxOp &g2r_coo_atomic_format_load_idx_op, T_G2rBValLoadOp &g2r_b_val_load_op, T_S2sCooAtomicValRestoreOp &s2s_coo_atomic_val_restore_op, T_S2rAValLoadOp &s2r_a_val_load_op, T_val_sidx &val_sidx, T_val_soff &val_soff, T_B_val &B_val,  T_val_coo_val &val_coo_val,  T_val_coo_idx &val_coo_idx,  T_val_coo_off &val_coo_off, T_MmaOp &mma_op) {
     if constexpr (K_remain < 0) {
         return;
     } else {
         if (K_remain == remain) {
-            empty_shift3<shift1, shift2, shift3, maxshift_smem, maxshift_reg, TILE_B, K_remain, 0>(i, l, r, tile_sidx_size, tile_coo_val_size, g2s_val_sidx_load_op, g2r_coo_atomic_format_load_off_op, s2r_val_sidx_load_op, g2s_coo_atomic_format_load_val_op, g2r_coo_atomic_format_load_idx_op, g2r_b_val_load_op, s2s_coo_atomic_val_restore_op, s2r_a_val_load_op, val_sidx, val_soff, B_val, val_coo_val, val_coo_idx, val_coo_off, mma_op, nnz_block);
+            empty_shift3<shift1, shift2, shift3, nbuf_smem, nbuf_rmem, K_remain, 0>(i, l, r, g2s_val_sidx_load_op, g2r_coo_atomic_format_load_off_op, s2r_val_sidx_load_op, g2s_coo_atomic_format_load_val_op, g2r_coo_atomic_format_load_idx_op, g2r_b_val_load_op, s2s_coo_atomic_val_restore_op, s2r_a_val_load_op, val_sidx, val_soff, B_val, val_coo_val, val_coo_idx, val_coo_off, mma_op);
         } else {
-            empty_shift3_switch<shift1, shift2, shift3, maxshift_smem, maxshift_reg, TILE_B, K_remain - 1>(i, remain, l, r, tile_sidx_size, tile_coo_val_size, g2s_val_sidx_load_op, g2r_coo_atomic_format_load_off_op, s2r_val_sidx_load_op, g2s_coo_atomic_format_load_val_op, g2r_coo_atomic_format_load_idx_op, g2r_b_val_load_op, s2s_coo_atomic_val_restore_op, s2r_a_val_load_op, val_sidx, val_soff, B_val, val_coo_val, val_coo_idx, val_coo_off, mma_op, nnz_block);
+            empty_shift3_switch<shift1, shift2, shift3, nbuf_smem, nbuf_rmem, K_remain - 1>(i, remain, l, r, g2s_val_sidx_load_op, g2r_coo_atomic_format_load_off_op, s2r_val_sidx_load_op, g2s_coo_atomic_format_load_val_op, g2r_coo_atomic_format_load_idx_op, g2r_b_val_load_op, s2s_coo_atomic_val_restore_op, s2r_a_val_load_op, val_sidx, val_soff, B_val, val_coo_val, val_coo_idx, val_coo_off, mma_op);
         }
     }
 }
 
 // =====================================================================================
 
-#define DIVUP(a, b) (((a) - 1) / (b) + 1)
-#define ALIGN(a,b) (DIVUP(a,b)*(b))
-
-template <int shift1, int shift2, int shift3, int TILE_B>
+template <
+    class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK,
+    class tile_sidx_size, class tile_coo_val_size,
+    int shift1, int shift2, int shift3, int nbuf_rmem, int nbuf_smem
+>
 __global__ void dtc_spmm_kernel_sstage_rstage(
-    int M, int N, int K,
     int* dval_sidx,
     int* dval_soff,
     half* dB_val,
     int* dval_coo_idx,
     half* dval_coo_val,
     int* dval_coo_off,
-    float* dC_val
+    float* dC_val,
+    int M, int N, int K, int Mo, int nnz_block, int nnz
 ) {
     const int tid = threadIdx.x;
     const int lid = tid % 32;
     const int wid = tid / 32;
 
-    const int Mo = DIVUP(M, ROW_WINDOW_M);
-    const int nnz_block = dval_soff[Mo];
-    const int nnz = ALIGN(dval_coo_off[nnz_block * 2 - 1], 8);
-
-    constexpr auto tile_sidx_size = Int<TC_BLOCK_K>{};
-    constexpr auto tile_coo_val_size = Int<TC_BLOCK_M>{} * Int<TC_BLOCK_K>{};
-
-    // constexpr const int maxshift_smem = (shift1 > shift2 ? shift1 : shift2);
-    // constexpr const int maxshift_reg = (maxshift_smem > shift3 ? maxshift_smem : shift3) + 1;
-    constexpr const int maxshift1_2 = (shift1 > shift2 ? shift1 : shift2);
-    constexpr const int maxshift_reg = (maxshift1_2 > shift3 ? maxshift1_2 : shift3) + 1;
-    constexpr const int maxshift_smem = maxshift1_2 + 1;
-
-
-    auto val_sidx = make_tensor(make_gmem_ptr(dval_sidx), make_shape(tile_sidx_size, nnz_block));
+    auto val_sidx = make_tensor(make_gmem_ptr(dval_sidx), make_shape(tile_sidx_size{}, nnz_block));
     auto val_soff = make_tensor(make_gmem_ptr(dval_soff), make_shape(Mo));
     auto B_val = make_tensor(make_gmem_ptr(dB_val), make_shape(K, N));
     auto val_coo_idx = make_tensor(make_gmem_ptr(dval_coo_idx), make_shape(nnz));
     auto val_coo_val = make_tensor(make_gmem_ptr(dval_coo_val), make_shape(nnz));
     auto val_coo_off = make_tensor(make_gmem_ptr(dval_coo_off), make_shape(_2{}, nnz_block));
-
-    constexpr auto blk_mnk = make_shape(Int<TC_BLOCK_M>{}, Int<TILE_B>{}, Int<TC_BLOCK_K>{});
-    constexpr auto mma_mnk = make_shape(_16{}, _8{}, _16{});
-    constexpr auto blk_mma_mnk = make_shape(Int<TC_BLOCK_M / 16>{}, Int<TILE_B / 8>{}, Int<TC_BLOCK_K / 16>{});
+    auto C_val = make_tensor(make_gmem_ptr(dC_val), make_layout(make_shape(M, N), make_stride(N, 1)));
 
     // shift 1
-    __shared__ int tile_sidx_block[tile_sidx_size * (maxshift_smem)];
-    G2sValSidxLoadOp<Int<maxshift_smem>, decltype(blk_mnk), decltype(mma_mnk), decltype(blk_mma_mnk)> 
-    g2s_val_sidx_load_op{
+    using g2s_val_sidx_load_op_t = G2sValSidxLoadOp<Int<nbuf_smem>, BLK_MNK, MMA_MNK, BLK_MMA_MNK>;
+    using g2s_val_sidx_load_op_shape_o0 = typename g2s_val_sidx_load_op_t::Shape_o0;
+    __shared__ int tile_sidx_block[cosize_v<Layout<g2s_val_sidx_load_op_shape_o0>>];
+    g2s_val_sidx_load_op_t g2s_val_sidx_load_op{
         tid, lid, wid,
         tile_sidx_block,
         nnz_block,
     };
-    G2rCooAtomicFormatLoadOffOp<Int<maxshift_smem>, decltype(blk_mnk), decltype(mma_mnk), decltype(blk_mma_mnk)>
-    g2r_coo_atomic_format_load_off_op{
+
+    using g2r_coo_atomic_format_load_off_op_t = G2rCooAtomicFormatLoadOffOp<Int<nbuf_smem>, BLK_MNK, MMA_MNK, BLK_MMA_MNK>;
+    g2r_coo_atomic_format_load_off_op_t g2r_coo_atomic_format_load_off_op{
         tid, lid, wid,
         nnz_block,
     };
 
     // shift 2
-    S2rValSidxLoadOp<Int<maxshift_reg>, decltype(blk_mnk), decltype(mma_mnk), decltype(blk_mma_mnk), Int<tile_sidx_size>>
-    s2r_val_sidx_load_op{
+    using s2r_val_sidx_load_op_t = S2rValSidxLoadOp<Int<nbuf_rmem>, BLK_MNK, MMA_MNK, BLK_MMA_MNK, tile_sidx_size>;
+    s2r_val_sidx_load_op_t s2r_val_sidx_load_op{
         tid, lid, wid,
     };
-    __shared__ half tile_coo_val_block[tile_coo_val_size * (maxshift_smem)];
-    G2sCooAtomicFormatLoadValOp<Int<maxshift_smem>, decltype(blk_mnk), decltype(mma_mnk), decltype(blk_mma_mnk), Int<tile_coo_val_size>> 
-    g2s_coo_atomic_format_load_val_op{
+
+    using g2s_coo_atomic_format_load_val_op_t = G2sCooAtomicFormatLoadValOp<Int<nbuf_smem>, BLK_MNK, MMA_MNK, BLK_MMA_MNK, tile_coo_val_size>;
+    using g2s_coo_atomic_format_load_val_op_shape_o0 = typename g2s_coo_atomic_format_load_val_op_t::Shape_o0;
+    __shared__ half tile_coo_val_block[cosize_v<Layout<g2s_coo_atomic_format_load_val_op_shape_o0>>];
+    g2s_coo_atomic_format_load_val_op_t g2s_coo_atomic_format_load_val_op{
         tid, lid, wid,
         tile_coo_val_block,
         nnz,
     };
-    G2rCooAtomicFormatLoadIdxOp<Int<maxshift_reg>, decltype(blk_mnk), decltype(mma_mnk), decltype(blk_mma_mnk), Int<tile_coo_val_size>> 
-    g2r_coo_atomic_format_load_idx_op{
+
+    using g2r_coo_atomic_format_load_idx_op_t = G2rCooAtomicFormatLoadIdxOp<Int<nbuf_rmem>, BLK_MNK, MMA_MNK, BLK_MMA_MNK, tile_coo_val_size>;
+    g2r_coo_atomic_format_load_idx_op_t g2r_coo_atomic_format_load_idx_op{
         tid, lid, wid,
         nnz,
     };
 
     // shift 3
-    G2rBValLoadOp<Int<maxshift_reg>, decltype(blk_mnk), decltype(mma_mnk), decltype(blk_mma_mnk)> g2r_b_val_load_op{
+    using g2r_b_val_load_op_t = G2rBValLoadOp<Int<nbuf_rmem>, BLK_MNK, MMA_MNK, BLK_MMA_MNK>;
+    g2r_b_val_load_op_t g2r_b_val_load_op{
         tid, lid, wid,
         K, N,
     };
-    __shared__ half tile_coo_restore_val_block[tile_coo_val_size * (maxshift_smem)];
-    S2sCooAtomicValRestoreOp<Int<maxshift_smem>, decltype(blk_mnk), decltype(mma_mnk), decltype(blk_mma_mnk), Int<tile_coo_val_size>> s2s_coo_atomic_val_restore_op{
+
+    using s2s_coo_atomic_val_restore_op_t = S2sCooAtomicValRestoreOp<Int<nbuf_smem>, BLK_MNK, MMA_MNK, BLK_MMA_MNK, tile_coo_val_size>;
+    using s2s_coo_atomic_val_restore_op_shape_o0 = typename s2s_coo_atomic_val_restore_op_t::Shape_o0;
+    __shared__ half tile_coo_restore_val_block[cosize_v<Layout<s2s_coo_atomic_val_restore_op_shape_o0>>];
+    s2s_coo_atomic_val_restore_op_t s2s_coo_atomic_val_restore_op{
         tid, lid, wid,
         tile_coo_restore_val_block,
     };
-    S2rAValLoadOp<Int<maxshift_smem>, decltype(blk_mnk), decltype(mma_mnk), decltype(blk_mma_mnk)> s2r_a_val_load_op{
-        tid, lid, wid,
-    };
-    MmaOp<_1, decltype(blk_mnk), decltype(mma_mnk), decltype(blk_mma_mnk)> mma_op{
+
+    using s2r_a_val_load_op_t = S2rAValLoadOp<Int<nbuf_smem>, BLK_MNK, MMA_MNK, BLK_MMA_MNK>;
+    s2r_a_val_load_op_t s2r_a_val_load_op{
         tid, lid, wid,
     };
 
-    int l = dval_soff[blockIdx.x];
-    int r = dval_soff[blockIdx.x + 1];
+    using mma_op_t = MmaOp<_1, BLK_MNK, MMA_MNK, BLK_MMA_MNK>;
+    mma_op_t mma_op{
+        tid, lid, wid,
+    };
 
+    int l = val_soff(blockIdx.x);
+    int r = val_soff(blockIdx.x + 1);
     int k = r - l;
 
     if (k <= shift1 + shift2 + shift3) {
-        pipeline_switch<shift1, shift2, shift3, maxshift_reg, maxshift_smem, TILE_B, shift1 + shift2 + shift3>(k, l, r, tile_sidx_size, tile_coo_val_size, g2s_val_sidx_load_op, g2r_coo_atomic_format_load_off_op, s2r_val_sidx_load_op, g2s_coo_atomic_format_load_val_op, g2r_coo_atomic_format_load_idx_op, g2r_b_val_load_op, s2s_coo_atomic_val_restore_op, s2r_a_val_load_op, val_sidx, val_soff, B_val, val_coo_val, val_coo_idx, val_coo_off, mma_op, nnz_block);
+        pipeline_switch<shift1, shift2, shift3, nbuf_rmem, nbuf_smem, shift1 + shift2 + shift3>(k, l, r, g2s_val_sidx_load_op, g2r_coo_atomic_format_load_off_op, s2r_val_sidx_load_op, g2s_coo_atomic_format_load_val_op, g2r_coo_atomic_format_load_idx_op, g2r_b_val_load_op, s2s_coo_atomic_val_restore_op, s2r_a_val_load_op, val_sidx, val_soff, B_val, val_coo_val, val_coo_idx, val_coo_off, mma_op);
     } else {
-        fill_shift1<shift1, shift2, shift3, maxshift_smem, maxshift_reg, 0>(l, r, tile_sidx_size, tile_coo_val_size, g2s_val_sidx_load_op, g2r_coo_atomic_format_load_off_op, s2r_val_sidx_load_op, g2s_coo_atomic_format_load_val_op, g2r_coo_atomic_format_load_idx_op, g2r_b_val_load_op, s2s_coo_atomic_val_restore_op, s2r_a_val_load_op, val_sidx, val_soff, B_val, val_coo_val, val_coo_idx, val_coo_off, mma_op, nnz_block);
-        fill_shift2<shift1, shift2, shift3, maxshift_smem, maxshift_reg, TILE_B, 0>(l, r, tile_sidx_size, tile_coo_val_size, g2s_val_sidx_load_op, g2r_coo_atomic_format_load_off_op, s2r_val_sidx_load_op, g2s_coo_atomic_format_load_val_op, g2r_coo_atomic_format_load_idx_op, g2r_b_val_load_op, s2s_coo_atomic_val_restore_op, s2r_a_val_load_op, val_sidx, val_soff, B_val, val_coo_val, val_coo_idx, val_coo_off, mma_op, nnz_block);
-        fill_shift3<shift1, shift2, shift3, maxshift_smem, maxshift_reg, TILE_B, 0>(l, r, tile_sidx_size, tile_coo_val_size, g2s_val_sidx_load_op, g2r_coo_atomic_format_load_off_op, s2r_val_sidx_load_op, g2s_coo_atomic_format_load_val_op, g2r_coo_atomic_format_load_idx_op, g2r_b_val_load_op, s2s_coo_atomic_val_restore_op, s2r_a_val_load_op, val_sidx, val_soff, B_val, val_coo_val, val_coo_idx, val_coo_off, mma_op, nnz_block);
+        fill_shift1<shift1, shift2, shift3, nbuf_smem, nbuf_rmem, 0>(l, r, g2s_val_sidx_load_op, g2r_coo_atomic_format_load_off_op, s2r_val_sidx_load_op, g2s_coo_atomic_format_load_val_op, g2r_coo_atomic_format_load_idx_op, g2r_b_val_load_op, s2s_coo_atomic_val_restore_op, s2r_a_val_load_op, val_sidx, val_soff, B_val, val_coo_val, val_coo_idx, val_coo_off, mma_op);
+        fill_shift2<shift1, shift2, shift3, nbuf_smem, nbuf_rmem, 0>(l, r, g2s_val_sidx_load_op, g2r_coo_atomic_format_load_off_op, s2r_val_sidx_load_op, g2s_coo_atomic_format_load_val_op, g2r_coo_atomic_format_load_idx_op, g2r_b_val_load_op, s2s_coo_atomic_val_restore_op, s2r_a_val_load_op, val_sidx, val_soff, B_val, val_coo_val, val_coo_idx, val_coo_off, mma_op);
+        fill_shift3<shift1, shift2, shift3, nbuf_smem, nbuf_rmem, 0>(l, r, g2s_val_sidx_load_op, g2r_coo_atomic_format_load_off_op, s2r_val_sidx_load_op, g2s_coo_atomic_format_load_val_op, g2r_coo_atomic_format_load_idx_op, g2r_b_val_load_op, s2s_coo_atomic_val_restore_op, s2r_a_val_load_op, val_sidx, val_soff, B_val, val_coo_val, val_coo_idx, val_coo_off, mma_op);
         int i;
-        for (i = shift1 + shift2 + shift3; i + maxshift_reg <= k; i += maxshift_reg) {
-            loop_step<shift1, shift2, shift3, maxshift_smem, maxshift_reg, TILE_B, 0>(i, l, r, tile_sidx_size, tile_coo_val_size, g2s_val_sidx_load_op, g2r_coo_atomic_format_load_off_op, s2r_val_sidx_load_op, g2s_coo_atomic_format_load_val_op, g2r_coo_atomic_format_load_idx_op, g2r_b_val_load_op, s2s_coo_atomic_val_restore_op, s2r_a_val_load_op, val_sidx, val_soff, B_val, val_coo_val, val_coo_idx, val_coo_off, mma_op, nnz_block);
+        for (i = shift1 + shift2 + shift3; i + nbuf_rmem <= k; i += nbuf_rmem) {
+            loop_step<shift1, shift2, shift3, nbuf_smem, nbuf_rmem, 0>(i, l, r, g2s_val_sidx_load_op, g2r_coo_atomic_format_load_off_op, s2r_val_sidx_load_op, g2s_coo_atomic_format_load_val_op, g2r_coo_atomic_format_load_idx_op, g2r_b_val_load_op, s2s_coo_atomic_val_restore_op, s2r_a_val_load_op, val_sidx, val_soff, B_val, val_coo_val, val_coo_idx, val_coo_off, mma_op);
         }
         int remain = k - i;
-        remainder_switch<shift1, shift2, shift3, maxshift_smem, maxshift_reg, TILE_B, maxshift_reg - 1>(i, k, l, r, tile_sidx_size, tile_coo_val_size, g2s_val_sidx_load_op, g2r_coo_atomic_format_load_off_op, s2r_val_sidx_load_op, g2s_coo_atomic_format_load_val_op, g2r_coo_atomic_format_load_idx_op, g2r_b_val_load_op, s2s_coo_atomic_val_restore_op, s2r_a_val_load_op, val_sidx, val_soff, B_val, val_coo_val, val_coo_idx, val_coo_off, mma_op, nnz_block);
+        remainder_switch<shift1, shift2, shift3, nbuf_smem, nbuf_rmem, nbuf_rmem - 1>(i, k, l, r, g2s_val_sidx_load_op, g2r_coo_atomic_format_load_off_op, s2r_val_sidx_load_op, g2s_coo_atomic_format_load_val_op, g2r_coo_atomic_format_load_idx_op, g2r_b_val_load_op, s2s_coo_atomic_val_restore_op, s2r_a_val_load_op, val_sidx, val_soff, B_val, val_coo_val, val_coo_idx, val_coo_off, mma_op);
         i = k;
-        empty_shift1_switch<shift1, shift2, shift3, maxshift_smem, maxshift_reg, TILE_B, maxshift_reg - 1>(i, remain, l, r, tile_sidx_size, tile_coo_val_size, g2s_val_sidx_load_op, g2r_coo_atomic_format_load_off_op, s2r_val_sidx_load_op, g2s_coo_atomic_format_load_val_op, g2r_coo_atomic_format_load_idx_op, g2r_b_val_load_op, s2s_coo_atomic_val_restore_op, s2r_a_val_load_op, val_sidx, val_soff, B_val, val_coo_val, val_coo_idx, val_coo_off, mma_op, nnz_block);
+        empty_shift1_switch<shift1, shift2, shift3, nbuf_smem, nbuf_rmem, nbuf_rmem - 1>(i, remain, l, r, g2s_val_sidx_load_op, g2r_coo_atomic_format_load_off_op, s2r_val_sidx_load_op, g2s_coo_atomic_format_load_val_op, g2r_coo_atomic_format_load_idx_op, g2r_b_val_load_op, s2s_coo_atomic_val_restore_op, s2r_a_val_load_op, val_sidx, val_soff, B_val, val_coo_val, val_coo_idx, val_coo_off, mma_op);
         i = k + shift1;
-        empty_shift2_switch<shift1, shift2, shift3, maxshift_smem, maxshift_reg, TILE_B, maxshift_reg - 1>(i, remain, l, r, tile_sidx_size, tile_coo_val_size, g2s_val_sidx_load_op, g2r_coo_atomic_format_load_off_op, s2r_val_sidx_load_op, g2s_coo_atomic_format_load_val_op, g2r_coo_atomic_format_load_idx_op, g2r_b_val_load_op, s2s_coo_atomic_val_restore_op, s2r_a_val_load_op, val_sidx, val_soff, B_val, val_coo_val, val_coo_idx, val_coo_off, mma_op, nnz_block);
+        empty_shift2_switch<shift1, shift2, shift3, nbuf_smem, nbuf_rmem, nbuf_rmem - 1>(i, remain, l, r, g2s_val_sidx_load_op, g2r_coo_atomic_format_load_off_op, s2r_val_sidx_load_op, g2s_coo_atomic_format_load_val_op, g2r_coo_atomic_format_load_idx_op, g2r_b_val_load_op, s2s_coo_atomic_val_restore_op, s2r_a_val_load_op, val_sidx, val_soff, B_val, val_coo_val, val_coo_idx, val_coo_off, mma_op);
         i = k + shift1 + shift2;
-        empty_shift3_switch<shift1, shift2, shift3, maxshift_smem, maxshift_reg, TILE_B, maxshift_reg - 1>(i, remain, l, r, tile_sidx_size, tile_coo_val_size, g2s_val_sidx_load_op, g2r_coo_atomic_format_load_off_op, s2r_val_sidx_load_op, g2s_coo_atomic_format_load_val_op, g2r_coo_atomic_format_load_idx_op, g2r_b_val_load_op, s2s_coo_atomic_val_restore_op, s2r_a_val_load_op, val_sidx, val_soff, B_val, val_coo_val, val_coo_idx, val_coo_off, mma_op, nnz_block);
+        empty_shift3_switch<shift1, shift2, shift3, nbuf_smem, nbuf_rmem, nbuf_rmem - 1>(i, remain, l, r, g2s_val_sidx_load_op, g2r_coo_atomic_format_load_off_op, s2r_val_sidx_load_op, g2s_coo_atomic_format_load_val_op, g2r_coo_atomic_format_load_idx_op, g2r_b_val_load_op, s2s_coo_atomic_val_restore_op, s2r_a_val_load_op, val_sidx, val_soff, B_val, val_coo_val, val_coo_idx, val_coo_off, mma_op);
     }
 
     //! write back
     auto REGC = mma_op.template output<0, 0>();
-    for (int i_tileN = 0; i_tileN < TILE_B / 8; i_tileN++) {
+    for (int i_tileN = 0; i_tileN < get<1>(BLK_MNK{}) / 8; i_tileN++) {
         int row = blockIdx.x * 16 + lid / 4;
-        int col = blockIdx.y * TILE_B + i_tileN * 8 + lid % 4 * 2;
-        dC_val[OFFSET_ROW(row, col, N)] = REGC(0, i_tileN);
-        dC_val[OFFSET_ROW(row, col + 1, N)] = REGC(1, i_tileN);
-        dC_val[OFFSET_ROW(row + 8, col, N)] = REGC(2, i_tileN);
-        dC_val[OFFSET_ROW(row + 8, col + 1, N)] = REGC(3, i_tileN);
+        int col = blockIdx.y * get<1>(BLK_MNK{}) + i_tileN * 8 + lid % 4 * 2;
+        C_val(row, col) = REGC(0, i_tileN);
+        C_val(row, col + 1) = REGC(1, i_tileN);
+        C_val(row + 8, col) = REGC(2, i_tileN);
+        C_val(row + 8, col + 1) = REGC(3, i_tileN);
     }
 }
 
@@ -933,7 +922,7 @@ __global__ void dtc_spmm_kernel_sstage_rstage(
 template <int TILE_B>
 void ncu_test_all(
     int threadblock_num_x, int threadblock_num_y, int thread_num,
-    int M, int N, int K,
+    int M, int N, int K, int Mo, int nnz_block, int nnz,
     int* dval_sidx,
     int* dval_soff,
     half* dB_val,
@@ -944,10 +933,40 @@ void ncu_test_all(
 ) {
     dim3 grid(threadblock_num_x, threadblock_num_y);
     dim3 block(thread_num);
+
+
+    constexpr int ROW_WINDOW_M = 16;
+    constexpr int TC_BLOCK_K = 16;
+    constexpr int TC_BLOCK_M = 16;
+
+    constexpr auto blk_mnk = make_shape(Int<TC_BLOCK_M>{}, Int<TILE_B>{}, Int<TC_BLOCK_K>{});
+    using BLK_MNK = decltype(blk_mnk);
+    constexpr auto mma_mnk = make_shape(_16{}, _8{}, _16{});
+    using MMA_MNK = decltype(mma_mnk);
+    constexpr auto blk_mma_mnk = make_shape(Int<TC_BLOCK_M / 16>{}, Int<TILE_B / 8>{}, Int<TC_BLOCK_K / 16>{});
+    using BLK_MMA_MNK = decltype(blk_mma_mnk);
+
+    using tile_sidx_size = Int<TC_BLOCK_K>;
+    using tile_coo_val_size = Int<TC_BLOCK_M * TC_BLOCK_K>;
+
+    constexpr int shift1 = 1;
+    constexpr int shift2 = 1;
+    constexpr int shift3 = 1;
+    constexpr int maxshift1_2 = (shift1 > shift2 ? shift1 : shift2);
+    constexpr int nbuf_rmem = (maxshift1_2 > shift3 ? maxshift1_2 : shift3) + 1;
+    constexpr int nbuf_smem = maxshift1_2 + 1;
+
     //! （shift1=1,shift2=1,shift3=1)
-    dtc_spmm_kernel_sstage_rstage<1, 1, 1, 32><<<grid, block>>>(M, N, K,dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC);
+    dtc_spmm_kernel_sstage_rstage<
+        BLK_MNK, MMA_MNK, BLK_MMA_MNK,
+        tile_sidx_size, tile_coo_val_size,
+        shift1, shift2, shift3, nbuf_rmem, nbuf_smem
+    ><<<grid, block>>>(dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC, M, N, K, Mo, nnz_block, nnz);
 
 }
+
+#define DIVUP(a, b) (((a) - 1) / (b) + 1)
+#define ALIGN(a,b) (DIVUP(a,b)*(b))
 
 
 template <int TILE_B>
@@ -970,6 +989,10 @@ void dtc_spmm_test(
     half* dval_coo_val;
     int* dval_coo_off;
     float* dC;
+
+    constexpr int ROW_WINDOW_M = 16;
+    constexpr int TC_BLOCK_K = 16;
+    constexpr int TC_BLOCK_M = 16;
 
     int row_window_num = (M + ROW_WINDOW_M - 1) / ROW_WINDOW_M;
 
@@ -1004,7 +1027,11 @@ void dtc_spmm_test(
     int threadblock_num_y = N / TILE_B;
     int thread_num = 32;
 
-    ncu_test_all<TILE_B>(threadblock_num_x, threadblock_num_y, thread_num, M, N, K,dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC);
+    const int Mo = DIVUP(M, ROW_WINDOW_M);
+    const int nnz_block = val_soff[Mo];
+    const int nnz_aligned = ALIGN(val_coo_off[nnz_block * 2 - 1], 8);
+
+    ncu_test_all<TILE_B>(threadblock_num_x, threadblock_num_y, thread_num, M, N, K, Mo, nnz_block, nnz_aligned, dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC);
     CHECK_CUDA2(cudaDeviceSynchronize());
     CHECK_CUDA2(cudaGetLastError());
     CHECK_CUDA2(cudaMemcpy(C, dC, sizeof(float) * M * N, cudaMemcpyDeviceToHost));

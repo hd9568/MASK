@@ -16,7 +16,7 @@ from sparsene.op_gen.nvir.nvop import (
 from itertools import chain
 
 
-class NvOpCodeGenerator:
+class NvIrCodeGenerator:
     def __init__(self, indent_size: int = 4, debug_indent: bool = False):
         self.indent_size = indent_size
         self.debug_indent = debug_indent

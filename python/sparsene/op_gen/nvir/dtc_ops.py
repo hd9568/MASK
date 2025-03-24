@@ -339,25 +339,25 @@ mma_op = NvOp(
 
 
 if __name__ == "__main__":
-    from sparsene.op_gen.nvir.code_generator import NvOpCodeGenerator
+    from sparsene.op_gen.nvir.code_generator import NvIrCodeGenerator
 
     print("// shift 1")
-    print(NvOpCodeGenerator().dump_nvop(g2s_val_sidx_load_op))
+    print(NvIrCodeGenerator().dump_nvop(g2s_val_sidx_load_op))
     print()
-    print(NvOpCodeGenerator().dump_nvop(g2r_coo_atomic_format_load_off_op))
+    print(NvIrCodeGenerator().dump_nvop(g2r_coo_atomic_format_load_off_op))
     print()
     print("// shift 2")
-    print(NvOpCodeGenerator().dump_nvop(s2r_val_sidx_load_op))
+    print(NvIrCodeGenerator().dump_nvop(s2r_val_sidx_load_op))
     print()
-    print(NvOpCodeGenerator().dump_nvop(g2s_coo_atomic_format_load_val_op))
+    print(NvIrCodeGenerator().dump_nvop(g2s_coo_atomic_format_load_val_op))
     print()
-    print(NvOpCodeGenerator().dump_nvop(g2r_coo_atomic_format_load_idx_op))
+    print(NvIrCodeGenerator().dump_nvop(g2r_coo_atomic_format_load_idx_op))
     print()
     print("// shift 3")
-    print(NvOpCodeGenerator().dump_nvop(g2r_b_val_load_op))
+    print(NvIrCodeGenerator().dump_nvop(g2r_b_val_load_op))
     print()
-    print(NvOpCodeGenerator().dump_nvop(s2s_coo_atomic_val_restore_op))
+    print(NvIrCodeGenerator().dump_nvop(s2s_coo_atomic_val_restore_op))
     print()
-    print(NvOpCodeGenerator().dump_nvop(s2r_a_val_load_op))
+    print(NvIrCodeGenerator().dump_nvop(s2r_a_val_load_op))
     print()
-    print(NvOpCodeGenerator().dump_nvop(mma_op))
+    print(NvIrCodeGenerator().dump_nvop(mma_op))
