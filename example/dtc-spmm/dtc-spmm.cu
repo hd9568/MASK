@@ -449,7 +449,7 @@ public:
 
     template<size_t buf_idx>
     CUTE_DEVICE void f(Tensor_i0 REGA, Tensor_i1 REGB) {
-        for (int m_iter = 0; m_iter < 1; m_iter++) {
+        for (int m_iter = 0; m_iter < get<0>(BLK_MMA_MNK{}); m_iter++) {
             for (int n_iter = 0; n_iter < get<1>(BLK_MMA_MNK{}); n_iter++) {
                 mma_m16n8k16_fp32(REGC(_, (m_iter, n_iter), buf_idx).data(), (uint32_t*)(REGA(_, m_iter).data()), REGB(_, n_iter).data());
             }
@@ -692,7 +692,7 @@ __device__ void empty_shift1(int i, int l, int r, T_G2sValSidxLoadOp &g2s_val_si
         g2r_b_val_load_op.template f<(I + shift3 + K_remain) % nbuf_rmem>(B_val, s2r_val_sidx_load_op.template output<(I + shift3 + K_remain) % nbuf_rmem, 0>());
 
 
-        g2r_coo_atomic_format_load_idx_op.f<(I + shift3 + shift2 + K_remain) % nbuf_rmem>(val_coo_idx,
+        g2r_coo_atomic_format_load_idx_op.template f<(I + shift3 + shift2 + K_remain) % nbuf_rmem>(val_coo_idx,
             g2r_coo_atomic_format_load_off_op.template output<(I + shift3 + shift2 + K_remain) % nbuf_rmem, 0>(),
             g2r_coo_atomic_format_load_off_op.template output<(I + shift3 + shift2 + K_remain) % nbuf_rmem, 1>()
         );
@@ -795,7 +795,7 @@ __device__ void empty_shift3_switch(int i, int remain, int l, int r, T_G2sValSid
 
 template <
     class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK,
-    class tile_sidx_size, class tile_coo_val_size,
+    class tile_sidx_size, class tile_coo_val_size, // parameters
     int shift1, int shift2, int shift3, int nbuf_smem, int nbuf_rmem
 >
 __global__ void dtc_spmm_kernel_sstage_rstage(
@@ -812,6 +812,7 @@ __global__ void dtc_spmm_kernel_sstage_rstage(
     const int lid = tid % 32;
     const int wid = tid / 32;
 
+    // gmem tensors
     auto val_sidx = make_tensor(make_gmem_ptr(dval_sidx), make_shape(tile_sidx_size{}, nnz_block));
     auto val_soff = make_tensor(make_gmem_ptr(dval_soff), make_shape(Mo));
     auto B_val = make_tensor(make_gmem_ptr(dB_val), make_shape(K, N));
