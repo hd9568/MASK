@@ -13,6 +13,10 @@ from sparsene.op_gen.nvir.nvop import (
     ParamShape,
     MnkShape,
 )
+from sparsene.op_gen.nvir.pipeliner import (
+    NvOpStage,
+    NvOpPipeline
+)
 from itertools import chain
 
 import re
@@ -162,6 +166,136 @@ class NvIrCodeGenerator:
             + "\n"
             + "}"
         )
+
+    def dump_f_method_call_arg(self, inp: NvOpInput, buf_idx_str: str, shift_constant: str = None, indent_level: int = 0) -> str:
+        # g2r_coo_atomic_format_load_off_op.template output<(i - shift1) % nbuf_rmem, 0>()
+        # l + i + shift1 + shift2
+        # print(inp.source)
+        if isinstance(inp.source, tuple):
+            return f"{to_snake(inp.source[0].name)}.template output<{buf_idx_str}, {inp.source[1]}>()"
+        else:
+            if "{c}" in inp.source:
+                if shift_constant is not None:
+                    return inp.source.format(c=shift_constant)
+                else:
+                    raise ValueError("Missing value for 'c'")
+            return inp.source
+
+    def dump_f_method_call(self, op: NvOp, buf_idx_str: str, shift_constant: str = None, indent_level: int = 0) -> str:
+        # g2s_coo_atomic_format_load_val_op.template f<(i - shift1) % nbuf_rmem>(val_coo_val,
+        #     g2r_coo_atomic_format_load_off_op.template output<(i - shift1) % nbuf_rmem, 0>(),
+        #     g2r_coo_atomic_format_load_off_op.template output<(i - shift1) % nbuf_rmem, 1>()
+        # );
+        arg_strs = [self.dump_f_method_call_arg(inp, buf_idx_str, shift_constant, indent_level) for inp in op.inputs]
+        # print(arg_strs)
+        # print(op.name, buf_idx_str, shift_constant)
+        return (
+            f"{to_snake(op.name)}.template f<{buf_idx_str}>(" + 
+            self._indent_lines(','.join(arg_strs)) +  # 使用缩进
+            ");\n"  # 结束模板结构
+        )
+
+    
+    def dump_short_parallel(self, stages: List[NvOpStage], shifts: List[int]) -> str:
+        def get_wait_num(op: NvOp, i: int, pipeline_records: List[List[Tuple[NvOp, int]]]) -> int:
+            wait_num = 0
+            find_flag = False
+            # print("test_pipeline_records = ", pipeline_records)
+            for list_op in reversed(pipeline_records):
+                # print("test inputs: ", op.inputs)
+                for inp in op.inputs:
+                    # print("test source", inp.source, "source name = ", inp.source[0].name)
+                    if not isinstance(inp.source, tuple):
+                        continue
+                    
+                    for item in list_op:
+                        # print("test item = ", item)
+                        if inp.source[0].name == item[0].name and i == item[1]:
+                            find_flag = True
+                            break
+                    if find_flag: 
+                        break
+                if not find_flag:
+                    wait_num += 1
+                else:
+                    return wait_num
+            if not find_flag:
+                return -1
+
+        def dump_short_parallel_i(i, K_total, pipeline_records) -> str:
+            output_str = f"// i = {i}\n"
+            op_list : List[Tuple[NvOp, int]] = [] # {op, "i"}
+            stage_num = len(stages)
+            nbuf_num = max(shifts) + 1
+            print("=" * 20 + f"K_total = {K_total}, i = {i}")
+            #> 1. 确定op list
+            for stage_i in range(stage_num):
+                shift_val = sum(shifts[:stage_i]) # sum(shifts[:stage_i + 1]) 从shift0+shift1+shift2+...+shift_i
+                print(f"stage_i = {stage_i}, shift_val = {shift_val}")
+                if 0 <= i - shift_val < K_total:
+                    for op in stages[stage_i].ops:
+                        op_list.append((op, i - shift_val))
+            # for item in op_list:
+            #     print(f"{{{item[0].name}, {item[1]}}}, ")
+            #> 2. op list 排序，g2s的op在前
+            # return output_str
+            op_list_g2s : List[Tuple[NvOp, int]] = []
+            op_list_other : List[Tuple[NvOp, int]] = []
+            for item in op_list:
+                if item[0].mem_type == ("g", "s"):
+                    op_list_g2s.append(item)
+                else:
+                    op_list_other.append(item)
+            print("op_list_g2s:")
+            for item in op_list_g2s:
+                print(f"\t{{{item[0].name}, {item[1]}}}, ")
+            print("op_list_other:")
+            for item in op_list_other:
+                print(f"\t{{{item[0].name}, {item[1]}}}, ")
+            # return output_str
+
+            #> 生成g2s操作
+            for item in op_list_g2s:
+                buf_idx_str = str(item[1] % nbuf_num)
+                shift_constant = str(i)
+                output_str += self.dump_f_method_call(item[0], buf_idx_str, shift_constant)
+                
+            #> 3. 所有g2s操作做完之后整体添加一个commit
+            if len(op_list_g2s) != 0:
+                output_str += "__pipeline_commit();\n"
+                pipeline_records.append(op_list_g2s)
+            # return output_str
+            #> 4. 生成所有其他op
+            for item in op_list_other:
+                #> 如果是从SMEM到其他位置的op，需要插入一条wait prior指令
+                if item[0].mem_type[0] == "s":
+                    wait_num = get_wait_num(item[0], item[1], pipeline_records)
+                    if wait_num != -1:
+                        output_str += f"__pipeline_wait_prior({wait_num});\n__syncthreads();\n"
+                buf_idx_str = str(item[1] % nbuf_num)
+                shift_constant = str(i)
+                output_str += self.dump_f_method_call(item[0], buf_idx_str, shift_constant)
+
+            return output_str
+
+        def dump_short_parallel_K_total(K_total) -> str:
+            output_str = ""
+            pipeline_records = []
+            for i in range(K_total + sum(shifts)):
+                output_str += dump_short_parallel_i(i, K_total, pipeline_records)
+            return output_str
+
+        total_stages = sum(shifts)
+
+        output_str = "" #! 函数头参数似乎时固定的？(pipeline_switch + pipeline)
+        for K_total in range(total_stages + 1):
+            if K_total != 0:
+                output_str += "else "
+            output_str += f"if (k == {K_total}) {{\n"
+            output_str += self._indent_lines(dump_short_parallel_K_total(K_total)) + "\n"
+            output_str += "}\n"
+            print("\n" * 2)
+        return output_str
 
     def dump_get_output_method_switch(
         self, idx: int, op: NvOp, indent_level: int = 0

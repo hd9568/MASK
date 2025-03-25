@@ -176,6 +176,14 @@ public:
         auto dst = val_sidx_reg(_, buf_idx);
         copy(src, dst);
     }
+    template<size_t buf_idx>
+    CUTE_DEVICE void f(Tensor_i0 tile_sidx_block) {
+        // __pipeline_wait_prior(wait_num);
+        // __syncthreads();
+        auto src = tile_sidx_block;
+        auto dst = val_sidx_reg(_, buf_idx);
+        copy(src, dst);
+    }
 };
 
 template<class NBUF, class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class tile_coo_val_size = Int<16>, class TI0 = half, class TI1 = int, class TI2 = int, class TO0 = half>
@@ -369,6 +377,23 @@ public:
             }
         }
     }
+
+    template<size_t buf_idx>
+    CUTE_DEVICE void f(Tensor_i0 tile_coo_val_block, Tensor_i1 coo_idx_reg, TI2 nnz_num) {
+        // __pipeline_wait_prior(wait_num);
+        // __syncthreads();
+        // TODO: use tiler to distribute the tensor and use clear(Tensor) to set zero
+        for (int i_o2s = 0; i_o2s < 4; i_o2s++) {
+            *((int*)(tile_coo_restore_val_block(_, _, buf_idx).data().get() + 32 * 2 * i_o2s + lid * 2)) = 0;
+        }
+        __syncthreads();
+        for (int i_restore = 0; i_restore < 8; i_restore++) {
+            int idx = coo_idx_reg(i_restore);
+            if (lid * 8 + i_restore < nnz_num) {
+                tile_coo_restore_val_block(_, _, buf_idx).data()[(idx)] = tile_coo_val_block(lid * 8 + i_restore);
+            }
+        }
+    }
 };
 
 template<class NBUF, class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class TI0 = half, class TO0 = half>
@@ -400,6 +425,21 @@ public:
     }
 
     template<size_t buf_idx, size_t wait_num>
+    CUTE_DEVICE void f(Tensor_i0 tile_coo_restore_val_block) {
+        // no need to __pipeline_wait_prior here because the prior op s2s_coo_atomic_val_restore does not use cp.async
+        __syncthreads();
+        int row = lid % 16;
+        int col = lid / 16;
+        // TODO: bank conflict
+        for (int m_iter = 0; m_iter < get<0>(BLK_MMA_MNK{}); m_iter++) { // now the m_iter would always be zero, which means the for-loop body would run only once
+            ldmatrix_m8n8k8_x4(
+                (uint32_t*)(REGA(_, _0{}, buf_idx).data()),
+                (void*)&tile_coo_restore_val_block((row) * 16 + (col * 8))
+            );
+        }
+    }
+
+    template<size_t buf_idx>
     CUTE_DEVICE void f(Tensor_i0 tile_coo_restore_val_block) {
         // no need to __pipeline_wait_prior here because the prior op s2s_coo_atomic_val_restore does not use cp.async
         __syncthreads();
@@ -506,14 +546,122 @@ __device__ void pipeline(int l, int r, T_G2sValSidxLoadOp &g2s_val_sidx_load_op,
 
 template <int shift1, int shift2, int shift3, int nbuf_smem, int nbuf_rmem, int K_total, class T_G2sValSidxLoadOp, class T_G2rCooAtomicFormatLoadOff, class T_G2sCooAtomicFormatLoadValOp, class T_G2rCooAtomicFormatLoadIdxOp, class T_S2rValSidxLoadOp,  class T_val_sidx, class T_val_soff, class T_B_val, class T_val_coo_val, class T_val_coo_idx, class T_val_coo_off, class T_G2rBValLoadOp, class T_S2sCooAtomicValRestoreOp, class T_S2rAValLoadOp, class T_MmaOp>
 __device__ void pipeline_switch(int k, int l, int r, T_G2sValSidxLoadOp &g2s_val_sidx_load_op, T_G2rCooAtomicFormatLoadOff &g2r_coo_atomic_format_load_off_op, T_S2rValSidxLoadOp &s2r_val_sidx_load_op, T_G2sCooAtomicFormatLoadValOp &g2s_coo_atomic_format_load_val_op, T_G2rCooAtomicFormatLoadIdxOp &g2r_coo_atomic_format_load_idx_op, T_G2rBValLoadOp &g2r_b_val_load_op, T_S2sCooAtomicValRestoreOp &s2s_coo_atomic_val_restore_op, T_S2rAValLoadOp &s2r_a_val_load_op, T_val_sidx &val_sidx, T_val_soff &val_soff, T_B_val &B_val,  T_val_coo_val &val_coo_val,  T_val_coo_idx &val_coo_idx,  T_val_coo_off &val_coo_off, T_MmaOp &mma_op) {
-    if constexpr (K_total == 0) {
-        return;
-    } else {
-        if (k == K_total) {
-            pipeline<shift1, shift2, shift3, nbuf_smem, nbuf_rmem, K_total, 0>(l, r, g2s_val_sidx_load_op, g2r_coo_atomic_format_load_off_op, s2r_val_sidx_load_op, g2s_coo_atomic_format_load_val_op, g2r_coo_atomic_format_load_idx_op, g2r_b_val_load_op, s2s_coo_atomic_val_restore_op, s2r_a_val_load_op, val_sidx, val_soff, B_val, val_coo_val, val_coo_idx, val_coo_off, mma_op);
-        } else {
-            pipeline_switch<shift1, shift2, shift3, nbuf_smem, nbuf_rmem, K_total - 1>(k, l, r, g2s_val_sidx_load_op, g2r_coo_atomic_format_load_off_op, s2r_val_sidx_load_op, g2s_coo_atomic_format_load_val_op, g2r_coo_atomic_format_load_idx_op, g2r_b_val_load_op, s2s_coo_atomic_val_restore_op, s2r_a_val_load_op, val_sidx, val_soff, B_val, val_coo_val, val_coo_idx, val_coo_off, mma_op);
-        }
+    if (k == 0) {
+        // i = 0
+        // i = 1
+        // i = 2
+        
+    }
+    else if (k == 1) {
+        // i = 0
+        g2s_val_sidx_load_op.template f<0>(    val_sidx,l + 0);
+        __pipeline_commit();
+        g2r_coo_atomic_format_load_off_op.template f<0>(    val_coo_off,l + 0);
+        // i = 1
+        g2s_coo_atomic_format_load_val_op.template f<0>(    val_coo_val,g2r_coo_atomic_format_load_off_op.template output<0, 0>(),g2r_coo_atomic_format_load_off_op.template output<0, 1>());
+        __pipeline_commit();
+        __pipeline_wait_prior(1);
+        __syncthreads();
+        s2r_val_sidx_load_op.template f<0>(    g2s_val_sidx_load_op.template output<0, 0>());
+        g2r_coo_atomic_format_load_idx_op.template f<0>(    val_coo_idx,g2r_coo_atomic_format_load_off_op.template output<0, 0>(),g2r_coo_atomic_format_load_off_op.template output<0, 1>());
+        // i = 2
+        g2r_b_val_load_op.template f<0>(    B_val,s2r_val_sidx_load_op.template output<0, 0>());
+        __pipeline_wait_prior(0);
+        __syncthreads();
+        s2s_coo_atomic_val_restore_op.template f<0>(    g2s_coo_atomic_format_load_val_op.template output<0, 0>(),g2r_coo_atomic_format_load_idx_op.template output<0, 0>(),g2r_coo_atomic_format_load_idx_op.template output<0, 1>());
+        s2r_a_val_load_op.template f<0>(    s2s_coo_atomic_val_restore_op.template output<0, 0>());
+        // i = 3
+        mma_op.template f<0>(    s2r_a_val_load_op.template output<0, 0>(),g2r_b_val_load_op.template output<0, 0>());
+        
+    }
+    else if (k == 2) {
+        // i = 0
+        g2s_val_sidx_load_op.template f<0>(    val_sidx,l + 0);
+        __pipeline_commit();
+        g2r_coo_atomic_format_load_off_op.template f<0>(    val_coo_off,l + 0);
+        // i = 1
+        g2s_val_sidx_load_op.template f<1>(    val_sidx,l + 1);
+        g2s_coo_atomic_format_load_val_op.template f<0>(    val_coo_val,g2r_coo_atomic_format_load_off_op.template output<0, 0>(),g2r_coo_atomic_format_load_off_op.template output<0, 1>());
+        __pipeline_commit();
+        g2r_coo_atomic_format_load_off_op.template f<1>(    val_coo_off,l + 1);
+        __pipeline_wait_prior(1);
+        __syncthreads();
+        s2r_val_sidx_load_op.template f<0>(    g2s_val_sidx_load_op.template output<0, 0>());
+        g2r_coo_atomic_format_load_idx_op.template f<0>(    val_coo_idx,g2r_coo_atomic_format_load_off_op.template output<0, 0>(),g2r_coo_atomic_format_load_off_op.template output<0, 1>());
+        // i = 2
+        g2s_coo_atomic_format_load_val_op.template f<1>(    val_coo_val,g2r_coo_atomic_format_load_off_op.template output<1, 0>(),g2r_coo_atomic_format_load_off_op.template output<1, 1>());
+        __pipeline_commit();
+        __pipeline_wait_prior(1);
+        __syncthreads();
+        s2r_val_sidx_load_op.template f<1>(    g2s_val_sidx_load_op.template output<1, 0>());
+        g2r_coo_atomic_format_load_idx_op.template f<1>(    val_coo_idx,g2r_coo_atomic_format_load_off_op.template output<1, 0>(),g2r_coo_atomic_format_load_off_op.template output<1, 1>());
+        g2r_b_val_load_op.template f<0>(    B_val,s2r_val_sidx_load_op.template output<0, 0>());
+        __pipeline_wait_prior(1);
+        __syncthreads();
+        s2s_coo_atomic_val_restore_op.template f<0>(    g2s_coo_atomic_format_load_val_op.template output<0, 0>(),g2r_coo_atomic_format_load_idx_op.template output<0, 0>(),g2r_coo_atomic_format_load_idx_op.template output<0, 1>());
+        s2r_a_val_load_op.template f<0>(    s2s_coo_atomic_val_restore_op.template output<0, 0>());
+        // i = 3
+        g2r_b_val_load_op.template f<1>(    B_val,s2r_val_sidx_load_op.template output<1, 0>());
+        __pipeline_wait_prior(0);
+        __syncthreads();
+        s2s_coo_atomic_val_restore_op.template f<1>(    g2s_coo_atomic_format_load_val_op.template output<1, 0>(),g2r_coo_atomic_format_load_idx_op.template output<1, 0>(),g2r_coo_atomic_format_load_idx_op.template output<1, 1>());
+        s2r_a_val_load_op.template f<1>(    s2s_coo_atomic_val_restore_op.template output<1, 0>());
+        mma_op.template f<0>(    s2r_a_val_load_op.template output<0, 0>(),g2r_b_val_load_op.template output<0, 0>());
+        // i = 4
+        mma_op.template f<1>(    s2r_a_val_load_op.template output<1, 0>(),g2r_b_val_load_op.template output<1, 0>());
+        
+    }
+    else if (k == 3) {
+        // i = 0
+        g2s_val_sidx_load_op.template f<0>(    val_sidx,l + 0);
+        __pipeline_commit();
+        g2r_coo_atomic_format_load_off_op.template f<0>(    val_coo_off,l + 0);
+        // i = 1
+        g2s_val_sidx_load_op.template f<1>(    val_sidx,l + 1);
+        g2s_coo_atomic_format_load_val_op.template f<0>(    val_coo_val,g2r_coo_atomic_format_load_off_op.template output<0, 0>(),g2r_coo_atomic_format_load_off_op.template output<0, 1>());
+        __pipeline_commit();
+        g2r_coo_atomic_format_load_off_op.template f<1>(    val_coo_off,l + 1);
+        __pipeline_wait_prior(1);
+        __syncthreads();
+        s2r_val_sidx_load_op.template f<0>(    g2s_val_sidx_load_op.template output<0, 0>());
+        g2r_coo_atomic_format_load_idx_op.template f<0>(    val_coo_idx,g2r_coo_atomic_format_load_off_op.template output<0, 0>(),g2r_coo_atomic_format_load_off_op.template output<0, 1>());
+        // i = 2
+        g2s_val_sidx_load_op.template f<0>(    val_sidx,l + 2);
+        g2s_coo_atomic_format_load_val_op.template f<1>(    val_coo_val,g2r_coo_atomic_format_load_off_op.template output<1, 0>(),g2r_coo_atomic_format_load_off_op.template output<1, 1>());
+        __pipeline_commit();
+        g2r_coo_atomic_format_load_off_op.template f<0>(    val_coo_off,l + 2);
+        __pipeline_wait_prior(1);
+        __syncthreads();
+        s2r_val_sidx_load_op.template f<1>(    g2s_val_sidx_load_op.template output<1, 0>());
+        g2r_coo_atomic_format_load_idx_op.template f<1>(    val_coo_idx,g2r_coo_atomic_format_load_off_op.template output<1, 0>(),g2r_coo_atomic_format_load_off_op.template output<1, 1>());
+        g2r_b_val_load_op.template f<0>(    B_val,s2r_val_sidx_load_op.template output<0, 0>());
+        __pipeline_wait_prior(1);
+        __syncthreads();
+        s2s_coo_atomic_val_restore_op.template f<0>(    g2s_coo_atomic_format_load_val_op.template output<0, 0>(),g2r_coo_atomic_format_load_idx_op.template output<0, 0>(),g2r_coo_atomic_format_load_idx_op.template output<0, 1>());
+        s2r_a_val_load_op.template f<0>(    s2s_coo_atomic_val_restore_op.template output<0, 0>());
+        // i = 3
+        g2s_coo_atomic_format_load_val_op.template f<0>(    val_coo_val,g2r_coo_atomic_format_load_off_op.template output<0, 0>(),g2r_coo_atomic_format_load_off_op.template output<0, 1>());
+        __pipeline_commit();
+        __pipeline_wait_prior(1);
+        __syncthreads();
+        s2r_val_sidx_load_op.template f<0>(    g2s_val_sidx_load_op.template output<0, 0>());
+        g2r_coo_atomic_format_load_idx_op.template f<0>(    val_coo_idx,g2r_coo_atomic_format_load_off_op.template output<0, 0>(),g2r_coo_atomic_format_load_off_op.template output<0, 1>());
+        g2r_b_val_load_op.template f<1>(    B_val,s2r_val_sidx_load_op.template output<1, 0>());
+        __pipeline_wait_prior(1);
+        __syncthreads();
+        s2s_coo_atomic_val_restore_op.template f<1>(    g2s_coo_atomic_format_load_val_op.template output<1, 0>(),g2r_coo_atomic_format_load_idx_op.template output<1, 0>(),g2r_coo_atomic_format_load_idx_op.template output<1, 1>());
+        s2r_a_val_load_op.template f<1>(    s2s_coo_atomic_val_restore_op.template output<1, 0>());
+        mma_op.template f<0>(    s2r_a_val_load_op.template output<0, 0>(),g2r_b_val_load_op.template output<0, 0>());
+        // i = 4
+        g2r_b_val_load_op.template f<0>(    B_val,s2r_val_sidx_load_op.template output<0, 0>());
+        __pipeline_wait_prior(0);
+        __syncthreads();
+        s2s_coo_atomic_val_restore_op.template f<0>(    g2s_coo_atomic_format_load_val_op.template output<0, 0>(),g2r_coo_atomic_format_load_idx_op.template output<0, 0>(),g2r_coo_atomic_format_load_idx_op.template output<0, 1>());
+        s2r_a_val_load_op.template f<0>(    s2s_coo_atomic_val_restore_op.template output<0, 0>());
+        mma_op.template f<1>(    s2r_a_val_load_op.template output<1, 0>(),g2r_b_val_load_op.template output<1, 0>());
+        // i = 5
+        mma_op.template f<0>(    s2r_a_val_load_op.template output<0, 0>(),g2r_b_val_load_op.template output<0, 0>());
+        
     }
 }
 
@@ -954,7 +1102,8 @@ void ncu_test_all(
     constexpr int shift3 = 1;
     constexpr int maxshift1_2 = (shift1 > shift2 ? shift1 : shift2);
     constexpr int nbuf_rmem = (maxshift1_2 > shift3 ? maxshift1_2 : shift3) + 1;
-    constexpr int nbuf_smem = maxshift1_2 + 1;
+    constexpr int nbuf_smem = nbuf_rmem;
+    // constexpr int nbuf_smem = maxshift1_2 + 1;
 
     //! （shift1=1,shift2=1,shift3=1)
     dtc_spmm_kernel_sstage_rstage<
