@@ -16,7 +16,13 @@ CURDIR := $(PWD)
 dtc-spmm.o: dtc-spmm.cu
 	$(CC) $(NVCC_FLAGS) -Icutlass/include -Icutlass/examples/common -Icutlass/tools/util/include -c $^ -o $@ $(OPTIONS) $(LIBS) 
 
+dtc-spmm-gen.o: dtc-spmm-gen.cu kernel-gen.inc
+	$(CC) $(NVCC_FLAGS) -Icutlass/include -Icutlass/examples/common -Icutlass/tools/util/include -c $< -o $@ $(OPTIONS) $(LIBS) 
+
 dtc: main.cu dtc-spmm.o
+	$(CC) $(NVCC_FLAGS) -Icutlass/include -Icutlass/examples/common -Icutlass/tools/util/include $^ -o $@ $(OPTIONS) $(LIBS)
+
+gen: main.cu dtc-spmm-gen.o
 	$(CC) $(NVCC_FLAGS) -Icutlass/include -Icutlass/examples/common -Icutlass/tools/util/include $^ -o $@ $(OPTIONS) $(LIBS)
 
 test_cute: test_cute.cu

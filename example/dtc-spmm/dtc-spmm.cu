@@ -943,31 +943,31 @@ __device__ void empty_shift3_switch(int i, int remain, int l, int r, T_G2sValSid
 
 template <
     class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK,
-    class tile_sidx_size, class tile_coo_val_size, // parameters
+    class tile_coo_val_size, class tile_sidx_size,
     int shift1, int shift2, int shift3, int nbuf_smem, int nbuf_rmem
 >
 __global__ void dtc_spmm_kernel_sstage_rstage(
+    half* dB_val,
+    float* dC_val,
+    int* dval_coo_idx,
+    int* dval_coo_off,
+    half* dval_coo_val,
     int* dval_sidx,
     int* dval_soff,
-    half* dB_val,
-    int* dval_coo_idx,
-    half* dval_coo_val,
-    int* dval_coo_off,
-    float* dC_val,
-    int M, int N, int K, int Mo, int nnz_block, int nnz
+    int K, int M, int Mo, int N, int nnz, int nnz_block
 ) {
     const int tid = threadIdx.x;
     const int lid = tid % 32;
     const int wid = tid / 32;
 
     // gmem tensors
+    auto B_val = make_tensor(make_gmem_ptr(dB_val), make_shape(K, N));
+    auto C_val = make_tensor(make_gmem_ptr(dC_val), make_shape(N, M));
+    auto val_coo_idx = make_tensor(make_gmem_ptr(dval_coo_idx), make_shape(nnz));
+    auto val_coo_off = make_tensor(make_gmem_ptr(dval_coo_off), make_shape(Int<2>{}, nnz_block));
+    auto val_coo_val = make_tensor(make_gmem_ptr(dval_coo_val), make_shape(nnz));
     auto val_sidx = make_tensor(make_gmem_ptr(dval_sidx), make_shape(tile_sidx_size{}, nnz_block));
     auto val_soff = make_tensor(make_gmem_ptr(dval_soff), make_shape(Mo));
-    auto B_val = make_tensor(make_gmem_ptr(dB_val), make_shape(K, N));
-    auto val_coo_idx = make_tensor(make_gmem_ptr(dval_coo_idx), make_shape(nnz));
-    auto val_coo_val = make_tensor(make_gmem_ptr(dval_coo_val), make_shape(nnz));
-    auto val_coo_off = make_tensor(make_gmem_ptr(dval_coo_off), make_shape(_2{}, nnz_block));
-    auto C_val = make_tensor(make_gmem_ptr(dC_val), make_layout(make_shape(M, N), make_stride(N, 1)));
 
     // shift 1
     using g2s_val_sidx_load_op_t = G2sValSidxLoadOp<Int<nbuf_smem>, BLK_MNK, MMA_MNK, BLK_MMA_MNK, tile_sidx_size>;
@@ -1060,13 +1060,12 @@ __global__ void dtc_spmm_kernel_sstage_rstage(
     for (int i_tileN = 0; i_tileN < get<1>(BLK_MNK{}) / 8; i_tileN++) {
         int row = blockIdx.x * 16 + lid / 4;
         int col = blockIdx.y * get<1>(BLK_MNK{}) + i_tileN * 8 + lid % 4 * 2;
-        C_val(row, col) = REGC(0, i_tileN);
-        C_val(row, col + 1) = REGC(1, i_tileN);
-        C_val(row + 8, col) = REGC(2, i_tileN);
-        C_val(row + 8, col + 1) = REGC(3, i_tileN);
+        C_val(col, row) = REGC(0, i_tileN);
+        C_val(col + 1, row) = REGC(1, i_tileN);
+        C_val(col, row + 8) = REGC(2, i_tileN);
+        C_val(col + 1, row + 8) = REGC(3, i_tileN);
     }
 }
-
 
 template <int TILE_B>
 void ncu_test_all(
@@ -1109,10 +1108,9 @@ void ncu_test_all(
     //! （shift1=1,shift2=1,shift3=1)
     dtc_spmm_kernel_sstage_rstage<
         BLK_MNK, MMA_MNK, BLK_MMA_MNK,
-        tile_sidx_size, tile_coo_val_size,
+        tile_coo_val_size, tile_sidx_size,
         shift1, shift2, shift3, nbuf_smem, nbuf_rmem
-    ><<<grid, block>>>(dval_sidx, dval_soff, dB_val, dval_coo_idx, dval_coo_val, dval_coo_off, dC, M, N, K, Mo, nnz_block, nnz);
-
+    ><<<grid, block>>>(dB_val, dC, dval_coo_idx, dval_coo_off, dval_coo_val, dval_sidx, dval_soff, K, M, Mo, N, nnz, nnz_block);
 }
 
 #define DIVUP(a, b) (((a) - 1) / (b) + 1)

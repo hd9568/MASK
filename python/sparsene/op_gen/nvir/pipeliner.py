@@ -1,5 +1,5 @@
-from sparsene.op_gen.nvir.nvop import NvOp, NvOpInput, NvOpOutput, VarlenShape, IoMemType, OpMemType
-from typing import List
+from sparsene.op_gen.nvir.nvop import NvOp, NvOpInput, NvOpOutput, VarlenShape, IoMemType, OpMemType, Shape
+from typing import List, Dict
 
 class NvOpStage:
 	ops: List[NvOp]
@@ -17,30 +17,43 @@ class NvOpPipeline:
 		self.stages = stages
 		self.shifts = shifts
 
+	@property
 	def num_stages(self) -> int:
 		return len(self.stages)
 
+	@property
 	def num_buf(self) -> int:
 		return max(self.shifts) + 1
+	
+	@property
+	def nbuf(self) -> int:
+		return self.num_buf
 	
 	def all_parameters(self) -> List[str]:
 		parameters = []
 		for stage in self.stages:
 			for op in stage.ops:
 				parameters.extend(op.parameters)
-		return list(dict.fromkeys(parameters)) # fromkeys trick to dedup
+		return sorted(dict.fromkeys(parameters)) # fromkeys trick to dedup
 	
 	def all_varlens(self) -> List[str]:
 		varlens = []
 		for stage in self.stages:
 			for op in stage.ops:
 				for inp in op.inputs:
-					if isinstance(inp.shape, VarlenShape):
-						varlens.append(inp.shape.name)
+					for shape in inp.shape:
+						if isinstance(shape, VarlenShape):
+							varlens.append(shape.name)
 				for out in op.outputs:
-					if isinstance(out.shape, VarlenShape):
-						varlens.append(out.shape.name)
-		return list(dict.fromkeys(varlens)) # fromkeys trick to dedup
+					for shape in out.shape:
+						if isinstance(shape, VarlenShape):
+							varlens.append(shape.name)
+		
+		for io in self.all_gmem_inouts().values():
+			for shape in io.shape:
+				if isinstance(shape, VarlenShape):
+					varlens.append(shape.name)
+		return sorted(dict.fromkeys(varlens)) # fromkeys trick to dedup
 	
 	def all_inputs_with_memtype(self, memtype: IoMemType) -> List[NvOpInput]:
 		inputs = []
@@ -49,7 +62,7 @@ class NvOpPipeline:
 				for inp in op.inputs:
 					if inp.mem == memtype:
 						inputs.append(inp)
-		return inputs
+		return sorted(inputs, key=lambda x: x.name)
 	
 	def all_outputs_with_memtype(self, memtype: IoMemType) -> List[NvOpOutput]:
 		outputs = []
@@ -58,10 +71,30 @@ class NvOpPipeline:
 				for out in op.outputs:
 					if out.mem == memtype:
 						outputs.append(out)
-		return outputs
+		return sorted(outputs, key=lambda x: x.name)
 	
-	def all_gmem_inouts(self) -> List[str]:
-		inp_names = [inp.name for inp in self.all_inputs_with_memtype("gmem")]
-		out_names = [out.name for out in self.all_outputs_with_memtype("gmem")]
-		return list(dict.fromkeys(inp_names + out_names)) # fromkeys trick to dedup
-	
+	def all_gmem_inouts(self) -> Dict[str, NvOpInput | NvOpOutput]:
+		gmem_inputs = {inp.name: inp for inp in self.all_inputs_with_memtype("gmem")}
+		gmem_outputs = {out.name: out for out in self.all_outputs_with_memtype("gmem")}
+		gmem_inouts = {
+			**gmem_inputs,
+			**gmem_outputs,
+			# TODO: HIGH PRIORITY: add outer op to avoid hard-coding
+			"val_soff": NvOpInput(
+				name="val_soff",
+				mem="gmem",
+				shape=Shape(VarlenShape(name="Mo")),
+				dtype="int",
+				source="val_soff",
+				idx=-1,
+			),
+			"C_val": NvOpOutput(
+				name="C_val",
+				mem="gmem",
+				shape=Shape(VarlenShape(name="N"), VarlenShape(name="M")),
+				dtype="float",
+				idx=-1,
+			),
+		}
+		sorted_keys = sorted(gmem_inouts.keys())
+		return {k: gmem_inouts[k] for k in sorted_keys}

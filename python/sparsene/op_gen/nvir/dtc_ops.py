@@ -21,7 +21,7 @@ g2s_val_sidx_load_op = NvOp(
             idx=0,
             shape=Shape(ParamShape("tile_sidx_size"), VarlenShape("nnz_block")),
             mem="gmem",
-            name="dval_sidx",
+            name="val_sidx",
             dtype="int",
             source="val_sidx"
         ),
@@ -40,7 +40,7 @@ g2s_val_sidx_load_op = NvOp(
         code_template="""if (lid < 4) {
 auto thr_tiler = make_shape(Int<4>{});
 auto thr_coord = make_coord(lid);
-auto src = local_tile(dval_sidx(_, i), thr_tiler, thr_coord);
+auto src = local_tile(val_sidx(_, i), thr_tiler, thr_coord);
 auto dst = local_tile(tile_sidx_block(_, buf_idx), thr_tiler, thr_coord);
 copy(Copy_Atom<UniversalCopy<uint128_t>, int>{}, src, dst);
 }"""
@@ -56,7 +56,7 @@ g2r_coo_atomic_format_load_off_op = NvOp(
             idx=0,
             shape=Shape(IntShape(2), VarlenShape("nnz_block")),
             mem="gmem",
-            name="dval_coo_off",
+            name="val_coo_off",
             dtype="int",
             source="val_coo_off"
         ),
@@ -67,8 +67,8 @@ g2r_coo_atomic_format_load_off_op = NvOp(
         NvOpOutput(idx=1, shape=Shape(), mem="rmem", name="r", dtype="int"),
     ],
     impl=NvOpImpl(
-        code_template="""l(buf_idx) = dval_coo_off(0, i);
-r(buf_idx) = dval_coo_off(1, i);"""
+        code_template="""l(buf_idx) = val_coo_off(0, i);
+r(buf_idx) = val_coo_off(1, i);"""
     ),
     mem_type=("g", "r"),
     parameters={},
@@ -96,9 +96,7 @@ s2r_val_sidx_load_op = NvOp(
         )
     ],
     impl=NvOpImpl(
-        code_template="""__pipeline_wait_prior(wait_num);
-__syncthreads();
-auto src = tile_sidx_block;
+        code_template="""auto src = tile_sidx_block;
 auto dst = val_sidx_reg(_, buf_idx);
 copy(src, dst);"""
     ),
@@ -113,7 +111,7 @@ g2s_coo_atomic_format_load_val_op = NvOp(
             idx=0,
             shape=Shape(VarlenShape("nnz")),
             mem="gmem",
-            name="dval_coo_val",
+            name="val_coo_val",
             dtype="half",
             source="val_coo_val"
         ),
@@ -132,7 +130,7 @@ g2s_coo_atomic_format_load_val_op = NvOp(
     impl=NvOpImpl(
         code_template="""auto thr_tiler = make_shape(_8{});
 auto thr_coord = make_coord(lid);
-auto input = make_tensor(dval_coo_val.data() + ll, make_shape(tile_coo_val_size{}));
+auto input = make_tensor(val_coo_val.data() + ll, make_shape(tile_coo_val_size{}));
 auto output = tile_coo_val_block(_, buf_idx);
 
 if (lid * 8 < rr - ll) {
@@ -152,7 +150,7 @@ g2r_coo_atomic_format_load_idx_op = NvOp(
             idx=0,
             shape=Shape(VarlenShape("nnz")),
             mem="gmem",
-            name="dval_coo_idx",
+            name="val_coo_idx",
             dtype="int",
             source="val_coo_idx"
         ),
@@ -168,7 +166,7 @@ g2r_coo_atomic_format_load_idx_op = NvOp(
     impl=NvOpImpl(
         code_template="""auto thr_tiler = make_shape(_8{});
 auto thr_coord = make_coord(lid);
-auto input = make_tensor(dval_coo_idx.data() + ll, make_shape(tile_coo_val_size{}));
+auto input = make_tensor(val_coo_idx.data() + ll, make_shape(tile_coo_val_size{}));
 coo_range_reg(buf_idx) = rr - ll;
 if (lid * 8 < rr - ll) {
     auto src = local_tile(input, thr_tiler, thr_coord);
@@ -253,9 +251,7 @@ s2s_coo_atomic_val_restore_op = NvOp(
         ),
     ],
     impl=NvOpImpl(
-        code_template="""__pipeline_wait_prior(wait_num);
-__syncthreads();
-// TODO: use tiler to distribute the tensor and use clear(Tensor) to set zero
+        code_template="""// TODO: use tiler to distribute the tensor and use clear(Tensor) to set zero
 for (int i_o2s = 0; i_o2s < 4; i_o2s++) {
     *((int*)(tile_coo_restore_val_block(_, _, buf_idx).data().get() + 32 * 2 * i_o2s + lid * 2)) = 0;
 }
@@ -293,7 +289,7 @@ s2r_a_val_load_op = NvOp(
         ),
     ],
     impl=NvOpImpl(
-        code_template="""// no need to __pipeline_wait_prior here because the prior op s2s_coo_atomic_val_restore does not use cp.async
+        code_template="""
 __syncthreads();
 int row = lid % 16;
 int col = lid / 16;
@@ -342,7 +338,7 @@ mma_op = NvOp(
         ),
     ],
     impl=NvOpImpl(
-        code_template="""for (int m_iter = 0; m_iter < 1; m_iter++) {
+        code_template="""for (int m_iter = 0; m_iter < get<0>(BLK_MMA_MNK{}); m_iter++) {
     for (int n_iter = 0; n_iter < get<1>(BLK_MMA_MNK{}); n_iter++) {
         mma_m16n8k16_fp32(REGC(_, (m_iter, n_iter), buf_idx).data(), (uint32_t*)(REGA(_, m_iter).data()), REGB(_, n_iter).data());
     }
@@ -415,7 +411,7 @@ if __name__ == "__main__":
     # print("=" * 50 + "short pipe" + "=" * 50)
     # print(NvIrCodeGenerator().dump_short_parallel(stages, shifts))
 
-    print("=" * 50 + "full kernel" + "=" * 50)
+    # print("=" * 50 + "full kernel" + "=" * 50)
     print(NvIrCodeGenerator().dump_nvop_pipeline(dtc_pipeline))
 
     

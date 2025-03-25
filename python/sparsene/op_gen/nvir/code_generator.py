@@ -1,4 +1,6 @@
+from enum import Enum
 from typing import List, Dict, Tuple, Optional
+from dataclasses import dataclass
 from sparsene.op_gen.nvir.nvop import (
     NvOp,
     NvOpInput,
@@ -472,7 +474,7 @@ class NvIrCodeGenerator:
         comma_seperated_shapes = ", ".join(shape_strs)
         return f"make_shape({comma_seperated_shapes})", varlen_idx
 
-    def dump_nvop_create(self, op: NvOp) -> str:
+    def dump_nvop_create(self, op: NvOp, nbuf: int) -> str:
         snake_name = to_snake(op.name)
         rmem_outputs = [out for out in op.outputs if out.mem == "rmem"]
         smem_outputs = [out for out in op.outputs if out.mem == "smem"]
@@ -484,9 +486,9 @@ class NvIrCodeGenerator:
         else:
             # TODO: use per stage nbuf instead of per memtype
             if smem_outputs:
-                template_args.append("Int<nbuf_smem>")
+                template_args.append(f"Int<{nbuf}>")
             elif rmem_outputs:
-                template_args.append("Int<nbuf_rmem>")
+                template_args.append(f"Int<{nbuf}>")
         template_args.extend(["BLK_MNK", "MMA_MNK", "BLK_MMA_MNK"])
         template_args.extend([parameter for parameter in op.parameters])
         template_args_str = ", ".join(template_args)
@@ -544,45 +546,192 @@ class NvIrCodeGenerator:
             + op_var_def_str
         )
 
-    def dump_short_pipe_device_function(self, pipeline: NvOpPipeline) -> str:
-        ops = [op for stage in pipeline.stages for op in stage.ops]
-        snake_names = [to_snake(op.name) for op in ops]
-        op_types = ", ".join([f"class T_{op.name}" for op in ops])
-        op_as_params = ", ".join(
-            [f"T_{op.name} {snake_name}" for op, snake_name in zip(ops, snake_names)]
-        )
-        short_pipe_body = self.dump_short_parallel(pipeline.stages, pipeline.shifts)
-        return "// short pipe\n" + templates.SHORT_PIPE_DEVICE_FUNCTION_SKELETON.format(
-            op_types=op_types,
-            op_as_params=op_as_params,
-            short_pipe_body=self._indent_lines(short_pipe_body),
-        )
+
 
     def dump_nvop_pipeline_device_functions(self, pipeline: NvOpPipeline) -> str:
         ops = [op for stage in pipeline.stages for op in stage.ops]
         snake_names = [to_snake(op.name) for op in ops]
         op_types = ", ".join([f"class T_{op.name}" for op in ops])
         op_as_params = ", ".join(
-            [f"T_{op.name} {snake_name}" for op, snake_name in zip(ops, snake_names)]
+            [f"T_{op.name} &{snake_name}" for op, snake_name in zip(ops, snake_names)]
+        )
+        gmem_tensor_types = "".join(
+            [f", class T_{name}" for name in pipeline.all_gmem_inouts().keys()]
+        )
+        gmem_tensor_as_params = "".join(
+            [f", T_{name} &{name}" for name in pipeline.all_gmem_inouts().keys()]
         )
         op_as_args = ", ".join(snake_names)
+        gmem_tensor_as_args = "".join(
+            [f", {name}" for name in pipeline.all_gmem_inouts().keys()]
+        )
 
         nbuf = max(pipeline.shifts) + 1
+
+        op_stage_idx_mapping = {
+            op: stage_idx
+            for (stage_idx, stage) in enumerate(pipeline.stages)
+            for op in stage.ops
+        }
+
+        @dataclass
+        class Inst: ...
+
+        @dataclass
+        class OpCall(Inst):
+            op: NvOp
+            buf_idx_str: str
+            shift_constant: str
+
+        @dataclass
+        class PipelineWait(Inst):
+            wait_num: int
+
+        @dataclass
+        class PipelineCommit(Inst): ...
+
+        @dataclass
+        class Comment(Inst):
+            comment: str
+
+            def __str__(self) -> str:
+                return f"// {self.comment}"
+
+        @dataclass
+        class SyncThreads(Inst): ...
+
+        @dataclass
+        class PipelinePhase: ...
+
+        @dataclass
+        class Filling(PipelinePhase):
+            stage: int
+            step_in_stage: int
+
+        @dataclass
+        class LoopStep(PipelinePhase):
+            step: int
+
+        @dataclass
+        class Remains(PipelinePhase):
+            remains: int
+            step: int
+
+        @dataclass
+        class Emptying(PipelinePhase):
+            stage: int
+            step_in_stage: int
+
+        # TODO: more elegant way to find the earliest emptying stage without g2s ops
+        no_g2s_emptying_stage_idx = pipeline.num_stages
+        while not any(
+            op.mem_type == ("g", "s")
+            for op in pipeline.stages[no_g2s_emptying_stage_idx - 1].ops
+        ):
+            no_g2s_emptying_stage_idx -= 1
+
+        def depends_on_g2s(op: NvOp) -> bool:
+            for inp in op.inputs:
+                if isinstance(inp.source, Tuple):
+                    if inp.source[0].mem_type == ("g", "s"):
+                        return True
+            return False
+
+        def g2s_first_schedule(
+            op_calls: List[OpCall], phase: PipelinePhase
+        ) -> List[Inst]:
+            instructions = []
+            g2s_ops = []
+
+            # 1. extract g2s ops first
+            for op_call in op_calls:
+                if op_call.op.mem_type == ("g", "s"):
+                    g2s_ops.append(op_call)
+
+            instructions.extend(g2s_ops)
+            if len(g2s_ops) != 0:
+                instructions.append(PipelineCommit())
+
+            # 2. schedule the rest
+            for op_call in op_calls:
+                if op_call.op.mem_type == ("g", "s"):
+                    continue
+                if depends_on_g2s(op_call.op):
+                    if (
+                        isinstance(phase, Emptying)
+                        and phase.stage >= no_g2s_emptying_stage_idx
+                    ):
+                        wait_num = sum(
+                            pipeline.shifts[
+                                (no_g2s_emptying_stage_idx - 1) : (
+                                    op_stage_idx_mapping[op_call.op]
+                                )
+                            ]
+                        ) - (phase.step_in_stage + 1)
+                    else:
+                        wait_num = (
+                            pipeline.shifts[op_stage_idx_mapping[op_call.op] - 1]
+                            if op_stage_idx_mapping[op_call.op] > 0
+                            else 0
+                        )
+                    instructions.append(PipelineWait(wait_num=wait_num))
+                    instructions.append(SyncThreads())
+                elif (
+                    op_call.op.mem_type[0] == "s"
+                ):  # sync smem write before reading, need sync
+                    instructions.append(SyncThreads())
+                instructions.append(op_call)
+
+            return instructions
+
+        def dump_insts(insts: List[Inst]) -> str:
+            inst_strs = []
+            for inst in insts:
+                if isinstance(inst, OpCall):
+                    inst_strs.append(
+                        self.dump_f_method_call(
+                            inst.op,
+                            buf_idx_str=inst.buf_idx_str,
+                            shift_constant=inst.shift_constant,
+                        )
+                    )
+                elif isinstance(inst, PipelineWait):
+                    inst_strs.append(f"__pipeline_wait_prior({inst.wait_num});")
+                elif isinstance(inst, PipelineCommit):
+                    inst_strs.append("__pipeline_commit();")
+                elif isinstance(inst, Comment):
+                    inst_strs.append(str(inst))
+                elif isinstance(inst, SyncThreads):
+                    inst_strs.append("__syncthreads();")
+                else:
+                    raise ValueError(f"Unknown instruction: {inst}")
+            return "\n".join(inst_strs)
+
+        def dump_short_pipe_device_function() -> str:
+            short_pipe_body = self.dump_short_parallel(pipeline.stages, pipeline.shifts)
+            return templates.SHORT_PIPE_DEVICE_FUNCTION_SKELETON.format(
+                op_types=op_types,
+                op_as_params=op_as_params,
+                gmem_tensor_types=gmem_tensor_types,
+                gmem_tensor_as_params=gmem_tensor_as_params,
+                short_pipe_body=self._indent_lines(short_pipe_body),
+            )
 
         def dump_fill() -> str:
             def dump_fill_body() -> str:
                 # All stages start from 0
                 stage_counter = [0 for _ in range(len(pipeline.shifts))]
 
-                op_calls = []
+                all_insts = []
                 for i in range(len(pipeline.shifts)):
-                    op_calls.append(f"// stage 0..{i}")
-                    for _ in range(pipeline.shifts[i]):
+                    all_insts.append(Comment(f"stage 0..{i}"))
+                    for step in range(pipeline.shifts[i]):
                         # Stage 0; Stage 0, 1; Stage 0, 1, 2; ...; Stage 0, 1, 2, ..., nstages - 2
+                        op_calls = []
                         for stage_idx, stage in enumerate(pipeline.stages[: i + 1]):
                             for op in stage.ops:
                                 op_calls.append(
-                                    self.dump_f_method_call(
+                                    OpCall(
                                         op,
                                         buf_idx_str=str(
                                             stage_counter[stage_idx] % nbuf
@@ -591,12 +740,17 @@ class NvIrCodeGenerator:
                                     )
                                 )
                             stage_counter[stage_idx] += 1
-
-                return "\n".join(op_calls)
+                        insts = g2s_first_schedule(
+                            op_calls, Filling(stage=i, step_in_stage=step)
+                        )
+                        all_insts.extend(insts)
+                return dump_insts(all_insts)
 
             return templates.FILL_DEVICE_FUNCTION_SKELETON.format(
                 op_types=op_types,
                 op_as_params=op_as_params,
+                gmem_tensor_types=gmem_tensor_types,
+                gmem_tensor_as_params=gmem_tensor_as_params,
                 fill_body=self._indent_lines(dump_fill_body()),
             )
 
@@ -614,25 +768,31 @@ class NvIrCodeGenerator:
                     -sum(pipeline.shifts[:i]) for i in range(len(pipeline.stages))
                 ]
 
-                op_calls = []
-                for it in range(nbuf):
+                all_insts = []
+                for step in range(nbuf):
+                    all_insts.append(Comment(f"step {step}"))
+                    op_calls = []
                     for stage_idx, stage in enumerate(pipeline.stages):
                         for op in stage.ops:
                             op_calls.append(
-                                self.dump_f_method_call(
+                                OpCall(
                                     op,
                                     buf_idx_str=str(
-                                        (it + stage_buf_offsets[stage_idx]) % nbuf
+                                        (step + stage_buf_offsets[stage_idx]) % nbuf
                                     ),
-                                    shift_constant=f"i + ({it + stage_idx_offsets[stage_idx]})",
+                                    shift_constant=f"i + ({step + stage_idx_offsets[stage_idx]})",
                                 )
                             )
+                    insts = g2s_first_schedule(op_calls, LoopStep(step=step))
+                    all_insts.extend(insts)
 
-                return "\n".join(op_calls)
+                return dump_insts(all_insts)
 
             return templates.LOOP_STEP_DEVICE_FUNCTION_SKELETON.format(
                 op_types=op_types,
                 op_as_params=op_as_params,
+                gmem_tensor_types=gmem_tensor_types,
+                gmem_tensor_as_params=gmem_tensor_as_params,
                 loop_step_body=self._indent_lines(dump_loop_step_body()),
             )
 
@@ -651,26 +811,33 @@ class NvIrCodeGenerator:
                         -sum(pipeline.shifts[:i]) for i in range(len(pipeline.stages))
                     ]
 
-                    op_calls = []
-                    for it in range(r):
-                        op_calls.append(f"// remains {r - it} out of {r}")
+                    all_insts = []
+                    for step in range(r):
+                        all_insts.append(Comment(f"total remains {r}, current {step}"))
+                        op_calls = []
                         for stage_idx, stage in enumerate(pipeline.stages):
                             for op in stage.ops:
                                 op_calls.append(
-                                    self.dump_f_method_call(
+                                    OpCall(
                                         op,
                                         buf_idx_str=str(
-                                            (it + stage_buf_offsets[stage_idx]) % nbuf
+                                            (step + stage_buf_offsets[stage_idx]) % nbuf
                                         ),
-                                        shift_constant=f"i + ({it + stage_idx_offsets[stage_idx]})",
+                                        shift_constant=f"i + ({step + stage_idx_offsets[stage_idx]})",
                                     )
                                 )
+                        insts = g2s_first_schedule(
+                            op_calls, Remains(remains=r, step=step)
+                        )
+                        all_insts.extend(insts)
 
-                    return "\n".join(op_calls)
+                    return dump_insts(all_insts)
 
                 return templates.REMAINS_R_DEVICE_FUNCTION_SKELETON.format(
                     op_types=op_types,
                     op_as_params=op_as_params,
+                    gmem_tensor_types=gmem_tensor_types,
+                    gmem_tensor_as_params=gmem_tensor_as_params,
                     r=r,
                     remains_r_body=self._indent_lines(dump_remains_r_body()),
                 )
@@ -678,10 +845,10 @@ class NvIrCodeGenerator:
             def dump_remainder_dispatch() -> str:
                 def dump_remainder_dispatch_body() -> str:
                     def dump_remains_i_call(i: int) -> str:
-                        return f"remains_{i}(i, l, r, {op_as_args})"
+                        return f"remains_{i}(i, l, r, {op_as_args}{gmem_tensor_as_args});"
 
                     def dump_remains_i_switch_i(i: int) -> str:
-                        return ("else " if i > 0 else "") + (
+                        return ("else " if i > 1 else "") + (
                             f"if (r - l - i == {i}) {{\n"
                             + self._indent_lines(dump_remains_i_call(i))
                             + "\n"
@@ -689,20 +856,22 @@ class NvIrCodeGenerator:
                         )
 
                     return "\n".join(
-                        dump_remains_i_switch_i(i + 1)
-                        for i in range(len(pipeline.shifts))
+                        dump_remains_i_switch_i(i)
+                        for i in range(1, nbuf)
                     )
 
                 return templates.REMAINDER_DEVICE_FUNCTION_SKELETON.format(
                     op_types=op_types,
                     op_as_params=op_as_params,
+                    gmem_tensor_types=gmem_tensor_types,
+                    gmem_tensor_as_params=gmem_tensor_as_params,
                     remainder_dispatch_body=self._indent_lines(
                         dump_remainder_dispatch_body()
                     ),
                 )
 
             return (
-                "\n\n".join(dump_remains_r(i + 1) for i in range(len(pipeline.shifts)))
+                "\n\n".join(dump_remains_r(i) for i in range(1, nbuf))
                 + "\n\n"
                 + dump_remainder_dispatch()
             )
@@ -717,32 +886,42 @@ class NvIrCodeGenerator:
                         for i in range(len(pipeline.shifts))
                     ]
 
-                    op_calls = []
-                    it = 0
+                    all_insts = []
+                    total_step = 0
                     for i in range(len(pipeline.shifts)):
-                        op_calls.append(f"// stage {i + 1}..{len(pipeline.stages) - 1}")
-                        for _ in range(pipeline.shifts[i]):
+                        all_insts.append(
+                            Comment(f"stage {i + 1}..{len(pipeline.stages) - 1}")
+                        )
+                        for step in range(pipeline.shifts[i]):
                             # Stage 1, 2, ... nstages - 1; Stage 2, 3, ... nstages - 1; ...; Stage nstages - 1
+                            op_calls = []
                             for stage_idx, stage in enumerate(
                                 pipeline.stages[i + 1 :], start=i
                             ):
                                 for op in stage.ops:
                                     op_calls.append(
-                                        self.dump_f_method_call(
+                                        OpCall(
                                             op,
                                             buf_idx_str=str(
                                                 stage_counter[stage_idx] % nbuf
                                             ),
-                                            shift_constant=f"i + ({it})",
+                                            shift_constant=f"i + ({total_step})",
                                         )
                                     )
                                 stage_counter[stage_idx] += 1
-                            it += 1
-                    return "\n".join(op_calls)
+                            total_step += 1
+                            insts = g2s_first_schedule(
+                                op_calls, Emptying(stage=i + 1, step_in_stage=step)
+                            )
+                            all_insts.extend(insts)
+
+                    return dump_insts(all_insts)
 
                 return templates.EMPTY_FROM_IDX_DEVICE_FUNCTION_SKELETON.format(
                     op_types=op_types,
                     op_as_params=op_as_params,
+                    gmem_tensor_types=gmem_tensor_types,
+                    gmem_tensor_as_params=gmem_tensor_as_params,
                     from_idx=from_idx,
                     empty_from_idx_body=self._indent_lines(
                         dump_empty_from_idx_body(from_idx)
@@ -752,7 +931,7 @@ class NvIrCodeGenerator:
             def dump_empty_from_idx_dispatch() -> str:
                 def dump_empty_dispatch_body() -> str:
                     def dump_empty_from_idx_call(idx: int) -> str:
-                        return f"empty_{idx}(i, l, r, {op_as_args})"
+                        return f"empty_{idx}(i, l, r, {op_as_args}{gmem_tensor_as_args});"
 
                     def dump_empty_from_buf_idx_switch_i(idx: int) -> str:
                         return ("else " if idx > 0 else "") + (
@@ -764,25 +943,29 @@ class NvIrCodeGenerator:
 
                     return "\n".join(
                         dump_empty_from_buf_idx_switch_i(i)
-                        for i in range(len(pipeline.stages))
+                        for i in range(nbuf)
                     )
 
                 return templates.EMPTY_DEVICE_FUNCTION_SKELETON.format(
                     op_types=op_types,
                     op_as_params=op_as_params,
+                    gmem_tensor_types=gmem_tensor_types,
+                    gmem_tensor_as_params=gmem_tensor_as_params,
                     empty_dispatch_body=self._indent_lines(dump_empty_dispatch_body()),
                 )
 
             return (
                 "\n\n".join(
-                    dump_empty_from_idx(i + 1) for i in range(len(pipeline.shifts))
+                    dump_empty_from_idx(i) for i in range(nbuf)
                 )
                 + "\n\n"
                 + dump_empty_from_idx_dispatch()
             )
 
         return (
-            "// fill\n"
+            "// short pipe\n"
+            + dump_short_pipe_device_function()
+            + "\n\n// fill\n"
             + dump_fill()
             + "\n\n// loop_step\n"
             + dump_loop_step()
@@ -796,24 +979,27 @@ class NvIrCodeGenerator:
         ops = [op for stage in pipeline.stages for op in stage.ops]
         snake_names = [to_snake(op.name) for op in ops]
         op_as_args = ", ".join(snake_names)
+        gmem_tensor_as_args = "".join(
+            [f", {name}" for name in pipeline.all_gmem_inouts().keys()]
+        )
         sum_shifts = sum(pipeline.shifts)
 
         nbuf = max(pipeline.shifts) + 1
 
         def dump_short_pipe_dispatch() -> str:
-            return f"short_pipe(k, l, r, {op_as_args});"
+            return f"short_pipe(k, l, r, {op_as_args}{gmem_tensor_as_args});"
 
         def dump_fill_dispatch() -> str:
-            return f"fill(i, l, r, {op_as_args});"
+            return f"fill(l, r, {op_as_args}{gmem_tensor_as_args});"
 
         def dump_loop_step_dispatch() -> str:
-            return f"loop_step(i, l, r, {op_as_args});"
+            return f"loop_step(i, l, r, {op_as_args}{gmem_tensor_as_args});"
 
         def dump_remainder_dispatch() -> str:
-            return f"remainder(i, l, r, {op_as_args});"
+            return f"remainder(i, l, r, {op_as_args}{gmem_tensor_as_args});"
 
         def dump_empty_dispatch() -> str:
-            return f"empty(i, l, r, {op_as_args});"
+            return f"empty(i, l, r, {op_as_args}{gmem_tensor_as_args});"
 
         return templates.GLOBAL_FUNCTION_DISPATCH_SKELETON.format(
             sum_shifts=sum_shifts,
@@ -834,16 +1020,22 @@ class NvIrCodeGenerator:
     def dump_nvop_pipeline_global_function(self, pipeline: NvOpPipeline) -> str:
 
         def dump_all_parameters() -> str:
-            return ", ".join([f"class {param}" for param in pipeline.all_parameters()])
+            all_parameters = pipeline.all_parameters()
+            return "".join([f", class {param}" for param in all_parameters])
 
         def dump_shifts() -> str:
             return ", ".join(f"int shift{i + 1}" for i in range(len(pipeline.shifts)))
 
         def dump_gmem_ptrs() -> str:
-            return ", ".join([f"d{name}" for name in pipeline.all_gmem_inouts()])
+            return ",\n".join(
+                [
+                    f"{io.dtype} *d{name}"
+                    for name, io in pipeline.all_gmem_inouts().items()
+                ]
+            )
 
         def dump_varlens() -> str:
-            return ", ".join(pipeline.all_varlens())
+            return ", ".join([f"int {name}" for name in pipeline.all_varlens()])
 
         def dump_gmem_tensor_init() -> str:
             def dump_make_shape(shape: Shape) -> str:
@@ -867,19 +1059,17 @@ class NvIrCodeGenerator:
                 return f"make_shape({comma_seperated_shapes})"
 
             tensor_init_strs = ["// gmem tensors"]
-            for io in pipeline.all_inputs_with_memtype(
-                "gmem"
-            ) + pipeline.all_outputs_with_memtype("gmem"):
+            for name, io in pipeline.all_gmem_inouts().items():
                 tensor_init_strs.append(
-                    f"auto {io.name} = make_tensor(make_gmem_ptr(d{io.name}), {dump_make_shape(io.shape)});"
+                    f"auto {name} = make_tensor(make_gmem_ptr(d{name}), {dump_make_shape(io.shape)});"
                 )
             return "\n".join(tensor_init_strs)
 
         all_parameters = dump_all_parameters()
         shifts = dump_shifts()
         kernel_name = pipeline.name
-        gmem_ptrs = dump_gmem_ptrs()
-        varlens = dump_varlens()
+        gmem_ptrs = self._indent_lines(dump_gmem_ptrs())
+        varlens = self._indent_lines(dump_varlens())
         gmem_tensor_init = self._indent_lines(dump_gmem_tensor_init())
         nvop_inits = self._indent_lines(self.dump_nvop_inits(pipeline))
         prologue = self._indent_lines(self.dump_prologue(pipeline))
@@ -911,7 +1101,7 @@ class NvIrCodeGenerator:
         stages = []
         for stage_idx, stage in enumerate(pipeline.stages):
             stage_op_str = f"// stage {stage_idx}\n"
-            ops = [self.dump_nvop_create(op) for op in stage.ops]
+            ops = [self.dump_nvop_create(op, pipeline.nbuf) for op in stage.ops]
             stage_op_str += "\n\n".join(ops)
             stages.append(stage_op_str)
         return "\n\n".join(stages)
@@ -919,13 +1109,11 @@ class NvIrCodeGenerator:
     def dump_nvop_pipeline(self, pipeline: NvOpPipeline) -> str:
         device_helper_functions = templates.DTC_HELPER_FUNCTIONS
         nvop_defs = self.dump_nvop_defs(pipeline)
-        short_pipe_device_function = self.dump_short_pipe_device_function(pipeline)
-        long_pipe_device_functions = self.dump_nvop_pipeline_device_functions(pipeline)
+        nvop_pipeline_device_functions = self.dump_nvop_pipeline_device_functions(pipeline)
         global_function = self.dump_nvop_pipeline_global_function(pipeline)
         return templates.CUDA_SOURCE_SKELETON.format(
             device_helper_functions=device_helper_functions,
             nvop_defs=nvop_defs,
-            short_pipe_device_function=short_pipe_device_function,
-            long_pipe_device_functions=long_pipe_device_functions,
+            nvop_pipeline_device_functions=nvop_pipeline_device_functions,
             global_function=global_function,
         )

@@ -37,9 +37,7 @@ using namespace cute;
 
 {nvop_defs}
 
-{short_pipe_device_function}
-
-{long_pipe_device_functions}
+{nvop_pipeline_device_functions}
 
 // GLOBAL FUNCTION
 {global_function}
@@ -75,19 +73,18 @@ auto REGC = mma_op.template output<0, 0>();
 for (int i_tileN = 0; i_tileN < get<1>(BLK_MNK{}) / 8; i_tileN++) {
     int row = blockIdx.x * 16 + lid / 4;
     int col = blockIdx.y * get<1>(BLK_MNK{}) + i_tileN * 8 + lid % 4 * 2;
-    C_val(row, col) = REGC(0, i_tileN);
-    C_val(row, col + 1) = REGC(1, i_tileN);
-    C_val(row + 8, col) = REGC(2, i_tileN);
-    C_val(row + 8, col + 1) = REGC(3, i_tileN);
+    C_val(col, row) = REGC(0, i_tileN);
+    C_val(col + 1, row) = REGC(1, i_tileN);
+    C_val(col, row + 8) = REGC(2, i_tileN);
+    C_val(col + 1, row + 8) = REGC(3, i_tileN);
 }"""
 
 GLOBAL_FUNCTION_SKELETON = """template <
-	class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK,
+	class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK
 	{all_parameters}
-	int nbuf_smem, int nbuf_rmem>
-__global__ void {kernel_name}(
-	{gmem_ptrs}
-	{varlens}
+> __global__ void {kernel_name}(
+{gmem_ptrs},
+{varlens}
 ) {{
     const int tid = threadIdx.x;
     const int lid = tid % 32;
@@ -116,37 +113,37 @@ GLOBAL_FUNCTION_DISPATCH_SKELETON = """if (k <= {sum_shifts}) {{
     {empty_dispatch}
 }}"""
 
-SHORT_PIPE_DEVICE_FUNCTION_SKELETON = """template <{op_types}>
-__device__ void short_pipe(int k, int l, int r, {op_as_params}) {{
+SHORT_PIPE_DEVICE_FUNCTION_SKELETON = """template <{op_types}{gmem_tensor_types}>
+__device__ void short_pipe(int k, int l, int r, {op_as_params}{gmem_tensor_as_params}) {{
 {short_pipe_body}
 }}"""
 
-FILL_DEVICE_FUNCTION_SKELETON = """template <{op_types}>
-__device__ void fill(int i, int l, int r, {op_as_params}) {{
+FILL_DEVICE_FUNCTION_SKELETON = """template <{op_types}{gmem_tensor_types}>
+__device__ void fill(int l, int r, {op_as_params}{gmem_tensor_as_params}) {{
 {fill_body}
 }}"""
 
-EMPTY_FROM_IDX_DEVICE_FUNCTION_SKELETON = """template <{op_types}>
-__device__ void empty_{from_idx}(int i, int l, int r, {op_as_params}) {{
+EMPTY_FROM_IDX_DEVICE_FUNCTION_SKELETON = """template <{op_types}{gmem_tensor_types}>
+__device__ void empty_{from_idx}(int i, int l, int r, {op_as_params}{gmem_tensor_as_params}) {{
 {empty_from_idx_body}
 }}"""
 
-EMPTY_DEVICE_FUNCTION_SKELETON = """template <{op_types}>
-__device__ void empty(int i, int l, int r, {op_as_params}) {{
+EMPTY_DEVICE_FUNCTION_SKELETON = """template <{op_types}{gmem_tensor_types}>
+__device__ void empty(int i, int l, int r, {op_as_params}{gmem_tensor_as_params}) {{
 {empty_dispatch_body}
 }}"""
 
-LOOP_STEP_DEVICE_FUNCTION_SKELETON = """template <{op_types}>
-__device__ void loop_step(int i, int l, int r, {op_as_params}) {{
+LOOP_STEP_DEVICE_FUNCTION_SKELETON = """template <{op_types}{gmem_tensor_types}>
+__device__ void loop_step(int i, int l, int r, {op_as_params}{gmem_tensor_as_params}) {{
 {loop_step_body}
 }}"""
 
-REMAINS_R_DEVICE_FUNCTION_SKELETON = """template <{op_types}>
-__device__ void remains_{r}(int i, int l, int r, {op_as_params}) {{
+REMAINS_R_DEVICE_FUNCTION_SKELETON = """template <{op_types}{gmem_tensor_types}>
+__device__ void remains_{r}(int i, int l, int r, {op_as_params}{gmem_tensor_as_params}) {{
 {remains_r_body}
 }}"""
 
-REMAINDER_DEVICE_FUNCTION_SKELETON = """template <{op_types}>
-__device__ void remainder(int i, int l, int r, {op_as_params}) {{
+REMAINDER_DEVICE_FUNCTION_SKELETON = """template <{op_types}{gmem_tensor_types}>
+__device__ void remainder(int i, int l, int r, {op_as_params}{gmem_tensor_as_params}) {{
 {remainder_dispatch_body}
 }}"""
