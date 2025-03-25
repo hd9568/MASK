@@ -79,7 +79,7 @@ class NvOpInput:
     mem: IoMemType
     name: str
     dtype: str
-    source: Optional[Tuple[NvOp, int] | str]
+    source: Tuple[NvOp, int] | str
 
     def __init__(self, idx: int, shape: Shape, mem: IoMemType, name: str, dtype: str):
         self.idx = idx

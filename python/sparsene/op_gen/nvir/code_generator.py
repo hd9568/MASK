@@ -1,4 +1,4 @@
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Optional
 from sparsene.op_gen.nvir.nvop import (
     NvOp,
     NvOpInput,
@@ -13,6 +13,8 @@ from sparsene.op_gen.nvir.nvop import (
     ParamShape,
     MnkShape,
 )
+from sparsene.op_gen.nvir.pipeliner import NvOpPipeline, NvOpStage
+import sparsene.op_gen.nvir.templates as templates
 from itertools import chain
 
 import re
@@ -363,7 +365,14 @@ class NvIrCodeGenerator:
         args_1 = [out.name for out in smem_outputs]
         args_2 = varlen_modes
         if args_0 and args_1 and args_2:
-            args_str = ", ".join(args_0) + ", \n" + ", ".join(args_1) + ", \n" + ", ".join(args_2) + ","
+            args_str = (
+                ", ".join(args_0)
+                + ", \n"
+                + ", ".join(args_1)
+                + ", \n"
+                + ", ".join(args_2)
+                + ","
+            )
         elif args_0 and args_1:
             args_str = ", ".join(args_0) + ", \n" + ", ".join(args_1) + ","
         elif args_0 and args_2:
@@ -371,13 +380,316 @@ class NvIrCodeGenerator:
         else:
             args_str = ", ".join(args_0) + ","
         op_var_def_str = (
-            f"{snake_name}_t {snake_name}{{\n" + self._indent_lines(args_str) + "\n" + "};"
+            f"{snake_name}_t {snake_name}{{\n"
+            + self._indent_lines(args_str)
+            + "\n"
+            + "};"
         )
 
         return self._indent_lines(
             using_type_str
             + "\n"
             + (("\n".join(smem_output_shapes) + "\n") if smem_output_shapes else "")
-            + (("\n".join(smem_output_array_defs) + "\n") if smem_output_array_defs else "")
-            + op_var_def_str
-        , indent_level)
+            + (
+                ("\n".join(smem_output_array_defs) + "\n")
+                if smem_output_array_defs
+                else ""
+            )
+            + op_var_def_str,
+            indent_level,
+        )
+
+    def dump_f_method_call_arg(
+        self, inp: NvOpInput, *, buf_idx: Optional[int] = None, **kwargs
+    ) -> str:
+        if isinstance(inp.source, tuple):
+            assert buf_idx is not None
+            return f"{inp.source[0].name}.template output<{buf_idx}, {inp.source[1]}>()"
+        else:
+            return inp.source.format(**kwargs)
+
+    def dump_f_method_call(self, op: NvOp, buf_idx: int, **kwargs) -> str:
+        # looks like:
+        # g2r_coo_atomic_format_load_idx_op.f<(I + shift3 + shift2) % nbuf_rmem>(val_coo_idx,
+        #     g2r_coo_atomic_format_load_off_op.template output<(I + shift3 + shift2) % nbuf_rmem, 0>(),
+        #     g2r_coo_atomic_format_load_off_op.template output<(I + shift3 + shift2) % nbuf_rmem, 1>()
+        # );
+        arg_strs = [
+            self.dump_f_method_call_arg(inp, buf_idx=buf_idx, **kwargs)
+            for inp in op.inputs
+        ]
+        return (
+            f"{op.name}.f<{buf_idx}>(\n"
+            + self._indent_lines(",\n".join(arg_strs))
+            + "\n"
+            + ");"
+        )
+
+    def dump_nvop_pipeline_device_functions(
+        self, pipeline: NvOpPipeline, indent_level: int = 0
+    ) -> str:
+        ops = [op for stage in pipeline.stages for op in stage.ops]
+        snake_names = [to_snake(op.name) for op in ops]
+        op_types = ", ".join([f"class T_{op.name}" for op in ops])
+        op_as_params = ", ".join(
+            [f"T_{op.name} {snake_name}" for op, snake_name in zip(ops, snake_names)]
+        )
+        op_as_args = ", ".join(snake_names)
+        op_shifts = [
+            sum(pipeline.shifts[:idx])
+            for idx, stage in enumerate(pipeline.stages)
+            for _ in stage.ops
+        ]
+
+        nbuf = max(pipeline.shifts) + 1
+
+        def dump_fill() -> str:
+            def dump_fill_body() -> str:
+                # All stages start from 0
+                stage_counter = [0 for _ in range(len(pipeline.shifts))]
+
+                op_calls = []
+                for i in range(len(pipeline.shifts)):
+                    for _ in range(pipeline.shifts[i]):
+                        # Stage 0; Stage 0, 1; Stage 0, 1, 2; ...; Stage 0, 1, 2, ..., nstages - 2
+                        for stage_idx, stage in enumerate(pipeline.stages[: i + 1]):
+                            for op in stage.ops:
+                                op_calls.append(
+                                    self.dump_f_method_call(
+                                        op,
+                                        buf_idx=stage_counter[stage_idx] % nbuf,
+                                        global_i=f"{i}",
+                                    )
+                                )
+                            stage_counter[stage_idx] += 1
+
+                return "\n".join(op_calls)
+
+            return templates.FILL_DEVICE_FUNCTION_SKELETON.format(
+                op_types=op_types,
+                op_as_params=op_as_params,
+                fill_body=dump_fill_body(),
+            )
+
+        def dump_loop_step() -> str:
+            def dump_loop_step_body() -> str:
+                # Stage k has buf_offset (shiftk + shiftk+1 + ... + shiftnstages-1)
+                # The last stage has buf_offset 0
+                stage_buf_offsets = [
+                    sum(pipeline.shifts[i:]) for i in range(len(pipeline.stages))
+                ]
+
+                # Stage k has offset -(shift0 + shift1 + ... + shiftk-1)
+                # The first stage has offset 0
+                stage_idx_offsets = [
+                    -sum(pipeline.shifts[:i]) for i in range(len(pipeline.stages))
+                ]
+
+                op_calls = []
+                for it in range(nbuf):
+                    for stage_idx, stage in enumerate(pipeline.stages):
+                        for op in stage.ops:
+                            op_calls.append(
+                                self.dump_f_method_call(
+                                    op,
+                                    buf_idx=(it + stage_buf_offsets[stage_idx]) % nbuf,
+                                    global_i=f"i + ({it + stage_idx_offsets[stage_idx]})",
+                                )
+                            )
+
+                return "\n".join(op_calls)
+
+            return templates.LOOP_STEP_DEVICE_FUNCTION_SKELETON.format(
+                op_types=op_types,
+                op_as_params=op_as_params,
+                loop_step_body=dump_loop_step_body(),
+            )
+
+        def dump_remainder() -> str:
+            def dump_remains_r(r: int) -> str:
+                def dump_remains_r_body() -> str:
+                    # Stage k has buf_offset (shiftk + shiftk+1 + ... + shiftnstages-1)
+                    # The last stage has buf_offset 0
+                    stage_buf_offsets = [
+                        sum(pipeline.shifts[i:]) for i in range(len(pipeline.stages))
+                    ]
+
+                    # Stage k has offset -(shift0 + shift1 + ... + shiftk-1)
+                    # The first stage has offset 0
+                    stage_idx_offsets = [
+                        -sum(pipeline.shifts[:i]) for i in range(len(pipeline.stages))
+                    ]
+
+                    op_calls = []
+                    for it in range(r):
+                        for stage_idx, stage in enumerate(pipeline.stages):
+                            for op in stage.ops:
+                                op_calls.append(
+                                    self.dump_f_method_call(
+                                        op,
+                                        buf_idx=(it + stage_buf_offsets[stage_idx])
+                                        % nbuf,
+                                        global_i=f"i + ({it + stage_idx_offsets[stage_idx]})",
+                                    )
+                                )
+
+                    return "\n".join(op_calls)
+
+                return templates.REMAINS_R_DEVICE_FUNCTION_SKELETON.format(
+                    op_types=op_types,
+                    op_as_params=op_as_params,
+                    r=r,
+                    remains_r_body=dump_remains_r_body(),
+                )
+
+            def dump_remainder_dispatch() -> str:
+                def dump_remainder_dispatch_body() -> str:
+                    def dump_remains_i_call(i: int) -> str:
+                        return f"remains_{i}(i, l, r, {op_as_args})"
+
+                    def dump_remains_i_switch_i(i: int) -> str:
+                        return ("else " if i > 0 else "") + (
+                            f"if (r - l - i == {i}) {{\n"
+                            + self._indent_lines(dump_remains_i_call(i))
+                            + "\n"
+                            + "}"
+                        )
+
+                    return "\n".join(
+                        dump_remains_i_switch_i(i + 1)
+                        for i in range(len(pipeline.shifts))
+                    )
+
+                return templates.REMAINDER_DEVICE_FUNCTION_SKELETON.format(
+                    op_types=op_types,
+                    op_as_params=op_as_params,
+                    remainder_dispatch_body=dump_remainder_dispatch_body(),
+                )
+
+            return (
+                "\n".join(dump_remains_r(i + 1) for i in range(len(pipeline.shifts)))
+                + "\n"
+                + dump_remainder_dispatch()
+            )
+
+        def dump_empties() -> str:
+            def dump_empty_from_idx(from_idx: int) -> str:
+                def dump_empty_from_idx_body(idx: int) -> str:
+                    # Stage 0 is completed
+                    # Stage 1, 2, 3, ... starts from [idx - shift0, idx - shift0 - shift1, idx - shift0 - shift1 - shift2, ...]
+                    stage_counter = [
+                        idx - sum(pipeline.shifts[: i + 1])
+                        for i in range(len(pipeline.shifts))
+                    ]
+
+                    op_calls = []
+                    it = 0
+                    for i in range(len(pipeline.shifts)):
+                        for _ in range(pipeline.shifts[i]):
+                            # Stage 1, 2, ... nstages - 1; Stage 2, 3, ... nstages - 1; ...; Stage nstages - 1
+                            for stage_idx, stage in enumerate(
+                                pipeline.stages[i + 1 :], start=i
+                            ):
+                                for op in stage.ops:
+                                    op_calls.append(
+                                        self.dump_f_method_call(
+                                            op,
+                                            buf_idx=stage_counter[stage_idx] % nbuf,
+                                            global_i=f"i + ({it})",
+                                        )
+                                    )
+                                stage_counter[stage_idx] += 1
+                            it += 1
+                    return "\n".join(op_calls)
+
+                return templates.EMPTY_FROM_IDX_DEVICE_FUNCTION_SKELETON.format(
+                    op_types=op_types,
+                    op_as_params=op_as_params,
+                    from_idx=from_idx,
+                    empty_from_idx_body=dump_empty_from_idx_body(from_idx),
+                )
+
+            def dump_empty_from_idx_dispatch() -> str:
+                def dump_empty_dispatch_body() -> str:
+                    def dump_empty_from_idx_call(idx: int) -> str:
+                        return f"empty_{idx}(i, l, r, {op_as_args})"
+
+                    def dump_empty_from_buf_idx_switch_i(idx: int) -> str:
+                        return ("else " if idx > 0 else "") + (
+                            f"if ((r - l - i + ({sum(pipeline.shifts)})) % {nbuf} == {idx}) {{\n"
+                            + self._indent_lines(dump_empty_from_idx_call(idx))
+                            + "\n"
+                            + "}"
+                        )
+
+                    return "\n".join(
+                        dump_empty_from_buf_idx_switch_i(i + 1)
+                        for i in range(len(pipeline.shifts))
+                    )
+
+                return templates.EMPTY_DEVICE_FUNCTION_SKELETON.format(
+                    op_types=op_types,
+                    op_as_params=op_as_params,
+                    empty_dispatch_body=dump_empty_dispatch_body(),
+                )
+
+            return (
+                "\n".join(
+                    dump_empty_from_idx(i + 1) for i in range(len(pipeline.shifts))
+                )
+                + "\n"
+                + dump_empty_from_idx_dispatch()
+            )
+
+        return (
+            dump_fill()
+            + "\n"
+            + dump_loop_step()
+            + "\n"
+            + dump_remainder()
+            + "\n"
+            + dump_empties()
+        )
+
+    def dump_dispatch(self, pipeline: NvOpPipeline) -> str:
+        ops = [op for stage in pipeline.stages for op in stage.ops]
+        snake_names = [to_snake(op.name) for op in ops]
+        op_types = ", ".join([f"class T_{op.name}" for op in ops])
+        op_as_params = ", ".join(
+            [f"T_{op.name} {snake_name}" for op, snake_name in zip(ops, snake_names)]
+        )
+        op_as_args = ", ".join(snake_names)
+        sum_shifts = sum(pipeline.shifts)
+
+        nbuf = max(pipeline.shifts) + 1
+
+        def dump_short_pipe_dispatch() -> str:
+            return f"short_pipe(i, l, r, {op_as_args});"
+
+        def dump_fill_dispatch() -> str:
+            return f"fill(i, l, r, {op_as_args});"
+
+        def dump_loop_step_dispatch() -> str:
+            return f"loop_step(i, l, r, {op_as_args});"
+
+        def dump_remainder_dispatch() -> str:
+            return f"remainder(i, l, r, {op_as_args});"
+
+        def dump_empty_dispatch() -> str:
+            return f"empty(i, l, r, {op_as_args});"
+
+        return templates.GLOBAL_FUNCTION_DISPATCH_SKELETON.format(
+            sum_shifts=sum_shifts,
+            nbuf=nbuf,
+            short_pipe_dispatch=dump_short_pipe_dispatch(),
+            fill_dispatch=dump_fill_dispatch(),
+            loop_step_dispatch=dump_loop_step_dispatch(),
+            remainder_dispatch=dump_remainder_dispatch(),
+            empty_dispatch=dump_empty_dispatch(),
+        )
+
+    def dump_epilogue(self) -> str:
+        raise NotImplementedError
+
+    def dump_nvop_pipeline(self, pipeline: NvOpPipeline, indent_level: int = 0) -> str:
+        raise NotImplementedError

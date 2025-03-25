@@ -48,7 +48,7 @@ using namespace cute;
 
 {{remainder_device_functions}}
 
-{{generic_kernel}}
+{{global_function}}
 """
 
 DTC_HELPER_FUNCTIONS = """
@@ -74,7 +74,7 @@ __device__ __forceinline__ void mma_m16n8k16_fp32(float* acc, uint32_t* A, half*
 }
 """
 
-GENERIC_KERNEL_SKELETON = """
+GLOBAL_FUNCTION_SKELETON = """
 template <
 	class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK,
 	{{all_parameters}}
@@ -92,8 +92,70 @@ __global__ void {{kernel_name}}(
 
 	{{op_init}}
 
+	{{prologue}}
+
 	{{dispatch}}
 
 	{{epilogue}}
 }
 """
+
+GLOBAL_FUNCTION_DISPATCH_SKELETON = """
+if (k <= {sum_shifts}) {{
+    {short_pipe_dispatch}
+}} else {{
+    {fill_dispatch}
+
+    int i;
+    for (i = {sum_shifts}; i + {nbuf} <= k; i += {nbuf}) {{
+        {loop_step_dispatch}
+    }}
+
+    {remainder_dispatch}
+
+    {empty_dispatch}
+}}
+"""
+
+FILL_DEVICE_FUNCTION_SKELETON = """
+template <{op_types}>
+__device__ void fill(int i, int l, int r, {op_as_params}) {{
+    {fill_body}
+}}
+"""
+
+EMPTY_FROM_IDX_DEVICE_FUNCTION_SKELETON = """
+template <{op_types}>
+__device__ void empty_{from_idx}(int i, int l, int r, {op_as_params}) {{
+    {empty_from_idx_body}
+}}
+"""
+
+EMPTY_DEVICE_FUNCTION_SKELETON = """
+template <{op_types}>
+__device__ void empty(int i, int l, int r, {op_as_params}) {{
+    {empty_dispatch_body}
+}}
+"""
+
+LOOP_STEP_DEVICE_FUNCTION_SKELETON = """
+template <{op_types}>
+__device__ void loop_step(int i, int l, int r, {op_as_params}) {{
+    {loop_step_body}
+}}
+"""
+
+REMAINS_R_DEVICE_FUNCTION_SKELETON = """
+template <{op_types}>
+__device__ void remains_{r}(int i, int l, int r, {op_as_params}) {{
+    {remains_r_body}
+}}
+"""
+
+REMAINDER_DEVICE_FUNCTION_SKELETON = """
+template <{op_types}>
+__device__ void remainder(int i, int l, int r, {op_as_params}) {{
+    {remainder_dispatch_body}
+}}
+"""
+
