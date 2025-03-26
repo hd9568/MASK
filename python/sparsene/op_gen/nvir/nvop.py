@@ -96,14 +96,15 @@ class NvOpOutput:
     mem: IoMemType
     name: str
     dtype: str
+    attrs: Dict[str, Any]
 
-    def __init__(self, idx: int, shape: Shape, mem: IoMemType, name: str, dtype: str):
+    def __init__(self, idx: int, shape: Shape, mem: IoMemType, name: str, dtype: str, **kwargs: Any):
         self.idx = idx
         self.shape = shape
         self.mem = mem
         self.name = name
         self.dtype = dtype
-
+        self.attrs = kwargs
 
 class NvOp:
     name: str

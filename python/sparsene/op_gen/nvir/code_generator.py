@@ -120,7 +120,7 @@ class NvIrCodeGenerator:
             op
         ) + self.dump_init_output_varlen_shape(op)
         output_tensor_constructor_init_list = [
-            f"{out.name}(make_tensor(make_{out.mem}_ptr({out.name}), Shape_o{out.idx}{{}}))"
+            f"{out.name}(make_tensor(make_{out.mem}_ptr({out.name}), Layout_o{out.idx}{{}}))"
             for out in op.outputs
             if len(out.shape) > 0 and out.mem != "rmem"
         ]
@@ -149,10 +149,20 @@ class NvIrCodeGenerator:
         )
 
     def dump_f_method(self, op: NvOp) -> str:
-        code_str = op.impl.code_template
+        static_assert_strs = [
+            f"CUTE_STATIC_ASSERT_V((get<{i}>(shape_i{inp.idx}) == size<{i}>(shape({inp.name}))));"
+            # if not isinstance(s, VarlenShape)
+            # else f"CUTE_STATIC_ASSERT((is_static<decltype(size<{i}>(shape({inp.name})))>::value));"
+            for inp in op.inputs
+            if len(inp.shape) > 0
+            for i, s in enumerate(inp.shape)
+            if not isinstance(s, VarlenShape)
+        ]
+        code_str = "\n".join([*static_assert_strs, op.impl.code_template])
         f_template_head_str = (
             "template<size_t buf_idx"
             # + (", size_t wait_num" if op.mem_type[0] == "s" else "")
+            + "".join(f", class Tensor_i{inp.idx}" for inp in op.inputs if len(inp.shape) > 0)
             + ">"
         )
         f_input_list = []
@@ -350,10 +360,9 @@ class NvIrCodeGenerator:
     def dump_input_decl(self, inp: NvOpInput, op: NvOp) -> str:
         if len(inp.shape) > 0:
             shape_type_str = self.dump_decl_input_shape_type(inp.idx, inp.shape)
-            tensor_type_str = self.dump_decl_input_tensor_type(inp.idx, op)
             shape_str = self.dump_decl_input_shape(inp.idx)
             tensor_str = self.dump_decl_input_tensor(inp)
-            return f"{shape_type_str}\n{tensor_type_str}\n{shape_str}\n{tensor_str}"
+            return f"{shape_type_str}\n{shape_str}\n{tensor_str}"
         else:
             return f"// TI{inp.idx} {inp.name};"
 
@@ -384,16 +393,6 @@ class NvIrCodeGenerator:
         comma_seperated_shapes = ", ".join(shape_strs)
         return f"make_shape({comma_seperated_shapes})"
 
-    def dump_decl_input_tensor_type(self, idx: int, op: NvOp) -> str:
-        match op.inputs[idx].mem:
-            case "gmem":
-                decl_tensor_str = f"decltype(make_tensor(make_gmem_ptr((TI{idx}*)nullptr), Shape_i{idx}{{}}))"
-            case "smem":
-                decl_tensor_str = f"decltype(make_tensor(make_smem_ptr((TI{idx}*)nullptr), Shape_i{idx}{{}}))"
-            case "rmem":
-                decl_tensor_str = f"decltype(make_tensor(make_rmem_ptr((TI{idx}*)nullptr), Shape_i{idx}{{}}))"
-        return f"using Tensor_i{idx} = {decl_tensor_str};"
-
     def dump_decl_input_shape(self, idx: int) -> str:
         return f"Shape_i{idx} shape_i{idx};"
 
@@ -402,28 +401,40 @@ class NvIrCodeGenerator:
 
     def dump_output_decl(self, out: NvOpOutput, op: NvOp) -> str:
         shape_type_str = self.dump_decl_output_shape_type(out.idx, out.shape)
+        layout_type_str = self.dump_decl_output_layout_type(out.idx, op)
         tensor_type_str = self.dump_decl_output_tensor_type(out.idx, op)
         shape_str = self.dump_decl_output_shape(out.idx)
+        layout_str = self.dump_decl_output_layout(out.idx)
         tensor_str = self.dump_decl_output_tensor(out)
-        return f"{shape_type_str}\n{tensor_type_str}\n{shape_str}\n{tensor_str}"
+        return f"{shape_type_str}\n{layout_type_str}\n{tensor_type_str}\n{shape_str}\n{layout_str}\n{tensor_str}"
 
     def dump_decl_output_shape_type(self, idx: int, shape: Shape) -> str:
         make_shape_str = self.dump_decl_make_shape(shape, is_output=True)
         decl_shape_str = f"decltype({make_shape_str})"
         return f"using Shape_o{idx} = {decl_shape_str};"
+        
+    def dump_decl_output_layout_type(self, idx: int, op: NvOp) -> str:
+        row_major = op.outputs[idx].attrs.get("row_major", False)
+        if (swizzle:=op.outputs[idx].attrs.get("swizzle", None)) is not None:
+            return f"using Layout_o{idx} = decltype(composition(Swizzle<{', '.join(str(s) for s in swizzle)}>{{}}, make_layout(Shape_o{idx}{{}}{', LayoutRight{}' if row_major else ''})));"
+        else:
+            return f"using Layout_o{idx} = decltype(make_layout(Shape_o{idx}{{}}{', LayoutRight{}' if row_major else ''}));"
 
     def dump_decl_output_tensor_type(self, idx: int, op: NvOp) -> str:
         match op.outputs[idx].mem:
             case "gmem":
-                decl_tensor_str = f"decltype(make_tensor(make_gmem_ptr((TO{idx}*)nullptr), Shape_o{idx}{{}}))"
+                decl_tensor_str = f"decltype(make_tensor(make_gmem_ptr((TO{idx}*)nullptr), Layout_o{idx}{{}}))"
             case "smem":
-                decl_tensor_str = f"decltype(make_tensor(make_smem_ptr((TO{idx}*)nullptr), Shape_o{idx}{{}}))"
+                decl_tensor_str = f"decltype(make_tensor(make_smem_ptr((TO{idx}*)nullptr), Layout_o{idx}{{}}))"
             case "rmem":
-                decl_tensor_str = f"decltype(make_tensor<TO{idx}>(Shape_o{idx}{{}}))"
+                decl_tensor_str = f"decltype(make_tensor<TO{idx}>(Layout_o{idx}{{}}))"
         return f"using Tensor_o{idx} = {decl_tensor_str};"
 
     def dump_decl_output_shape(self, idx: int) -> str:
         return f"Shape_o{idx} shape_o{idx};"
+
+    def dump_decl_output_layout(self, idx: int) -> str:
+        return f"Layout_o{idx} layout_o{idx};"
 
     def dump_decl_output_tensor(self, out: NvOpOutput) -> str:
         return f"Tensor_o{out.idx} {out.name};"
@@ -484,22 +495,18 @@ class NvIrCodeGenerator:
         if op.attrs.get("reduction", False) == True:
             template_args.append("Int<1> /* reduction */")
         else:
-            # TODO: use per stage nbuf instead of per memtype
-            if smem_outputs:
-                template_args.append(f"Int<{nbuf}>")
-            elif rmem_outputs:
-                template_args.append(f"Int<{nbuf}>")
+            template_args.append(f"Int<{nbuf}>")
         template_args.extend(["BLK_MNK", "MMA_MNK", "BLK_MMA_MNK"])
         template_args.extend([parameter for parameter in op.parameters])
         template_args_str = ", ".join(template_args)
         using_type_str = f"using {snake_name}_t = {op.name}<{template_args_str}>;"
 
         smem_output_shapes = [
-            f"using {snake_name}_shape_o{out.idx} = typename {snake_name}_t::Shape_o{out.idx};"
+            f"using {snake_name}_layout_o{out.idx} = typename {snake_name}_t::Layout_o{out.idx};"
             for out in smem_outputs
         ]
         smem_output_array_defs = [
-            f"__shared__ {out.dtype} {out.name}[cosize_v<Layout<{snake_name}_shape_o{out.idx}>>];"
+            f"__shared__ {out.dtype} {out.name}[cosize_v<{snake_name}_layout_o{out.idx}>];"
             for out in smem_outputs
         ]
 

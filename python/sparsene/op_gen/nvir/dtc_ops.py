@@ -242,12 +242,15 @@ s2s_coo_atomic_val_restore_op = NvOp(
         NvOpOutput(
             idx=0,
             shape=Shape(
-                MnkShape("BLK_MNK", "m"),
                 MnkShape("BLK_MNK", "k"),
+                MnkShape("BLK_MNK", "m"),
             ),
             mem="smem",
             name="tile_coo_restore_val_block",
             dtype="half",
+            swizzle=(2, 3, 3),
+            # row_major=True, 
+            # FIXME: row major is buggy because LayoutRight would make nbuf the least significant dimension
         ),
     ],
     impl=NvOpImpl(
@@ -259,7 +262,7 @@ __syncthreads();
 for (int i_restore = 0; i_restore < 8; i_restore++) {
     int idx = coo_idx_reg(i_restore);
     if (lid * 8 + i_restore < nnz_num) {
-        tile_coo_restore_val_block(_, _, buf_idx).data()[(idx)] = tile_coo_val_block(lid * 8 + i_restore);
+        tile_coo_restore_val_block(_, _, buf_idx)(idx) = tile_coo_val_block(lid * 8 + i_restore);
     }
 }"""
     ),
@@ -272,7 +275,7 @@ s2r_a_val_load_op = NvOp(
     inputs=[
         NvOpInput(
             idx=0,
-            shape=Shape(MnkShape("BLK_MNK", "m"), MnkShape("BLK_MNK", "k")),
+            shape=Shape(MnkShape("BLK_MNK", "k"), MnkShape("BLK_MNK", "m")),
             mem="smem",
             name="tile_coo_restore_val_block",
             dtype="half",
@@ -297,7 +300,7 @@ int col = lid / 16;
 for (int m_iter = 0; m_iter < get<0>(BLK_MMA_MNK{}); m_iter++) { // now the m_iter would always be zero, which means the for-loop body would run only once
     ldmatrix_m8n8k8_x4(
         (uint32_t*)(REGA(_, _0{}, buf_idx).data()),
-        (void*)&tile_coo_restore_val_block((row) * 16 + (col * 8))
+        (void*)&tile_coo_restore_val_block(col * 8, row)
     );
 }"""
     ),
@@ -353,52 +356,6 @@ mma_op = NvOp(
 if __name__ == "__main__":
     from sparsene.op_gen.nvir.code_generator import NvIrCodeGenerator
 
-    # print("// shift 1")
-    # print(NvIrCodeGenerator().dump_nvop_class_def(g2s_val_sidx_load_op))
-    # print()
-    # print(NvIrCodeGenerator().dump_nvop_class_def(g2r_coo_atomic_format_load_off_op))
-    # print()
-    # print("// shift 2")
-    # print(NvIrCodeGenerator().dump_nvop_class_def(s2r_val_sidx_load_op))
-    # print()
-    # print(NvIrCodeGenerator().dump_nvop_class_def(g2s_coo_atomic_format_load_val_op))
-    # print()
-    # print(NvIrCodeGenerator().dump_nvop_class_def(g2r_coo_atomic_format_load_idx_op))
-    # print()
-    # print("// shift 3")
-    # print(NvIrCodeGenerator().dump_nvop_class_def(g2r_b_val_load_op))
-    # print()
-    # print(NvIrCodeGenerator().dump_nvop_class_def(s2s_coo_atomic_val_restore_op))
-    # print()
-    # print(NvIrCodeGenerator().dump_nvop_class_def(s2r_a_val_load_op))
-    # print()
-    # #! mma in shift 4
-    # print("// shift 4")
-    # print(NvIrCodeGenerator().dump_nvop_class_def(mma_op))
-    # print()
-    # print()
-    # print("    // shift 1")
-    # print(NvIrCodeGenerator().dump_nvop_create(g2s_val_sidx_load_op, 1))
-    # print()
-    # print(NvIrCodeGenerator().dump_nvop_create(g2r_coo_atomic_format_load_off_op, 1))
-    # print()
-    # print("    // shift 2")
-    # print(NvIrCodeGenerator().dump_nvop_create(s2r_val_sidx_load_op, 1))
-    # print()
-    # print(NvIrCodeGenerator().dump_nvop_create(g2s_coo_atomic_format_load_val_op, 1))
-    # print()
-    # print(NvIrCodeGenerator().dump_nvop_create(g2r_coo_atomic_format_load_idx_op, 1))
-    # print()
-    # print("    // shift 3")
-    # print(NvIrCodeGenerator().dump_nvop_create(g2r_b_val_load_op, 1))
-    # print()
-    # print(NvIrCodeGenerator().dump_nvop_create(s2s_coo_atomic_val_restore_op, 1))
-    # print()
-    # print(NvIrCodeGenerator().dump_nvop_create(s2r_a_val_load_op, 1))
-    # print()
-    # print(NvIrCodeGenerator().dump_nvop_create(mma_op, 1))
-    # print()
-
     dtc_stage1 = NvOpStage([g2s_val_sidx_load_op, g2r_coo_atomic_format_load_off_op])
     dtc_stage2 = NvOpStage([s2r_val_sidx_load_op, g2s_coo_atomic_format_load_val_op, g2r_coo_atomic_format_load_idx_op])
     dtc_stage3 = NvOpStage([g2r_b_val_load_op, s2s_coo_atomic_val_restore_op, s2r_a_val_load_op])
@@ -407,11 +364,6 @@ if __name__ == "__main__":
     stages = [dtc_stage1, dtc_stage2, dtc_stage3, dtc_stage4]
 
     dtc_pipeline = NvOpPipeline("dtc_spmm_kernel_sstage_rstage", stages, shifts)
-
-    # print("=" * 50 + "short pipe" + "=" * 50)
-    # print(NvIrCodeGenerator().dump_short_parallel(stages, shifts))
-
-    # print("=" * 50 + "full kernel" + "=" * 50)
     print(NvIrCodeGenerator().dump_nvop_pipeline(dtc_pipeline))
 
     
