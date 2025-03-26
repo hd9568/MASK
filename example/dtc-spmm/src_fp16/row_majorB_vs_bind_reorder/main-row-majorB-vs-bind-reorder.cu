@@ -71,6 +71,21 @@ void debug_unpack_half_short(uint32_t packed, __half &h, short &s) {
     s = static_cast<short>(short_bits);        // 还原 short
 }
 
+void initVector(half* vec, int length, float sparsity) {
+    if (sparsity < 0.0f || sparsity > 1.0f) return; 
+    auto seed = std::time(nullptr);
+    std::srand(1234); 
+    cout << seed << endl;
+    // std::srand(1);
+    for (int i = 0; i < length; ++i) {
+        if (static_cast<float>(rand()) / RAND_MAX < sparsity) {
+            vec[i] = half(0.0f); 
+        } else {
+            // vec[i] = half(static_cast<float>(rand()) / RAND_MAX * 2.0f - 1.0f); 
+            vec[i] = half(rand() % 5 + 1);
+        }
+    }
+}
 
 
 void convertToMETCF(
@@ -93,6 +108,7 @@ void convertToMETCF(
         vector<int>& nnz_per_tc_block = vec_nnz_per_tc_block[i_row_window];
         for (int i_row = 0; i_row < ROW_WINDOW_M; i_row++) {
             int row = i_row_window * ROW_WINDOW_M + i_row;
+            if (row >= M) continue;
             for (int j = csrPtrA[row]; j < csrPtrA[row + 1]; j++) {
                 nnz_col[csrColIdxA[j]] = 1;
             }   
@@ -110,6 +126,7 @@ void convertToMETCF(
         nnz_per_tc_block.resize(TCBlock_num, 0);
         for (int i_row = 0; i_row < ROW_WINDOW_M; i_row++) {
             int row = i_row_window * ROW_WINDOW_M + i_row;
+            if (row >= M) continue;
             for (int j = csrPtrA[row]; j < csrPtrA[row + 1]; j++) {
                 int col = csrColIdxA[j];
                 int condensed_col = binarySearch(nnz_col, 0, nnz_col_num - 1, col);
@@ -163,6 +180,7 @@ void convertToMETCF(
         vector<int>& nnz_per_tc_block = vec_nnz_per_tc_block[i_row_window];
         for (int i_row = 0; i_row < ROW_WINDOW_M; i_row++) {
             int row = i_row_window * ROW_WINDOW_M + i_row;
+            if (row >= M) continue;
             for (int j = csrPtrA[row]; j < csrPtrA[row + 1]; j++) {
                 nnz_col[csrColIdxA[j]] = 1;
             }
@@ -189,6 +207,7 @@ void convertToMETCF(
         for (int i_row = 0; i_row < ROW_WINDOW_M; i_row++) {
             int row = i_row_window * ROW_WINDOW_M + i_row;
             int col_start_pos = 0;
+            if (row >= M) continue;
             for (int j = csrPtrA[row]; j < csrPtrA[row + 1]; j++) {
                 int col = csrColIdxA[j];
                 float value = (float)csrValA[j];
@@ -383,9 +402,12 @@ void cusparse_spmm_all(
 
 int main(int argc, char** argv) {
     string filename;
-    int N = 512;
-
-    parseInput(argc, argv, filename, "-filename", N, "-num");
+    int N = 1024;
+    int M = 1024;
+    int K = 1024;
+    float sparsity = 0.9;
+    int mtx_flag = 1;
+    parseInput(argc, argv, filename, "-filename", N, "-N", M, "-M", K, "-K", mtx_flag, "-mtx_flag", sparsity, "-sparsity");
 
     cout << "Filename: " << filename << endl;
     cout << "N: " << N << endl;
@@ -396,16 +418,51 @@ int main(int argc, char** argv) {
     int* csrPtrA;
     int* csrColIdxA;
     half* csrValA;
+    half* A;
+    //! input from file
+    if (mtx_flag == 1) {
+        mmio_allinone(&rowA, &colA, &nnz, &isSymmetricA, &csrPtrA, &csrColIdxA, &csrValA, filename.c_str());
+        M = rowA;
+        K = colA;
+    } else {//! sparse matrix init
+        A = (half*)malloc(sizeof(half) * M * K);
+        initVector(A, M * K, sparsity);
+        //> convert to csr
+        csrPtrA = (int*)malloc(sizeof(int) * (M + 1));
+        for (int i = 0; i < M; i++) {
+            csrPtrA[i] = nnz;
+            for (int k = 0; k < K; k++) {
+                float value = (float)A[i * K + k];
+                if (value != 0) {
+                    nnz++;
+                }
+            }
+        }
+        csrPtrA[M] = nnz;
+        csrColIdxA = (int*)malloc(sizeof(int) * nnz);
+        csrValA = (half*)malloc(sizeof(half) * nnz);
+        memset(csrColIdxA, 0, sizeof(int) * nnz);
+        memset(csrValA, 0, sizeof(half) * nnz);
+        int ptr = 0;
+        for (int i = 0; i < M; i++) {
+            for (int k = 0; k < K; k++) {
+                float value = (float)A[i * K + k];
+                if (value != 0) {
+                    csrColIdxA[ptr] = k;
+                    csrValA[ptr] = (half)value;
+                    ptr++;
+                }
+            }
+        }
+    }
 
-    mmio_allinone(&rowA, &colA, &nnz, &isSymmetricA, &csrPtrA, &csrColIdxA, &csrValA, filename.c_str());
-    int M = rowA;
-    int K = colA;
+    
     printf("HALF: Sparse A[%d,%d] x B[%d,%d] = C[%d,%d]\n", M, K, K, N, M, N);
 
     half* B = (half*)malloc(sizeof(half) * K * N);
-    initVec(B, K * N);
-    initVec(csrValA, nnz);
-
+    // initVec(B, K * N);
+    // initVec(csrValA, nnz);
+    initVector(B, K * N, 0);
     {//! debug convert to dense
         // float* restoreA = (float*)malloc(sizeof(float) * rowA * colA);
         // memset(restoreA, 0, sizeof(float) * rowA * colA);
