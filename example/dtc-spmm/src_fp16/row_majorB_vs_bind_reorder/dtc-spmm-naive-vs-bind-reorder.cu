@@ -77,9 +77,21 @@ __device__ __forceinline__ void unpack_half_short(uint32_t packed, half& h, shor
     s = static_cast<short>(short_bits);
 }
 
+template<int SizeInBytes>
+__device__ __forceinline__ void cp_async_ignore_src(half* smem_ptr, half* global_ptr)
+{
+    static_assert((SizeInBytes == 4 || SizeInBytes == 8 || SizeInBytes == 16), "Size is not supported");
+    unsigned smem_int_ptr = __cvta_generic_to_shared(smem_ptr);
+    asm volatile("{ \n"
+                 "  cp.async.cg.shared.global [%0], [%1], %2, 0;\n"
+                 "}\n" ::"r"(smem_int_ptr),
+                 "l"(global_ptr),
+                 "n"(SizeInBytes));
+}
+
 template <int TILE_B>
 __device__ __forceinline__ void op_memcpy_async_sparse_encoding_value_load(
-    int i, int smem_st_ptr, int* dval_coo_off, uint32_t* dval_coo_val_idx_bind, int l, int r, int* coo_range_reg, int lane_id, uint32_t* tileA_coo_val_idx_bind_block, int tile_coo_val_size
+    int i, int smem_st_ptr, int* dval_coo_off, uint32_t* dval_coo_val_idx_bind, int l, int r, int* coo_range_reg, int lane_id, uint32_t* tileA_coo_val_idx_bind_block, int tile_coo_val_size, half* tile_coo_restore_val_block
 ) {
     int ll = dval_coo_off[2 * (l + i)];
     int rr = dval_coo_off[2 * (l + i) + 1];
@@ -117,14 +129,15 @@ __device__ __forceinline__ void op_restore_matrix_A(
     int nnz_num = coo_range_reg[smem_ld_ptr];
     // 16 * 16 half = 32 * 8 half = 32 * 4 float
     for (int i_o2s = lane_id; i_o2s < tile_coo_val_size / 2; i_o2s += 32) {
-        // *((float*)(&tile_coo_restore_val_block[smem_st_ptr * tile_coo_val_size]) + i_o2s) = 0;
+        *((float*)(&tile_coo_restore_val_block[smem_st_ptr * tile_coo_val_size]) + i_o2s) = 0;
     }
-    *((float*)(&tile_coo_restore_val_block[smem_st_ptr * tile_coo_val_size]) + lane_id) = 0;
-    *((float*)(&tile_coo_restore_val_block[smem_st_ptr * tile_coo_val_size]) + lane_id + 32) = 0;
-    *((float*)(&tile_coo_restore_val_block[smem_st_ptr * tile_coo_val_size]) + lane_id + 32 * 2) = 0;
-    *((float*)(&tile_coo_restore_val_block[smem_st_ptr * tile_coo_val_size]) + lane_id + 32 * 3) = 0;
-    *((float*)(&tile_coo_restore_val_block[smem_st_ptr * tile_coo_val_size]) + lane_id + 32 * 4) = 0;
-    *((float*)(&tile_coo_restore_val_block[smem_st_ptr * tile_coo_val_size]) + lane_id + 32 * 5) = 0;
+    // *((float*)(&tile_coo_restore_val_block[smem_st_ptr * tile_coo_val_size]) + lane_id) = 0;
+    // *((float*)(&tile_coo_restore_val_block[smem_st_ptr * tile_coo_val_size]) + lane_id + 32) = 0;
+    // *((float*)(&tile_coo_restore_val_block[smem_st_ptr * tile_coo_val_size]) + lane_id + 32 * 2) = 0;
+    // *((float*)(&tile_coo_restore_val_block[smem_st_ptr * tile_coo_val_size]) + lane_id + 32 * 3) = 0;
+    // *((float*)(&tile_coo_restore_val_block[smem_st_ptr * tile_coo_val_size]) + lane_id + 32 * 4) = 0;
+    // *((float*)(&tile_coo_restore_val_block[smem_st_ptr * tile_coo_val_size]) + lane_id + 32 * 5) = 0;
+
     for (int i_o2s = lane_id * 4; i_o2s < tile_coo_val_size / 2 / 4; i_o2s += 32 * 4) {
         // *((float4*)(&tile_coo_restore_val_block[smem_st_ptr * tile_coo_val_size] + i_o2s)) = (float4)0;
     }
@@ -144,7 +157,7 @@ __device__ __forceinline__ void op_restore_matrix_A(
         // printf("cuda check tile A: i = %d\n", i);
         // for (int i = 0; i < 16; i++) {
         //     for (int j = 0; j < 16; j++) {
-        //         printf("%.0f ", (float)tile_coo_restore_val_block[smem_st_ptr * tile_coo_val_size + OFFSET_ROW(i, j, 16)]);
+        //         printf("%.0f ", (float)tile_coo_restore_val_block[smem_st_ptr * tile_coo_val_size + OFFSET_ROW(i, j, 24)]);
         //     } printf("\n");
         // }
     }
@@ -189,6 +202,15 @@ __device__ __forceinline__ void op_memcpy_async_matrix_B_load(
         float4* src = (float4*)(&dB_val[OFFSET_ROW(sidx, gmem_col, N)]);
         __pipeline_memcpy_async(dst, src, sizeof(float4));
     }
+    // for (int tileK_iter_inner = 0; tileK_iter_inner < 8; tileK_iter_inner++) {
+    //     int row = tileK_iter_inner * 2 + lane_id / 16;
+    //     int col = lane_id % 16 * 8;
+    //     int gmem_col = block_idx_y * TILE_B + col;
+    //     int sidx = tile_sidx_block[smem_ld_ptr * tile_sidx_size + row];
+    //     float4* dst = (float4*)(&tileB_block[smem_st_ptr * tile_B_size + OFFSET_ROW(row, col, (128 + 8))]);
+    //     float4* src = (float4*)(&dB_val[OFFSET_ROW(sidx, gmem_col, N)]);
+    //     __pipeline_memcpy_async(dst, src, sizeof(float4));
+    // }
 }
 
 template <int TILE_B>
@@ -259,13 +281,13 @@ __global__ void dtc_spmm_kernel_fp16_val_idx_bind_stage2(
     int i = 0;
     //>========================================================
     //! A: memcpy async sparse encoding + value load (0)
-    op_memcpy_async_sparse_encoding_value_load<TILE_B>(0, 0 % stages, dval_coo_off, dval_coo_val_idx_bind, l, r, coo_range_reg, lane_id, tileA_coo_val_idx_bind_block, tile_coo_val_size);
+    op_memcpy_async_sparse_encoding_value_load<TILE_B>(0, 0 % stages, dval_coo_off, dval_coo_val_idx_bind, l, r, coo_range_reg, lane_id, tileA_coo_val_idx_bind_block, tile_coo_val_size, tile_coo_restore_val_block);
     //! B: memcpy async sparse index load (0)
     op_memcpy_async_sparse_index_load<TILE_B>(0, 0 % stages, lane_id, tile_sidx_block, tile_sidx_size, dval_sidx, l);
     __pipeline_commit();
     //>========================================================
     //! A: memcpy async sparse encoding + value load (1)
-    op_memcpy_async_sparse_encoding_value_load<TILE_B>(1, 1 % stages, dval_coo_off, dval_coo_val_idx_bind, l, r, coo_range_reg, lane_id, tileA_coo_val_idx_bind_block, tile_coo_val_size);
+    op_memcpy_async_sparse_encoding_value_load<TILE_B>(1, 1 % stages, dval_coo_off, dval_coo_val_idx_bind, l, r, coo_range_reg, lane_id, tileA_coo_val_idx_bind_block, tile_coo_val_size, tile_coo_restore_val_block);
     //! B: memcpy async sparse index load (1)
     op_memcpy_async_sparse_index_load<TILE_B>(1, 1 % stages, lane_id, tile_sidx_block, tile_sidx_size, dval_sidx, l);
     __pipeline_wait_prior(0);
@@ -278,10 +300,9 @@ __global__ void dtc_spmm_kernel_fp16_val_idx_bind_stage2(
     //>========================================================
     for (i = 0; i + 2 < k; i++) {  
         //! A: memcpy async sparse encoding + value load (i + 2)
-        op_memcpy_async_sparse_encoding_value_load<TILE_B>(i + 2, (i + 2) % stages, dval_coo_off, dval_coo_val_idx_bind, l, r, coo_range_reg, lane_id, tileA_coo_val_idx_bind_block, tile_coo_val_size);
+        op_memcpy_async_sparse_encoding_value_load<TILE_B>(i + 2, (i + 2) % stages, dval_coo_off, dval_coo_val_idx_bind, l, r, coo_range_reg, lane_id, tileA_coo_val_idx_bind_block, tile_coo_val_size, tile_coo_restore_val_block);
         //! B: memcpy async sparse index load (i + 2)
         op_memcpy_async_sparse_index_load<TILE_B>(i + 2, (i + 2) % stages, lane_id, tile_sidx_block, tile_sidx_size, dval_sidx, l);
-        __pipeline_wait_prior(0);
         __pipeline_wait_prior(0);
         __syncthreads();
         //! A: memcpy async restore matrix A (i + 1)
