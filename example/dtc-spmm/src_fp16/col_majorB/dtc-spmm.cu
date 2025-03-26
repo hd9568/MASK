@@ -1111,6 +1111,7 @@ void ncu_test_all(
         tile_coo_val_size, tile_sidx_size,
         shift1, shift2, shift3, nbuf_smem, nbuf_rmem
     ><<<grid, block>>>(dB_val, dC, dval_coo_idx, dval_coo_off, dval_coo_val, dval_sidx, dval_soff, K, M, Mo, N, nnz, nnz_block);
+
 }
 
 #define DIVUP(a, b) (((a) - 1) / (b) + 1)

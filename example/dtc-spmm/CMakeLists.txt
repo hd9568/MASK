@@ -1,0 +1,98 @@
+cmake_minimum_required(VERSION 3.16)
+project(dtc LANGUAGES CXX CUDA)
+
+# CUDA compiler settings
+find_package(CUDAToolkit REQUIRED)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CUDA_STANDARD 17)
+set(CMAKE_CUDA_STANDARD_REQUIRED ON)
+
+set(CMAKE_CUDA_ARCHITECTURES 80)
+
+# CUDA flags
+set(CUDA_NVCC_FLAGS
+        -g
+        -lineinfo
+        -O3
+        -m64
+        -Xcompiler -fopenmp-simd
+)
+
+# Link libraries
+set(CUDA_LIBS -lcusparse -lcublas)
+
+# Include source directory
+set(SRCDIR ${CMAKE_CURRENT_SOURCE_DIR}/src)
+file(GLOB_RECURSE SRC_CUDA_FILES ${SRCDIR}/*.cu)
+# Exclude specific files
+# set(EXCLUDE_FILES
+#         ${SRCDIR}/main_f16.cu
+#         ${SRCDIR}/main_f64.cu
+#         ${SRCDIR}/mySpMV_main_f16.cu
+# )
+# list(REMOVE_ITEM SRC_CUDA_FILES ${EXCLUDE_FILES})
+
+# SRC_FP16 directory
+set(SRCDIR_FP16 ${CMAKE_CURRENT_SOURCE_DIR}/src_fp16)
+
+#> col major B
+add_subdirectory(${SRCDIR_FP16}/col_majorB/)
+# file(GLOB_RECURSE SRC_FP16_COLMAJORB_FILES ${SRCDIR_FP16}/col_majorB/*.cu)
+# add_executable(dtc_half_col_majorB ${SRC_CUDA_FILES} ${SRC_FP16_COLMAJORB_FILES})
+# target_compile_options(dtc_half_col_majorB PRIVATE ${CUDA_NVCC_FLAGS} -I${SRCDIR})
+# target_link_libraries(dtc_half_col_majorB PRIVATE ${CUDA_LIBS})
+
+
+#> row major B
+file(GLOB_RECURSE SRC_FP16_ROWMAJORB_FILES ${SRCDIR_FP16}/row_majorB/*.cu)
+add_executable(dtc_half_row_majorB ${SRC_CUDA_FILES} ${SRC_FP16_ROWMAJORB_FILES})
+target_compile_options(dtc_half_row_majorB PRIVATE ${CUDA_NVCC_FLAGS} -I${SRCDIR})
+target_link_libraries(dtc_half_row_majorB PRIVATE ${CUDA_LIBS})
+
+
+#> row major B val sidx bind
+file(GLOB_RECURSE SRC_FP16_ROWMAJORB_VS_BIND_FILES ${SRCDIR_FP16}/row_majorB_vs_bind/*.cu)
+add_executable(dtc_half_row_majorB_vs_bind ${SRC_CUDA_FILES} ${SRC_FP16_ROWMAJORB_VS_BIND_FILES})
+target_compile_options(dtc_half_row_majorB_vs_bind PRIVATE ${CUDA_NVCC_FLAGS} -I${SRCDIR})
+target_link_libraries(dtc_half_row_majorB_vs_bind PRIVATE ${CUDA_LIBS})
+
+
+#> row major B val sidx bind reorder
+file(GLOB_RECURSE SRC_FP16_ROWMAJORB_VS_BIND_REORDER_FILES ${SRCDIR_FP16}/row_majorB_vs_bind_reorder/*.cu)
+add_executable(dtc_half_row_majorB_vs_bind_reorder ${SRC_CUDA_FILES} ${SRC_FP16_ROWMAJORB_VS_BIND_REORDER_FILES})
+target_compile_options(dtc_half_row_majorB_vs_bind_reorder PRIVATE ${CUDA_NVCC_FLAGS} -I${SRCDIR})
+target_link_libraries(dtc_half_row_majorB_vs_bind_reorder PRIVATE ${CUDA_LIBS})
+
+
+# SRC_FP32 directory
+set(SRCDIR_FP32 ${CMAKE_CURRENT_SOURCE_DIR}/src_fp32)
+file(GLOB_RECURSE SRC_FP32_CUDA_FILES ${SRCDIR_FP32}/*.cu)
+add_executable(dtc_float ${SRC_CUDA_FILES} ${SRC_FP32_CUDA_FILES})
+target_compile_options(dtc_float PRIVATE ${CUDA_NVCC_FLAGS})
+target_link_libraries(dtc_float PRIVATE ${CUDA_LIBS})
+target_compile_definitions(dtc_float PRIVATE f32)
+
+# SRC_FP64 directory
+set(SRCDIR_FP64 ${CMAKE_CURRENT_SOURCE_DIR}/src_fp64)
+file(GLOB_RECURSE SRC_FP64_CUDA_FILES ${SRCDIR_FP64}/*.cu)
+add_executable(dtc_double ${SRC_CUDA_FILES} ${SRC_FP64_CUDA_FILES})
+target_compile_options(dtc_double PRIVATE ${CUDA_NVCC_FLAGS})
+target_link_libraries(dtc_double PRIVATE ${CUDA_LIBS})
+target_compile_definitions(dtc_double PRIVATE f64)
+
+# Targets
+# add_executable(spmv_double ${ALL_CUDA_FILES} ${SRCDIR}/main_f64.cu)
+# target_compile_options(spmv_double PRIVATE ${CUDA_NVCC_FLAGS} -D f64)
+# target_link_libraries(spmv_double PRIVATE ${CUDA_LIBS})
+
+# add_executable(spmv_half ${ALL_CUDA_FILES} ${SRCDIR}/main_f16.cu)
+# target_compile_options(spmv_half PRIVATE ${CUDA_NVCC_FLAGS})
+# target_link_libraries(spmv_half PRIVATE ${CUDA_LIBS})
+
+# add_executable(myhalf ${ALL_CUDA_FILES} ${SRCDIR}/mySpMV_main_f16.cu)
+# target_compile_options(myhalf PRIVATE ${CUDA_NVCC_FLAGS})
+# target_link_libraries(myhalf PRIVATE ${CUDA_LIBS})
+
+
