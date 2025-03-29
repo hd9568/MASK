@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Sequence
+from typing import Sequence, Tuple
 
 from dataclasses import dataclass
 from sparsene.op_gen.opir.op_ir import (
@@ -10,6 +10,7 @@ from sparsene.op_gen.opir.op_ir import (
     ArrayType,
     FloatType,
     OpResult,
+    Expr,
 )
 
 
@@ -65,15 +66,24 @@ class CooAtomicFormatLoadOffOp(DeviceOp):
 
 @dataclass
 class CooAtomicFormatLoadIdxOp(DeviceOp):
-    def __init__(self, mem: str, operands: Sequence[Value]):
+    def __init__(self, mem: str, operands: Sequence[Value], out_shape: Expr):
+        assert isinstance(operands[0].type, ArrayType) # idx_array
+        assert isinstance(operands[0].type.datatype, IntType) # idx_array
+        assert isinstance(operands[1].type, IntType) # ll
+        assert isinstance(operands[2].type, IntType) # rr
         super().__init__(
             mem=mem,
             operands=operands,
             results=[
                 OpResult(
-                    type=ArrayType([], IntType()),
+                    type=ArrayType([out_shape], IntType()),
                     defining_op=self,
                     result_idx_in_owner=0,
+                ),
+                OpResult(
+                    type=IntType(),
+                    defining_op=self,
+                    result_idx_in_owner=1,
                 ),
             ],
         )
@@ -85,13 +95,16 @@ class CooAtomicFormatLoadIdxOp(DeviceOp):
 
 @dataclass
 class CooAtomicFormatLoadValOp(DeviceOp):
-    def __init__(self, mem: str, operands: Sequence[Value]):
+    def __init__(self, mem: str, operands: Sequence[Value], out_shape: Expr):
+        assert isinstance(operands[0].type, ArrayType) # val_array
+        assert isinstance(operands[1].type, IntType) # ll
+        assert isinstance(operands[2].type, IntType) # rr
         super().__init__(
             mem=mem,
             operands=operands,
             results=[
                 OpResult(
-                    type=ArrayType([], IntType()),
+                    type=ArrayType([out_shape], operands[0].type.datatype),
                     defining_op=self,
                     result_idx_in_owner=0,
                 ),
@@ -147,13 +160,18 @@ class BValLoadOp(DeviceOp):
 
 @dataclass
 class CooAtomicValRestoreOp(DeviceOp):
-    def __init__(self, mem: str, operands: Sequence[Value]):
+    def __init__(
+        self, mem: str, operands: Sequence[Value], out_shape: Tuple[Expr, Expr]
+    ):
+        assert isinstance(operands[0].type, ArrayType)
+        assert isinstance(operands[1].type, ArrayType)
+        assert isinstance(operands[2].type, IntType)
         super().__init__(
             mem=mem,
             operands=operands,
             results=[
                 OpResult(
-                    type=ArrayType([], FloatType()),
+                    type=ArrayType(out_shape, operands[0].type.datatype),
                     defining_op=self,
                     result_idx_in_owner=0,
                 ),
@@ -173,7 +191,8 @@ class MmaOp(DeviceOp):
             operands=operands,
             results=[
                 OpResult(
-                    type=ArrayType([], FloatType()),
+                    type=operands[2].type,
+                    # type=ArrayType([], FloatType()),
                     defining_op=self,
                     result_idx_in_owner=0,
                 ),

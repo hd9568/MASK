@@ -64,7 +64,7 @@ class NameManager:
 
     def get_name(self, value: Value) -> str:
         if value not in self.name_map:
-            name = value.name_hint if isinstance(value, BlockArgument) else None
+            name = value.name_hint
             while name is None or name in self.used_names:
                 name = self.name_generator.generate(name)
                 logger.debug(f"Generated name {name} for {value}")

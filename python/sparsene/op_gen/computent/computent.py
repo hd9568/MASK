@@ -460,14 +460,14 @@ DENSE_ARRAY_DEFS = ArrayDefCollection(
     val=ArrayDef(
         name="val",
         axes=["X", "Y"],
-        dims=["m", "n"],
+        dims=["M", "K"],
         type=ArrayType.VAL,
         datatype=DataType.FLOAT,
     ),
     B_val=ArrayDef(
         name="B_val",
         axes=["Y"],
-        dims=["n"],
+        dims=["K", "N"],
         type=ArrayType.B_VAL,
         datatype=DataType.FLOAT,
     ),

@@ -45,38 +45,84 @@ class OpBuilder:
         induction_var: str,
         range: Tuple[Value, Value],
         iter_args: Dict[str, Value] = {},
+        name_hint: Optional[str | Sequence[str]] = None,
     ) -> ForLoopOp: ...
     @overload
     def build(
-        self, op_type: type[ConstantOp], value: Expr | int | str, type: Type
+        self,
+        op_type: type[ConstantOp],
+        value: Expr | int | str,
+        type: Type,
+        name_hint: Optional[str | Sequence[str]] = None,
     ) -> ConstantOp: ...
     @overload
-    def build(self, op_type: type[NoOp]) -> NoOp: ...
-    @overload
-    def build(self, op_type: type[ArrayRefOp], *args, **kwargs) -> ArrayRefOp: ...
+    def build(
+        self, op_type: type[NoOp], name_hint: Optional[str | Sequence[str]] = None
+    ) -> NoOp: ...
     @overload
     def build(
-        self, op_type: type[DeviceOp], mem: str, operands: Sequence[Value]
+        self,
+        op_type: type[ArrayRefOp],
+        *args,
+        name_hint: Optional[str | Sequence[str]] = None,
+        **kwargs,
+    ) -> ArrayRefOp: ...
+    @overload
+    def build(
+        self,
+        op_type: type[DeviceOp],
+        mem: str,
+        operands: Sequence[Value],
+        name_hint: Optional[str | Sequence[str]] = None,
     ) -> DeviceOp: ...
     @overload
-    def build(self, op_type: type[MetaOp]) -> MetaOp: ...
+    def build(
+        self, op_type: type[MetaOp], name_hint: Optional[str | Sequence[str]] = None
+    ) -> MetaOp: ...
     @overload
     def build(
-        self, op_type: type[ExternalSymbolOperation], symbol: str, type: Type
+        self,
+        op_type: type[ExternalSymbolOperation],
+        symbol: str,
+        type: Type,
+        name_hint: Optional[str | Sequence[str]] = None,
     ) -> ExternalSymbolOperation: ...
     @overload
-    def build(self, op_type: type[LoopResultOp], op: Op) -> LoopResultOp: ...
+    def build(
+        self,
+        op_type: type[LoopResultOp],
+        op: Op,
+        name_hint: Optional[str | Sequence[str]] = None,
+    ) -> LoopResultOp: ...
+
+    @overload
+    def build(
+        self,
+        op_type: type[Op],
+        *args,
+        name_hint: Optional[str | Sequence[str]] = None,
+        **kwargs,
+    ) -> Op: ...
 
     def build(
         self,
         op_type: type[Op],
         *args,
+        name_hint: Optional[str | Sequence[str]] = None,
         **kwargs,
     ) -> Op:
         op = op_type(*args, **kwargs)
         op.residing_block = self.current_block
         if self.current_block is not None:
             self.current_block.add_op(op)
+
+        if name_hint is not None:
+            if isinstance(name_hint, str):
+                assert op.has_single_result()
+                op.result.name_hint = name_hint
+            elif isinstance(name_hint, Sequence):
+                for result, name in zip(op.results, name_hint):
+                    result.name_hint = name
         return op
 
     @property
@@ -93,7 +139,10 @@ class OpBuilder:
         ):
             return value
         elif type is not None:
-            return self.build(ExternalSymbolOperation, name, type).result
+            assert self.current_block is not None
+            value = self.build(ExternalSymbolOperation, name, type).result
+            self.current_block.symbol_table.add_symbol(name, value)
+            return value
         else:
             raise ValueError(f"Symbol {name} not found")
 
@@ -129,15 +178,23 @@ class ArrayType(Type):
     dims: List[Expr]
     datatype: Type
 
+    def __init__(self, dims: Sequence[Expr], datatype: Type):
+        self.dims = list(dims)
+        self.datatype = datatype
+
     # return f"{self.element_type}[{']['.join(str(dim) for dim in self.dims)}]"
     # return f"array[{']['.join(str(dim) for dim in self.dims)}]"
 
 
-@dataclass(frozen=True)
+@dataclass
 class Value:
     type: Type
     name_hint: Optional[str]
 
+    def __init__(self, type: Type, name_hint: Optional[str] = None):
+        object.__setattr__(self, "type", type)
+        self.name_hint = name_hint
+
     def __hash__(self) -> int:
         return hash(id(self))
 
@@ -145,16 +202,21 @@ class Value:
         return id(self) == id(other)
 
 
-@dataclass(frozen=True)
+@dataclass
 class OpResult(Value):
     defining_op: Op
     result_idx_in_owner: int
 
-    def __init__(self, type: Type, defining_op: Op, result_idx_in_owner: int, name_hint: Optional[str] = None):
-        super().__init__(type)
-        object.__setattr__(self, "defining_op", defining_op)
-        object.__setattr__(self, "result_idx_in_owner", result_idx_in_owner)
-        object.__setattr__(self, "name_hint", name_hint)
+    def __init__(
+        self,
+        type: Type,
+        defining_op: Op,
+        result_idx_in_owner: int,
+        name_hint: Optional[str] = None,
+    ):
+        super().__init__(type, name_hint)
+        self.defining_op = defining_op
+        self.result_idx_in_owner = result_idx_in_owner
 
     def __hash__(self) -> int:
         return hash(id(self))
@@ -163,15 +225,14 @@ class OpResult(Value):
         return id(self) == id(other)
 
 
-@dataclass(frozen=True)
+@dataclass
 class BlockArgument(Value):
     owner: Block
     name_hint: Optional[str]
 
     def __init__(self, type: Type, owner: Block, name_hint: Optional[str] = None):
-        super().__init__(type)
-        object.__setattr__(self, "owner", owner)
-        object.__setattr__(self, "name_hint", name_hint)
+        super().__init__(type, name_hint)
+        self.owner = owner
 
     def __hash__(self) -> int:
         return hash(id(self))
@@ -252,7 +313,9 @@ class ExternalSymbolOperation(Op):
     def __init__(self, symbol: str, type: Type):
         super().__init__(
             results=[
-                OpResult(type=type, defining_op=self, result_idx_in_owner=0),
+                OpResult(
+                    type=type, defining_op=self, result_idx_in_owner=0, name_hint=symbol
+                ),
             ],
             attributes={"symbol": symbol},
         )
@@ -297,13 +360,15 @@ class NoOp(Op):
 class ArrayRefOp(Op):
     def __init__(self, array: Value, indices: Sequence[Value]):
         assert isinstance(array.type, ArrayType)
+        array_dims = array.type.dims[len(indices) :]
+        for index in reversed(indices):
+            if isinstance(index.type, ArrayType):
+                array_dims.insert(0, index.type.dims[0])
         super().__init__(
             operands=[array] + list(indices),
             results=[
                 OpResult(
-                    type=ArrayType(
-                        array.type.dims[len(indices) :], array.type.datatype
-                    ),
+                    type=ArrayType(array_dims, array.type.datatype),
                     defining_op=self,
                     result_idx_in_owner=0,
                 ),
