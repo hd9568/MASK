@@ -10,8 +10,9 @@ from sparsene.op_gen.nvir.code_generator import (
     MnkShape,
 )
 from sparsene.op_gen.nvir.pipeliner import (
-    NvOpStage, 
-    NvOpPipeline, 
+    NvOpStage,
+    NvOpPipeline,
+    GmemInout,
 )
 
 g2s_val_sidx_load_op = NvOp(
@@ -23,9 +24,11 @@ g2s_val_sidx_load_op = NvOp(
             mem="gmem",
             name="val_sidx",
             dtype="int",
-            source="val_sidx"
+            source="val_sidx",
         ),
-        NvOpInput(idx=1, shape=Shape(), mem="rmem", name="i", dtype="int", source="l + {c}"),
+        NvOpInput(
+            idx=1, shape=Shape(), mem="rmem", name="i", dtype="int", source="l + {c}"
+        ),
     ],
     outputs=[
         NvOpOutput(
@@ -58,9 +61,11 @@ g2r_coo_atomic_format_load_off_op = NvOp(
             mem="gmem",
             name="val_coo_off",
             dtype="int",
-            source="val_coo_off"
+            source="val_coo_off",
         ),
-        NvOpInput(idx=1, shape=Shape(), mem="rmem", name="i", dtype="int", source="l + {c}"),
+        NvOpInput(
+            idx=1, shape=Shape(), mem="rmem", name="i", dtype="int", source="l + {c}"
+        ),
     ],
     outputs=[
         NvOpOutput(idx=0, shape=Shape(), mem="rmem", name="l", dtype="int"),
@@ -83,7 +88,7 @@ s2r_val_sidx_load_op = NvOp(
             mem="smem",
             name="tile_sidx_block",
             dtype="int",
-            source=(g2s_val_sidx_load_op, 0)
+            source=(g2s_val_sidx_load_op, 0),
         )
     ],
     outputs=[
@@ -113,10 +118,24 @@ g2s_coo_atomic_format_load_val_op = NvOp(
             mem="gmem",
             name="val_coo_val",
             dtype="half",
-            source="val_coo_val"
+            source="val_coo_val",
         ),
-        NvOpInput(idx=1, shape=Shape(), mem="rmem", name="ll", dtype="int", source=(g2r_coo_atomic_format_load_off_op, 0)),
-        NvOpInput(idx=2, shape=Shape(), mem="rmem", name="rr", dtype="int", source=(g2r_coo_atomic_format_load_off_op, 1)),
+        NvOpInput(
+            idx=1,
+            shape=Shape(),
+            mem="rmem",
+            name="ll",
+            dtype="int",
+            source=(g2r_coo_atomic_format_load_off_op, 0),
+        ),
+        NvOpInput(
+            idx=2,
+            shape=Shape(),
+            mem="rmem",
+            name="rr",
+            dtype="int",
+            source=(g2r_coo_atomic_format_load_off_op, 1),
+        ),
     ],
     outputs=[
         NvOpOutput(
@@ -152,10 +171,24 @@ g2r_coo_atomic_format_load_idx_op = NvOp(
             mem="gmem",
             name="val_coo_idx",
             dtype="int",
-            source="val_coo_idx"
+            source="val_coo_idx",
         ),
-        NvOpInput(idx=1, shape=Shape(), mem="rmem", name="ll", dtype="int", source=(g2r_coo_atomic_format_load_off_op, 0)),
-        NvOpInput(idx=2, shape=Shape(), mem="rmem", name="rr", dtype="int", source=(g2r_coo_atomic_format_load_off_op, 1)),
+        NvOpInput(
+            idx=1,
+            shape=Shape(),
+            mem="rmem",
+            name="ll",
+            dtype="int",
+            source=(g2r_coo_atomic_format_load_off_op, 0),
+        ),
+        NvOpInput(
+            idx=2,
+            shape=Shape(),
+            mem="rmem",
+            name="rr",
+            dtype="int",
+            source=(g2r_coo_atomic_format_load_off_op, 1),
+        ),
     ],
     outputs=[
         NvOpOutput(
@@ -183,11 +216,14 @@ g2r_b_val_load_op = NvOp(
     inputs=[
         NvOpInput(
             idx=0,
-            shape=Shape(VarlenShape("K"), VarlenShape("N")),
+            shape=Shape(
+                VarlenShape("K"),
+                MnkShape("BLK_MNK", "n"),
+            ),
             mem="gmem",
             name="B_val",
             dtype="half",
-            source="B_val"
+            source="B_val",
         ),
         NvOpInput(
             idx=1,
@@ -195,7 +231,7 @@ g2r_b_val_load_op = NvOp(
             mem="rmem",
             name="val_sidx_reg",
             dtype="int",
-            source=(s2r_val_sidx_load_op, 0)
+            source=(s2r_val_sidx_load_op, 0),
         ),
     ],
     outputs=[
@@ -210,7 +246,7 @@ g2r_b_val_load_op = NvOp(
     impl=NvOpImpl(
         code_template="""for (int n_iter = 0; n_iter < get<1>(BLK_MMA_MNK{}); n_iter++) {
     int row = lid % 4 * 2;
-    int col = blockIdx.y * get<1>(BLK_MNK{}) + n_iter * 8 + lid / 4;
+    int col = n_iter * 8 + lid / 4;
     REGB(0, n_iter, buf_idx) = B_val(val_sidx_reg(row + 0), col);
     REGB(1, n_iter, buf_idx) = B_val(val_sidx_reg(row + 1), col);
     REGB(2, n_iter, buf_idx) = B_val(val_sidx_reg(row + 8), col);
@@ -230,13 +266,24 @@ s2s_coo_atomic_val_restore_op = NvOp(
             mem="smem",
             name="tile_coo_val_block",
             dtype="half",
-            source=(g2s_coo_atomic_format_load_val_op, 0)
+            source=(g2s_coo_atomic_format_load_val_op, 0),
         ),
         NvOpInput(
-            idx=1, shape=Shape(IntShape(8)), mem="rmem", name="coo_idx_reg", dtype="int", 
+            idx=1,
+            shape=Shape(IntShape(8)),
+            mem="rmem",
+            name="coo_idx_reg",
+            dtype="int",
             source=(g2r_coo_atomic_format_load_idx_op, 0),
         ),
-        NvOpInput(idx=2, shape=Shape(), mem="rmem", name="nnz_num", dtype="int", source=(g2r_coo_atomic_format_load_idx_op, 1)),
+        NvOpInput(
+            idx=2,
+            shape=Shape(),
+            mem="rmem",
+            name="nnz_num",
+            dtype="int",
+            source=(g2r_coo_atomic_format_load_idx_op, 1),
+        ),
     ],
     outputs=[
         NvOpOutput(
@@ -248,8 +295,8 @@ s2s_coo_atomic_val_restore_op = NvOp(
             mem="smem",
             name="tile_coo_restore_val_block",
             dtype="half",
-            swizzle=(2, 3, 3),
-            # row_major=True, 
+            # swizzle=(2, 3, 3),
+            # row_major=True,
             # FIXME: row major is buggy because LayoutRight would make nbuf the least significant dimension
         ),
     ],
@@ -279,7 +326,7 @@ s2r_a_val_load_op = NvOp(
             mem="smem",
             name="tile_coo_restore_val_block",
             dtype="half",
-            source=(s2s_coo_atomic_val_restore_op, 0)
+            source=(s2s_coo_atomic_val_restore_op, 0),
         ),
     ],
     outputs=[
@@ -317,7 +364,7 @@ mma_op = NvOp(
             mem="rmem",
             name="REGA",
             dtype="half",
-            source=(s2r_a_val_load_op, 0)
+            source=(s2r_a_val_load_op, 0),
         ),
         NvOpInput(
             idx=1,
@@ -325,7 +372,7 @@ mma_op = NvOp(
             mem="rmem",
             name="REGB",
             dtype="half",
-            source=(g2r_b_val_load_op, 0)
+            source=(g2r_b_val_load_op, 0),
         ),
     ],
     outputs=[
@@ -343,7 +390,7 @@ mma_op = NvOp(
     impl=NvOpImpl(
         code_template="""for (int m_iter = 0; m_iter < get<0>(BLK_MMA_MNK{}); m_iter++) {
     for (int n_iter = 0; n_iter < get<1>(BLK_MMA_MNK{}); n_iter++) {
-        mma_m16n8k16_fp32(REGC(_, (m_iter, n_iter), buf_idx).data(), (uint32_t*)(REGA(_, m_iter).data()), REGB(_, n_iter).data());
+        mma_m16n8k16_fp32(REGC(_, make_coord(m_iter, n_iter), buf_idx).data(), (uint32_t*)(REGA(_, m_iter).data()), REGB(_, n_iter).data());
     }
 }"""
     ),
@@ -352,21 +399,142 @@ mma_op = NvOp(
     reduction=True,
 )
 
+g2r_sparse_offset_load_op = NvOp(
+    name="G2rSparseOffsetLoadOp",
+    inputs=[
+        NvOpInput(
+            idx=0,
+            shape=Shape(VarlenShape("Mo")),
+            mem="gmem",
+            name="val_soff",
+            dtype="int",
+            source="val_soff",
+        ),
+        NvOpInput(
+            idx=1, shape=Shape(), mem="rmem", name="i", dtype="int", source="blockIdx.x"
+        ),
+    ],
+    outputs=[
+        NvOpOutput(idx=0, shape=Shape(), mem="rmem", name="l", dtype="int"),
+        NvOpOutput(idx=1, shape=Shape(), mem="rmem", name="r", dtype="int"),
+    ],
+    impl=NvOpImpl(
+        code_template="""l(buf_idx) = val_soff(i);
+r(buf_idx) = val_soff(i + 1);"""
+    ),
+    mem_type=("g", "r"),
+    parameters={},
+)
+
+r2g_c_val_store_op = NvOp(
+    name="R2gCValStoreOp",
+    inputs=[
+        NvOpInput(
+            idx=0,
+            shape=Shape(
+                IntShape(4),
+                Shape(MnkShape("BLK_MMA_MNK", "m"), MnkShape("BLK_MMA_MNK", "n")),
+            ),
+            mem="rmem",
+            name="REGC",
+            dtype="float",
+            source=(mma_op, 0),
+        ),
+        NvOpInput(
+            idx=1,
+            shape=Shape(
+                MnkShape("BLK_MNK", "n"),
+                MnkShape("BLK_MNK", "m"),
+            ),
+            mem="gmem",
+            name="C_val",
+            dtype="float",
+            source="C_val",
+            modify=True,
+        ),
+    ],
+    outputs=[],
+    impl=NvOpImpl(
+        code_template="""//! write back
+for (int i_tileN = 0; i_tileN < get<1>(BLK_MNK{}) / 8; i_tileN++) {
+    int row = lid / 4;
+    int col = i_tileN * 8 + lid % 4 * 2;
+    C_val(col, row) = REGC(0, i_tileN);
+    C_val(col + 1, row) = REGC(1, i_tileN);
+    C_val(col, row + 8) = REGC(2, i_tileN);
+    C_val(col + 1, row + 8) = REGC(3, i_tileN);
+}"""
+    ),
+    mem_type=("r", "g"),
+    parameters={},
+)
 
 if __name__ == "__main__":
     from sparsene.op_gen.nvir.code_generator import NvIrCodeGenerator
 
     dtc_stage1 = NvOpStage([g2s_val_sidx_load_op, g2r_coo_atomic_format_load_off_op])
-    dtc_stage2 = NvOpStage([s2r_val_sidx_load_op, g2s_coo_atomic_format_load_val_op, g2r_coo_atomic_format_load_idx_op])
-    dtc_stage3 = NvOpStage([g2r_b_val_load_op, s2s_coo_atomic_val_restore_op, s2r_a_val_load_op])
+    dtc_stage2 = NvOpStage(
+        [
+            s2r_val_sidx_load_op,
+            g2s_coo_atomic_format_load_val_op,
+            g2r_coo_atomic_format_load_idx_op,
+        ]
+    )
+    dtc_stage3 = NvOpStage(
+        [g2r_b_val_load_op, s2s_coo_atomic_val_restore_op, s2r_a_val_load_op]
+    )
     dtc_stage4 = NvOpStage([mma_op])
-    shifts = [1,1,1]
+    shifts = [1, 1, 1]
     stages = [dtc_stage1, dtc_stage2, dtc_stage3, dtc_stage4]
 
-    dtc_pipeline = NvOpPipeline("dtc_spmm_kernel_sstage_rstage", stages, shifts)
-    print(NvIrCodeGenerator().dump_nvop_pipeline(dtc_pipeline))
+    prologue = [g2r_sparse_offset_load_op]
+    epilogue = [r2g_c_val_store_op]
 
-    
+    dtc_pipeline = NvOpPipeline(
+        "dtc_spmm_kernel_sstage_rstage",
+        stages,
+        shifts,
+        prologue,
+        epilogue,
+        gmem_inouts={
+            "val_sidx": GmemInout(
+                shape=Shape(ParamShape("tile_sidx_size"), VarlenShape("nnz_block")),
+                name="val_sidx",
+                dtype="int",
+            ),
+            "val_coo_off": GmemInout(
+                shape=Shape(IntShape(2), VarlenShape("nnz_block")),
+                name="val_coo_off",
+                dtype="int",
+            ),
+            "val_coo_val": GmemInout(
+                shape=Shape(VarlenShape("nnz")),
+                name="val_coo_val",
+                dtype="half",
+            ),
+            "val_coo_idx": GmemInout(
+                shape=Shape(VarlenShape("nnz")),
+                name="val_coo_idx",
+                dtype="int",
+            ),
+            "val_soff": GmemInout(
+                shape=Shape(VarlenShape("Mo")),
+                name="val_soff",
+                dtype="int",
+            ),
+            "B_val": GmemInout(
+                shape=Shape(VarlenShape("K"), VarlenShape("N")),
+                name="B_val",
+                dtype="half",
+            ),
+            "C_val": GmemInout(
+                shape=Shape(VarlenShape("N"), VarlenShape("M")),
+                name="C_val",
+                dtype="float",
+            ),
+        },
+    )
+    print(NvIrCodeGenerator().dump_nvop_pipeline(dtc_pipeline))
 
 
 # 1. op之间的依赖关系 (source: Optional[Tuple[NvOp, int] | str]) (dtc_ops.py)

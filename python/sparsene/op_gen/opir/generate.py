@@ -64,7 +64,6 @@ def get_array_type(array_def: ArrayDef) -> Type:
 
 
 def generate_from_computent(computent: Computent) -> MetaOp:
-
     computent_op = op_builder.build(MetaOp)
     with op_builder.op_scope(computent_op):
         for array_def in computent.array_defs:
@@ -97,18 +96,18 @@ def generate_from_dense_axis_iterator(
     format: Format,
     parent_schedule: Optional[Schedule] = None,
 ) -> None:
-    l = op_builder.build(ConstantOp, 0, IntType(), name_hint="zero")
+    l = op_builder.build(ConstantOp, 0, IntType(), name_hint="zero").result
     r = op_builder.build(
         ConstantOp,
         format.get_axis(schedule.axis).length,
         IntType(),
         name_hint="num_row_win",
-    )
+    ).result
 
     for_loop_op = op_builder.build(
         ForLoopOp,
         induction_var=schedule.induction_var,
-        range=(l.get_result(), r.get_result()),
+        range=(l, r),
     )
 
     with op_builder.op_scope(for_loop_op):
@@ -336,7 +335,7 @@ def generate_from_coo_atomic_format_op(
             ll,
             rr,
         ],
-        out_shape=C_val_tile.type.dims[0] * B_val_tile.type.dims[1],  # type: ignore
+        out_shape=C_val_tile.type.dims[0] * B_val_tile.type.dims[0],  # type: ignore
         name_hint=["coo_idx", "coo_range"],
     ).results
 
@@ -349,7 +348,7 @@ def generate_from_coo_atomic_format_op(
             ll,
             rr,
         ],
-        out_shape=C_val_tile.type.dims[0] * B_val_tile.type.dims[1],  # type: ignore
+        out_shape=C_val_tile.type.dims[0] * B_val_tile.type.dims[0],  # type: ignore
         name_hint="coo_val",
     ).result
 
@@ -361,7 +360,7 @@ def generate_from_coo_atomic_format_op(
             coo_idx,
             coo_range,
         ],
-        out_shape=(C_val_tile.type.dims[0], B_val_tile.type.dims[1]),
+        out_shape=(C_val_tile.type.dims[0], B_val_tile.type.dims[0]),
         name_hint="A_val_tile",
     ).result
 
@@ -370,8 +369,6 @@ def generate_from_coo_atomic_format_op(
     ).result
 
     return C_val_tile
-
-    return coo_atomic_format_op_result
 
 
 def generate_from_mco_atomic_format_op(

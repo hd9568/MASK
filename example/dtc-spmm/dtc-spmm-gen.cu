@@ -16,7 +16,7 @@ void ncu_test_all(
     dim3 block(thread_num);
 
 
-    constexpr int ROW_WINDOW_M = 16;
+    // constexpr int ROW_WINDOW_M = 16;
     constexpr int TC_BLOCK_K = 16;
     constexpr int TC_BLOCK_M = 16;
 
@@ -30,12 +30,12 @@ void ncu_test_all(
     using tile_sidx_size = Int<TC_BLOCK_K>;
     using tile_coo_val_size = Int<TC_BLOCK_M * TC_BLOCK_K>;
 
-    constexpr int shift1 = 1;
-    constexpr int shift2 = 1;
-    constexpr int shift3 = 1;
-    constexpr int maxshift1_2 = (shift1 > shift2 ? shift1 : shift2);
-    constexpr int nbuf_rmem = (maxshift1_2 > shift3 ? maxshift1_2 : shift3) + 1;
-    constexpr int nbuf_smem = nbuf_rmem;
+    // constexpr int shift1 = 1;
+    // constexpr int shift2 = 1;
+    // constexpr int shift3 = 1;
+    // constexpr int maxshift1_2 = (shift1 > shift2 ? shift1 : shift2);
+    // constexpr int nbuf_rmem = (maxshift1_2 > shift3 ? maxshift1_2 : shift3) + 1;
+    // constexpr int nbuf_smem = nbuf_rmem;
     // constexpr int nbuf_smem = maxshift1_2 + 1;
 
     //! （shift1=1,shift2=1,shift3=1)
@@ -72,7 +72,7 @@ void dtc_spmm_test(
 
     constexpr int ROW_WINDOW_M = 16;
     constexpr int TC_BLOCK_K = 16;
-    constexpr int TC_BLOCK_M = 16;
+    // constexpr int TC_BLOCK_M = 16;
 
     int row_window_num = (M + ROW_WINDOW_M - 1) / ROW_WINDOW_M;
 

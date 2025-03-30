@@ -14,13 +14,13 @@ DTC_SPMM_FORMAT = Format(
     axes=[
         df_axis("X_o", Direction.ROW, length="M"),
         sv_axis("Y_s", Direction.COL, length="K"),
-        df_axis("X_i", Direction.ROW, length=16),
+        df_axis("X_i", Direction.ROW, length="BLK_M"),
     ],
     child=Format(
         axes=[
-            df_axis("Y_so", Direction.COL, length=Symbol("K") / 16), # type: ignore
-            df_axis("Y_si", Direction.COL, length=16),
-            df_axis("X_i", Direction.ROW, length=16),
+            df_axis("Y_so", Direction.COL, length=Symbol("K") / Symbol("BLK_K")),  # type: ignore
+            df_axis("Y_si", Direction.COL, length="BLK_K"),
+            df_axis("X_i", Direction.ROW, length="BLK_M"),
         ],
         child=coo_atomic_format("X_i", "Y_si"),
     ),

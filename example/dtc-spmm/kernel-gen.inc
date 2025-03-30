@@ -54,6 +54,53 @@ __device__ __forceinline__ void mma_m16n8k16_fp32(float* acc, uint32_t* A, half*
     );
 }
 
+// prologue
+template<class NBUF, class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class TI0 = int, class TI1 = int, class TO0 = int, class TO1 = int>
+class G2rSparseOffsetLoadOp {
+public:
+    // Inputs
+    using Shape_i0 = decltype(make_shape(VARLEN));
+    Shape_i0 shape_i0;
+    // Tensor_i0 val_soff;
+    // TI1 i;
+
+    // Outputs
+    using Shape_o0 = decltype(make_shape(NBUF{}));
+    using Layout_o0 = decltype(make_layout(Shape_o0{}));
+    using Tensor_o0 = decltype(make_tensor<TO0>(Layout_o0{}));
+    Shape_o0 shape_o0;
+    Layout_o0 layout_o0;
+    Tensor_o0 l;
+    using Shape_o1 = decltype(make_shape(NBUF{}));
+    using Layout_o1 = decltype(make_layout(Shape_o1{}));
+    using Tensor_o1 = decltype(make_tensor<TO1>(Layout_o1{}));
+    Shape_o1 shape_o1;
+    Layout_o1 layout_o1;
+    Tensor_o1 r;
+
+    // Hardware parameters
+    int tid, lid, wid;
+
+    CUTE_DEVICE G2rSparseOffsetLoadOp(int tid, int lid, int wid, int mode_i0_0)
+    : tid(tid), lid(lid), wid(wid), shape_i0(make_shape(mode_i0_0)) {}
+
+    template<size_t buf_idx, size_t output_idx>
+    CUTE_DEVICE auto output() {
+        if constexpr (output_idx == 0) {
+            return l(buf_idx);
+        }
+        if constexpr (output_idx == 1) {
+            return r(buf_idx);
+        }
+    }
+
+    template<size_t buf_idx, class Tensor_i0>
+    CUTE_DEVICE void f(Tensor_i0 val_soff, TI1 i) {
+        l(buf_idx) = val_soff(i);
+        r(buf_idx) = val_soff(i + 1);
+    }
+};
+
 // stage 0
 template<class NBUF, class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class tile_sidx_size = Int<16>, class TI0 = int, class TI1 = int, class TO0 = int>
 class G2sValSidxLoadOp {
@@ -289,7 +336,7 @@ template<class NBUF, class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class TI0 
 class G2rBValLoadOp {
 public:
     // Inputs
-    using Shape_i0 = decltype(make_shape(VARLEN, VARLEN));
+    using Shape_i0 = decltype(make_shape(VARLEN, get<1>(BLK_MNK{})));
     Shape_i0 shape_i0;
     // Tensor_i0 B_val;
     using Shape_i1 = decltype(make_shape(get<2>(BLK_MNK{})));
@@ -307,8 +354,8 @@ public:
     // Hardware parameters
     int tid, lid, wid;
 
-    CUTE_DEVICE G2rBValLoadOp(int tid, int lid, int wid, int mode_i0_0, int mode_i0_1)
-    : tid(tid), lid(lid), wid(wid), shape_i0(make_shape(mode_i0_0, mode_i0_1)) {}
+    CUTE_DEVICE G2rBValLoadOp(int tid, int lid, int wid, int mode_i0_0)
+    : tid(tid), lid(lid), wid(wid), shape_i0(make_shape(mode_i0_0, get<1>(BLK_MNK{}))) {}
 
     template<size_t buf_idx, size_t output_idx>
     CUTE_DEVICE auto output() {
@@ -319,10 +366,11 @@ public:
 
     template<size_t buf_idx, class Tensor_i0, class Tensor_i1>
     CUTE_DEVICE void f(Tensor_i0 B_val, Tensor_i1 val_sidx_reg) {
+        CUTE_STATIC_ASSERT_V((get<1>(shape_i0) == size<1>(shape(B_val))));
         CUTE_STATIC_ASSERT_V((get<0>(shape_i1) == size<0>(shape(val_sidx_reg))));
         for (int n_iter = 0; n_iter < get<1>(BLK_MMA_MNK{}); n_iter++) {
             int row = lid % 4 * 2;
-            int col = blockIdx.y * get<1>(BLK_MNK{}) + n_iter * 8 + lid / 4;
+            int col = n_iter * 8 + lid / 4;
             REGB(0, n_iter, buf_idx) = B_val(val_sidx_reg(row + 0), col);
             REGB(1, n_iter, buf_idx) = B_val(val_sidx_reg(row + 1), col);
             REGB(2, n_iter, buf_idx) = B_val(val_sidx_reg(row + 8), col);
@@ -345,7 +393,7 @@ public:
 
     // Outputs
     using Shape_o0 = decltype(make_shape(get<2>(BLK_MNK{}), get<0>(BLK_MNK{}), NBUF{}));
-    using Layout_o0 = decltype(composition(Swizzle<2, 3, 3>{}, make_layout(Shape_o0{})));
+    using Layout_o0 = decltype(make_layout(Shape_o0{}));
     using Tensor_o0 = decltype(make_tensor(make_smem_ptr((TO0*)nullptr), Layout_o0{}));
     Shape_o0 shape_o0;
     Layout_o0 layout_o0;
@@ -470,8 +518,53 @@ public:
         CUTE_STATIC_ASSERT_V((get<1>(shape_i1) == size<1>(shape(REGB))));
         for (int m_iter = 0; m_iter < get<0>(BLK_MMA_MNK{}); m_iter++) {
             for (int n_iter = 0; n_iter < get<1>(BLK_MMA_MNK{}); n_iter++) {
-                mma_m16n8k16_fp32(REGC(_, (m_iter, n_iter), buf_idx).data(), (uint32_t*)(REGA(_, m_iter).data()), REGB(_, n_iter).data());
+                mma_m16n8k16_fp32(REGC(_, make_coord(m_iter, n_iter), buf_idx).data(), (uint32_t*)(REGA(_, m_iter).data()), REGB(_, n_iter).data());
             }
+        }
+    }
+};
+
+// epilogue
+template<class NBUF, class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class TI0 = float, class TI1 = float>
+class R2gCValStoreOp {
+public:
+    // Inputs
+    using Shape_i0 = decltype(make_shape(Int<4>{}, make_shape(get<0>(BLK_MMA_MNK{}), get<1>(BLK_MMA_MNK{}))));
+    Shape_i0 shape_i0;
+    // Tensor_i0 REGC;
+    using Shape_i1 = decltype(make_shape(get<1>(BLK_MNK{}), get<0>(BLK_MNK{})));
+    Shape_i1 shape_i1;
+    // Tensor_i1 C_val;
+
+    // Outputs
+    
+
+    // Hardware parameters
+    int tid, lid, wid;
+
+    CUTE_DEVICE R2gCValStoreOp(int tid, int lid, int wid)
+    : tid(tid), lid(lid), wid(wid) {}
+
+    template<size_t buf_idx, size_t output_idx>
+    CUTE_DEVICE auto output() {
+    
+    }
+
+    template<size_t buf_idx, class Tensor_i0, class Tensor_i1>
+    CUTE_DEVICE void f(Tensor_i0 REGC, Tensor_i1 C_val) {
+        CUTE_STATIC_ASSERT_V((get<0>(shape_i0) == size<0>(shape(REGC))));
+        CUTE_STATIC_ASSERT_V((get<0>(get<1>(shape_i0)) == size<0>(get<1>(shape(REGC)))));
+        CUTE_STATIC_ASSERT_V((get<1>(get<1>(shape_i0)) == size<1>(get<1>(shape(REGC)))));
+        CUTE_STATIC_ASSERT_V((get<0>(shape_i1) == size<0>(shape(C_val))));
+        CUTE_STATIC_ASSERT_V((get<1>(shape_i1) == size<1>(shape(C_val))));
+        //! write back
+        for (int i_tileN = 0; i_tileN < get<1>(BLK_MNK{}) / 8; i_tileN++) {
+            int row = lid / 4;
+            int col = i_tileN * 8 + lid % 4 * 2;
+            C_val(col, row) = REGC(0, i_tileN);
+            C_val(col + 1, row) = REGC(1, i_tileN);
+            C_val(col, row + 8) = REGC(2, i_tileN);
+            C_val(col + 1, row + 8) = REGC(3, i_tileN);
         }
     }
 };
@@ -1142,14 +1235,21 @@ template <
     const int wid = tid / 32;
 
     // gmem tensors
-    auto B_val = make_tensor(make_gmem_ptr(dB_val), make_shape(K, N));
-    auto C_val = make_tensor(make_gmem_ptr(dC_val), make_shape(N, M));
-    auto val_coo_idx = make_tensor(make_gmem_ptr(dval_coo_idx), make_shape(nnz));
-    auto val_coo_off = make_tensor(make_gmem_ptr(dval_coo_off), make_shape(Int<2>{}, nnz_block));
-    auto val_coo_val = make_tensor(make_gmem_ptr(dval_coo_val), make_shape(nnz));
-    auto val_sidx = make_tensor(make_gmem_ptr(dval_sidx), make_shape(tile_sidx_size{}, nnz_block));
-    auto val_soff = make_tensor(make_gmem_ptr(dval_soff), make_shape(Mo));
+    Tensor B_val = logical_divide(make_tensor(make_gmem_ptr(dB_val), make_shape(K, N)), make_shape(_1{}, get<1>(BLK_MNK{})))(_, make_coord(_, blockIdx.y));
+    Tensor C_val = logical_divide(make_tensor(make_gmem_ptr(dC_val), make_shape(N, M)), select<1, 0>(BLK_MNK{}))(make_coord(_, blockIdx.y), make_coord(_, blockIdx.x));
+    Tensor val_coo_idx = make_tensor(make_gmem_ptr(dval_coo_idx), make_shape(nnz));
+    Tensor val_coo_off = make_tensor(make_gmem_ptr(dval_coo_off), make_shape(Int<2>{}, nnz_block));
+    Tensor val_coo_val = make_tensor(make_gmem_ptr(dval_coo_val), make_shape(nnz));
+    Tensor val_sidx = make_tensor(make_gmem_ptr(dval_sidx), make_shape(tile_sidx_size{}, nnz_block));
+    Tensor val_soff = make_tensor(make_gmem_ptr(dval_soff), make_shape(Mo));
 
+    // prologue
+    using g2r_sparse_offset_load_op_t = G2rSparseOffsetLoadOp<Int<1>, BLK_MNK, MMA_MNK, BLK_MMA_MNK>;
+    g2r_sparse_offset_load_op_t g2r_sparse_offset_load_op{
+        tid, lid, wid, 
+        Mo,
+    };
+    
     // stage 0
     using g2s_val_sidx_load_op_t = G2sValSidxLoadOp<Int<2>, BLK_MNK, MMA_MNK, BLK_MMA_MNK, tile_sidx_size>;
     using g2s_val_sidx_load_op_layout_o0 = typename g2s_val_sidx_load_op_t::Layout_o0;
@@ -1191,7 +1291,7 @@ template <
     using g2r_b_val_load_op_t = G2rBValLoadOp<Int<2>, BLK_MNK, MMA_MNK, BLK_MMA_MNK>;
     g2r_b_val_load_op_t g2r_b_val_load_op{
         tid, lid, wid, 
-        K, N,
+        K,
     };
     
     using s2s_coo_atomic_val_restore_op_t = S2sCooAtomicValRestoreOp<Int<2>, BLK_MNK, MMA_MNK, BLK_MMA_MNK, tile_coo_val_size>;
@@ -1212,9 +1312,21 @@ template <
     mma_op_t mma_op{
         tid, lid, wid,
     };
+    
+    // epilogue
+    using r2g_c_val_store_op_t = R2gCValStoreOp<Int<1>, BLK_MNK, MMA_MNK, BLK_MMA_MNK>;
+    r2g_c_val_store_op_t r2g_c_val_store_op{
+        tid, lid, wid,
+    };
 
-    int l = val_soff(blockIdx.x);
-    int r = val_soff(blockIdx.x + 1);
+    // prologue
+    g2r_sparse_offset_load_op.template f<0>(
+        val_soff,
+        blockIdx.x
+    );
+    
+    int l = g2r_sparse_offset_load_op.template output<0, 0>();
+    int r = g2r_sparse_offset_load_op.template output<0, 1>();
     int k = r - l;
 
     if (k <= 3) {
@@ -1229,15 +1341,10 @@ template <
         empty(i, l, r, g2s_val_sidx_load_op, g2r_coo_atomic_format_load_off_op, s2r_val_sidx_load_op, g2s_coo_atomic_format_load_val_op, g2r_coo_atomic_format_load_idx_op, g2r_b_val_load_op, s2s_coo_atomic_val_restore_op, s2r_a_val_load_op, mma_op, B_val, C_val, val_coo_idx, val_coo_off, val_coo_val, val_sidx, val_soff);
     }
 
-    //! write back
-    auto REGC = mma_op.template output<0, 0>();
-    for (int i_tileN = 0; i_tileN < get<1>(BLK_MNK{}) / 8; i_tileN++) {
-        int row = blockIdx.x * 16 + lid / 4;
-        int col = blockIdx.y * get<1>(BLK_MNK{}) + i_tileN * 8 + lid % 4 * 2;
-        C_val(col, row) = REGC(0, i_tileN);
-        C_val(col + 1, row) = REGC(1, i_tileN);
-        C_val(col, row + 8) = REGC(2, i_tileN);
-        C_val(col + 1, row + 8) = REGC(3, i_tileN);
-    }
+    // epilogue
+    r2g_c_val_store_op.template f<0>(
+        mma_op.template output<0, 0>(),
+        C_val
+    );
 }
 

@@ -343,10 +343,9 @@ class ArrayDef:
 
     def __str__(self) -> str:
         return f"ArrayDef({self.name}, {self.datatype}, {self.axes}, {self.dims}, {self.type})"
-    
+
     def __repr__(self) -> str:
         return f"ArrayDef({self.name}, {self.datatype}, {self.axes}, {self.dims}, {self.type})"
-    
 
 
 @dataclass(kw_only=True)
@@ -548,7 +547,8 @@ def apply_split_transformation(
         axis_ref.body = new_inner_axis_ref
 
         new_inner_axis_ref.body.replace_all_array_ref_idx(
-            axis_ref.induction_var, [axis_ref.induction_var, new_inner_axis_ref.induction_var]
+            axis_ref.induction_var,
+            [axis_ref.induction_var, new_inner_axis_ref.induction_var],
         )
     elif isinstance(axis_ref, SparseAxisSlicer):
         new_axis_ref = SparseAxisIterator(
@@ -831,7 +831,9 @@ def apply_sparsify_transformation(
         axis_ref.body.replace_array_ref_idx(
             array_name=array_defs[ArrayType.B_VAL][0].name,
             old=axis_ref.induction_var,
-            new=ArrayRef(array=sparse_idx_def.name, indices=[sparse_axis_iter.induction_var]),
+            new=ArrayRef(
+                array=sparse_idx_def.name, indices=[sparse_axis_iter.induction_var]
+            ),
         )
 
     elif isinstance(axis_ref, AtomicFormatOp):
@@ -846,10 +848,14 @@ def apply_sparsify_transformation(
             parent=parent_axis_ref,
         )
         parent_axis_ref.body = sparse_axis_slicer
-        axis_ref.replace_symbol(parent_axis_ref.induction_var, sparse_axis_slicer.induction_var)
+        axis_ref.replace_symbol(
+            parent_axis_ref.induction_var, sparse_axis_slicer.induction_var
+        )
         axis_ref.append_array_ref_idx(
             array_name=array_defs[ArrayType.B_VAL][0].name,
-            new=ArrayRef(array=sparse_idx_def.name, indices=[sparse_axis_slicer.induction_var]),
+            new=ArrayRef(
+                array=sparse_idx_def.name, indices=[sparse_axis_slicer.induction_var]
+            ),
         )
         if axis_ref.axes[0] == prev_axis_name:
             axis_ref.axes = axis.name, axis_ref.axes[1]
@@ -1087,16 +1093,41 @@ def apply_mcoize_transformation(
 
 
 def add_metadata(schedule: Optional[Schedule], format: Format) -> None:
-    while schedule is not None:
+    found_reduction_axis = False
+    found_block_idx_x_axis = False
+
+    sch = schedule
+    while sch is not None:
         if (
-            isinstance(schedule, AxisVisitor)
-            and format.get_axis(schedule.axis).direction == Direction.ROW
+            isinstance(sch, AxisVisitor)
+            and format.get_axis(sch.axis).direction == Direction.COL  # 找到第一个Y
         ):
-            schedule.metadata = {
+            sch.metadata = {
                 "reduction_axis": True,
             }
-            return
-        schedule = schedule.child
+            found_reduction_axis = True
+            break
+        sch = sch.child
+
+    sch = schedule
+    while sch is not None:
+        if isinstance(sch, AxisVisitor):
+            if hasattr(sch, "metadata") and sch.metadata.get("reduction_axis"):
+                raise ValueError(
+                    f"Missing block_idx_x.axis outside of reduction axis {sch.axis}"
+                )
+            if format.get_axis(sch.axis).direction == Direction.ROW:  # 找到第一个X
+                sch.metadata = {
+                    "block_idx_x_axis": True,
+                }
+                found_block_idx_x_axis = True
+                break
+        sch = sch.child
+
+    if not (found_reduction_axis and found_block_idx_x_axis):
+        raise ValueError(
+            f"Cannot find reduction axis or block_idx_x_axis in the schedule: {schedule}"
+        )
 
 
 def computent_from_rts(name: str, rts: TransformationSequence) -> Computent:
@@ -1158,6 +1189,7 @@ def computent_from_rts(name: str, rts: TransformationSequence) -> Computent:
 
     assert isinstance(root_format.child, Format)
     add_metadata(schedule, root_format.child)
+
     return Computent(
         name=name,
         schedule=schedule,

@@ -64,8 +64,9 @@ __device__ __forceinline__ void mma_m16n8k16_fp32(float* acc, uint32_t* A, half*
     );
 }"""
 
-DTC_PROLOGUE = """int l = val_soff(blockIdx.x);
-int r = val_soff(blockIdx.x + 1);
+DTC_PROLOGUE = """
+int l = g2r_sparse_offset_load_op.template output<0, 0>();
+int r = g2r_sparse_offset_load_op.template output<0, 1>();
 int k = r - l;"""
 
 DTC_EPILOGUE = """//! write back

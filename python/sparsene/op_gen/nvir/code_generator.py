@@ -149,20 +149,50 @@ class NvIrCodeGenerator:
         )
 
     def dump_f_method(self, op: NvOp) -> str:
-        static_assert_strs = [
-            f"CUTE_STATIC_ASSERT_V((get<{i}>(shape_i{inp.idx}) == size<{i}>(shape({inp.name}))));"
-            # if not isinstance(s, VarlenShape)
-            # else f"CUTE_STATIC_ASSERT((is_static<decltype(size<{i}>(shape({inp.name})))>::value));"
-            for inp in op.inputs
-            if len(inp.shape) > 0
-            for i, s in enumerate(inp.shape)
-            if not isinstance(s, VarlenShape)
-        ]
+        def dump_nested_tuple_access(
+            shape: str, shape_indices: List[int], size_outside: bool = False
+        ) -> str:
+            if len(shape_indices) == 0:
+                return shape
+            if size_outside:
+                return f"size<{shape_indices[-1]}>({dump_nested_tuple_access(shape, shape_indices[:-1])})"
+            else:
+                return f"get<{shape_indices[-1]}>({dump_nested_tuple_access(shape, shape_indices[:-1])})"
+
+        static_assert_strs = []
+
+        def dump_static_assert() -> None:
+            def dump_static_assert(
+                shape: Shape, inp: NvOpInput, parent_shape_indices: List[int]
+            ) -> None:
+                for i, s in enumerate(shape):
+                    if isinstance(s, VarlenShape):
+                        continue
+                    elif isinstance(s, Shape):
+                        dump_static_assert(s, inp, parent_shape_indices + [i])
+                    else:
+                        static_assert_strs.append(
+                            f"CUTE_STATIC_ASSERT_V(("
+                            f"{dump_nested_tuple_access(f'shape_i{inp.idx}', parent_shape_indices + [i])}"
+                            f" == "
+                            f"{dump_nested_tuple_access(f'shape({inp.name})', parent_shape_indices + [i], size_outside=True)}"
+                            "));"
+                        )
+
+            for inp in op.inputs:
+                dump_static_assert(inp.shape, inp, [])
+            # f"CUTE_STATIC_ASSERT_V((get<{i}>(shape_i{inp.idx}) == size<{i}>(shape({inp.name}))));"
+            # f"CUTE_STATIC_ASSERT((is_static<decltype(size<{i}>(shape({inp.name})))>::value));"
+
+        dump_static_assert()
+
         code_str = "\n".join([*static_assert_strs, op.impl.code_template])
         f_template_head_str = (
             "template<size_t buf_idx"
             # + (", size_t wait_num" if op.mem_type[0] == "s" else "")
-            + "".join(f", class Tensor_i{inp.idx}" for inp in op.inputs if len(inp.shape) > 0)
+            + "".join(
+                f", class Tensor_i{inp.idx}" for inp in op.inputs if len(inp.shape) > 0
+            )
             + ">"
         )
         f_input_list = []
@@ -412,10 +442,10 @@ class NvIrCodeGenerator:
         make_shape_str = self.dump_decl_make_shape(shape, is_output=True)
         decl_shape_str = f"decltype({make_shape_str})"
         return f"using Shape_o{idx} = {decl_shape_str};"
-        
+
     def dump_decl_output_layout_type(self, idx: int, op: NvOp) -> str:
         row_major = op.outputs[idx].attrs.get("row_major", False)
-        if (swizzle:=op.outputs[idx].attrs.get("swizzle", None)) is not None:
+        if (swizzle := op.outputs[idx].attrs.get("swizzle", None)) is not None:
             return f"using Layout_o{idx} = decltype(composition(Swizzle<{', '.join(str(s) for s in swizzle)}>{{}}, make_layout(Shape_o{idx}{{}}{', LayoutRight{}' if row_major else ''})));"
         else:
             return f"using Layout_o{idx} = decltype(make_layout(Shape_o{idx}{{}}{', LayoutRight{}' if row_major else ''}));"
@@ -553,8 +583,6 @@ class NvIrCodeGenerator:
             + op_var_def_str
         )
 
-
-
     def dump_nvop_pipeline_device_functions(self, pipeline: NvOpPipeline) -> str:
         ops = [op for stage in pipeline.stages for op in stage.ops]
         snake_names = [to_snake(op.name) for op in ops]
@@ -563,14 +591,14 @@ class NvIrCodeGenerator:
             [f"T_{op.name} &{snake_name}" for op, snake_name in zip(ops, snake_names)]
         )
         gmem_tensor_types = "".join(
-            [f", class T_{name}" for name in pipeline.all_gmem_inouts().keys()]
+            [f", class T_{name}" for name in pipeline.gmem_inouts.keys()]
         )
         gmem_tensor_as_params = "".join(
-            [f", T_{name} &{name}" for name in pipeline.all_gmem_inouts().keys()]
+            [f", T_{name} &{name}" for name in pipeline.gmem_inouts.keys()]
         )
         op_as_args = ", ".join(snake_names)
         gmem_tensor_as_args = "".join(
-            [f", {name}" for name in pipeline.all_gmem_inouts().keys()]
+            [f", {name}" for name in pipeline.gmem_inouts.keys()]
         )
 
         nbuf = max(pipeline.shifts) + 1
@@ -852,7 +880,9 @@ class NvIrCodeGenerator:
             def dump_remainder_dispatch() -> str:
                 def dump_remainder_dispatch_body() -> str:
                     def dump_remains_i_call(i: int) -> str:
-                        return f"remains_{i}(i, l, r, {op_as_args}{gmem_tensor_as_args});"
+                        return (
+                            f"remains_{i}(i, l, r, {op_as_args}{gmem_tensor_as_args});"
+                        )
 
                     def dump_remains_i_switch_i(i: int) -> str:
                         return ("else " if i > 1 else "") + (
@@ -862,10 +892,7 @@ class NvIrCodeGenerator:
                             + "}"
                         )
 
-                    return "\n".join(
-                        dump_remains_i_switch_i(i)
-                        for i in range(1, nbuf)
-                    )
+                    return "\n".join(dump_remains_i_switch_i(i) for i in range(1, nbuf))
 
                 return templates.REMAINDER_DEVICE_FUNCTION_SKELETON.format(
                     op_types=op_types,
@@ -938,7 +965,9 @@ class NvIrCodeGenerator:
             def dump_empty_from_idx_dispatch() -> str:
                 def dump_empty_dispatch_body() -> str:
                     def dump_empty_from_idx_call(idx: int) -> str:
-                        return f"empty_{idx}(i, l, r, {op_as_args}{gmem_tensor_as_args});"
+                        return (
+                            f"empty_{idx}(i, l, r, {op_as_args}{gmem_tensor_as_args});"
+                        )
 
                     def dump_empty_from_buf_idx_switch_i(idx: int) -> str:
                         return ("else " if idx > 0 else "") + (
@@ -949,8 +978,7 @@ class NvIrCodeGenerator:
                         )
 
                     return "\n".join(
-                        dump_empty_from_buf_idx_switch_i(i)
-                        for i in range(nbuf)
+                        dump_empty_from_buf_idx_switch_i(i) for i in range(nbuf)
                     )
 
                 return templates.EMPTY_DEVICE_FUNCTION_SKELETON.format(
@@ -962,9 +990,7 @@ class NvIrCodeGenerator:
                 )
 
             return (
-                "\n\n".join(
-                    dump_empty_from_idx(i) for i in range(nbuf)
-                )
+                "\n\n".join(dump_empty_from_idx(i) for i in range(nbuf))
                 + "\n\n"
                 + dump_empty_from_idx_dispatch()
             )
@@ -987,7 +1013,7 @@ class NvIrCodeGenerator:
         snake_names = [to_snake(op.name) for op in ops]
         op_as_args = ", ".join(snake_names)
         gmem_tensor_as_args = "".join(
-            [f", {name}" for name in pipeline.all_gmem_inouts().keys()]
+            [f", {name}" for name in pipeline.gmem_inouts.keys()]
         )
         sum_shifts = sum(pipeline.shifts)
 
@@ -1019,10 +1045,22 @@ class NvIrCodeGenerator:
         )
 
     def dump_prologue(self, pipeline: NvOpPipeline) -> str:
-        return templates.DTC_PROLOGUE
+        prologue_op_str = f"// prologue\n"
+        prologue_ops = [
+            self.dump_f_method_call(op, buf_idx_str="0") for op in pipeline.prologue
+        ]
+        prologue_op_str += "\n\n".join(prologue_ops)
+        return prologue_op_str + "\n" + templates.DTC_PROLOGUE
+        # return templates.DTC_PROLOGUE
 
     def dump_epilogue(self, pipeline: NvOpPipeline) -> str:
-        return templates.DTC_EPILOGUE
+        epilogue_op_str = f"// epilogue\n"
+        epilogue_ops = [
+            self.dump_f_method_call(op, buf_idx_str="0") for op in pipeline.epilogue
+        ]
+        epilogue_op_str += "\n\n".join(epilogue_ops)
+        return epilogue_op_str
+        # return templates.DTC_EPILOGUE
 
     def dump_nvop_pipeline_global_function(self, pipeline: NvOpPipeline) -> str:
 
@@ -1035,10 +1073,7 @@ class NvIrCodeGenerator:
 
         def dump_gmem_ptrs() -> str:
             return ",\n".join(
-                [
-                    f"{io.dtype} *d{name}"
-                    for name, io in pipeline.all_gmem_inouts().items()
-                ]
+                [f"{io.dtype} *d{name}" for name, io in pipeline.gmem_inouts.items()]
             )
 
         def dump_varlens() -> str:
@@ -1066,10 +1101,17 @@ class NvIrCodeGenerator:
                 return f"make_shape({comma_seperated_shapes})"
 
             tensor_init_strs = ["// gmem tensors"]
-            for name, io in pipeline.all_gmem_inouts().items():
-                tensor_init_strs.append(
-                    f"auto {name} = make_tensor(make_gmem_ptr(d{name}), {dump_make_shape(io.shape)});"
+            blk_slice_strs = {
+                "B_val": "logical_divide({tensor}, make_shape(_1{{}}, get<1>(BLK_MNK{{}})))(_, make_coord(_, blockIdx.y))",
+                "C_val": "logical_divide({tensor}, select<1, 0>(BLK_MNK{{}}))(make_coord(_, blockIdx.y), make_coord(_, blockIdx.x))",
+            }
+            for name, io in pipeline.gmem_inouts.items():
+                make_tensor_str = (
+                    f"make_tensor(make_gmem_ptr(d{name}), {dump_make_shape(io.shape)})"
                 )
+                if name in blk_slice_strs:
+                    make_tensor_str = blk_slice_strs[name].format(tensor=make_tensor_str)
+                tensor_init_strs.append(f"Tensor {name} = {make_tensor_str};")
             return "\n".join(tensor_init_strs)
 
         all_parameters = dump_all_parameters()
@@ -1102,7 +1144,13 @@ class NvIrCodeGenerator:
             ops = [self.dump_nvop_class_def(op) for op in stage.ops]
             stage_op_str += "\n\n".join(ops)
             stages.append(stage_op_str)
-        return "\n\n".join(stages)
+        prologue_op_str = f"// prologue\n"
+        prologue_ops = [self.dump_nvop_class_def(op) for op in pipeline.prologue]
+        prologue_op_str += "\n\n".join(prologue_ops)
+        epilogue_op_str = f"// epilogue\n"
+        epilogue_ops = [self.dump_nvop_class_def(op) for op in pipeline.epilogue]
+        epilogue_op_str += "\n\n".join(epilogue_ops)
+        return "\n\n".join([prologue_op_str] + stages + [epilogue_op_str])
 
     def dump_nvop_inits(self, pipeline: NvOpPipeline) -> str:
         stages = []
@@ -1111,12 +1159,20 @@ class NvIrCodeGenerator:
             ops = [self.dump_nvop_create(op, pipeline.nbuf) for op in stage.ops]
             stage_op_str += "\n\n".join(ops)
             stages.append(stage_op_str)
-        return "\n\n".join(stages)
+        prologue_op_str = f"// prologue\n"
+        prologue_ops = [self.dump_nvop_create(op, 1) for op in pipeline.prologue]
+        prologue_op_str += "\n\n".join(prologue_ops)
+        epilogue_op_str = f"// epilogue\n"
+        epilogue_ops = [self.dump_nvop_create(op, 1) for op in pipeline.epilogue]
+        epilogue_op_str += "\n\n".join(epilogue_ops)
+        return "\n\n".join([prologue_op_str] + stages + [epilogue_op_str])
 
     def dump_nvop_pipeline(self, pipeline: NvOpPipeline) -> str:
         device_helper_functions = templates.DTC_HELPER_FUNCTIONS
         nvop_defs = self.dump_nvop_defs(pipeline)
-        nvop_pipeline_device_functions = self.dump_nvop_pipeline_device_functions(pipeline)
+        nvop_pipeline_device_functions = self.dump_nvop_pipeline_device_functions(
+            pipeline
+        )
         global_function = self.dump_nvop_pipeline_global_function(pipeline)
         return templates.CUDA_SOURCE_SKELETON.format(
             device_helper_functions=device_helper_functions,
