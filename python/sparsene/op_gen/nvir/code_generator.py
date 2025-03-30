@@ -15,7 +15,7 @@ from sparsene.op_gen.nvir.nvop import (
     ParamShape,
     MnkShape,
 )
-from sparsene.op_gen.nvir.pipeliner import NvOpPipeline, NvOpStage
+from sparsene.op_gen.nvir.pipeline import NvOpPipeline, NvOpStage
 import sparsene.op_gen.nvir.templates as templates
 from itertools import chain
 from sparsene.logging import get_logger
@@ -61,74 +61,103 @@ class NvIrCodeGenerator:
         return "\n".join(f"{indent}{line}" for line in text.split("\n"))
 
     def dump_nvop_class_def(self, op: NvOp) -> str:
-        parameter_types_strs = [
-            f"class {param} = Int<{op.parameters[param]}>" for param in op.parameters
-        ]
-        parameter_types_str = ", ".join(parameter_types_strs)
-        parameter_types_str = ", " + parameter_types_str if parameter_types_str else ""
+        def dump_template_head() -> str:
+            parameter_types_strs = [
+                f"class {param} = Int<{op.parameters[param]}>"
+                for param in op.parameters
+            ]
+            parameter_types_str = ", ".join(parameter_types_strs)
+            parameter_types_str = (
+                ", " + parameter_types_str if parameter_types_str else ""
+            )
 
-        in_types_strs = [
-            f"class TI{idx} = {inp.dtype}" for idx, inp in enumerate(op.inputs)
-        ]
-        out_types_strs = [
-            f"class TO{idx} = {out.dtype}" for idx, out in enumerate(op.outputs)
-        ]
-        io_types_str = ", ".join(chain(in_types_strs, out_types_strs))
-        io_types_str = ", " + io_types_str if io_types_str else ""
+            in_types_strs = [
+                f"class TI{idx} = {inp.dtype}" for idx, inp in enumerate(op.inputs)
+            ]
+            out_types_strs = [
+                f"class TO{idx} = {out.dtype}" for idx, out in enumerate(op.outputs)
+            ]
+            io_types_str = ", ".join(chain(in_types_strs, out_types_strs))
+            io_types_str = ", " + io_types_str if io_types_str else ""
 
-        template_head_str = f"template<class NBUF, class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK{parameter_types_str}{io_types_str}>"
+            non_owning_tensor_types_strs = []
+            for out in op.outputs:
+                if not out.owning:
+                    non_owning_tensor_types_strs.append(f"class Tensor_o{out.idx}")
+            non_owning_tensor_types_str = (
+                ", " + ", ".join(non_owning_tensor_types_strs)
+                if non_owning_tensor_types_strs
+                else ""
+            )
+
+            return f"template<class NBUF, class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK{parameter_types_str}{non_owning_tensor_types_str}{io_types_str}>"
+
+        template_head_str = dump_template_head()
 
         class_head_str = f"class {op.name} {{\npublic:"
 
         inputs_str = f"// Inputs\n" + "\n".join(
-            map(lambda inp: self.dump_input_decl(inp, op), op.inputs)
+            map(lambda inp: self.dump_input_decl(inp), op.inputs)
         )
         outputs_str = f"// Outputs\n" + "\n".join(
-            map(lambda out: self.dump_output_decl(out, op), op.outputs)
+            map(lambda out: self.dump_output_decl(out), op.outputs)
         )
 
         hw_param_str = f"// Hardware parameters\nint tid, lid, wid;"
 
-        hw_constructor_params = ["int tid", "int lid", "int wid"]
-        output_ptr_constructor_params = [
-            f"{out.dtype} *{out.name}" for out in op.outputs if out.mem != "rmem"
-        ]
-        varlen_modes_constructor_params = []
-        for out in op.outputs:
-            i: int = 0
-            for s in out.shape:
-                if isinstance(s, VarlenShape):
-                    varlen_modes_constructor_params.append(f"int mode_o{out.idx}_{i}")
-                    i += 1
-        for inp in op.inputs:
-            i: int = 0
-            for s in inp.shape:
-                if isinstance(s, VarlenShape):
-                    varlen_modes_constructor_params.append(f"int mode_i{inp.idx}_{i}")
-                    i += 1
-        constructor_params = ", ".join(
-            chain(
-                hw_constructor_params,
-                output_ptr_constructor_params,
-                varlen_modes_constructor_params,
+        def dump_constructor_head() -> str:
+            hw_constructor_params = ["int tid", "int lid", "int wid"]
+            output_constructor_params = []
+            for out in op.outputs:
+                if not out.owning:
+                    output_constructor_params.append(f"Tensor_o{out.idx} &{out.name}")
+                elif out.mem != "rmem":
+                    output_constructor_params.append(f"{out.dtype} *{out.name}")
+            varlen_modes_constructor_params = []
+            for out in op.outputs:
+                i: int = 0
+                for s in out.shape:
+                    if isinstance(s, VarlenShape):
+                        varlen_modes_constructor_params.append(
+                            f"int mode_o{out.idx}_{i}"
+                        )
+                        i += 1
+            for inp in op.inputs:
+                i: int = 0
+                for s in inp.shape:
+                    if isinstance(s, VarlenShape):
+                        varlen_modes_constructor_params.append(
+                            f"int mode_i{inp.idx}_{i}"
+                        )
+                        i += 1
+            constructor_params = ", ".join(
+                chain(
+                    hw_constructor_params,
+                    output_constructor_params,
+                    varlen_modes_constructor_params,
+                )
             )
-        )
 
-        constructor_head_str = f"CUTE_DEVICE {op.name}({constructor_params})"
+            return f"CUTE_DEVICE {op.name}({constructor_params})"
+
+        constructor_head_str = dump_constructor_head()
         hw_param_constructor_init_list = ["tid(tid)", "lid(lid)", "wid(wid)"]
         varlen_shapes_constructor_init_list = self.dump_init_input_varlen_shape(
             op
         ) + self.dump_init_output_varlen_shape(op)
-        output_tensor_constructor_init_list = [
-            f"{out.name}(make_tensor(make_{out.mem}_ptr({out.name}), Layout_o{out.idx}{{}}))"
-            for out in op.outputs
-            if len(out.shape) > 0 and out.mem != "rmem"
-        ]
+        output_constructor_init_list = []
+        for out in op.outputs:
+            if not out.owning:
+                output_constructor_init_list.append(f"{out.name}({out.name})")
+            elif out.mem != "rmem":
+                output_constructor_init_list.append(
+                    f"{out.name}(make_tensor(make_{out.mem}_ptr({out.name}), Layout_o{out.idx}{{}}))"
+                )
 
         constructor_init_list = (
             hw_param_constructor_init_list
             + varlen_shapes_constructor_init_list
-            + output_tensor_constructor_init_list
+            + output_constructor_init_list
         )
         constructor_init_list_str = ", ".join(constructor_init_list)
         constructor_str = f"{constructor_head_str}\n: {constructor_init_list_str} {{}}"
@@ -366,42 +395,51 @@ class NvIrCodeGenerator:
             logger.debug("\n" * 2)
         return output_str
 
-    def dump_get_output_method_switch(self, idx: int, op: NvOp) -> str:
-        coord_str = "_, " * len(op.outputs[idx].shape) + "buf_idx"
-        return (
-            f"if constexpr (output_idx == {idx}) {{\n"
-            + self._indent_lines(f"return {op.outputs[idx].name}({coord_str});")
-            + "\n"
-            + "}"
-        )
-
     def dump_get_output_method(self, op: NvOp) -> str:
-        return (
+        def dump_output_with_buf_idx_switch(idx: int) -> str:
+            coord_str = "_, " * len(op.outputs[idx].shape) + "buf_idx"
+            return (
+                f"if constexpr (output_idx == {idx}) {{\n"
+                + self._indent_lines(f"return {op.outputs[idx].name}({coord_str});")
+                + "\n"
+                + "}"
+            )
+
+        def dump_output_without_buf_idx_switch(idx: int) -> str:
+            return (
+                f"if constexpr (output_idx == {idx}) {{\n"
+                + self._indent_lines(f"return {op.outputs[idx].name};")
+                + "\n"
+                + "}"
+            )
+
+        output_with_buf_idx_str = (
             "template<size_t buf_idx, size_t output_idx>\n"
             + "CUTE_DEVICE auto output() {\n"
             + "\n".join(
-                self._indent_lines(self.dump_get_output_method_switch(idx, op), 1)
+                self._indent_lines(dump_output_with_buf_idx_switch(idx))
+                if not op.outputs[idx].unique
+                else self._indent_lines(dump_output_without_buf_idx_switch(idx))
                 for idx in range(len(op.outputs))
             )
             + "\n"
             + "}"
         )
 
-    def dump_input_decl(self, inp: NvOpInput, op: NvOp) -> str:
-        if len(inp.shape) > 0:
-            shape_type_str = self.dump_decl_input_shape_type(inp.idx, inp.shape)
-            shape_str = self.dump_decl_input_shape(inp.idx)
-            tensor_str = self.dump_decl_input_tensor(inp)
-            return f"{shape_type_str}\n{shape_str}\n{tensor_str}"
-        else:
-            return f"// TI{inp.idx} {inp.name};"
+        output_without_buf_idx_str = (
+            "template<size_t output_idx>\n"
+            + "CUTE_DEVICE auto output() {\n"
+            + "\n".join(
+                self._indent_lines(dump_output_without_buf_idx_switch(idx))
+                for idx in range(len(op.outputs))
+            )
+            + "\n"
+            + "}"
+        )
 
-    def dump_decl_input_shape_type(self, idx: int, shape: Shape) -> str:
-        make_shape_str = self.dump_decl_make_shape(shape, is_output=False)
-        decl_shape_str = f"decltype({make_shape_str})"
-        return f"using Shape_i{idx} = {decl_shape_str};"
+        return output_with_buf_idx_str + "\n\n" + output_without_buf_idx_str
 
-    def dump_decl_make_shape(self, shape: Shape, *, is_output: bool) -> str:
+    def dump_decl_make_shape(self, shape: Shape, *, nbuf: bool) -> str:
         shape_strs = []
         for s in shape:
             if isinstance(s, IntShape):
@@ -415,59 +453,93 @@ class NvIrCodeGenerator:
                     f"get<{0 if s.mnk == 'm' else 1 if s.mnk == 'n' else 2}>({s.param}{{}})"
                 )
             elif isinstance(s, Shape):
-                shape_strs.append(self.dump_decl_make_shape(s, is_output=False))
+                shape_strs.append(self.dump_decl_make_shape(s, nbuf=False))
             else:
                 raise ValueError(f"Unknown shape type: {type(s)}")
-        if is_output:
+        if nbuf:
             shape_strs.append("NBUF{}")
         comma_seperated_shapes = ", ".join(shape_strs)
         return f"make_shape({comma_seperated_shapes})"
 
-    def dump_decl_input_shape(self, idx: int) -> str:
-        return f"Shape_i{idx} shape_i{idx};"
+    def dump_input_decl(self, inp: NvOpInput) -> str:
+        def dump_decl_input_shape_type() -> str:
+            make_shape_str = self.dump_decl_make_shape(inp.shape, nbuf=False)
+            decl_shape_str = f"decltype({make_shape_str})"
+            return f"using Shape_i{inp.idx} = {decl_shape_str};"
 
-    def dump_decl_input_tensor(self, inp: NvOpInput) -> str:
-        return f"// Tensor_i{inp.idx} {inp.name};"
+        def dump_decl_input_shape() -> str:
+            return f"Shape_i{inp.idx} shape_i{inp.idx};"
 
-    def dump_output_decl(self, out: NvOpOutput, op: NvOp) -> str:
-        shape_type_str = self.dump_decl_output_shape_type(out.idx, out.shape)
-        layout_type_str = self.dump_decl_output_layout_type(out.idx, op)
-        tensor_type_str = self.dump_decl_output_tensor_type(out.idx, op)
-        shape_str = self.dump_decl_output_shape(out.idx)
-        layout_str = self.dump_decl_output_layout(out.idx)
-        tensor_str = self.dump_decl_output_tensor(out)
-        return f"{shape_type_str}\n{layout_type_str}\n{tensor_type_str}\n{shape_str}\n{layout_str}\n{tensor_str}"
+        def dump_decl_input_tensor() -> str:
+            return f"// Tensor_i{inp.idx} {inp.name};"
 
-    def dump_decl_output_shape_type(self, idx: int, shape: Shape) -> str:
-        make_shape_str = self.dump_decl_make_shape(shape, is_output=True)
-        decl_shape_str = f"decltype({make_shape_str})"
-        return f"using Shape_o{idx} = {decl_shape_str};"
-
-    def dump_decl_output_layout_type(self, idx: int, op: NvOp) -> str:
-        row_major = op.outputs[idx].attrs.get("row_major", False)
-        if (swizzle := op.outputs[idx].attrs.get("swizzle", None)) is not None:
-            return f"using Layout_o{idx} = decltype(composition(Swizzle<{', '.join(str(s) for s in swizzle)}>{{}}, make_layout(Shape_o{idx}{{}}{', LayoutRight{}' if row_major else ''})));"
+        if len(inp.shape) > 0:
+            shape_type_str = dump_decl_input_shape_type()
+            shape_str = dump_decl_input_shape()
+            tensor_str = dump_decl_input_tensor()
+            return f"{shape_type_str}\n{shape_str}\n{tensor_str}"
         else:
-            return f"using Layout_o{idx} = decltype(make_layout(Shape_o{idx}{{}}{', LayoutRight{}' if row_major else ''}));"
+            return f"// TI{inp.idx} {inp.name};"
 
-    def dump_decl_output_tensor_type(self, idx: int, op: NvOp) -> str:
-        match op.outputs[idx].mem:
-            case "gmem":
-                decl_tensor_str = f"decltype(make_tensor(make_gmem_ptr((TO{idx}*)nullptr), Layout_o{idx}{{}}))"
-            case "smem":
-                decl_tensor_str = f"decltype(make_tensor(make_smem_ptr((TO{idx}*)nullptr), Layout_o{idx}{{}}))"
-            case "rmem":
-                decl_tensor_str = f"decltype(make_tensor<TO{idx}>(Layout_o{idx}{{}}))"
-        return f"using Tensor_o{idx} = {decl_tensor_str};"
+    def dump_output_decl(self, out: NvOpOutput) -> str:
+        def dump_decl_output_shape_type() -> str:
+            if out.unique:
+                make_shape_str = self.dump_decl_make_shape(out.shape, nbuf=False)
+            else:
+                make_shape_str = self.dump_decl_make_shape(out.shape, nbuf=True)
+            decl_shape_str = f"decltype({make_shape_str})"
+            return f"using Shape_o{out.idx} = {decl_shape_str};"
 
-    def dump_decl_output_shape(self, idx: int) -> str:
-        return f"Shape_o{idx} shape_o{idx};"
+        def dump_decl_output_layout_type() -> str:
+            row_major = out.attrs.get("row_major", False)
+            if (swizzle := out.attrs.get("swizzle", None)) is not None:
+                return (
+                    f"using Layout_o{out.idx} = decltype(composition(Swizzle<{', '.join(str(s) for s in swizzle)}>{{}}, "
+                    f"make_layout(Shape_o{out.idx}{{}}{', LayoutRight{}' if row_major else ''})));"
+                )
+            else:
+                return (
+                    f"using Layout_o{out.idx} = decltype(make_layout(Shape_o{out.idx}{{}}"
+                    f"{', LayoutRight{}' if row_major else ''}));"
+                )
 
-    def dump_decl_output_layout(self, idx: int) -> str:
-        return f"Layout_o{idx} layout_o{idx};"
+        def dump_decl_output_tensor_type() -> str:
+            match out.mem:
+                case "gmem":
+                    decl_tensor_str = f"decltype(make_tensor(make_gmem_ptr((TO{out.idx}*)nullptr), Layout_o{out.idx}{{}}))"
+                case "smem":
+                    decl_tensor_str = f"decltype(make_tensor(make_smem_ptr((TO{out.idx}*)nullptr), Layout_o{out.idx}{{}}))"
+                case "rmem":
+                    decl_tensor_str = (
+                        f"decltype(make_tensor<TO{out.idx}>(Layout_o{out.idx}{{}}))"
+                    )
+            return f"using Tensor_o{out.idx} = {decl_tensor_str};"
 
-    def dump_decl_output_tensor(self, out: NvOpOutput) -> str:
-        return f"Tensor_o{out.idx} {out.name};"
+        def dump_decl_output_shape() -> str:
+            return f"Shape_o{out.idx} shape_o{out.idx};"
+
+        def dump_decl_output_layout() -> str:
+            return f"Layout_o{out.idx} layout_o{out.idx};"
+
+        def dump_decl_output_tensor() -> str:
+            if out.owning:
+                return f"Tensor_o{out.idx} {out.name};"
+            else:
+                return f"Tensor_o{out.idx} &{out.name};"
+
+        if out.owning:
+            shape_type_str = dump_decl_output_shape_type()
+            shape_str = dump_decl_output_shape()
+            layout_type_str = dump_decl_output_layout_type()
+            layout_str = dump_decl_output_layout()
+            tensor_type_str = dump_decl_output_tensor_type()
+            tensor_str = dump_decl_output_tensor()
+            return f"{shape_type_str}\n{layout_type_str}\n{tensor_type_str}\n{shape_str}\n{layout_str}\n{tensor_str}"
+        else:
+            shape_type_str = dump_decl_output_shape_type()
+            shape_str = dump_decl_output_shape()
+            tensor_str = dump_decl_output_tensor()
+            return f"{shape_type_str}\n{shape_str}\n{tensor_str}"
 
     def dump_init_input_varlen_shape(self, op: NvOp) -> List[str]:
         init_strs = []
@@ -507,7 +579,7 @@ class NvIrCodeGenerator:
                     f"get<{0 if s.mnk == 'm' else 1 if s.mnk == 'n' else 2}>({s.param}{{}})"
                 )
             elif isinstance(s, Shape):
-                shape_strs.append(self.dump_decl_make_shape(s, is_output=False))
+                shape_strs.append(self.dump_decl_make_shape(s, nbuf=False))
             else:
                 raise ValueError(f"Unknown shape type: {type(s)}")
         if is_output:
@@ -522,12 +594,10 @@ class NvIrCodeGenerator:
         gmem_outputs = [out for out in op.outputs if out.mem == "gmem"]
 
         template_args = []
-        if op.attrs.get("reduction", False) == True:
-            template_args.append("Int<1> /* reduction */")
-        else:
-            template_args.append(f"Int<{nbuf}>")
+        template_args.append(f"Int<{nbuf}>")
         template_args.extend(["BLK_MNK", "MMA_MNK", "BLK_MMA_MNK"])
         template_args.extend([parameter for parameter in op.parameters])
+        template_args.extend([f"decltype({out.name})" for out in op.outputs if not out.owning])
         template_args_str = ", ".join(template_args)
         using_type_str = f"using {snake_name}_t = {op.name}<{template_args_str}>;"
 
@@ -540,6 +610,18 @@ class NvIrCodeGenerator:
             for out in smem_outputs
         ]
 
+        outputs = []
+        for out in op.outputs:
+            if not out.owning:
+                if isinstance(out.source, Tuple):
+                    outputs.append(
+                        f"{to_snake(out.source[0].name)}.template output<{out.source[1]}>()"
+                    )
+                else:
+                    outputs.append(out.source)
+            elif out.mem == "smem":
+                outputs.append(out.name)
+
         varlen_modes = []
         for io in chain(op.inputs, op.outputs):
             for s in io.shape:
@@ -547,7 +629,7 @@ class NvIrCodeGenerator:
                     varlen_modes.append(s.name)
 
         args_0 = ["tid", "lid", "wid"]
-        args_1 = [out.name for out in smem_outputs]
+        args_1 = outputs
         args_2 = varlen_modes
         if args_0 and args_1 and args_2:
             args_str = (
@@ -762,7 +844,7 @@ class NvIrCodeGenerator:
                     all_insts.append(Comment(f"stage 0..{i}"))
                     for step in range(pipeline.shifts[i]):
                         # Stage 0; Stage 0, 1; Stage 0, 1, 2; ...; Stage 0, 1, 2, ..., nstages - 2
-                        op_calls = []
+                        op_calls = []  # [op0, op1, op2, ...]
                         for stage_idx, stage in enumerate(pipeline.stages[: i + 1]):
                             for op in stage.ops:
                                 op_calls.append(
@@ -1110,7 +1192,9 @@ class NvIrCodeGenerator:
                     f"make_tensor(make_gmem_ptr(d{name}), {dump_make_shape(io.shape)})"
                 )
                 if name in blk_slice_strs:
-                    make_tensor_str = blk_slice_strs[name].format(tensor=make_tensor_str)
+                    make_tensor_str = blk_slice_strs[name].format(
+                        tensor=make_tensor_str
+                    )
                 tensor_init_strs.append(f"Tensor {name} = {make_tensor_str};")
             return "\n".join(tensor_init_strs)
 

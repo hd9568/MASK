@@ -9,7 +9,7 @@ from sparsene.op_gen.nvir.code_generator import (
     VarlenShape,
     MnkShape,
 )
-from sparsene.op_gen.nvir.pipeliner import (
+from sparsene.op_gen.nvir.pipeline import (
     NvOpStage,
     NvOpPipeline,
     GmemInout,
@@ -385,18 +385,18 @@ mma_op = NvOp(
             mem="rmem",
             name="REGC",
             dtype="float",
+            unique=True,
         ),
     ],
     impl=NvOpImpl(
         code_template="""for (int m_iter = 0; m_iter < get<0>(BLK_MMA_MNK{}); m_iter++) {
     for (int n_iter = 0; n_iter < get<1>(BLK_MMA_MNK{}); n_iter++) {
-        mma_m16n8k16_fp32(REGC(_, make_coord(m_iter, n_iter), buf_idx).data(), (uint32_t*)(REGA(_, m_iter).data()), REGB(_, n_iter).data());
+        mma_m16n8k16_fp32(REGC(_, make_coord(m_iter, n_iter)).data(), (uint32_t*)(REGA(_, m_iter).data()), REGB(_, n_iter).data());
     }
 }"""
     ),
     mem_type=("r", "r"),
     parameters={},
-    reduction=True,
 )
 
 g2r_sparse_offset_load_op = NvOp(
@@ -440,8 +440,10 @@ r2g_c_val_store_op = NvOp(
             dtype="float",
             source=(mma_op, 0),
         ),
-        NvOpInput(
-            idx=1,
+    ],
+    outputs=[
+        NvOpOutput(
+            idx=0,
             shape=Shape(
                 MnkShape("BLK_MNK", "n"),
                 MnkShape("BLK_MNK", "m"),
@@ -450,10 +452,10 @@ r2g_c_val_store_op = NvOp(
             name="C_val",
             dtype="float",
             source="C_val",
-            modify=True,
+            owning=False,
+            unique=True,
         ),
     ],
-    outputs=[],
     impl=NvOpImpl(
         code_template="""//! write back
 for (int i_tileN = 0; i_tileN < get<1>(BLK_MNK{}) / 8; i_tileN++) {

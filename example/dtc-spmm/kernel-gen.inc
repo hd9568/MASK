@@ -93,6 +93,16 @@ public:
             return r(buf_idx);
         }
     }
+    
+    template<size_t output_idx>
+    CUTE_DEVICE auto output() {
+        if constexpr (output_idx == 0) {
+            return l;
+        }
+        if constexpr (output_idx == 1) {
+            return r;
+        }
+    }
 
     template<size_t buf_idx, class Tensor_i0>
     CUTE_DEVICE void f(Tensor_i0 val_soff, TI1 i) {
@@ -129,6 +139,13 @@ public:
     CUTE_DEVICE auto output() {
         if constexpr (output_idx == 0) {
             return tile_sidx_block(_, buf_idx);
+        }
+    }
+    
+    template<size_t output_idx>
+    CUTE_DEVICE auto output() {
+        if constexpr (output_idx == 0) {
+            return tile_sidx_block;
         }
     }
 
@@ -183,6 +200,16 @@ public:
             return r(buf_idx);
         }
     }
+    
+    template<size_t output_idx>
+    CUTE_DEVICE auto output() {
+        if constexpr (output_idx == 0) {
+            return l;
+        }
+        if constexpr (output_idx == 1) {
+            return r;
+        }
+    }
 
     template<size_t buf_idx, class Tensor_i0>
     CUTE_DEVICE void f(Tensor_i0 val_coo_off, TI1 i) {
@@ -219,6 +246,13 @@ public:
     CUTE_DEVICE auto output() {
         if constexpr (output_idx == 0) {
             return val_sidx_reg(_, buf_idx);
+        }
+    }
+    
+    template<size_t output_idx>
+    CUTE_DEVICE auto output() {
+        if constexpr (output_idx == 0) {
+            return val_sidx_reg;
         }
     }
 
@@ -259,6 +293,13 @@ public:
     CUTE_DEVICE auto output() {
         if constexpr (output_idx == 0) {
             return tile_coo_val_block(_, buf_idx);
+        }
+    }
+    
+    template<size_t output_idx>
+    CUTE_DEVICE auto output() {
+        if constexpr (output_idx == 0) {
+            return tile_coo_val_block;
         }
     }
 
@@ -316,6 +357,16 @@ public:
             return coo_range_reg(buf_idx);
         }
     }
+    
+    template<size_t output_idx>
+    CUTE_DEVICE auto output() {
+        if constexpr (output_idx == 0) {
+            return coo_idx_reg;
+        }
+        if constexpr (output_idx == 1) {
+            return coo_range_reg;
+        }
+    }
 
     template<size_t buf_idx, class Tensor_i0>
     CUTE_DEVICE void f(Tensor_i0 val_coo_idx, TI1 ll, TI2 rr) {
@@ -361,6 +412,13 @@ public:
     CUTE_DEVICE auto output() {
         if constexpr (output_idx == 0) {
             return REGB(_, _, buf_idx);
+        }
+    }
+    
+    template<size_t output_idx>
+    CUTE_DEVICE auto output() {
+        if constexpr (output_idx == 0) {
+            return REGB;
         }
     }
 
@@ -411,6 +469,13 @@ public:
             return tile_coo_restore_val_block(_, _, buf_idx);
         }
     }
+    
+    template<size_t output_idx>
+    CUTE_DEVICE auto output() {
+        if constexpr (output_idx == 0) {
+            return tile_coo_restore_val_block;
+        }
+    }
 
     template<size_t buf_idx, class Tensor_i0, class Tensor_i1>
     CUTE_DEVICE void f(Tensor_i0 tile_coo_val_block, Tensor_i1 coo_idx_reg, TI2 nnz_num) {
@@ -458,6 +523,13 @@ public:
             return REGA(_, _, buf_idx);
         }
     }
+    
+    template<size_t output_idx>
+    CUTE_DEVICE auto output() {
+        if constexpr (output_idx == 0) {
+            return REGA;
+        }
+    }
 
     template<size_t buf_idx, class Tensor_i0>
     CUTE_DEVICE void f(Tensor_i0 tile_coo_restore_val_block) {
@@ -490,7 +562,7 @@ public:
     // Tensor_i1 REGB;
 
     // Outputs
-    using Shape_o0 = decltype(make_shape(Int<4>{}, make_shape(get<0>(BLK_MMA_MNK{}), get<1>(BLK_MMA_MNK{})), NBUF{}));
+    using Shape_o0 = decltype(make_shape(Int<4>{}, make_shape(get<0>(BLK_MMA_MNK{}), get<1>(BLK_MMA_MNK{}))));
     using Layout_o0 = decltype(make_layout(Shape_o0{}));
     using Tensor_o0 = decltype(make_tensor<TO0>(Layout_o0{}));
     Shape_o0 shape_o0;
@@ -506,7 +578,14 @@ public:
     template<size_t buf_idx, size_t output_idx>
     CUTE_DEVICE auto output() {
         if constexpr (output_idx == 0) {
-            return REGC(_, _, buf_idx);
+            return REGC;
+        }
+    }
+    
+    template<size_t output_idx>
+    CUTE_DEVICE auto output() {
+        if constexpr (output_idx == 0) {
+            return REGC;
         }
     }
 
@@ -518,45 +597,51 @@ public:
         CUTE_STATIC_ASSERT_V((get<1>(shape_i1) == size<1>(shape(REGB))));
         for (int m_iter = 0; m_iter < get<0>(BLK_MMA_MNK{}); m_iter++) {
             for (int n_iter = 0; n_iter < get<1>(BLK_MMA_MNK{}); n_iter++) {
-                mma_m16n8k16_fp32(REGC(_, make_coord(m_iter, n_iter), buf_idx).data(), (uint32_t*)(REGA(_, m_iter).data()), REGB(_, n_iter).data());
+                mma_m16n8k16_fp32(REGC(_, make_coord(m_iter, n_iter)).data(), (uint32_t*)(REGA(_, m_iter).data()), REGB(_, n_iter).data());
             }
         }
     }
 };
 
 // epilogue
-template<class NBUF, class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class TI0 = float, class TI1 = float>
+template<class NBUF, class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class Tensor_o0, class TI0 = float, class TO0 = float>
 class R2gCValStoreOp {
 public:
     // Inputs
     using Shape_i0 = decltype(make_shape(Int<4>{}, make_shape(get<0>(BLK_MMA_MNK{}), get<1>(BLK_MMA_MNK{}))));
     Shape_i0 shape_i0;
     // Tensor_i0 REGC;
-    using Shape_i1 = decltype(make_shape(get<1>(BLK_MNK{}), get<0>(BLK_MNK{})));
-    Shape_i1 shape_i1;
-    // Tensor_i1 C_val;
 
     // Outputs
-    
+    using Shape_o0 = decltype(make_shape(get<1>(BLK_MNK{}), get<0>(BLK_MNK{})));
+    Shape_o0 shape_o0;
+    Tensor_o0 &C_val;
 
     // Hardware parameters
     int tid, lid, wid;
 
-    CUTE_DEVICE R2gCValStoreOp(int tid, int lid, int wid)
-    : tid(tid), lid(lid), wid(wid) {}
+    CUTE_DEVICE R2gCValStoreOp(int tid, int lid, int wid, Tensor_o0 &C_val)
+    : tid(tid), lid(lid), wid(wid), C_val(C_val) {}
 
     template<size_t buf_idx, size_t output_idx>
     CUTE_DEVICE auto output() {
+        if constexpr (output_idx == 0) {
+            return C_val;
+        }
+    }
     
+    template<size_t output_idx>
+    CUTE_DEVICE auto output() {
+        if constexpr (output_idx == 0) {
+            return C_val;
+        }
     }
 
-    template<size_t buf_idx, class Tensor_i0, class Tensor_i1>
-    CUTE_DEVICE void f(Tensor_i0 REGC, Tensor_i1 C_val) {
+    template<size_t buf_idx, class Tensor_i0>
+    CUTE_DEVICE void f(Tensor_i0 REGC) {
         CUTE_STATIC_ASSERT_V((get<0>(shape_i0) == size<0>(shape(REGC))));
         CUTE_STATIC_ASSERT_V((get<0>(get<1>(shape_i0)) == size<0>(get<1>(shape(REGC)))));
         CUTE_STATIC_ASSERT_V((get<1>(get<1>(shape_i0)) == size<1>(get<1>(shape(REGC)))));
-        CUTE_STATIC_ASSERT_V((get<0>(shape_i1) == size<0>(shape(C_val))));
-        CUTE_STATIC_ASSERT_V((get<1>(shape_i1) == size<1>(shape(C_val))));
         //! write back
         for (int i_tileN = 0; i_tileN < get<1>(BLK_MNK{}) / 8; i_tileN++) {
             int row = lid / 4;
@@ -1308,15 +1393,16 @@ template <
     };
     
     // stage 3
-    using mma_op_t = MmaOp<Int<1> /* reduction */, BLK_MNK, MMA_MNK, BLK_MMA_MNK>;
+    using mma_op_t = MmaOp<Int<2>, BLK_MNK, MMA_MNK, BLK_MMA_MNK>;
     mma_op_t mma_op{
         tid, lid, wid,
     };
     
     // epilogue
-    using r2g_c_val_store_op_t = R2gCValStoreOp<Int<1>, BLK_MNK, MMA_MNK, BLK_MMA_MNK>;
+    using r2g_c_val_store_op_t = R2gCValStoreOp<Int<1>, BLK_MNK, MMA_MNK, BLK_MMA_MNK, decltype(C_val)>;
     r2g_c_val_store_op_t r2g_c_val_store_op{
-        tid, lid, wid,
+        tid, lid, wid, 
+        C_val,
     };
 
     // prologue
@@ -1343,8 +1429,7 @@ template <
 
     // epilogue
     r2g_c_val_store_op.template f<0>(
-        mma_op.template output<0, 0>(),
-        C_val
+        mma_op.template output<0, 0>()
     );
 }
 

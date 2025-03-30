@@ -954,14 +954,14 @@ def apply_cooize_transformation(
         coo_idx_def = ArrayDef(
             name=val_def.name + "_coo_idx",
             axes=[f"{axis_x}_{axis_y}_coo"],
-            dims=[VARLEN],
+            dims=["nnz"],
             type=ArrayType.COO_IDX,
             datatype=DataType.INT,
         )
         coo_val_def = ArrayDef(
             name=val_def.name + "_coo_val",
             axes=[f"{axis_x}_{axis_y}_coo"],
-            dims=[VARLEN],
+            dims=["nnz"],
             type=ArrayType.VAL,
             datatype=val_def.datatype,
         )
@@ -1042,7 +1042,7 @@ def apply_mcoize_transformation(
         mco_val_def = ArrayDef(
             name=val_def.name + "_mco_val",
             axes=[f"{axis_x}_{axis_y}_mco"],
-            dims=[VARLEN],
+            dims=["nnz"],
             type=ArrayType.VAL,
             datatype=val_def.datatype,
         )
