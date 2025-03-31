@@ -60,10 +60,11 @@ target_link_libraries(dtc_half_row_majorB_vs_bind PRIVATE ${CUDA_LIBS})
 
 
 #> row major B val sidx bind reorder
-file(GLOB_RECURSE SRC_FP16_ROWMAJORB_VS_BIND_REORDER_FILES ${SRCDIR_FP16}/row_majorB_vs_bind_reorder/*.cu)
-add_executable(dtc_half_row_majorB_vs_bind_reorder ${SRC_CUDA_FILES} ${SRC_FP16_ROWMAJORB_VS_BIND_REORDER_FILES})
-target_compile_options(dtc_half_row_majorB_vs_bind_reorder PRIVATE ${CUDA_NVCC_FLAGS} -I${SRCDIR})
-target_link_libraries(dtc_half_row_majorB_vs_bind_reorder PRIVATE ${CUDA_LIBS})
+add_subdirectory(${SRCDIR_FP16}/row_majorB_vs_bind_reorder/)
+# file(GLOB_RECURSE SRC_FP16_ROWMAJORB_VS_BIND_REORDER_FILES ${SRCDIR_FP16}/row_majorB_vs_bind_reorder/*.cu)
+# add_executable(dtc_half_row_majorB_vs_bind_reorder ${SRC_CUDA_FILES} ${SRC_FP16_ROWMAJORB_VS_BIND_REORDER_FILES})
+# target_compile_options(dtc_half_row_majorB_vs_bind_reorder PRIVATE ${CUDA_NVCC_FLAGS} -I${SRCDIR})
+# target_link_libraries(dtc_half_row_majorB_vs_bind_reorder PRIVATE ${CUDA_LIBS})
 
 
 # SRC_FP32 directory
