@@ -461,8 +461,19 @@ int main(int argc, char** argv) {
 
     half* B = (half*)malloc(sizeof(half) * K * N);
     // initVec(B, K * N);
-    // initVec(csrValA, nnz);
+    initVec(csrValA, nnz);
     initVector(B, K * N, 0);
+    {//! debug matirx B
+        // for (int tid = 0; tid < 32; tid++) {
+        //     int row = tid / 8;
+        //     int col = tid % 8 * 8;
+        //     printf("tid=%d,load: ", tid);
+        //     for (int i = 0; i < 8; i++) {
+        //         printf("%.0f ", (float)B[OFFSET_ROW(row, col + i, N)]);
+        //     }
+        //     printf("\n");
+        // }
+    }
     {//! debug convert to dense
         // float* restoreA = (float*)malloc(sizeof(float) * rowA * colA);
         // memset(restoreA, 0, sizeof(float) * rowA * colA);
@@ -484,6 +495,16 @@ int main(int argc, char** argv) {
         // }
 
     }
+    {//! debug tile B
+        // for (int k_ptr = 0; k_ptr < colA / 16; k_ptr++) {
+        //     printf("host check tile B: i = %d\n", k_ptr);
+        //     for (int i = 0; i < 16; i++) {
+        //         for (int j = 0; j < 8; j++) {
+        //             printf("%.0f ", (float)B[OFFSET_ROW(i + k_ptr * 16, j, N)]);
+        //         } printf("\n");
+        //     }
+        // }
+    }
 
     float* C_cuda = (float*)malloc(sizeof(float) * M * N);
     convertToMETCF(M, N, K, nnz, csrPtrA, csrColIdxA, csrValA, B, C_cuda);
@@ -495,26 +516,6 @@ int main(int argc, char** argv) {
     verify_new(C_cpu, C_cuda, M, N);
 
     printf("check nan: cusp %.1f mykernel %.1f\n", C_cpu[0], C_cuda[0]);
-
-
-    // float* C_host = (float*)malloc(sizeof(float) * M * N);
-    // memset(C_host, 0, sizeof(float) * M * N);
-    // for (int i = 0; i < M; i++) {
-    //     for (int j = 0; j < N; j++) {
-    //         for (int k = csrPtrA[i]; k < csrPtrA[i + 1]; k++) {
-    //             int col = csrColIdxA[k];
-    //             float value = (float)csrValA[k];
-    //             C_host[i * N + j] += value * (float)B[OFFSET_ROW(col, j, N)];
-    //         }
-    //     }
-    // }
-    // for (int i = 0; i < M; i++) {
-    //     for (int j = 0; j < N; j++) {
-    //         if (fabs(C_host[i * N + j] - C_cpu[i * N + j]) > 0.01) {
-    //             printf("Error(%d, %d): %f %f\n", i, j, C_host[i * N + j], C_cpu[i * N + j]);
-    //         }
-    //     }
-    // }
     return 0;
     
 }

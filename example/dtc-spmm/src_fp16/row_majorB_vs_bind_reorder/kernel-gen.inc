@@ -93,7 +93,7 @@ __device__ __forceinline__ void unpack_half_short(uint32_t packed, half& h, shor
 
 //! stage 0
 template <class NBUF, class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, 
-    class tile_sidx_size = Int<16>, class tile_coo_val_size = Int<16 * (16 + 8)>, class tile_coo_val_size_no_pad = Int<16 * 16>,  
+    class tile_sidx_size = Int<16>, class tile_coo_val_size = Int<16 * (16)>, class tile_coo_val_size_no_pad = Int<16 * 16>,  
     class TI0 = int, class TI1 = uint32_t, class TI2 = int, class TO0 = int, class TO1 = uint32_t>
 class G2sSparseEncodingLoadOp {
     public:
@@ -156,7 +156,7 @@ class G2sSparseEncodingLoadOp {
 };
 
 template <class NBUF, class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, 
-    class tile_sidx_size = Int<16>, class tile_coo_val_size = Int<16 * (16 + 8)>, class tile_coo_val_size_no_pad = Int<16 * 16>, 
+    class tile_sidx_size = Int<16>, class tile_coo_val_size = Int<16 * (16)>, class tile_coo_val_size_no_pad = Int<16 * 16>, 
     class TI0 = int, class TI1 = int, class TO0 = int>
 class G2sSparseIndexLoadOp {
     public:
@@ -201,7 +201,7 @@ class G2sSparseIndexLoadOp {
 
 //! stage 1
 template <class NBUF, class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK,
-    class tile_sidx_size = Int<16>, class tile_coo_val_size = Int<16 * (16 + 8)>, class tile_coo_val_size_no_pad = Int<16 * 16>,
+    class tile_sidx_size = Int<16>, class tile_coo_val_size = Int<16 * (16)>, class tile_coo_val_size_no_pad = Int<16 * 16>,
     class TI0 = uint32_t, class TI1 = int, class TO0 = half>
 class S2sRestoreMatrixAOp {
     public:
@@ -216,12 +216,16 @@ class S2sRestoreMatrixAOp {
     // O0: tile_coo_restore_val_block
     static constexpr int kShmLoadSwizzleM = 3;
     static constexpr int kShmLoadSwizzleS = 3;
-    static constexpr int kShmLoadSwizzleB = 3;
+    static constexpr int kShmLoadSwizzleB = 1;
     using SmemLayoutAtom = decltype(composition(
+        Swizzle<kShmLoadSwizzleB, kShmLoadSwizzleM, kShmLoadSwizzleS>{},
+        make_layout(make_shape(get<0>(BLK_MNK{}), get<2>(BLK_MNK{}), NBUF{}),
+                    make_stride(get<2>(BLK_MNK{}), Int<1>{}, get<0>(BLK_MNK{}) * get<2>(BLK_MNK{})))));
+    using SmemLayoutAtom_2d = decltype(composition(
         Swizzle<kShmLoadSwizzleB, kShmLoadSwizzleM, kShmLoadSwizzleS>{},
         make_layout(make_shape(get<0>(BLK_MNK{}), get<2>(BLK_MNK{})),
                     make_stride(get<2>(BLK_MNK{}), Int<1>{}))));
-    using SmemLayoutValBlock = decltype(tile_to_shape(SmemLayoutAtom{}, make_shape(get<0>(BLK_MNK{}), get<2>(BLK_MNK{}), NBUF{})));
+    using SmemLayoutValBlock = SmemLayoutAtom;
     using Tensor_o0 = decltype(make_tensor(make_smem_ptr((TO0*)nullptr), SmemLayoutValBlock{}));
     SmemLayoutValBlock shape_o0;
     Tensor_o0 tile_coo_restore_val_block;
@@ -235,8 +239,7 @@ class S2sRestoreMatrixAOp {
     template <size_t buf_idx, size_t output_idx>
     CUTE_DEVICE auto output() {
         if constexpr (output_idx == 0) {
-            auto view = tile_coo_restore_val_block(_, _, buf_idx);
-            return make_tensor(view.data(), SmemLayoutAtom{});
+            return make_tensor(tile_coo_restore_val_block(_, _, buf_idx).data(), SmemLayoutAtom_2d{});
         }
     }
 
@@ -253,8 +256,7 @@ class S2sRestoreMatrixAOp {
             unpack_half_short(val_idx_bind, value, idx);
             int row = idx / 16;
             int col = idx % 16;
-            // tile_coo_restore_val_block(_, _, buf_idx).data()[OFFSET_ROW(row, col, BLK_K_PAD)] = value;
-            tile_coo_restore_val_block(row, col * 8, buf_idx) = value;
+            tile_coo_restore_val_block(row, col, buf_idx) = value;
         }
     }
 };
@@ -262,13 +264,13 @@ class S2sRestoreMatrixAOp {
 
 
 template <class NBUF, class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, 
-    class tile_sidx_size = Int<16>, class tile_coo_val_size = Int<16 * (16 + 8)>, class tile_coo_val_size_no_pad = Int<16 * 16>,
+    class tile_sidx_size = Int<16>, class tile_coo_val_size = Int<16 * (16)>, class tile_coo_val_size_no_pad = Int<16 * 16>,
     class TI0 = half, class TI1 = int, class TO0 = half>
 class G2sMatrixBLoadOp {
     public:
     //> Inputs
     // I0: dB_val
-    using Shape_i0 = decltype(make_shape(VARLEN, VARLEN));
+    using Shape_i0 = decltype(make_layout(make_shape(VARLEN, VARLEN), make_stride(VARLEN, Int<1>{})));  // row major
     using Tensor_i0 = decltype(make_tensor(make_gmem_ptr((TI0*)nullptr), Shape_i0{}));
     Shape_i0 shape_i0;
     // I1: tile_sidx_block
@@ -283,14 +285,15 @@ class G2sMatrixBLoadOp {
     static constexpr int kShmLoadSwizzleB = 3;
     using SmemLayoutAtom = decltype(composition(
         Swizzle<kShmLoadSwizzleB, kShmLoadSwizzleM, kShmLoadSwizzleS>{}, 
+        make_layout(make_shape(get<2>(BLK_MNK{}), get<1>(BLK_MNK{}), NBUF{}),
+                    make_stride(get<1>(BLK_MNK{}), Int<1>{}, get<1>(BLK_MNK{}) * get<2>(BLK_MNK{})))));    // row major
+    using SmemLayoutAtom_2d = decltype(composition(
+        Swizzle<kShmLoadSwizzleB, kShmLoadSwizzleM, kShmLoadSwizzleS>{}, 
         make_layout(make_shape(get<2>(BLK_MNK{}), get<1>(BLK_MNK{})),
                     make_stride(get<1>(BLK_MNK{}), Int<1>{}))));    // row major
-    using SmemLayoutB = decltype(tile_to_shape(SmemLayoutAtom{}, make_shape(get<2>(BLK_MNK{}), get<1>(BLK_MNK{}), NBUF{})));
-    
-    // using Shape_o0 = decltype(make_shape(get<2>(BLK_MNK{}), get<1>(BLK_MNK{}), NBUF{}));
-    // using Tensor_o0 = decltype(make_tensor<TO0>(SmemLayoutB{}));
+
+    using SmemLayoutB = SmemLayoutAtom;
     using Tensor_o0 = decltype(make_tensor(make_smem_ptr((TO0*)nullptr), SmemLayoutB{}));
-    // Shape_o0 shape_o0;
     
     Tensor_o0 tileB_block;
 
@@ -298,40 +301,32 @@ class G2sMatrixBLoadOp {
     int tid, lid, wid;
 
     CUTE_DEVICE G2sMatrixBLoadOp(int tid, int lid, int wid, half* tileB_block, int mode_i0_0, int mode_i0_1)
-    : tid(tid), lid(lid), wid(wid), shape_i0(make_shape(mode_i0_0, mode_i0_1)), tileB_block(make_tensor(make_smem_ptr(tileB_block), SmemLayoutB{})) {}
+    : tid(tid), lid(lid), wid(wid), shape_i0(make_layout(make_shape(mode_i0_0, mode_i0_1), make_stride(mode_i0_1, _1{}))), tileB_block(make_tensor(make_smem_ptr(tileB_block), SmemLayoutB{})) {}
 
     template <size_t buf_idx, size_t output_idx>
     CUTE_DEVICE auto output() {
         if constexpr (output_idx == 0) {
-            auto view = tileB_block(_, _, buf_idx);
-            return make_tensor(view.data(), SmemLayoutAtom{});
+            return make_tensor(tileB_block(_, _, buf_idx).data(), SmemLayoutAtom_2d{});
         }
     }
 
     template <size_t buf_idx>
     CUTE_DEVICE void f(Tensor_i0 dB_val, Tensor_i1 tile_sidx_block) {
         // TODO: 有没有支持任意TILEB的函数模板？目前定死在TILEB=64上了
-        // TODO: 稀疏的数据如何构建local tile？取多行拼在一起？
         auto thr_tiler = make_shape(_8{});
         auto thr_coord = make_coord(lid);
         for (int tileK_iter_inner = 0; tileK_iter_inner < 4; tileK_iter_inner++) {
-            int row = tileK_iter_inner * 4 + lid * 8;
-            // int col = lid % 8 * 8;
+            int row = tileK_iter_inner * 4 + lid / 8;
             int col = lid % 8;
             int gmem_col = blockIdx.y * get<1>(BLK_MNK{}) / 8 + col;
             int sidx = tile_sidx_block(row);
             auto thr_tiler_gmem = make_shape(_1{}, _8{});
             auto thr_coord_gmem = make_coord(sidx, gmem_col);
-            auto B_val_thr = local_tile(dB_val, thr_tiler, thr_coord);
+            auto B_val_thr = local_tile(dB_val, thr_tiler_gmem, thr_coord_gmem);
             auto thr_tiler_smem = make_shape(_1{}, _8{});
             auto thr_coord_smem = make_coord(row, col);
             auto dst = local_tile(tileB_block(_, _, buf_idx), thr_tiler_smem, thr_coord_smem);
-            copy(Copy_Atom<UniversalCopy<uint128_t>, half>{}, B_val_thr, dst);
-            // float4* src = (float4*)(&dB_val[OFFSET_ROW(sidx, gmem_col, N)]);
-            // ! how to get ptr from swizzle tensor? I tried local tile
-            // Tensor tileB_tensor = local_tile(tileB_block(_, _, buf_idx), make_shape(1, 8), make_coord(row, col));
-            // float4* dst = (float4*)(tileB_tensor.data());
-            // __pipeline_memcpy_async(dst, src, sizeof(float4));
+            copy(Copy_Atom<UniversalCopy<uint128_t>, half>{}, B_val_thr(0, _), dst(0, _));
         }
     }
 };
@@ -340,7 +335,7 @@ class G2sMatrixBLoadOp {
 
 //> 可以和最后的Calculate Op合在一起吗？（哪个Op的输出定义REGA & REGB？）
 template <class NBUF, class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK,
-    class tile_sidx_size = Int<16>, class tile_coo_val_size = Int<16 * (16 + 8)>, class tile_coo_val_size_no_pad = Int<16 * 16>,
+    class tile_sidx_size = Int<16>, class tile_coo_val_size = Int<16 * (16)>, class tile_coo_val_size_no_pad = Int<16 * 16>,
     class TI0 = half, class TO0 = half>
 class S2rAValLoadOp {
     public:
@@ -348,19 +343,13 @@ class S2rAValLoadOp {
     // I0: tile_coo_restore_val_block
     static constexpr int kShmLoadSwizzleM = 3;
     static constexpr int kShmLoadSwizzleS = 3;
-    static constexpr int kShmLoadSwizzleB = 3;
+    static constexpr int kShmLoadSwizzleB = 1;
     using SmemLayoutAtom = decltype(composition(
         Swizzle<kShmLoadSwizzleB, kShmLoadSwizzleM, kShmLoadSwizzleS>{},
         make_layout(make_shape(get<0>(BLK_MNK{}), get<2>(BLK_MNK{})),
                     make_stride(get<2>(BLK_MNK{}), Int<1>{}))));
     using Tensor_i0 = decltype(make_tensor(make_smem_ptr((TI0*)nullptr), SmemLayoutAtom{}));
     
-
-    // constexpr auto BLK_K = get<2>(BLK_MNK{});
-    // constexpr auto BLK_K_PAD = BLK_K + (BLK_K / 8 % 2 == 0 ? 8 : 0);
-    // using Shape_i0 = decltype(make_shape(get<0>(BLK_MNK{}), BLK_K_PAD));
-    // using Tensor_i0 = decltype(make_tensor(make_smem_ptr((TI0*)nullptr), Shape_i0{}));
-    // Shape_i0 shape_i0;
 
     //> Outputs
     // O0: REGA 
@@ -389,14 +378,13 @@ class S2rAValLoadOp {
         int col = lid / 16;
         ldmatrix_m8n8k8_x4(
             (uint32_t*)(REGA(_, _0{}, buf_idx).data()),
-            // (void*)tile_coo_restore_val_block((row) * (16 + 8) + (col) * 8)
             (void*)(&tile_coo_restore_val_block(row, col * 8))
         );
     }
 };
 
 template <class NBUF, class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, 
-    class tile_sidx_size = Int<16>, class tile_coo_val_size = Int<16 * (16 + 8)>, class tile_coo_val_size_no_pad = Int<16 * 16>,
+    class tile_sidx_size = Int<16>, class tile_coo_val_size = Int<16 * (16)>, class tile_coo_val_size_no_pad = Int<16 * 16>,
     class TI0 = half, class TO0 = half>
 class S2rBValLoadOp {
     public:
@@ -448,7 +436,7 @@ class S2rBValLoadOp {
 };
 
 template <class NBUF, class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, 
-    class tile_sidx_size = Int<16>, class tile_coo_val_size = Int<16 * (16 + 8)>, class tile_coo_val_size_no_pad = Int<16 * 16>,
+    class tile_sidx_size = Int<16>, class tile_coo_val_size = Int<16 * (16)>, class tile_coo_val_size_no_pad = Int<16 * 16>,
     class TI0 = half, class TI1 = half, class TO0 = float>
 class CalculateOp {
     public:
@@ -511,7 +499,8 @@ __global__ void dtc_spmm_kernel_fp16_val_idx_bind_stage2(
     const int wid = tid / 32;
 
     //> gmem tensors
-    auto B_val = make_tensor(make_gmem_ptr(dB_val), make_shape(N, K));  // row major
+    // auto B_val = make_tensor(make_gmem_ptr(dB_val), make_shape(N, K));  // row major
+    auto B_val = make_tensor(make_gmem_ptr(dB_val), make_layout(make_shape(K, N), make_stride(N, Int<1>{})));  // row major
     auto C_val = make_tensor(make_gmem_ptr(dC_val), make_shape(N, M));  // row major
     auto val_sidx = make_tensor(make_gmem_ptr(dval_sidx), make_shape(tile_sidx_size{}, nnz_block));
     auto val_soff = make_tensor(make_gmem_ptr(dval_soff), make_shape(Mo));
@@ -551,7 +540,8 @@ __global__ void dtc_spmm_kernel_fp16_val_idx_bind_stage2(
     g2s_matrix_b_load_op_t g2s_matrix_b_load_op {
         tid, lid, wid,
         tileB_block,
-        N, K    // row major
+        // N, K    // row major
+        K, N    // row major
     };
 
     //> stage 2
@@ -599,10 +589,12 @@ __global__ void dtc_spmm_kernel_fp16_val_idx_bind_stage2(
     //! A: memcpy async restore matrix A (0)
     s2s_restore_matrix_a_op.template f<0>(g2s_sparse_encoding_load_op.template output<0, 1>(), g2s_sparse_encoding_load_op.template output<0, 0>());
     // op_restore_matrix_A<TILE_B>(0, 0 % stages, 0 % stages, lane_id, coo_range_reg, tile_coo_restore_val_block, tile_coo_val_size, tileA_coo_val_idx_bind_block);
+    
     //! B: memcpy async dense matrix B load (0)
     g2s_matrix_b_load_op.template f<0>(B_val, g2s_sparse_index_load_op.template output<0, 0>());
     // op_memcpy_async_matrix_B_load<TILE_B>(0, 0 % stages, 0 % stages, lane_id, tile_sidx_block, tile_sidx_size, tileB_block, tile_B_size, tile_B_row_num, dB_val, N, block_idx_y);
     __pipeline_commit();
+    // return;
     //>========================================================
     for (i = 0; i + 2 < k; i++) {  
         if ((i + 2) % 2 == 0) {
@@ -638,7 +630,7 @@ __global__ void dtc_spmm_kernel_fp16_val_idx_bind_stage2(
         } else {
             s2r_a_val_load_op.template f<1>(s2s_restore_matrix_a_op.template output<1, 0>());
             s2r_b_val_load_op.template f<1>(g2s_matrix_b_load_op.template output<1, 0>());
-            calculate_op.template f<1>(s2r_a_val_load_op.template output<1, 0>(), s2r_b_val_load_op.template output<1, 0>());
+            calculate_op.template f<0>(s2r_a_val_load_op.template output<1, 0>(), s2r_b_val_load_op.template output<1, 0>());
         }
         // op_calculate<TILE_B>(i, i % stages, i % stages, lane_id, tile_coo_restore_val_block, tile_coo_val_size, tileB_block, tile_B_size, tile_B_row_num, REGA, REGB, REGC);
     }
@@ -665,7 +657,7 @@ __global__ void dtc_spmm_kernel_fp16_val_idx_bind_stage2(
         } else {
             s2r_a_val_load_op.template f<1>(s2s_restore_matrix_a_op.template output<1, 0>());
             s2r_b_val_load_op.template f<1>(g2s_matrix_b_load_op.template output<1, 0>());
-            calculate_op.template f<1>(s2r_a_val_load_op.template output<1, 0>(), s2r_b_val_load_op.template output<1, 0>());
+            calculate_op.template f<0>(s2r_a_val_load_op.template output<1, 0>(), s2r_b_val_load_op.template output<1, 0>());
         }
         // op_calculate<TILE_B>(i, i % stages, i % stages, lane_id, tile_coo_restore_val_block, tile_coo_val_size, tileB_block, tile_B_size, tile_B_row_num, REGA, REGB, REGC);
     }
@@ -680,7 +672,7 @@ __global__ void dtc_spmm_kernel_fp16_val_idx_bind_stage2(
         } else {
             s2r_a_val_load_op.template f<1>(s2s_restore_matrix_a_op.template output<1, 0>());
             s2r_b_val_load_op.template f<1>(g2s_matrix_b_load_op.template output<1, 0>());
-            calculate_op.template f<1>(s2r_a_val_load_op.template output<1, 0>(), s2r_b_val_load_op.template output<1, 0>());
+            calculate_op.template f<0>(s2r_a_val_load_op.template output<1, 0>(), s2r_b_val_load_op.template output<1, 0>());
         }
         // op_calculate<TILE_B>(i, i % stages, i % stages, lane_id, tile_coo_restore_val_block, tile_coo_val_size, tileB_block, tile_B_size, tile_B_row_num, REGA, REGB, REGC);
     }
@@ -695,12 +687,4 @@ __global__ void dtc_spmm_kernel_fp16_val_idx_bind_stage2(
         C_val(col, row + 8) = REGC(2, i_tileN);
         C_val(col + 1, row + 8) = REGC(3, i_tileN);
     }
-    // for (int i_tileN = 0; i_tileN < TILE_B / 8; i_tileN++) {
-    //     int row = block_idx_x * 16 + lane_id / 4;
-    //     int col = block_idx_y * TILE_B + i_tileN * 8 + lane_id % 4 * 2;
-    //     dC_val[OFFSET_ROW(row, col, N)] = REGC[i_tileN * 4 + 0];
-    //     dC_val[OFFSET_ROW(row, col + 1, N)] = REGC[i_tileN * 4 + 1];
-    //     dC_val[OFFSET_ROW(row + 8, col, N)] = REGC[i_tileN * 4 + 2];
-    //     dC_val[OFFSET_ROW(row + 8, col + 1, N)] = REGC[i_tileN * 4 + 3];
-    // }
 }
