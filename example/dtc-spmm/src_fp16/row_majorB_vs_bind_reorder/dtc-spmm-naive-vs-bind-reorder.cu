@@ -292,7 +292,7 @@ __global__ void dtc_spmm_kernel_fp16_val_idx_bind_stage2(
     op_memcpy_async_sparse_index_load<TILE_B>(1, 1 % stages, lane_id, tile_sidx_block, tile_sidx_size, dval_sidx, l);
     __pipeline_wait_prior(0);
     __syncthreads();
-    //! A: memcpy async restore matrix A (0)
+    //! A: restore matrix A (0)
     op_restore_matrix_A<TILE_B>(0, 0 % stages, 0 % stages, lane_id, coo_range_reg, tile_coo_restore_val_block, tile_coo_val_size, tileA_coo_val_idx_bind_block);
     //! B: memcpy async dense matrix B load (0)
     op_memcpy_async_matrix_B_load<TILE_B>(0, 0 % stages, 0 % stages, lane_id, tile_sidx_block, tile_sidx_size, tileB_block, tile_B_size, tile_B_row_num, dB_val, N, block_idx_y);
@@ -305,7 +305,7 @@ __global__ void dtc_spmm_kernel_fp16_val_idx_bind_stage2(
         op_memcpy_async_sparse_index_load<TILE_B>(i + 2, (i + 2) % stages, lane_id, tile_sidx_block, tile_sidx_size, dval_sidx, l);
         __pipeline_wait_prior(0);
         __syncthreads();
-        //! A: memcpy async restore matrix A (i + 1)
+        //! A: restore matrix A (i + 1)
         op_restore_matrix_A<TILE_B>(i + 1, (i + 1) % stages, (i + 1) % stages, lane_id, coo_range_reg, tile_coo_restore_val_block, tile_coo_val_size, tileA_coo_val_idx_bind_block);
         //! B: memcpy async dense matrix B load (i + 1)
         op_memcpy_async_matrix_B_load<TILE_B>(i + 1, (i + 1) % stages, (i + 1) % stages, lane_id, tile_sidx_block, tile_sidx_size, tileB_block, tile_B_size, tile_B_row_num, dB_val, N, block_idx_y);
@@ -316,7 +316,7 @@ __global__ void dtc_spmm_kernel_fp16_val_idx_bind_stage2(
     for (; i + 1 < k; i++) {
         __pipeline_wait_prior(0);
         __syncthreads();
-        //! A: memcpy async restore matrix A (i + 1)
+        //! A: restore matrix A (i + 1)
         op_restore_matrix_A<TILE_B>(i + 1, (i + 1) % stages, (i + 1) % stages, lane_id, coo_range_reg, tile_coo_restore_val_block, tile_coo_val_size, tileA_coo_val_idx_bind_block);
         //! B: memcpy async dense matrix B load (i + 1)
         op_memcpy_async_matrix_B_load<TILE_B>(i + 1, (i + 1) % stages, (i + 1) % stages, lane_id, tile_sidx_block, tile_sidx_size, tileB_block, tile_B_size, tile_B_row_num, dB_val, N, block_idx_y);

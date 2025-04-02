@@ -7,7 +7,6 @@ set(CMAKE_CUDA_STANDARD_REQUIRED ON)
 # CUDA 编译选项
 set(CUDA_NVCC_FLAGS
     -g
-    -G
     -lineinfo
     -O3
     -m64
@@ -25,6 +24,7 @@ include_directories(${CUTLASS_INCLUDE_DIR} ${CUTLASS_COMMON_DIR} ${CUTLASS_UTIL_
 
 # 编译 dtc-spmm-gen.cu 和 dtc-spmm.cu 为对象文件
 add_library(dtc_spmm_row_majorB_vs_bind_reorder_obj OBJECT dtc-spmm-naive-vs-bind-reorder-gen.cu kernel-gen.inc)
+target_compile_options(dtc_spmm_row_majorB_vs_bind_reorder_obj PRIVATE ${CUDA_NVCC_FLAGS})
 
 
 # 生成可执行文件

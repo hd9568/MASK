@@ -23,7 +23,7 @@ include_directories(${CUTLASS_INCLUDE_DIR} ${CUTLASS_COMMON_DIR} ${CUTLASS_UTIL_
 
 # 编译 dtc-spmm-gen.cu 和 dtc-spmm.cu 为对象文件
 add_library(dtc_spmm_gen_obj OBJECT dtc-spmm-gen.cu kernel-gen.inc)
-
+target_compile_options(dtc_spmm_gen_obj PRIVATE ${CUDA_NVCC_FLAGS})
 # 生成可执行文件 gen_col_majorB
 file(GLOB_RECURSE SRC_CUDA_FILES ${SRCDIR}/*.cu)
 add_executable(dtc_half_col_majorB main_col_majorB.cu ${SRC_CUDA_FILES}

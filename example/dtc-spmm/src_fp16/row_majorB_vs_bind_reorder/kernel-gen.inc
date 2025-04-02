@@ -19,7 +19,6 @@
 #include "cutlass/util/GPU_Clock.hpp"
 #include "cutlass/util/helper_cuda.hpp"
 
-
 using namespace std;
 using namespace cute;
 
@@ -150,7 +149,7 @@ class G2sSparseEncodingLoadOp {
             auto thr_coord = make_coord(i_load);
             auto src = local_tile(input, thr_tiler, thr_coord);
             auto dst = local_tile(tileA_coo_val_idx_bind_block(_, buf_idx), thr_tiler, thr_coord);
-            copy(Copy_Atom<UniversalCopy<uint128_t>, uint32_t>{}, src, dst);
+            copy(Copy_Atom<SM80_CP_ASYNC_CACHEGLOBAL<cute::uint128_t>, uint32_t>{}, src, dst);
         }
     }
 };
@@ -194,7 +193,7 @@ class G2sSparseIndexLoadOp {
             auto thr_coord = make_coord(lid);
             auto src = local_tile(dval_sidx(_, i), thr_tiler, thr_coord);
             auto dst = local_tile(tile_sidx_block(_, buf_idx), thr_tiler, thr_coord);
-            copy(Copy_Atom<UniversalCopy<uint128_t>, int>{}, src, dst);
+            copy(Copy_Atom<SM80_CP_ASYNC_CACHEGLOBAL<cute::uint128_t>, int>{}, src, dst);
         }
     }
 };
@@ -326,7 +325,7 @@ class G2sMatrixBLoadOp {
             auto thr_tiler_smem = make_shape(_1{}, _8{});
             auto thr_coord_smem = make_coord(row, col);
             auto dst = local_tile(tileB_block(_, _, buf_idx), thr_tiler_smem, thr_coord_smem);
-            copy(Copy_Atom<UniversalCopy<uint128_t>, half>{}, B_val_thr(0, _), dst(0, _));
+            copy(Copy_Atom<SM80_CP_ASYNC_CACHEGLOBAL<cute::uint128_t>, half>{}, B_val_thr(0, _), dst(0, _));
         }
     }
 };

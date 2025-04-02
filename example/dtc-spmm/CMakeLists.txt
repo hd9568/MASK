@@ -83,6 +83,8 @@ target_compile_options(dtc_double PRIVATE ${CUDA_NVCC_FLAGS})
 target_link_libraries(dtc_double PRIVATE ${CUDA_LIBS})
 target_compile_definitions(dtc_double PRIVATE f64)
 
+add_compile_options("$<$<COMPILE_LANGUAGE:CUDA>:-lineinfo>")
+
 # Targets
 # add_executable(spmv_double ${ALL_CUDA_FILES} ${SRCDIR}/main_f64.cu)
 # target_compile_options(spmv_double PRIVATE ${CUDA_NVCC_FLAGS} -D f64)
