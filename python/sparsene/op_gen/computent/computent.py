@@ -295,9 +295,10 @@ class ArrayType(Enum):
     VAL = 0
     IDX = 1
     OFFSET = 2
-    B_VAL = 3
-    COO_IDX = 4
-    MASK = 5
+    COO_IDX = 3
+    MASK = 4
+    B_VAL = 5
+    C_VAL = 6
 
 
 class DataType(Enum):
@@ -465,9 +466,16 @@ DENSE_ARRAY_DEFS = ArrayDefCollection(
     ),
     B_val=ArrayDef(
         name="B_val",
-        axes=["Y"],
+        axes=["Y", "N"],
         dims=["K", "N"],
         type=ArrayType.B_VAL,
+        datatype=DataType.FLOAT,
+    ),
+    C_val=ArrayDef(
+        name="C_val",
+        axes=["X", "N"],
+        dims=["M", "N"],
+        type=ArrayType.C_VAL,
         datatype=DataType.FLOAT,
     ),
 )

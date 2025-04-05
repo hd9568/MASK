@@ -5,6 +5,7 @@ from sparsene.formats.DTC_SpMM import DTC_SPMM_FORMAT
 from sparsene.transform.rts import derive_rts
 from sparsene.op_gen.computent.computent import computent_from_rts
 from sparsene.op_gen.opir.generate import generate_from_computent
+from sparsene.op_gen.nvir.generate import generate_nvir
 from sparsene.logging import get_logger, set_logging_level_for_all
 
 
@@ -27,3 +28,7 @@ if __name__ == "__main__":
 
     ops = generate_from_computent(computent)
     logger.info(printer.default_printer.dump(ops))
+
+    nvir = generate_nvir(ops)
+    for gmem in nvir.gmem_inouts.values():
+        logger.info(gmem)

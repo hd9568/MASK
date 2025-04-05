@@ -15,7 +15,7 @@ from sparsene.op_gen.nvir.nvop import (
     ParamShape,
     MnkShape,
 )
-from sparsene.op_gen.nvir.pipeline import NvOpPipeline, NvOpStage
+from python.sparsene.op_gen.nvir.sequence import NvOpSequence, NvOpStage
 import sparsene.op_gen.nvir.templates as templates
 from itertools import chain
 from sparsene.logging import get_logger
@@ -665,7 +665,7 @@ class NvIrCodeGenerator:
             + op_var_def_str
         )
 
-    def dump_nvop_pipeline_device_functions(self, pipeline: NvOpPipeline) -> str:
+    def dump_nvop_pipeline_device_functions(self, pipeline: NvOpSequence) -> str:
         ops = [op for stage in pipeline.stages for op in stage.ops]
         snake_names = [to_snake(op.name) for op in ops]
         op_types = ", ".join([f"class T_{op.name}" for op in ops])
@@ -1090,7 +1090,7 @@ class NvIrCodeGenerator:
             + dump_empties()
         )
 
-    def dump_dispatch(self, pipeline: NvOpPipeline) -> str:
+    def dump_dispatch(self, pipeline: NvOpSequence) -> str:
         ops = [op for stage in pipeline.stages for op in stage.ops]
         snake_names = [to_snake(op.name) for op in ops]
         op_as_args = ", ".join(snake_names)
@@ -1126,7 +1126,7 @@ class NvIrCodeGenerator:
             empty_dispatch=dump_empty_dispatch(),
         )
 
-    def dump_prologue(self, pipeline: NvOpPipeline) -> str:
+    def dump_prologue(self, pipeline: NvOpSequence) -> str:
         prologue_op_str = f"// prologue\n"
         prologue_ops = [
             self.dump_f_method_call(op, buf_idx_str="0") for op in pipeline.prologue
@@ -1135,7 +1135,7 @@ class NvIrCodeGenerator:
         return prologue_op_str + "\n" + templates.DTC_PROLOGUE
         # return templates.DTC_PROLOGUE
 
-    def dump_epilogue(self, pipeline: NvOpPipeline) -> str:
+    def dump_epilogue(self, pipeline: NvOpSequence) -> str:
         epilogue_op_str = f"// epilogue\n"
         epilogue_ops = [
             self.dump_f_method_call(op, buf_idx_str="0") for op in pipeline.epilogue
@@ -1144,7 +1144,7 @@ class NvIrCodeGenerator:
         return epilogue_op_str
         # return templates.DTC_EPILOGUE
 
-    def dump_nvop_pipeline_global_function(self, pipeline: NvOpPipeline) -> str:
+    def dump_nvop_pipeline_global_function(self, pipeline: NvOpSequence) -> str:
 
         def dump_all_parameters() -> str:
             all_parameters = pipeline.all_parameters()
@@ -1221,7 +1221,7 @@ class NvIrCodeGenerator:
             epilogue=epilogue,
         )
 
-    def dump_nvop_defs(self, pipeline: NvOpPipeline) -> str:
+    def dump_nvop_defs(self, pipeline: NvOpSequence) -> str:
         stages = []
         for stage_idx, stage in enumerate(pipeline.stages):
             stage_op_str = f"// stage {stage_idx}\n"
@@ -1236,7 +1236,7 @@ class NvIrCodeGenerator:
         epilogue_op_str += "\n\n".join(epilogue_ops)
         return "\n\n".join([prologue_op_str] + stages + [epilogue_op_str])
 
-    def dump_nvop_inits(self, pipeline: NvOpPipeline) -> str:
+    def dump_nvop_inits(self, pipeline: NvOpSequence) -> str:
         stages = []
         for stage_idx, stage in enumerate(pipeline.stages):
             stage_op_str = f"// stage {stage_idx}\n"
@@ -1251,7 +1251,7 @@ class NvIrCodeGenerator:
         epilogue_op_str += "\n\n".join(epilogue_ops)
         return "\n\n".join([prologue_op_str] + stages + [epilogue_op_str])
 
-    def dump_nvop_pipeline(self, pipeline: NvOpPipeline) -> str:
+    def dump_nvop_pipeline(self, pipeline: NvOpSequence) -> str:
         device_helper_functions = templates.DTC_HELPER_FUNCTIONS
         nvop_defs = self.dump_nvop_defs(pipeline)
         nvop_pipeline_device_functions = self.dump_nvop_pipeline_device_functions(

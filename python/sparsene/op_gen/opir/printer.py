@@ -9,7 +9,7 @@ from .op_ir import (
     ArrayRefOp,
     DeviceOp,
     MetaOp,
-    ExternalSymbolOperation,
+    ExternalSymbolOp,
     Type,
     Value,
     OpOperand,
@@ -157,7 +157,7 @@ class Printer:
         return self._indent_lines(f"{{\n" f"{ops_str}\n" f"}} args ({args_str})", indent_level)
 
     def dump_external_symbol_operation(
-        self, op: ExternalSymbolOperation, indent_level: int = 0
+        self, op: ExternalSymbolOp, indent_level: int = 0
     ) -> str:
         type_str = self.dump_type(op.result.type)
         return self._indent_lines(
@@ -289,7 +289,7 @@ class Printer:
             op_str = self.dump_device_op(op, 0)
         elif isinstance(op, MetaOp):
             op_str = self.dump_meta_op(op, 0)
-        elif isinstance(op, ExternalSymbolOperation):
+        elif isinstance(op, ExternalSymbolOp):
             op_str = self.dump_external_symbol_operation(op, 0)
         elif isinstance(op, SparseOffsetLoadOp):
             op_str = self.dump_sparse_offset_load_op(op, 0)
@@ -324,7 +324,7 @@ class Printer:
         return_type_str = f" -> ({', '.join(result_types)})"
         if op.num_results == 0:
             return_type_str = ""
-        elif isinstance(op, (ConstantOp, NoOp, ExternalSymbolOperation, ArrayRefOp)):
+        elif isinstance(op, (ConstantOp, NoOp, ExternalSymbolOp, ArrayRefOp)):
             return_type_str = ""
         return self._indent_lines(
             f"{prefix_str}{op_str}{return_type_str}",

@@ -1,9 +1,6 @@
 from __future__ import annotations
 
 from typing import Literal, List, Dict, Union, Tuple, Any, Optional
-from sparsene.op_gen.opir.op_ir import Op
-from sparsene.op_gen.nvir.op_impl import NvOpImpl
-from itertools import chain
 from dataclasses import dataclass
 from enum import Enum
 
@@ -21,6 +18,26 @@ OpMemType = Union[
 ]
 
 
+class NvOpImpl:
+    code_template: str
+
+    def __init__(self, code_template: str):
+        self.code_template = code_template
+
+    def nv_src(self) -> str:
+        return self.code_template
+
+
+class Copy1DNvOpImpl(NvOpImpl):
+    layout_hint: LayoutHint
+
+    def __init__(self, layout_hint: LayoutHint):
+        self.layout_hint = layout_hint
+
+    def nv_src(self) -> str:
+        return ""
+
+
 class ShapeEle:
     pass
 
@@ -31,12 +48,24 @@ class IntShape(ShapeEle):
     def __init__(self, value: int):
         self.value = value
 
+    def __repr__(self) -> str:
+        return f"Int({self.value})"
+
+    def __str__(self) -> str:
+        return f"Int({self.value})"
+
 
 class ParamShape(ShapeEle):
     param: str
 
     def __init__(self, param: str):
         self.param = param
+
+    def __repr__(self) -> str:
+        return f"Param({self.param})"
+
+    def __str__(self) -> str:
+        return f"Param({self.param})"
 
 
 class MnkShape(ShapeEle):
@@ -51,12 +80,24 @@ class MnkShape(ShapeEle):
         self.param = param
         self.mnk = mnk
 
+    def __str__(self) -> str:
+        return f"Mnk({self.param}, {self.mnk})"
+
+    def __repr__(self) -> str:
+        return f"Mnk({self.param}, {self.mnk})"
+
 
 class VarlenShape(ShapeEle):
     name: str
 
     def __init__(self, name: str):
         self.name = name
+
+    def __str__(self) -> str:
+        return f"Varlen({self.name})"
+
+    def __repr__(self) -> str:
+        return f"Varlen({self.name})"
 
 
 class Shape(ShapeEle):
@@ -74,6 +115,12 @@ class Shape(ShapeEle):
     def __len__(self):
         return len(self.elems)
 
+    def __str__(self) -> str:
+        return "(" + ", ".join(str(elem) for elem in self.elems) + ")"
+
+    def __repr__(self) -> str:
+        return "(" + ", ".join(repr(elem) for elem in self.elems) + ")"
+
 
 class NvOpInput:
     idx: int
@@ -82,6 +129,7 @@ class NvOpInput:
     name: str
     dtype: str
     source: Tuple[NvOp, int] | str
+    layout_hint: Optional[LayoutHint]
 
     def __init__(
         self,
@@ -91,6 +139,7 @@ class NvOpInput:
         name: str,
         dtype: str,
         source: Tuple[NvOp, int] | str,
+        layout_hint: Optional[LayoutHint] = None,
     ):
         self.idx = idx
         self.shape = shape
@@ -98,6 +147,22 @@ class NvOpInput:
         self.name = name
         self.dtype = dtype
         self.source = source
+        self.layout_hint = layout_hint
+
+    def to_json(self):
+        return {
+            "idx": self.idx,
+            "name": self.name,
+            "shape": self.shape.__dict__,
+            "mem": self.mem,
+            "dtype": self.dtype,
+            "source": (
+                f'"{self.source}"'
+                if isinstance(self.source, str)
+                else f"{self.source[0].name}.output({self.source[1]})"
+            ),
+            "layout_hint": self.layout_hint.__dict__,
+        }
 
 
 class NvOpOutput:
@@ -108,8 +173,9 @@ class NvOpOutput:
     dtype: str
     owning: bool
     source: Optional[Tuple[NvOp, int] | str]
-    unique: bool # unique的output的nbuf维度永远为1
+    unique: bool  # unique的output的nbuf维度永远为1
     attrs: Dict[str, Any]
+    consumers: List[NvOp]
 
     def __init__(
         self,
@@ -122,6 +188,7 @@ class NvOpOutput:
         owning: bool = True,
         source: Optional[Tuple[NvOp, int] | str] = None,
         unique: bool = False,
+        layout_hint: Optional[LayoutHint] = None,
         **kwargs: Any,
     ):
         self.idx = idx
@@ -133,6 +200,31 @@ class NvOpOutput:
         self.owning = owning
         self.source = source
         self.unique = unique
+        self.consumers = []
+        self.layout_hint = layout_hint
+
+    def to_json(self):
+        output_dict = {
+            "idx": self.idx,
+            "name": self.name,
+            "shape": self.shape.__dict__,
+            "mem": self.mem,
+            "dtype": self.dtype,
+            "owning": self.owning,
+        }
+        if self.source is not None:
+            output_dict["source"] = (
+                f'"{self.source}"'
+                if isinstance(self.source, str)
+                else f"{self.source[0].name}.output({self.source[1]})"
+            )
+        if self.unique:
+            output_dict["unique"] = self.unique
+        if self.attrs:
+            output_dict["attrs"] = self.attrs
+        return output_dict
+
+
 class GmemInout:
     shape: Shape
     name: str
@@ -142,6 +234,12 @@ class GmemInout:
         self.shape = shape
         self.name = name
         self.dtype = dtype
+
+    def __str__(self) -> str:
+        return f"gmem({self.name}): {self.dtype}({self.shape})"
+
+    def __repr__(self) -> str:
+        return f"gmem({self.name}): {self.dtype}({self.shape})"
 
 
 @dataclass
@@ -156,11 +254,9 @@ class LayoutHint:
     Vr: int
     Tc: int
     Vc: int
-    Prow: bool
-    Trow: bool
-    Vrow: bool
-
-    layout: Tuple
+    P_major: Literal["row", "col"]
+    T_major: Literal["row", "col"]
+    V_major: Literal["row", "col"]
 
 
 class NvOpType(Enum):
@@ -180,7 +276,6 @@ class NvOp:
     name: str
     inputs: List[NvOpInput]
     outputs: List[NvOpOutput]
-    backend_op: Op
     impl: NvOpImpl
 
     op_type: NvOpType
@@ -197,7 +292,6 @@ class NvOp:
         outputs: List[NvOpOutput],
         impl: NvOpImpl,
         mem_type: OpMemType,
-        # backend_op: Op,
         parameters: Dict[str, int],
         **kwargs: Any,
     ):
@@ -206,6 +300,125 @@ class NvOp:
         self.outputs = outputs
         self.impl = impl
         self.mem_type = mem_type
-        # self.backend_op = backend_op
         self.parameters = parameters
         self.attrs = kwargs
+
+        for inp in self.inputs:
+            if isinstance(inp.source, tuple):
+                inp.source[0].outputs[inp.source[1]].consumers.append(self)
+
+    def to_json(self):
+        return {
+            "name": self.name,
+            "inputs": [inp.to_json() for inp in self.inputs],
+            "outputs": [out.to_json() for out in self.outputs],
+            "mem_type": self.mem_type,
+            "parameters": self.parameters,
+            "attrs": self.attrs,
+        }
+
+
+class ForLoopOp(NvOp):
+    name: str
+    iter_args: Dict[str, NvOpInput]
+    loop_l: NvOpInput
+    loop_r: NvOpInput
+    body: NvOpSequence
+
+    def __init__(
+        self,
+        name: str,
+        iter_args: Dict[str, NvOpInput],
+        loop_l: NvOpInput,
+        loop_r: NvOpInput,
+        loop_result: NvOpOutput,
+        **kwargs: Any,
+    ):
+        super().__init__(name, [], [], **kwargs)
+        self.iter_args = iter_args
+        self.loop_l = loop_l
+        self.loop_r = loop_r
+        self.outputs = [loop_result]
+
+
+class NvOpStage:
+    ops: List[NvOp]
+
+    def __init__(self, ops: List[NvOp]):
+        self.ops = ops
+
+
+class NvOpSequence:
+    name: str
+    stages: List[NvOpStage]
+    shifts: List[int]
+    prologue: List[NvOp]
+    epilogue: List[NvOp]
+    gmem_inouts: Dict[str, GmemInout]
+
+    def __init__(
+        self,
+        name: str,
+        stages: List[NvOpStage],
+        shifts: List[int],
+        prologue: List[NvOp],
+        epilogue: List[NvOp],
+        gmem_inouts: Dict[str, GmemInout],
+    ):
+        self.name = name
+        self.stages = stages
+        self.shifts = shifts
+        self.prologue = prologue
+        self.epilogue = epilogue
+        self.gmem_inouts = {k: gmem_inouts[k] for k in sorted(gmem_inouts.keys())}
+
+    @property
+    def num_stages(self) -> int:
+        return len(self.stages)
+
+    @property
+    def num_buf(self) -> int:
+        return max(self.shifts) + 1
+
+    @property
+    def nbuf(self) -> int:
+        return self.num_buf
+
+    def all_parameters(self) -> List[str]:
+        parameters = []
+        for stage in self.stages:
+            for op in stage.ops:
+                parameters.extend(op.parameters)
+        return sorted(dict.fromkeys(parameters))  # fromkeys trick to dedup
+
+    def all_varlens(self) -> List[str]:
+        varlens = []
+        for stage in self.stages:
+            for op in stage.ops:
+                for inp in op.inputs:
+                    for shape in inp.shape:
+                        if isinstance(shape, VarlenShape):
+                            varlens.append(shape.name)
+                for out in op.outputs:
+                    for shape in out.shape:
+                        if isinstance(shape, VarlenShape):
+                            varlens.append(shape.name)
+
+        for io in self.gmem_inouts.values():
+            for shape in io.shape:
+                if isinstance(shape, VarlenShape):
+                    varlens.append(shape.name)
+        return sorted(dict.fromkeys(varlens))  # fromkeys trick to dedup
+
+    def find_op_by_name(self, name: str) -> NvOp:
+        for op in self.prologue:
+            if op.name == name:
+                return op
+        for stage in self.stages:
+            for op in stage.ops:
+                if op.name == name:
+                    return op
+        for op in self.epilogue:
+            if op.name == name:
+                return op
+        raise ValueError(f"NvOp {name} not found")

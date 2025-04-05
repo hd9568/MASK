@@ -1,4 +1,4 @@
-from sparsene.op_gen.nvir.code_generator import (
+from sparsene.op_gen.nvir.nvop import (
     NvOp,
     NvOpInput,
     NvOpOutput,
@@ -8,12 +8,14 @@ from sparsene.op_gen.nvir.code_generator import (
     Shape,
     VarlenShape,
     MnkShape,
+    LayoutHint,
 )
-from sparsene.op_gen.nvir.pipeline import (
+from python.sparsene.op_gen.nvir.sequence import (
     NvOpStage,
-    NvOpPipeline,
+    NvOpSequence,
     GmemInout,
 )
+from python.sparsene.op_gen.nvir.generate import visit_and_extract_gmem_inouts
 
 g2s_val_sidx_load_op = NvOp(
     name="G2sValSidxLoadOp",
@@ -365,6 +367,16 @@ mma_op = NvOp(
             name="REGA",
             dtype="half",
             source=(s2r_a_val_load_op, 0),
+            layout_hint=LayoutHint(
+                P=2,
+                Tr=8,
+                Tc=4,
+                Vr=2,
+                Vc=2,
+                P_major="row",
+                T_major="row",
+                V_major="col",
+            ),
         ),
         NvOpInput(
             idx=1,
@@ -373,6 +385,16 @@ mma_op = NvOp(
             name="REGB",
             dtype="half",
             source=(g2r_b_val_load_op, 0),
+            layout_hint=LayoutHint(
+                P=2,
+                Tr=4,
+                Tc=8,
+                Vr=2,
+                Vc=1,
+                P_major="col",
+                T_major="col",
+                V_major="col",
+            ),
         ),
     ],
     outputs=[
@@ -386,6 +408,16 @@ mma_op = NvOp(
             name="REGC",
             dtype="float",
             unique=True,
+            layout_hint=LayoutHint(
+                P=2,
+                Tr=8,
+                Tc=4,
+                Vr=2,
+                Vc=1,
+                P_major="row",
+                T_major="row",
+                V_major="col",
+            ),
         ),
     ],
     impl=NvOpImpl(
@@ -471,80 +503,82 @@ for (int i_tileN = 0; i_tileN < get<1>(BLK_MNK{}) / 8; i_tileN++) {
     parameters={},
 )
 
+
+dtc_stage1 = NvOpStage([g2s_val_sidx_load_op, g2r_coo_atomic_format_load_off_op])
+dtc_stage2 = NvOpStage(
+    [
+        s2r_val_sidx_load_op,
+        g2s_coo_atomic_format_load_val_op,
+        g2r_coo_atomic_format_load_idx_op,
+    ]
+)
+dtc_stage3 = NvOpStage(
+    [g2r_b_val_load_op, s2s_coo_atomic_val_restore_op, s2r_a_val_load_op]
+)
+dtc_stage4 = NvOpStage([mma_op])
+shifts = [1, 1, 1]
+stages = [dtc_stage1, dtc_stage2, dtc_stage3, dtc_stage4]
+
+prologue = [g2r_sparse_offset_load_op]
+epilogue = [r2g_c_val_store_op]
+
+dtc_pipeline = NvOpSequence(
+    "dtc_spmm_kernel_sstage_rstage",
+    stages,
+    shifts,
+    prologue,
+    epilogue,
+    gmem_inouts={
+        "val_sidx": GmemInout(
+            shape=Shape(ParamShape("tile_sidx_size"), VarlenShape("nnz_block")),
+            name="val_sidx",
+            dtype="int",
+        ),
+        "val_coo_off": GmemInout(
+            shape=Shape(IntShape(2), VarlenShape("nnz_block")),
+            name="val_coo_off",
+            dtype="int",
+        ),
+        "val_coo_val": GmemInout(
+            shape=Shape(VarlenShape("nnz")),
+            name="val_coo_val",
+            dtype="half",
+        ),
+        "val_coo_idx": GmemInout(
+            shape=Shape(VarlenShape("nnz")),
+            name="val_coo_idx",
+            dtype="int",
+        ),
+        "val_soff": GmemInout(
+            shape=Shape(VarlenShape("Mo")),
+            name="val_soff",
+            dtype="int",
+        ),
+        "B_val": GmemInout(
+            shape=Shape(VarlenShape("K"), VarlenShape("N")),
+            name="B_val",
+            dtype="half",
+        ),
+        "C_val": GmemInout(
+            shape=Shape(VarlenShape("N"), VarlenShape("M")),
+            name="C_val",
+            dtype="float",
+        ),
+    },
+)
+
+
 if __name__ == "__main__":
-    from sparsene.op_gen.nvir.code_generator import NvIrCodeGenerator
+    from python.sparsene.op_gen.nvir.codegen import NvIrCodeGenerator
 
-    dtc_stage1 = NvOpStage([g2s_val_sidx_load_op, g2r_coo_atomic_format_load_off_op])
-    dtc_stage2 = NvOpStage(
-        [
-            s2r_val_sidx_load_op,
-            g2s_coo_atomic_format_load_val_op,
-            g2r_coo_atomic_format_load_idx_op,
-        ]
-    )
-    dtc_stage3 = NvOpStage(
-        [g2r_b_val_load_op, s2s_coo_atomic_val_restore_op, s2r_a_val_load_op]
-    )
-    dtc_stage4 = NvOpStage([mma_op])
-    shifts = [1, 1, 1]
-    stages = [dtc_stage1, dtc_stage2, dtc_stage3, dtc_stage4]
 
-    prologue = [g2r_sparse_offset_load_op]
-    epilogue = [r2g_c_val_store_op]
-
-    dtc_pipeline = NvOpPipeline(
-        "dtc_spmm_kernel_sstage_rstage",
-        stages,
-        shifts,
-        prologue,
-        epilogue,
-        gmem_inouts={
-            "val_sidx": GmemInout(
-                shape=Shape(ParamShape("tile_sidx_size"), VarlenShape("nnz_block")),
-                name="val_sidx",
-                dtype="int",
-            ),
-            "val_coo_off": GmemInout(
-                shape=Shape(IntShape(2), VarlenShape("nnz_block")),
-                name="val_coo_off",
-                dtype="int",
-            ),
-            "val_coo_val": GmemInout(
-                shape=Shape(VarlenShape("nnz")),
-                name="val_coo_val",
-                dtype="half",
-            ),
-            "val_coo_idx": GmemInout(
-                shape=Shape(VarlenShape("nnz")),
-                name="val_coo_idx",
-                dtype="int",
-            ),
-            "val_soff": GmemInout(
-                shape=Shape(VarlenShape("Mo")),
-                name="val_soff",
-                dtype="int",
-            ),
-            "B_val": GmemInout(
-                shape=Shape(VarlenShape("K"), VarlenShape("N")),
-                name="B_val",
-                dtype="half",
-            ),
-            "C_val": GmemInout(
-                shape=Shape(VarlenShape("N"), VarlenShape("M")),
-                name="C_val",
-                dtype="float",
-            ),
-        },
-    )
     print(NvIrCodeGenerator().dump_nvop_pipeline(dtc_pipeline))
+    # 1. op之间的依赖关系 (source: Optional[Tuple[NvOp, int] | str]) (dtc_ops.py)
+    # 2. 生成short_pipe, fill, empty, remainder, loop_step (commit和wait_group写在外面)
+    #    输入NvOpPipeline,输出字符串
+    # 3. 生成write_back
 
-
-# 1. op之间的依赖关系 (source: Optional[Tuple[NvOp, int] | str]) (dtc_ops.py)
-# 2. 生成short_pipe, fill, empty, remainder, loop_step (commit和wait_group写在外面)
-#    输入NvOpPipeline,输出字符串
-# 3. 生成write_back
-
-# codegen的输入：
-# stages: List[List[NvOp]]
-# shifts: List[int]
-# constraints: len(shifts) = len(stages) - 1
+    # codegen的输入：
+    # stages: List[List[NvOp]]
+    # shifts: List[int]
+    # constraints: len(shifts) = len(stages) - 1

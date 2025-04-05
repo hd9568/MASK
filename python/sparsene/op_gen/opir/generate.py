@@ -26,7 +26,7 @@ from sparsene.op_gen.opir.op_ir import (
     Value,
     IntType,
     MetaOp,
-    ExternalSymbolOperation,
+    ExternalSymbolOp,
     op_builder,
     Type,
     ArrayType,

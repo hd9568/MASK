@@ -1,6 +1,6 @@
 #compilers
 CC=nvcc
-NVCC_FLAGS = -std=c++17 -g -lineinfo -O3 -m64 -gencode arch=compute_80,code=sm_80
+NVCC_FLAGS = -std=c++17 -g -lineinfo -O3 -m64 -gencode arch=compute_80,code=sm_80 --expt-relaxed-constexpr
 
 # #ENVIRONMENT_PARAMETERS
 # CUDA_INSTALL_PATH = /usr/local/cuda-12.0
@@ -25,9 +25,11 @@ dtc: main.cu dtc-spmm.o
 gen: main.cu dtc-spmm-gen.o
 	$(CC) $(NVCC_FLAGS) -Icutlass/include -Icutlass/examples/common -Icutlass/tools/util/include $^ -o $@ $(OPTIONS) $(LIBS)
 
-test_cute: test_cute.cu
-	$(CC) $(NVCC_FLAGS) -Icutlass/include -Icutlass/examples/common -Icutlass/tools/util/include $^ -o $@ $(OPTIONS) $(LIBS)
+test_cute: test_cute.cu layouts.hpp
+	$(CC) $(NVCC_FLAGS) -Icutlass/include -Icutlass/examples/common -Icutlass/tools/util/include $< -o $@ $(OPTIONS) $(LIBS)
  
+sm80_demo: sm80_demo.cu
+	$(CC) $(NVCC_FLAGS) -Icutlass/include -Icutlass/examples/common -Icutlass/tools/util/include $< -o $@ $(OPTIONS) $(LIBS)
 
 # Clean rule
 clean:

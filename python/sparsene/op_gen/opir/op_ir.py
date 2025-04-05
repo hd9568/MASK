@@ -82,11 +82,11 @@ class OpBuilder:
     @overload
     def build(
         self,
-        op_type: type[ExternalSymbolOperation],
+        op_type: type[ExternalSymbolOp],
         symbol: str,
         type: Type,
         name_hint: Optional[str | Sequence[str]] = None,
-    ) -> ExternalSymbolOperation: ...
+    ) -> ExternalSymbolOp: ...
     @overload
     def build(
         self,
@@ -140,7 +140,7 @@ class OpBuilder:
             return value
         elif type is not None:
             assert self.current_block is not None
-            value = self.build(ExternalSymbolOperation, name, type).result
+            value = self.build(ExternalSymbolOp, name, type).result
             self.current_block.symbol_table.add_symbol(name, value)
             return value
         else:
@@ -308,7 +308,7 @@ class Op(ABC):
     def name(self) -> str: ...
 
 
-class ExternalSymbolOperation(Op):
+class ExternalSymbolOp(Op):
 
     def __init__(self, symbol: str, type: Type):
         super().__init__(
