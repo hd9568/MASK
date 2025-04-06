@@ -67,13 +67,13 @@ public:
     // Outputs
     using Shape_o0 = decltype(make_shape(NBUF{}));
     using Layout_o0 = decltype(make_layout(Shape_o0{}));
-    using Tensor_o0 = decltype(make_tensor<TO0>(Layout_o0{}));
+    using Tensor_o0 = decltype(make_tensor(make_rmem_ptr((TO0*)nullptr), Layout_o0{}));
     Shape_o0 shape_o0;
     Layout_o0 layout_o0;
     Tensor_o0 l;
     using Shape_o1 = decltype(make_shape(NBUF{}));
     using Layout_o1 = decltype(make_layout(Shape_o1{}));
-    using Tensor_o1 = decltype(make_tensor<TO1>(Layout_o1{}));
+    using Tensor_o1 = decltype(make_tensor(make_rmem_ptr((TO1*)nullptr), Layout_o1{}));
     Shape_o1 shape_o1;
     Layout_o1 layout_o1;
     Tensor_o1 r;
@@ -81,8 +81,8 @@ public:
     // Hardware parameters
     int tid, lid, wid;
 
-    CUTE_DEVICE G2rSparseOffsetLoadOp(int tid, int lid, int wid, int mode_i0_0)
-    : tid(tid), lid(lid), wid(wid), shape_i0(make_shape(mode_i0_0)) {}
+    CUTE_DEVICE G2rSparseOffsetLoadOp(int tid, int lid, int wid, TO0 *l, TO1 *r, int mode_i0_0)
+    : tid(tid), lid(lid), wid(wid), shape_i0(make_shape(mode_i0_0)), l(make_tensor(make_rmem_ptr(l), Layout_o0{})), r(make_tensor(make_rmem_ptr(r), Layout_o1{})) {}
 
     template<size_t buf_idx, size_t output_idx>
     CUTE_DEVICE auto output() {
@@ -174,13 +174,13 @@ public:
     // Outputs
     using Shape_o0 = decltype(make_shape(NBUF{}));
     using Layout_o0 = decltype(make_layout(Shape_o0{}));
-    using Tensor_o0 = decltype(make_tensor<TO0>(Layout_o0{}));
+    using Tensor_o0 = decltype(make_tensor(make_rmem_ptr((TO0*)nullptr), Layout_o0{}));
     Shape_o0 shape_o0;
     Layout_o0 layout_o0;
     Tensor_o0 l;
     using Shape_o1 = decltype(make_shape(NBUF{}));
     using Layout_o1 = decltype(make_layout(Shape_o1{}));
-    using Tensor_o1 = decltype(make_tensor<TO1>(Layout_o1{}));
+    using Tensor_o1 = decltype(make_tensor(make_rmem_ptr((TO1*)nullptr), Layout_o1{}));
     Shape_o1 shape_o1;
     Layout_o1 layout_o1;
     Tensor_o1 r;
@@ -188,8 +188,8 @@ public:
     // Hardware parameters
     int tid, lid, wid;
 
-    CUTE_DEVICE G2rCooAtomicFormatLoadOffOp(int tid, int lid, int wid, int mode_i0_0)
-    : tid(tid), lid(lid), wid(wid), shape_i0(make_shape(Int<2>{}, mode_i0_0)) {}
+    CUTE_DEVICE G2rCooAtomicFormatLoadOffOp(int tid, int lid, int wid, TO0 *l, TO1 *r, int mode_i0_0)
+    : tid(tid), lid(lid), wid(wid), shape_i0(make_shape(Int<2>{}, mode_i0_0)), l(make_tensor(make_rmem_ptr(l), Layout_o0{})), r(make_tensor(make_rmem_ptr(r), Layout_o1{})) {}
 
     template<size_t buf_idx, size_t output_idx>
     CUTE_DEVICE auto output() {
@@ -231,7 +231,7 @@ public:
     // Outputs
     using Shape_o0 = decltype(make_shape(tile_sidx_size{}, NBUF{}));
     using Layout_o0 = decltype(make_layout(Shape_o0{}));
-    using Tensor_o0 = decltype(make_tensor<TO0>(Layout_o0{}));
+    using Tensor_o0 = decltype(make_tensor(make_rmem_ptr((TO0*)nullptr), Layout_o0{}));
     Shape_o0 shape_o0;
     Layout_o0 layout_o0;
     Tensor_o0 val_sidx_reg;
@@ -239,8 +239,8 @@ public:
     // Hardware parameters
     int tid, lid, wid;
 
-    CUTE_DEVICE S2rValSidxLoadOp(int tid, int lid, int wid)
-    : tid(tid), lid(lid), wid(wid) {}
+    CUTE_DEVICE S2rValSidxLoadOp(int tid, int lid, int wid, TO0 *val_sidx_reg)
+    : tid(tid), lid(lid), wid(wid), val_sidx_reg(make_tensor(make_rmem_ptr(val_sidx_reg), Layout_o0{})) {}
 
     template<size_t buf_idx, size_t output_idx>
     CUTE_DEVICE auto output() {
@@ -331,13 +331,13 @@ public:
     // Outputs
     using Shape_o0 = decltype(make_shape(Int<8>{}, NBUF{}));
     using Layout_o0 = decltype(make_layout(Shape_o0{}));
-    using Tensor_o0 = decltype(make_tensor<TO0>(Layout_o0{}));
+    using Tensor_o0 = decltype(make_tensor(make_rmem_ptr((TO0*)nullptr), Layout_o0{}));
     Shape_o0 shape_o0;
     Layout_o0 layout_o0;
     Tensor_o0 coo_idx_reg;
     using Shape_o1 = decltype(make_shape(NBUF{}));
     using Layout_o1 = decltype(make_layout(Shape_o1{}));
-    using Tensor_o1 = decltype(make_tensor<TO1>(Layout_o1{}));
+    using Tensor_o1 = decltype(make_tensor(make_rmem_ptr((TO1*)nullptr), Layout_o1{}));
     Shape_o1 shape_o1;
     Layout_o1 layout_o1;
     Tensor_o1 coo_range_reg;
@@ -345,8 +345,8 @@ public:
     // Hardware parameters
     int tid, lid, wid;
 
-    CUTE_DEVICE G2rCooAtomicFormatLoadIdxOp(int tid, int lid, int wid, int mode_i0_0)
-    : tid(tid), lid(lid), wid(wid), shape_i0(make_shape(mode_i0_0)) {}
+    CUTE_DEVICE G2rCooAtomicFormatLoadIdxOp(int tid, int lid, int wid, TO0 *coo_idx_reg, TO1 *coo_range_reg, int mode_i0_0)
+    : tid(tid), lid(lid), wid(wid), shape_i0(make_shape(mode_i0_0)), coo_idx_reg(make_tensor(make_rmem_ptr(coo_idx_reg), Layout_o0{})), coo_range_reg(make_tensor(make_rmem_ptr(coo_range_reg), Layout_o1{})) {}
 
     template<size_t buf_idx, size_t output_idx>
     CUTE_DEVICE auto output() {
@@ -397,7 +397,7 @@ public:
     // Outputs
     using Shape_o0 = decltype(make_shape(Int<4>{}, get<1>(BLK_MMA_MNK{}), NBUF{}));
     using Layout_o0 = decltype(make_layout(Shape_o0{}));
-    using Tensor_o0 = decltype(make_tensor<TO0>(Layout_o0{}));
+    using Tensor_o0 = decltype(make_tensor(make_rmem_ptr((TO0*)nullptr), Layout_o0{}));
     Shape_o0 shape_o0;
     Layout_o0 layout_o0;
     Tensor_o0 REGB;
@@ -405,8 +405,8 @@ public:
     // Hardware parameters
     int tid, lid, wid;
 
-    CUTE_DEVICE G2rBValLoadOp(int tid, int lid, int wid, int mode_i0_0)
-    : tid(tid), lid(lid), wid(wid), shape_i0(make_shape(mode_i0_0, get<1>(BLK_MNK{}))) {}
+    CUTE_DEVICE G2rBValLoadOp(int tid, int lid, int wid, TO0 *REGB, int mode_i0_0)
+    : tid(tid), lid(lid), wid(wid), shape_i0(make_shape(mode_i0_0, get<1>(BLK_MNK{}))), REGB(make_tensor(make_rmem_ptr(REGB), Layout_o0{})) {}
 
     template<size_t buf_idx, size_t output_idx>
     CUTE_DEVICE auto output() {
@@ -506,7 +506,7 @@ public:
     // Outputs
     using Shape_o0 = decltype(make_shape(Int<8>{}, get<0>(BLK_MMA_MNK{}), NBUF{}));
     using Layout_o0 = decltype(make_layout(Shape_o0{}));
-    using Tensor_o0 = decltype(make_tensor<TO0>(Layout_o0{}));
+    using Tensor_o0 = decltype(make_tensor(make_rmem_ptr((TO0*)nullptr), Layout_o0{}));
     Shape_o0 shape_o0;
     Layout_o0 layout_o0;
     Tensor_o0 REGA;
@@ -514,8 +514,8 @@ public:
     // Hardware parameters
     int tid, lid, wid;
 
-    CUTE_DEVICE S2rAValLoadOp(int tid, int lid, int wid)
-    : tid(tid), lid(lid), wid(wid) {}
+    CUTE_DEVICE S2rAValLoadOp(int tid, int lid, int wid, TO0 *REGA)
+    : tid(tid), lid(lid), wid(wid), REGA(make_tensor(make_rmem_ptr(REGA), Layout_o0{})) {}
 
     template<size_t buf_idx, size_t output_idx>
     CUTE_DEVICE auto output() {
@@ -564,7 +564,7 @@ public:
     // Outputs
     using Shape_o0 = decltype(make_shape(Int<4>{}, make_shape(get<0>(BLK_MMA_MNK{}), get<1>(BLK_MMA_MNK{}))));
     using Layout_o0 = decltype(make_layout(Shape_o0{}));
-    using Tensor_o0 = decltype(make_tensor<TO0>(Layout_o0{}));
+    using Tensor_o0 = decltype(make_tensor(make_rmem_ptr((TO0*)nullptr), Layout_o0{}));
     Shape_o0 shape_o0;
     Layout_o0 layout_o0;
     Tensor_o0 REGC;
@@ -572,8 +572,10 @@ public:
     // Hardware parameters
     int tid, lid, wid;
 
-    CUTE_DEVICE MmaOp(int tid, int lid, int wid)
-    : tid(tid), lid(lid), wid(wid) {}
+    CUTE_DEVICE MmaOp(int tid, int lid, int wid, TO0 *REGC)
+    : tid(tid), lid(lid), wid(wid), REGC(make_tensor(make_rmem_ptr(REGC), Layout_o0{})) {
+        clear(this->REGC);
+    }
 
     template<size_t buf_idx, size_t output_idx>
     CUTE_DEVICE auto output() {
@@ -608,8 +610,8 @@ class BValOp {
 public:
     // Outputs
     // using Shape_o0 = decltype(make_shape(VARLEN, get<1>(BLK_MNK{})));
-    using Tensor_o0 = decltype(logical_divide(make_tensor(make_gmem_ptr(nullptr), make_shape(VARLEN, VARLEN)), make_shape(_1{}, get<1>(BLK_MNK{})))(_, make_coord(_, VARLEN)));
-    using Layout_o0 = Tensor_o0::layout_type;
+    using Tensor_o0 = decltype(logical_divide(make_tensor(make_gmem_ptr((TO0*)nullptr), make_shape(VARLEN, VARLEN)), make_shape(_1{}, get<1>(BLK_MNK{})))(_, make_coord(_, VARLEN)));
+    using Layout_o0 = decltype(Tensor_o0{}.layout());
     using Shape_o0 = decltype(Layout_o0{}.shape());
     Shape_o0 shape_o0;
     Layout_o0 layout_o0;
@@ -620,7 +622,7 @@ public:
 
     CUTE_DEVICE BValOp(int tid, int lid, int wid, int K, int N, TO0 *dB_val)
     : tid(tid), lid(lid), wid(wid), 
-    shape_o0(make_shape(K, get<1>(BLK_MNK{}))),
+    shape_o0(logical_divide(make_tensor(make_gmem_ptr(dB_val), make_shape(K, N)), make_shape(_1{}, get<1>(BLK_MNK{})))(_, make_coord(_, blockIdx.y)).shape()),
     layout_o0(logical_divide(make_tensor(make_gmem_ptr(dB_val), make_shape(K, N)), make_shape(_1{}, get<1>(BLK_MNK{})))(_, make_coord(_, blockIdx.y)).layout()),
     B_val(logical_divide(make_tensor(make_gmem_ptr(dB_val), make_shape(K, N)), make_shape(_1{}, get<1>(BLK_MNK{})))(_, make_coord(_, blockIdx.y))) {}
 
@@ -636,8 +638,8 @@ template <class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class TO0 = float>
 class CValOp {
 public:
     // Outputs
-    using Tensor_o0 = decltype(logical_divide(make_tensor(make_gmem_ptr(nullptr), make_shape(VARLEN, VARLEN)), select<1, 0>(BLK_MNK{}))(make_coord(_, VARLEN), make_coord(_, VARLEN)));
-    using Layout_o0 = Tensor_o0::layout_type;
+    using Tensor_o0 = decltype(logical_divide(make_tensor(make_gmem_ptr((TO0*)nullptr), make_shape(VARLEN, VARLEN)), select<1, 0>(BLK_MNK{}))(make_coord(_, VARLEN), make_coord(_, VARLEN)));
+    using Layout_o0 = decltype(Tensor_o0{}.layout());;
     using Shape_o0 = decltype(Layout_o0{}.shape());
     Shape_o0 shape_o0;
     Layout_o0 layout_o0;
@@ -649,7 +651,7 @@ public:
 
     CUTE_DEVICE CValOp(int tid, int lid, int wid, int N, int M, TO0 *dC_val)
     : tid(tid), lid(lid), wid(wid), 
-    shape_o0(make_shape(get<1>(BLK_MNK{}), get<0>(BLK_MNK{}))),
+    shape_o0(logical_divide(make_tensor(make_gmem_ptr(dC_val), make_shape(N, M)), select<1, 0>(BLK_MNK{}))(make_coord(_, blockIdx.y), make_coord(_, blockIdx.x)).shape()),
     layout_o0(logical_divide(make_tensor(make_gmem_ptr(dC_val), make_shape(N, M)), select<1, 0>(BLK_MNK{}))(make_coord(_, blockIdx.y), make_coord(_, blockIdx.x)).layout()),
     C_val(logical_divide(make_tensor(make_gmem_ptr(dC_val), make_shape(N, M)), select<1, 0>(BLK_MNK{}))(make_coord(_, blockIdx.y), make_coord(_, blockIdx.x))) {}
     
@@ -665,8 +667,8 @@ template <class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class TO0 = int>
 class ValCooIdxOp {
 public:
     // Outputs
-    using Tensor_o0 = decltype(make_tensor(make_gmem_ptr(nullptr), make_shape(VARLEN)));
-    using Layout_o0 = Tensor_o0::layout_type;
+    using Tensor_o0 = decltype(make_tensor(make_gmem_ptr((TO0*)nullptr), make_shape(VARLEN)));
+    using Layout_o0 = decltype(Tensor_o0{}.layout());;
     using Shape_o0 = decltype(Layout_o0{}.shape());
     Shape_o0 shape_o0;
     Layout_o0 layout_o0;
@@ -677,7 +679,7 @@ public:
 
     CUTE_DEVICE ValCooIdxOp(int tid, int lid, int wid, int nnz, TO0 *dval_coo_idx)
     : tid(tid), lid(lid), wid(wid), 
-    shape_o0(make_shape(nnz)),
+    shape_o0(make_tensor(make_gmem_ptr(dval_coo_idx), make_shape(nnz)).shape()),
     layout_o0(make_tensor(make_gmem_ptr(dval_coo_idx), make_shape(nnz)).layout()),
     val_coo_idx(make_tensor(make_gmem_ptr(dval_coo_idx), make_shape(nnz))) {}
 
@@ -693,8 +695,8 @@ template <class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class TO0 = int>
 class ValCooOffOp {
 public:
     // Outputs
-    using Tensor_o0 = decltype(make_tensor(make_gmem_ptr(nullptr), make_shape(Int<2>{}, VARLEN)));
-    using Layout_o0 = Tensor_o0::layout_type;
+    using Tensor_o0 = decltype(make_tensor(make_gmem_ptr((TO0*)nullptr), make_shape(Int<2>{}, VARLEN)));
+    using Layout_o0 = decltype(Tensor_o0{}.layout());;
     using Shape_o0 = decltype(Layout_o0{}.shape());
     Shape_o0 shape_o0;
     Layout_o0 layout_o0;
@@ -705,7 +707,7 @@ public:
 
     CUTE_DEVICE ValCooOffOp(int tid, int lid, int wid, int nnz_block, TO0 *dval_coo_off)
     : tid(tid), lid(lid), wid(wid), 
-    shape_o0(make_shape(Int<2>{}, nnz_block)),
+    shape_o0(make_tensor(make_gmem_ptr(dval_coo_off), make_shape(Int<2>{}, nnz_block)).shape()),
     layout_o0(make_tensor(make_gmem_ptr(dval_coo_off), make_shape(Int<2>{}, nnz_block)).layout()),
     val_coo_off(make_tensor(make_gmem_ptr(dval_coo_off), make_shape(Int<2>{}, nnz_block))) {}
     
@@ -721,8 +723,8 @@ template <class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class TO0 = half>
 class ValCooValOp {
 public:
     // Outputs
-    using Tensor_o0 = decltype(make_tensor(make_gmem_ptr(nullptr), make_shape(VARLEN)));
-    using Layout_o0 = Tensor_o0::layout_type;
+    using Tensor_o0 = decltype(make_tensor(make_gmem_ptr((TO0*)nullptr), make_shape(VARLEN)));
+    using Layout_o0 = decltype(Tensor_o0{}.layout());;
     using Shape_o0 = decltype(Layout_o0{}.shape());
     Shape_o0 shape_o0;
     Layout_o0 layout_o0;
@@ -733,7 +735,7 @@ public:
 
     CUTE_DEVICE ValCooValOp(int tid, int lid, int wid, int nnz, TO0 *dval_coo_val)
     : tid(tid), lid(lid), wid(wid), 
-    shape_o0(make_shape(nnz)),
+    shape_o0(make_tensor(make_gmem_ptr(dval_coo_val), make_shape(nnz)).shape()),
     layout_o0(make_tensor(make_gmem_ptr(dval_coo_val), make_shape(nnz)).layout()),
     val_coo_val(make_tensor(make_gmem_ptr(dval_coo_val), make_shape(nnz))) {}
 
@@ -749,8 +751,8 @@ template <class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class tile_sidx_size 
 class ValSidxOp {
 public:
     // Outputs
-    using Tensor_o0 = decltype(make_tensor(make_gmem_ptr(nullptr), make_shape(tile_sidx_size{}, VARLEN)));
-    using Layout_o0 = Tensor_o0::layout_type;
+    using Tensor_o0 = decltype(make_tensor(make_gmem_ptr((TO0*)nullptr), make_shape(tile_sidx_size{}, VARLEN)));
+    using Layout_o0 = decltype(Tensor_o0{}.layout());;
     using Shape_o0 = decltype(Layout_o0{}.shape());
     Shape_o0 shape_o0;
     Layout_o0 layout_o0;
@@ -761,7 +763,7 @@ public:
 
     CUTE_DEVICE ValSidxOp(int tid, int lid, int wid, int nnz_block, TO0 *dval_sidx)
     : tid(tid), lid(lid), wid(wid), 
-    shape_o0(make_shape(tile_sidx_size{}, nnz_block)),
+    shape_o0(make_tensor(make_gmem_ptr(dval_sidx), make_shape(tile_sidx_size{}, nnz_block)).shape()),
     layout_o0(make_tensor(make_gmem_ptr(dval_sidx), make_shape(tile_sidx_size{}, nnz_block)).layout()),
     val_sidx(make_tensor(make_gmem_ptr(dval_sidx), make_shape(tile_sidx_size{}, nnz_block))) {}
 
@@ -777,8 +779,8 @@ template <class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class TO0 = int>
 class ValSoffOp {
 public:
     // Outputs
-    using Tensor_o0 = decltype(make_tensor(make_gmem_ptr(nullptr), make_shape(VARLEN)));
-    using Layout_o0 = Tensor_o0::layout_type;
+    using Tensor_o0 = decltype(make_tensor(make_gmem_ptr((TO0*)nullptr), make_shape(VARLEN)));
+    using Layout_o0 = decltype(Tensor_o0{}.layout());;
     using Shape_o0 = decltype(Layout_o0{}.shape());
     Shape_o0 shape_o0;
     Layout_o0 layout_o0;
@@ -789,7 +791,7 @@ public:
 
     CUTE_DEVICE ValSoffOp(int tid, int lid, int wid, int Mo, TO0 *dval_soff)
     : tid(tid), lid(lid), wid(wid), 
-    shape_o0(make_shape(Mo)),
+    shape_o0(make_tensor(make_gmem_ptr(dval_soff), make_shape(Mo)).shape()),
     layout_o0(make_tensor(make_gmem_ptr(dval_soff), make_shape(Mo)).layout()),
     val_soff(make_tensor(make_gmem_ptr(dval_soff), make_shape(Mo))) {}
 
@@ -800,8 +802,6 @@ public:
         }
     }
 };
-
-template <class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class T_G2sValSidxLoadOp, class T_G2rCooAtomicFormatLoadOffOp, class T_S2rValSidxLoadOp, class T_G2sCooAtomicFormatLoadValOp, class T_G2rCooAtomicFormatLoadIdxOp, class T_G2rBValLoadOp, class T_S2sCooAtomicValRestoreOp, class T_S2rAValLoadOp, class T_MmaOp, class T_B_val, class T_C_val, class T_val_coo_idx, class T_val_coo_off, class T_val_coo_val, class T_val_sidx, class T_val_soff>
 
 // epilogue
 template<class NBUF, class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class Tensor_o0, class TI0 = float, class TO0 = float>
@@ -815,12 +815,12 @@ public:
     // Outputs
     using Shape_o0 = decltype(make_shape(get<1>(BLK_MNK{}), get<0>(BLK_MNK{})));
     Shape_o0 shape_o0;
-    Tensor_o0 &C_val;
+    Tensor_o0 C_val;
 
     // Hardware parameters
     int tid, lid, wid;
 
-    CUTE_DEVICE R2gCValStoreOp(int tid, int lid, int wid, Tensor_o0 &C_val)
+    CUTE_DEVICE R2gCValStoreOp(int tid, int lid, int wid, Tensor_o0 C_val)
     : tid(tid), lid(lid), wid(wid), C_val(C_val) {}
 
     template<size_t buf_idx, size_t output_idx>
@@ -854,229 +854,667 @@ public:
     }
 };
 
-// short pipe
-template <class T_G2sValSidxLoadOp, class T_G2rCooAtomicFormatLoadOffOp, class T_S2rValSidxLoadOp, class T_G2sCooAtomicFormatLoadValOp, class T_G2rCooAtomicFormatLoadIdxOp, class T_G2rBValLoadOp, class T_S2sCooAtomicValRestoreOp, class T_S2rAValLoadOp, class T_MmaOp, class T_B_val, class T_C_val, class T_val_coo_idx, class T_val_coo_off, class T_val_coo_val, class T_val_sidx, class T_val_soff>
-__device__ void short_pipe(int k, int l, int r, T_G2sValSidxLoadOp &g2s_val_sidx_load_op, T_G2rCooAtomicFormatLoadOffOp &g2r_coo_atomic_format_load_off_op, T_S2rValSidxLoadOp &s2r_val_sidx_load_op, T_G2sCooAtomicFormatLoadValOp &g2s_coo_atomic_format_load_val_op, T_G2rCooAtomicFormatLoadIdxOp &g2r_coo_atomic_format_load_idx_op, T_G2rBValLoadOp &g2r_b_val_load_op, T_S2sCooAtomicValRestoreOp &s2s_coo_atomic_val_restore_op, T_S2rAValLoadOp &s2r_a_val_load_op, T_MmaOp &mma_op, T_B_val &B_val, T_C_val &C_val, T_val_coo_idx &val_coo_idx, T_val_coo_off &val_coo_off, T_val_coo_val &val_coo_val, T_val_sidx &val_sidx, T_val_soff &val_soff) {
-    if (k == 0) {
-        // i = 0
-        
-        
-        // i = 1
-        
-        
-        // i = 2
+template <class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class T_G2sValSidxLoadOp, class T_G2rCooAtomicFormatLoadOffOp, class T_S2rValSidxLoadOp, class T_G2sCooAtomicFormatLoadValOp, class T_G2rCooAtomicFormatLoadIdxOp, class T_G2rBValLoadOp, class T_S2sCooAtomicValRestoreOp, class T_S2rAValLoadOp, class T_MmaOp, class T_BValOp, class T_CValOp, class T_ValCooIdxOp, class T_ValCooOffOp, class T_ValCooValOp, class T_ValSidxOp, class T_ValSoffOp, class Tensor_o0, class TO0 = float>
+class PipelinedForLoopOp {
+public:
+
+    // Inputs
+    int _l, _r;
+    int _idx; // i
+    int _iter; // i + _l
+
+    // Outputs
+    using Shape_o0 = decltype(make_shape(Int<4>{}, make_shape(get<0>(BLK_MMA_MNK{}), get<1>(BLK_MMA_MNK{}))));
+    Shape_o0 shape_o0;
+    // using Layout_o0 = decltype(make_layout(Shape_o0{}));
+    // using Tensor_o0 = decltype(make_tensor(make_rmem_ptr((TO0*)nullptr), Layout_o0{}));
+    // Shape_o0 shape_o0;
+    // Layout_o0 layout_o0;
+    Tensor_o0 REGC;
+
+
+    // Hardware parameters
+    int tid, lid, wid;
+
+    // Body Ops
+    T_G2sValSidxLoadOp &g2s_val_sidx_load_op;
+    T_G2rCooAtomicFormatLoadOffOp &g2r_coo_atomic_format_load_off_op;
+    T_S2rValSidxLoadOp &s2r_val_sidx_load_op;
+    T_G2sCooAtomicFormatLoadValOp &g2s_coo_atomic_format_load_val_op;
+    T_G2rCooAtomicFormatLoadIdxOp &g2r_coo_atomic_format_load_idx_op;
+    T_G2rBValLoadOp &g2r_b_val_load_op;
+    T_S2sCooAtomicValRestoreOp &s2s_coo_atomic_val_restore_op;
+    T_S2rAValLoadOp &s2r_a_val_load_op;
+    T_MmaOp &mma_op;
+    T_BValOp &B_val_op;
+    T_CValOp &C_val_op;
+    T_ValCooIdxOp &val_coo_idx_op;
+    T_ValCooOffOp &val_coo_off_op;
+    T_ValCooValOp &val_coo_val_op;
+    T_ValSidxOp &val_sidx_op;
+    T_ValSoffOp &val_soff_op;
+
+    // Constructor
+    CUTE_DEVICE PipelinedForLoopOp(int tid, int lid, int wid,
+    T_G2sValSidxLoadOp &g2s_val_sidx_load_op,
+    T_G2rCooAtomicFormatLoadOffOp &g2r_coo_atomic_format_load_off_op,
+    T_S2rValSidxLoadOp &s2r_val_sidx_load_op,
+    T_G2sCooAtomicFormatLoadValOp &g2s_coo_atomic_format_load_val_op,
+    T_G2rCooAtomicFormatLoadIdxOp &g2r_coo_atomic_format_load_idx_op,
+    T_G2rBValLoadOp &g2r_b_val_load_op,
+    T_S2sCooAtomicValRestoreOp &s2s_coo_atomic_val_restore_op,
+    T_S2rAValLoadOp &s2r_a_val_load_op,
+    T_MmaOp &mma_op,
+    T_BValOp &B_val_op,
+    T_CValOp &C_val_op,
+    T_ValCooIdxOp &val_coo_idx_op,
+    T_ValCooOffOp &val_coo_off_op,
+    T_ValCooValOp &val_coo_val_op,
+    T_ValSidxOp &val_sidx_op,
+    T_ValSoffOp &val_soff_op)
+    : tid(tid), lid(lid), wid(wid),
+    g2s_val_sidx_load_op(g2s_val_sidx_load_op),
+    g2r_coo_atomic_format_load_off_op(g2r_coo_atomic_format_load_off_op),
+    s2r_val_sidx_load_op(s2r_val_sidx_load_op),
+    g2s_coo_atomic_format_load_val_op(g2s_coo_atomic_format_load_val_op),
+    g2r_coo_atomic_format_load_idx_op(g2r_coo_atomic_format_load_idx_op),
+    g2r_b_val_load_op(g2r_b_val_load_op),
+    s2s_coo_atomic_val_restore_op(s2s_coo_atomic_val_restore_op),
+    s2r_a_val_load_op(s2r_a_val_load_op),
+    mma_op(mma_op),
+    B_val_op(B_val_op),
+    C_val_op(C_val_op),
+    val_coo_idx_op(val_coo_idx_op),
+    val_coo_off_op(val_coo_off_op),
+    val_coo_val_op(val_coo_val_op),
+    val_sidx_op(val_sidx_op),
+    val_soff_op(val_soff_op),
+    REGC(mma_op.template output<0>()) {}
+
+    template<size_t buf_idx, size_t output_idx>
+    CUTE_DEVICE auto output() {
+        if constexpr (output_idx == 0) {
+            return REGC;
+        }
+    }
+
+    template<size_t output_idx>
+    CUTE_DEVICE auto output() {
+        if constexpr (output_idx == 0) {
+            return REGC;
+        }
+    }
+
+    // short pipe
+    __device__ void short_pipe(int k, int l, int r, T_G2sValSidxLoadOp &g2s_val_sidx_load_op, T_G2rCooAtomicFormatLoadOffOp &g2r_coo_atomic_format_load_off_op, T_S2rValSidxLoadOp &s2r_val_sidx_load_op, T_G2sCooAtomicFormatLoadValOp &g2s_coo_atomic_format_load_val_op, T_G2rCooAtomicFormatLoadIdxOp &g2r_coo_atomic_format_load_idx_op, T_G2rBValLoadOp &g2r_b_val_load_op, T_S2sCooAtomicValRestoreOp &s2s_coo_atomic_val_restore_op, T_S2rAValLoadOp &s2r_a_val_load_op, T_MmaOp &mma_op, T_BValOp &B_val_op, T_CValOp &C_val_op, T_ValCooIdxOp &val_coo_idx_op, T_ValCooOffOp &val_coo_off_op, T_ValCooValOp &val_coo_val_op, T_ValSidxOp &val_sidx_op, T_ValSoffOp &val_soff_op) {
+        if (k == 0) {
+            // i = 0
+            
+            
+            // i = 1
+            
+            
+            // i = 2
+            
+        }
+        else if (k == 1) {
+            // i = 0
+            g2s_val_sidx_load_op.template f<0>(
+                val_sidx_op.template output<0>(),
+                l + 0
+            );
+            __pipeline_commit();
+            g2r_coo_atomic_format_load_off_op.template f<0>(
+                val_coo_off_op.template output<0>(),
+                l + 0
+            );
+            
+            // i = 1
+            g2s_coo_atomic_format_load_val_op.template f<0>(
+                val_coo_val_op.template output<0>(),
+                g2r_coo_atomic_format_load_off_op.template output<0, 0>(),
+                g2r_coo_atomic_format_load_off_op.template output<0, 1>()
+            );
+            __pipeline_commit();
+            __pipeline_wait_prior(1);
+            __syncthreads();
+            s2r_val_sidx_load_op.template f<0>(
+                g2s_val_sidx_load_op.template output<0, 0>()
+            );g2r_coo_atomic_format_load_idx_op.template f<0>(
+                val_coo_idx_op.template output<0>(),
+                g2r_coo_atomic_format_load_off_op.template output<0, 0>(),
+                g2r_coo_atomic_format_load_off_op.template output<0, 1>()
+            );
+            
+            // i = 2
+            g2r_b_val_load_op.template f<0>(
+                B_val_op.template output<0>(),
+                s2r_val_sidx_load_op.template output<0, 0>()
+            );__pipeline_wait_prior(0);
+            __syncthreads();
+            s2s_coo_atomic_val_restore_op.template f<0>(
+                g2s_coo_atomic_format_load_val_op.template output<0, 0>(),
+                g2r_coo_atomic_format_load_idx_op.template output<0, 0>(),
+                g2r_coo_atomic_format_load_idx_op.template output<0, 1>()
+            );s2r_a_val_load_op.template f<0>(
+                s2s_coo_atomic_val_restore_op.template output<0, 0>()
+            );
+            
+            // i = 3
+            mma_op.template f<0>(
+                s2r_a_val_load_op.template output<0, 0>(),
+                g2r_b_val_load_op.template output<0, 0>()
+            );
+        }
+        else if (k == 2) {
+            // i = 0
+            g2s_val_sidx_load_op.template f<0>(
+                val_sidx_op.template output<0>(),
+                l + 0
+            );
+            __pipeline_commit();
+            g2r_coo_atomic_format_load_off_op.template f<0>(
+                val_coo_off_op.template output<0>(),
+                l + 0
+            );
+            
+            // i = 1
+            g2s_val_sidx_load_op.template f<1>(
+                val_sidx_op.template output<0>(),
+                l + 1
+            );
+            g2s_coo_atomic_format_load_val_op.template f<0>(
+                val_coo_val_op.template output<0>(),
+                g2r_coo_atomic_format_load_off_op.template output<0, 0>(),
+                g2r_coo_atomic_format_load_off_op.template output<0, 1>()
+            );
+            __pipeline_commit();
+            g2r_coo_atomic_format_load_off_op.template f<1>(
+                val_coo_off_op.template output<0>(),
+                l + 1
+            );__pipeline_wait_prior(1);
+            __syncthreads();
+            s2r_val_sidx_load_op.template f<0>(
+                g2s_val_sidx_load_op.template output<0, 0>()
+            );g2r_coo_atomic_format_load_idx_op.template f<0>(
+                val_coo_idx_op.template output<0>(),
+                g2r_coo_atomic_format_load_off_op.template output<0, 0>(),
+                g2r_coo_atomic_format_load_off_op.template output<0, 1>()
+            );
+            
+            // i = 2
+            g2s_coo_atomic_format_load_val_op.template f<1>(
+                val_coo_val_op.template output<0>(),
+                g2r_coo_atomic_format_load_off_op.template output<1, 0>(),
+                g2r_coo_atomic_format_load_off_op.template output<1, 1>()
+            );
+            __pipeline_commit();
+            __pipeline_wait_prior(1);
+            __syncthreads();
+            s2r_val_sidx_load_op.template f<1>(
+                g2s_val_sidx_load_op.template output<1, 0>()
+            );g2r_coo_atomic_format_load_idx_op.template f<1>(
+                val_coo_idx_op.template output<0>(),
+                g2r_coo_atomic_format_load_off_op.template output<1, 0>(),
+                g2r_coo_atomic_format_load_off_op.template output<1, 1>()
+            );g2r_b_val_load_op.template f<0>(
+                B_val_op.template output<0>(),
+                s2r_val_sidx_load_op.template output<0, 0>()
+            );__pipeline_wait_prior(1);
+            __syncthreads();
+            s2s_coo_atomic_val_restore_op.template f<0>(
+                g2s_coo_atomic_format_load_val_op.template output<0, 0>(),
+                g2r_coo_atomic_format_load_idx_op.template output<0, 0>(),
+                g2r_coo_atomic_format_load_idx_op.template output<0, 1>()
+            );s2r_a_val_load_op.template f<0>(
+                s2s_coo_atomic_val_restore_op.template output<0, 0>()
+            );
+            
+            // i = 3
+            g2r_b_val_load_op.template f<1>(
+                B_val_op.template output<0>(),
+                s2r_val_sidx_load_op.template output<1, 0>()
+            );__pipeline_wait_prior(0);
+            __syncthreads();
+            s2s_coo_atomic_val_restore_op.template f<1>(
+                g2s_coo_atomic_format_load_val_op.template output<1, 0>(),
+                g2r_coo_atomic_format_load_idx_op.template output<1, 0>(),
+                g2r_coo_atomic_format_load_idx_op.template output<1, 1>()
+            );s2r_a_val_load_op.template f<1>(
+                s2s_coo_atomic_val_restore_op.template output<1, 0>()
+            );mma_op.template f<0>(
+                s2r_a_val_load_op.template output<0, 0>(),
+                g2r_b_val_load_op.template output<0, 0>()
+            );
+            
+            // i = 4
+            mma_op.template f<1>(
+                s2r_a_val_load_op.template output<1, 0>(),
+                g2r_b_val_load_op.template output<1, 0>()
+            );
+        }
+        else if (k == 3) {
+            // i = 0
+            g2s_val_sidx_load_op.template f<0>(
+                val_sidx_op.template output<0>(),
+                l + 0
+            );
+            __pipeline_commit();
+            g2r_coo_atomic_format_load_off_op.template f<0>(
+                val_coo_off_op.template output<0>(),
+                l + 0
+            );
+            
+            // i = 1
+            g2s_val_sidx_load_op.template f<1>(
+                val_sidx_op.template output<0>(),
+                l + 1
+            );
+            g2s_coo_atomic_format_load_val_op.template f<0>(
+                val_coo_val_op.template output<0>(),
+                g2r_coo_atomic_format_load_off_op.template output<0, 0>(),
+                g2r_coo_atomic_format_load_off_op.template output<0, 1>()
+            );
+            __pipeline_commit();
+            g2r_coo_atomic_format_load_off_op.template f<1>(
+                val_coo_off_op.template output<0>(),
+                l + 1
+            );__pipeline_wait_prior(1);
+            __syncthreads();
+            s2r_val_sidx_load_op.template f<0>(
+                g2s_val_sidx_load_op.template output<0, 0>()
+            );g2r_coo_atomic_format_load_idx_op.template f<0>(
+                val_coo_idx_op.template output<0>(),
+                g2r_coo_atomic_format_load_off_op.template output<0, 0>(),
+                g2r_coo_atomic_format_load_off_op.template output<0, 1>()
+            );
+            
+            // i = 2
+            g2s_val_sidx_load_op.template f<0>(
+                val_sidx_op.template output<0>(),
+                l + 2
+            );
+            g2s_coo_atomic_format_load_val_op.template f<1>(
+                val_coo_val_op.template output<0>(),
+                g2r_coo_atomic_format_load_off_op.template output<1, 0>(),
+                g2r_coo_atomic_format_load_off_op.template output<1, 1>()
+            );
+            __pipeline_commit();
+            g2r_coo_atomic_format_load_off_op.template f<0>(
+                val_coo_off_op.template output<0>(),
+                l + 2
+            );__pipeline_wait_prior(1);
+            __syncthreads();
+            s2r_val_sidx_load_op.template f<1>(
+                g2s_val_sidx_load_op.template output<1, 0>()
+            );g2r_coo_atomic_format_load_idx_op.template f<1>(
+                val_coo_idx_op.template output<0>(),
+                g2r_coo_atomic_format_load_off_op.template output<1, 0>(),
+                g2r_coo_atomic_format_load_off_op.template output<1, 1>()
+            );g2r_b_val_load_op.template f<0>(
+                B_val_op.template output<0>(),
+                s2r_val_sidx_load_op.template output<0, 0>()
+            );__pipeline_wait_prior(1);
+            __syncthreads();
+            s2s_coo_atomic_val_restore_op.template f<0>(
+                g2s_coo_atomic_format_load_val_op.template output<0, 0>(),
+                g2r_coo_atomic_format_load_idx_op.template output<0, 0>(),
+                g2r_coo_atomic_format_load_idx_op.template output<0, 1>()
+            );s2r_a_val_load_op.template f<0>(
+                s2s_coo_atomic_val_restore_op.template output<0, 0>()
+            );
+            
+            // i = 3
+            g2s_coo_atomic_format_load_val_op.template f<0>(
+                val_coo_val_op.template output<0>(),
+                g2r_coo_atomic_format_load_off_op.template output<0, 0>(),
+                g2r_coo_atomic_format_load_off_op.template output<0, 1>()
+            );
+            __pipeline_commit();
+            __pipeline_wait_prior(1);
+            __syncthreads();
+            s2r_val_sidx_load_op.template f<0>(
+                g2s_val_sidx_load_op.template output<0, 0>()
+            );g2r_coo_atomic_format_load_idx_op.template f<0>(
+                val_coo_idx_op.template output<0>(),
+                g2r_coo_atomic_format_load_off_op.template output<0, 0>(),
+                g2r_coo_atomic_format_load_off_op.template output<0, 1>()
+            );g2r_b_val_load_op.template f<1>(
+                B_val_op.template output<0>(),
+                s2r_val_sidx_load_op.template output<1, 0>()
+            );__pipeline_wait_prior(1);
+            __syncthreads();
+            s2s_coo_atomic_val_restore_op.template f<1>(
+                g2s_coo_atomic_format_load_val_op.template output<1, 0>(),
+                g2r_coo_atomic_format_load_idx_op.template output<1, 0>(),
+                g2r_coo_atomic_format_load_idx_op.template output<1, 1>()
+            );s2r_a_val_load_op.template f<1>(
+                s2s_coo_atomic_val_restore_op.template output<1, 0>()
+            );mma_op.template f<0>(
+                s2r_a_val_load_op.template output<0, 0>(),
+                g2r_b_val_load_op.template output<0, 0>()
+            );
+            
+            // i = 4
+            g2r_b_val_load_op.template f<0>(
+                B_val_op.template output<0>(),
+                s2r_val_sidx_load_op.template output<0, 0>()
+            );__pipeline_wait_prior(0);
+            __syncthreads();
+            s2s_coo_atomic_val_restore_op.template f<0>(
+                g2s_coo_atomic_format_load_val_op.template output<0, 0>(),
+                g2r_coo_atomic_format_load_idx_op.template output<0, 0>(),
+                g2r_coo_atomic_format_load_idx_op.template output<0, 1>()
+            );s2r_a_val_load_op.template f<0>(
+                s2s_coo_atomic_val_restore_op.template output<0, 0>()
+            );mma_op.template f<1>(
+                s2r_a_val_load_op.template output<1, 0>(),
+                g2r_b_val_load_op.template output<1, 0>()
+            );
+            
+            // i = 5
+            mma_op.template f<0>(
+                s2r_a_val_load_op.template output<0, 0>(),
+                g2r_b_val_load_op.template output<0, 0>()
+            );
+        }
         
     }
-    else if (k == 1) {
-        // i = 0
+
+    // fill
+    __device__ void fill(int l, int r, T_G2sValSidxLoadOp &g2s_val_sidx_load_op, T_G2rCooAtomicFormatLoadOffOp &g2r_coo_atomic_format_load_off_op, T_S2rValSidxLoadOp &s2r_val_sidx_load_op, T_G2sCooAtomicFormatLoadValOp &g2s_coo_atomic_format_load_val_op, T_G2rCooAtomicFormatLoadIdxOp &g2r_coo_atomic_format_load_idx_op, T_G2rBValLoadOp &g2r_b_val_load_op, T_S2sCooAtomicValRestoreOp &s2s_coo_atomic_val_restore_op, T_S2rAValLoadOp &s2r_a_val_load_op, T_MmaOp &mma_op, T_BValOp &B_val_op, T_CValOp &C_val_op, T_ValCooIdxOp &val_coo_idx_op, T_ValCooOffOp &val_coo_off_op, T_ValCooValOp &val_coo_val_op, T_ValSidxOp &val_sidx_op, T_ValSoffOp &val_soff_op) {
+        // stage 0..0
         g2s_val_sidx_load_op.template f<0>(
-            val_sidx,
+            val_sidx_op.template output<0>(),
             l + 0
         );
         __pipeline_commit();
         g2r_coo_atomic_format_load_off_op.template f<0>(
-            val_coo_off,
+            val_coo_off_op.template output<0>(),
             l + 0
         );
-        
-        // i = 1
-        g2s_coo_atomic_format_load_val_op.template f<0>(
-            val_coo_val,
-            g2r_coo_atomic_format_load_off_op.template output<0, 0>(),
-            g2r_coo_atomic_format_load_off_op.template output<0, 1>()
-        );
-        __pipeline_commit();
-        __pipeline_wait_prior(1);
-        __syncthreads();
-        s2r_val_sidx_load_op.template f<0>(
-            g2s_val_sidx_load_op.template output<0, 0>()
-        );g2r_coo_atomic_format_load_idx_op.template f<0>(
-            val_coo_idx,
-            g2r_coo_atomic_format_load_off_op.template output<0, 0>(),
-            g2r_coo_atomic_format_load_off_op.template output<0, 1>()
-        );
-        
-        // i = 2
-        g2r_b_val_load_op.template f<0>(
-            B_val,
-            s2r_val_sidx_load_op.template output<0, 0>()
-        );__pipeline_wait_prior(0);
-        __syncthreads();
-        s2s_coo_atomic_val_restore_op.template f<0>(
-            g2s_coo_atomic_format_load_val_op.template output<0, 0>(),
-            g2r_coo_atomic_format_load_idx_op.template output<0, 0>(),
-            g2r_coo_atomic_format_load_idx_op.template output<0, 1>()
-        );s2r_a_val_load_op.template f<0>(
-            s2s_coo_atomic_val_restore_op.template output<0, 0>()
-        );
-        
-        // i = 3
-        mma_op.template f<0>(
-            s2r_a_val_load_op.template output<0, 0>(),
-            g2r_b_val_load_op.template output<0, 0>()
-        );
-    }
-    else if (k == 2) {
-        // i = 0
-        g2s_val_sidx_load_op.template f<0>(
-            val_sidx,
-            l + 0
-        );
-        __pipeline_commit();
-        g2r_coo_atomic_format_load_off_op.template f<0>(
-            val_coo_off,
-            l + 0
-        );
-        
-        // i = 1
+        // stage 0..1
         g2s_val_sidx_load_op.template f<1>(
-            val_sidx,
+            val_sidx_op.template output<0>(),
             l + 1
         );
         g2s_coo_atomic_format_load_val_op.template f<0>(
-            val_coo_val,
+            val_coo_val_op.template output<0>(),
             g2r_coo_atomic_format_load_off_op.template output<0, 0>(),
             g2r_coo_atomic_format_load_off_op.template output<0, 1>()
         );
         __pipeline_commit();
         g2r_coo_atomic_format_load_off_op.template f<1>(
-            val_coo_off,
+            val_coo_off_op.template output<0>(),
             l + 1
-        );__pipeline_wait_prior(1);
+        );
+        __pipeline_wait_prior(1);
         __syncthreads();
         s2r_val_sidx_load_op.template f<0>(
             g2s_val_sidx_load_op.template output<0, 0>()
-        );g2r_coo_atomic_format_load_idx_op.template f<0>(
-            val_coo_idx,
+        );
+        g2r_coo_atomic_format_load_idx_op.template f<0>(
+            val_coo_idx_op.template output<0>(),
             g2r_coo_atomic_format_load_off_op.template output<0, 0>(),
             g2r_coo_atomic_format_load_off_op.template output<0, 1>()
         );
-        
-        // i = 2
+        // stage 0..2
+        g2s_val_sidx_load_op.template f<0>(
+            val_sidx_op.template output<0>(),
+            l + 2
+        );
         g2s_coo_atomic_format_load_val_op.template f<1>(
-            val_coo_val,
+            val_coo_val_op.template output<0>(),
             g2r_coo_atomic_format_load_off_op.template output<1, 0>(),
             g2r_coo_atomic_format_load_off_op.template output<1, 1>()
         );
         __pipeline_commit();
+        g2r_coo_atomic_format_load_off_op.template f<0>(
+            val_coo_off_op.template output<0>(),
+            l + 2
+        );
         __pipeline_wait_prior(1);
         __syncthreads();
         s2r_val_sidx_load_op.template f<1>(
             g2s_val_sidx_load_op.template output<1, 0>()
-        );g2r_coo_atomic_format_load_idx_op.template f<1>(
-            val_coo_idx,
+        );
+        g2r_coo_atomic_format_load_idx_op.template f<1>(
+            val_coo_idx_op.template output<0>(),
             g2r_coo_atomic_format_load_off_op.template output<1, 0>(),
             g2r_coo_atomic_format_load_off_op.template output<1, 1>()
-        );g2r_b_val_load_op.template f<0>(
-            B_val,
+        );
+        g2r_b_val_load_op.template f<0>(
+            B_val_op.template output<0>(),
             s2r_val_sidx_load_op.template output<0, 0>()
-        );__pipeline_wait_prior(1);
+        );
+        __pipeline_wait_prior(1);
         __syncthreads();
         s2s_coo_atomic_val_restore_op.template f<0>(
             g2s_coo_atomic_format_load_val_op.template output<0, 0>(),
             g2r_coo_atomic_format_load_idx_op.template output<0, 0>(),
             g2r_coo_atomic_format_load_idx_op.template output<0, 1>()
-        );s2r_a_val_load_op.template f<0>(
+        );
+        __syncthreads();
+        s2r_a_val_load_op.template f<0>(
             s2s_coo_atomic_val_restore_op.template output<0, 0>()
         );
-        
-        // i = 3
+    }
+
+    // loop_step
+    __device__ void loop_step(int i, int l, int r, T_G2sValSidxLoadOp &g2s_val_sidx_load_op, T_G2rCooAtomicFormatLoadOffOp &g2r_coo_atomic_format_load_off_op, T_S2rValSidxLoadOp &s2r_val_sidx_load_op, T_G2sCooAtomicFormatLoadValOp &g2s_coo_atomic_format_load_val_op, T_G2rCooAtomicFormatLoadIdxOp &g2r_coo_atomic_format_load_idx_op, T_G2rBValLoadOp &g2r_b_val_load_op, T_S2sCooAtomicValRestoreOp &s2s_coo_atomic_val_restore_op, T_S2rAValLoadOp &s2r_a_val_load_op, T_MmaOp &mma_op, T_BValOp &B_val_op, T_CValOp &C_val_op, T_ValCooIdxOp &val_coo_idx_op, T_ValCooOffOp &val_coo_off_op, T_ValCooValOp &val_coo_val_op, T_ValSidxOp &val_sidx_op, T_ValSoffOp &val_soff_op) {
+        // step 0
+        g2s_val_sidx_load_op.template f<1>(
+            val_sidx_op.template output<0>(),
+            l + i + (0)
+        );
+        g2s_coo_atomic_format_load_val_op.template f<0>(
+            val_coo_val_op.template output<0>(),
+            g2r_coo_atomic_format_load_off_op.template output<0, 0>(),
+            g2r_coo_atomic_format_load_off_op.template output<0, 1>()
+        );
+        __pipeline_commit();
+        g2r_coo_atomic_format_load_off_op.template f<1>(
+            val_coo_off_op.template output<0>(),
+            l + i + (0)
+        );
+        __pipeline_wait_prior(1);
+        __syncthreads();
+        s2r_val_sidx_load_op.template f<0>(
+            g2s_val_sidx_load_op.template output<0, 0>()
+        );
+        g2r_coo_atomic_format_load_idx_op.template f<0>(
+            val_coo_idx_op.template output<0>(),
+            g2r_coo_atomic_format_load_off_op.template output<0, 0>(),
+            g2r_coo_atomic_format_load_off_op.template output<0, 1>()
+        );
         g2r_b_val_load_op.template f<1>(
-            B_val,
+            B_val_op.template output<0>(),
             s2r_val_sidx_load_op.template output<1, 0>()
-        );__pipeline_wait_prior(0);
+        );
+        __pipeline_wait_prior(1);
         __syncthreads();
         s2s_coo_atomic_val_restore_op.template f<1>(
             g2s_coo_atomic_format_load_val_op.template output<1, 0>(),
             g2r_coo_atomic_format_load_idx_op.template output<1, 0>(),
             g2r_coo_atomic_format_load_idx_op.template output<1, 1>()
-        );s2r_a_val_load_op.template f<1>(
+        );
+        __syncthreads();
+        s2r_a_val_load_op.template f<1>(
             s2s_coo_atomic_val_restore_op.template output<1, 0>()
-        );mma_op.template f<0>(
+        );
+        mma_op.template f<0>(
             s2r_a_val_load_op.template output<0, 0>(),
             g2r_b_val_load_op.template output<0, 0>()
         );
-        
-        // i = 4
+        // step 1
+        g2s_val_sidx_load_op.template f<0>(
+            val_sidx_op.template output<0>(),
+            l + i + (1)
+        );
+        g2s_coo_atomic_format_load_val_op.template f<1>(
+            val_coo_val_op.template output<0>(),
+            g2r_coo_atomic_format_load_off_op.template output<1, 0>(),
+            g2r_coo_atomic_format_load_off_op.template output<1, 1>()
+        );
+        __pipeline_commit();
+        g2r_coo_atomic_format_load_off_op.template f<0>(
+            val_coo_off_op.template output<0>(),
+            l + i + (1)
+        );
+        __pipeline_wait_prior(1);
+        __syncthreads();
+        s2r_val_sidx_load_op.template f<1>(
+            g2s_val_sidx_load_op.template output<1, 0>()
+        );
+        g2r_coo_atomic_format_load_idx_op.template f<1>(
+            val_coo_idx_op.template output<0>(),
+            g2r_coo_atomic_format_load_off_op.template output<1, 0>(),
+            g2r_coo_atomic_format_load_off_op.template output<1, 1>()
+        );
+        g2r_b_val_load_op.template f<0>(
+            B_val_op.template output<0>(),
+            s2r_val_sidx_load_op.template output<0, 0>()
+        );
+        __pipeline_wait_prior(1);
+        __syncthreads();
+        s2s_coo_atomic_val_restore_op.template f<0>(
+            g2s_coo_atomic_format_load_val_op.template output<0, 0>(),
+            g2r_coo_atomic_format_load_idx_op.template output<0, 0>(),
+            g2r_coo_atomic_format_load_idx_op.template output<0, 1>()
+        );
+        __syncthreads();
+        s2r_a_val_load_op.template f<0>(
+            s2s_coo_atomic_val_restore_op.template output<0, 0>()
+        );
         mma_op.template f<1>(
             s2r_a_val_load_op.template output<1, 0>(),
             g2r_b_val_load_op.template output<1, 0>()
         );
     }
-    else if (k == 3) {
-        // i = 0
-        g2s_val_sidx_load_op.template f<0>(
-            val_sidx,
-            l + 0
-        );
-        __pipeline_commit();
-        g2r_coo_atomic_format_load_off_op.template f<0>(
-            val_coo_off,
-            l + 0
-        );
-        
-        // i = 1
+
+    // remainder
+    __device__ void remains_1(int i, int l, int r, T_G2sValSidxLoadOp &g2s_val_sidx_load_op, T_G2rCooAtomicFormatLoadOffOp &g2r_coo_atomic_format_load_off_op, T_S2rValSidxLoadOp &s2r_val_sidx_load_op, T_G2sCooAtomicFormatLoadValOp &g2s_coo_atomic_format_load_val_op, T_G2rCooAtomicFormatLoadIdxOp &g2r_coo_atomic_format_load_idx_op, T_G2rBValLoadOp &g2r_b_val_load_op, T_S2sCooAtomicValRestoreOp &s2s_coo_atomic_val_restore_op, T_S2rAValLoadOp &s2r_a_val_load_op, T_MmaOp &mma_op, T_BValOp &B_val_op, T_CValOp &C_val_op, T_ValCooIdxOp &val_coo_idx_op, T_ValCooOffOp &val_coo_off_op, T_ValCooValOp &val_coo_val_op, T_ValSidxOp &val_sidx_op, T_ValSoffOp &val_soff_op) {
+        // total remains 1, current 0
         g2s_val_sidx_load_op.template f<1>(
-            val_sidx,
-            l + 1
+            val_sidx_op.template output<0>(),
+            l + i + (0)
         );
         g2s_coo_atomic_format_load_val_op.template f<0>(
-            val_coo_val,
+            val_coo_val_op.template output<0>(),
             g2r_coo_atomic_format_load_off_op.template output<0, 0>(),
             g2r_coo_atomic_format_load_off_op.template output<0, 1>()
         );
         __pipeline_commit();
         g2r_coo_atomic_format_load_off_op.template f<1>(
-            val_coo_off,
-            l + 1
-        );__pipeline_wait_prior(1);
+            val_coo_off_op.template output<0>(),
+            l + i + (0)
+        );
+        __pipeline_wait_prior(1);
         __syncthreads();
         s2r_val_sidx_load_op.template f<0>(
             g2s_val_sidx_load_op.template output<0, 0>()
-        );g2r_coo_atomic_format_load_idx_op.template f<0>(
-            val_coo_idx,
+        );
+        g2r_coo_atomic_format_load_idx_op.template f<0>(
+            val_coo_idx_op.template output<0>(),
             g2r_coo_atomic_format_load_off_op.template output<0, 0>(),
             g2r_coo_atomic_format_load_off_op.template output<0, 1>()
         );
-        
-        // i = 2
-        g2s_val_sidx_load_op.template f<0>(
-            val_sidx,
-            l + 2
+        g2r_b_val_load_op.template f<1>(
+            B_val_op.template output<0>(),
+            s2r_val_sidx_load_op.template output<1, 0>()
         );
+        __pipeline_wait_prior(1);
+        __syncthreads();
+        s2s_coo_atomic_val_restore_op.template f<1>(
+            g2s_coo_atomic_format_load_val_op.template output<1, 0>(),
+            g2r_coo_atomic_format_load_idx_op.template output<1, 0>(),
+            g2r_coo_atomic_format_load_idx_op.template output<1, 1>()
+        );
+        __syncthreads();
+        s2r_a_val_load_op.template f<1>(
+            s2s_coo_atomic_val_restore_op.template output<1, 0>()
+        );
+        mma_op.template f<0>(
+            s2r_a_val_load_op.template output<0, 0>(),
+            g2r_b_val_load_op.template output<0, 0>()
+        );
+    }
+
+    __device__ void remainder(int i, int l, int r, T_G2sValSidxLoadOp &g2s_val_sidx_load_op, T_G2rCooAtomicFormatLoadOffOp &g2r_coo_atomic_format_load_off_op, T_S2rValSidxLoadOp &s2r_val_sidx_load_op, T_G2sCooAtomicFormatLoadValOp &g2s_coo_atomic_format_load_val_op, T_G2rCooAtomicFormatLoadIdxOp &g2r_coo_atomic_format_load_idx_op, T_G2rBValLoadOp &g2r_b_val_load_op, T_S2sCooAtomicValRestoreOp &s2s_coo_atomic_val_restore_op, T_S2rAValLoadOp &s2r_a_val_load_op, T_MmaOp &mma_op, T_BValOp &B_val_op, T_CValOp &C_val_op, T_ValCooIdxOp &val_coo_idx_op, T_ValCooOffOp &val_coo_off_op, T_ValCooValOp &val_coo_val_op, T_ValSidxOp &val_sidx_op, T_ValSoffOp &val_soff_op) {
+        if (r - l - i == 1) {
+            remains_1(i, l, r, g2s_val_sidx_load_op, g2r_coo_atomic_format_load_off_op, s2r_val_sidx_load_op, g2s_coo_atomic_format_load_val_op, g2r_coo_atomic_format_load_idx_op, g2r_b_val_load_op, s2s_coo_atomic_val_restore_op, s2r_a_val_load_op, mma_op, B_val_op, C_val_op, val_coo_idx_op, val_coo_off_op, val_coo_val_op, val_sidx_op, val_soff_op);
+        }
+    }
+
+    // empties
+    __device__ void empty_0(int i, int l, int r, T_G2sValSidxLoadOp &g2s_val_sidx_load_op, T_G2rCooAtomicFormatLoadOffOp &g2r_coo_atomic_format_load_off_op, T_S2rValSidxLoadOp &s2r_val_sidx_load_op, T_G2sCooAtomicFormatLoadValOp &g2s_coo_atomic_format_load_val_op, T_G2rCooAtomicFormatLoadIdxOp &g2r_coo_atomic_format_load_idx_op, T_G2rBValLoadOp &g2r_b_val_load_op, T_S2sCooAtomicValRestoreOp &s2s_coo_atomic_val_restore_op, T_S2rAValLoadOp &s2r_a_val_load_op, T_MmaOp &mma_op, T_BValOp &B_val_op, T_CValOp &C_val_op, T_ValCooIdxOp &val_coo_idx_op, T_ValCooOffOp &val_coo_off_op, T_ValCooValOp &val_coo_val_op, T_ValSidxOp &val_sidx_op, T_ValSoffOp &val_soff_op) {
+        // stage 1..3
         g2s_coo_atomic_format_load_val_op.template f<1>(
-            val_coo_val,
+            val_coo_val_op.template output<0>(),
             g2r_coo_atomic_format_load_off_op.template output<1, 0>(),
             g2r_coo_atomic_format_load_off_op.template output<1, 1>()
         );
         __pipeline_commit();
-        g2r_coo_atomic_format_load_off_op.template f<0>(
-            val_coo_off,
-            l + 2
-        );__pipeline_wait_prior(1);
+        __pipeline_wait_prior(1);
         __syncthreads();
         s2r_val_sidx_load_op.template f<1>(
             g2s_val_sidx_load_op.template output<1, 0>()
-        );g2r_coo_atomic_format_load_idx_op.template f<1>(
-            val_coo_idx,
+        );
+        g2r_coo_atomic_format_load_idx_op.template f<1>(
+            val_coo_idx_op.template output<0>(),
             g2r_coo_atomic_format_load_off_op.template output<1, 0>(),
             g2r_coo_atomic_format_load_off_op.template output<1, 1>()
-        );g2r_b_val_load_op.template f<0>(
-            B_val,
+        );
+        g2r_b_val_load_op.template f<0>(
+            B_val_op.template output<0>(),
             s2r_val_sidx_load_op.template output<0, 0>()
-        );__pipeline_wait_prior(1);
+        );
+        __pipeline_wait_prior(1);
         __syncthreads();
         s2s_coo_atomic_val_restore_op.template f<0>(
             g2s_coo_atomic_format_load_val_op.template output<0, 0>(),
             g2r_coo_atomic_format_load_idx_op.template output<0, 0>(),
             g2r_coo_atomic_format_load_idx_op.template output<0, 1>()
-        );s2r_a_val_load_op.template f<0>(
+        );
+        __syncthreads();
+        s2r_a_val_load_op.template f<0>(
             s2s_coo_atomic_val_restore_op.template output<0, 0>()
         );
-        
-        // i = 3
+        mma_op.template f<1>(
+            s2r_a_val_load_op.template output<1, 0>(),
+            g2r_b_val_load_op.template output<1, 0>()
+        );
+        // stage 2..3
+        g2r_b_val_load_op.template f<1>(
+            B_val_op.template output<0>(),
+            s2r_val_sidx_load_op.template output<1, 0>()
+        );
+        __pipeline_wait_prior(0);
+        __syncthreads();
+        s2s_coo_atomic_val_restore_op.template f<1>(
+            g2s_coo_atomic_format_load_val_op.template output<1, 0>(),
+            g2r_coo_atomic_format_load_idx_op.template output<1, 0>(),
+            g2r_coo_atomic_format_load_idx_op.template output<1, 1>()
+        );
+        __syncthreads();
+        s2r_a_val_load_op.template f<1>(
+            s2s_coo_atomic_val_restore_op.template output<1, 0>()
+        );
+        mma_op.template f<0>(
+            s2r_a_val_load_op.template output<0, 0>(),
+            g2r_b_val_load_op.template output<0, 0>()
+        );
+        // stage 3..3
+        mma_op.template f<1>(
+            s2r_a_val_load_op.template output<1, 0>(),
+            g2r_b_val_load_op.template output<1, 0>()
+        );
+    }
+
+    __device__ void empty_1(int i, int l, int r, T_G2sValSidxLoadOp &g2s_val_sidx_load_op, T_G2rCooAtomicFormatLoadOffOp &g2r_coo_atomic_format_load_off_op, T_S2rValSidxLoadOp &s2r_val_sidx_load_op, T_G2sCooAtomicFormatLoadValOp &g2s_coo_atomic_format_load_val_op, T_G2rCooAtomicFormatLoadIdxOp &g2r_coo_atomic_format_load_idx_op, T_G2rBValLoadOp &g2r_b_val_load_op, T_S2sCooAtomicValRestoreOp &s2s_coo_atomic_val_restore_op, T_S2rAValLoadOp &s2r_a_val_load_op, T_MmaOp &mma_op, T_BValOp &B_val_op, T_CValOp &C_val_op, T_ValCooIdxOp &val_coo_idx_op, T_ValCooOffOp &val_coo_off_op, T_ValCooValOp &val_coo_val_op, T_ValSidxOp &val_sidx_op, T_ValSoffOp &val_soff_op) {
+        // stage 1..3
         g2s_coo_atomic_format_load_val_op.template f<0>(
-            val_coo_val,
+            val_coo_val_op.template output<0>(),
             g2r_coo_atomic_format_load_off_op.template output<0, 0>(),
             g2r_coo_atomic_format_load_off_op.template output<0, 1>()
         );
@@ -1085,427 +1523,157 @@ __device__ void short_pipe(int k, int l, int r, T_G2sValSidxLoadOp &g2s_val_sidx
         __syncthreads();
         s2r_val_sidx_load_op.template f<0>(
             g2s_val_sidx_load_op.template output<0, 0>()
-        );g2r_coo_atomic_format_load_idx_op.template f<0>(
-            val_coo_idx,
+        );
+        g2r_coo_atomic_format_load_idx_op.template f<0>(
+            val_coo_idx_op.template output<0>(),
             g2r_coo_atomic_format_load_off_op.template output<0, 0>(),
             g2r_coo_atomic_format_load_off_op.template output<0, 1>()
-        );g2r_b_val_load_op.template f<1>(
-            B_val,
+        );
+        g2r_b_val_load_op.template f<1>(
+            B_val_op.template output<0>(),
             s2r_val_sidx_load_op.template output<1, 0>()
-        );__pipeline_wait_prior(1);
+        );
+        __pipeline_wait_prior(1);
         __syncthreads();
         s2s_coo_atomic_val_restore_op.template f<1>(
             g2s_coo_atomic_format_load_val_op.template output<1, 0>(),
             g2r_coo_atomic_format_load_idx_op.template output<1, 0>(),
             g2r_coo_atomic_format_load_idx_op.template output<1, 1>()
-        );s2r_a_val_load_op.template f<1>(
+        );
+        __syncthreads();
+        s2r_a_val_load_op.template f<1>(
             s2s_coo_atomic_val_restore_op.template output<1, 0>()
-        );mma_op.template f<0>(
+        );
+        mma_op.template f<0>(
             s2r_a_val_load_op.template output<0, 0>(),
             g2r_b_val_load_op.template output<0, 0>()
         );
-        
-        // i = 4
+        // stage 2..3
         g2r_b_val_load_op.template f<0>(
-            B_val,
+            B_val_op.template output<0>(),
             s2r_val_sidx_load_op.template output<0, 0>()
-        );__pipeline_wait_prior(0);
+        );
+        __pipeline_wait_prior(0);
         __syncthreads();
         s2s_coo_atomic_val_restore_op.template f<0>(
             g2s_coo_atomic_format_load_val_op.template output<0, 0>(),
             g2r_coo_atomic_format_load_idx_op.template output<0, 0>(),
             g2r_coo_atomic_format_load_idx_op.template output<0, 1>()
-        );s2r_a_val_load_op.template f<0>(
+        );
+        __syncthreads();
+        s2r_a_val_load_op.template f<0>(
             s2s_coo_atomic_val_restore_op.template output<0, 0>()
-        );mma_op.template f<1>(
+        );
+        mma_op.template f<1>(
             s2r_a_val_load_op.template output<1, 0>(),
             g2r_b_val_load_op.template output<1, 0>()
         );
-        
-        // i = 5
+        // stage 3..3
         mma_op.template f<0>(
             s2r_a_val_load_op.template output<0, 0>(),
             g2r_b_val_load_op.template output<0, 0>()
         );
     }
-    
-}
 
-// fill
-template <class T_G2sValSidxLoadOp, class T_G2rCooAtomicFormatLoadOffOp, class T_S2rValSidxLoadOp, class T_G2sCooAtomicFormatLoadValOp, class T_G2rCooAtomicFormatLoadIdxOp, class T_G2rBValLoadOp, class T_S2sCooAtomicValRestoreOp, class T_S2rAValLoadOp, class T_MmaOp, class T_B_val, class T_C_val, class T_val_coo_idx, class T_val_coo_off, class T_val_coo_val, class T_val_sidx, class T_val_soff>
-__device__ void fill(int l, int r, T_G2sValSidxLoadOp &g2s_val_sidx_load_op, T_G2rCooAtomicFormatLoadOffOp &g2r_coo_atomic_format_load_off_op, T_S2rValSidxLoadOp &s2r_val_sidx_load_op, T_G2sCooAtomicFormatLoadValOp &g2s_coo_atomic_format_load_val_op, T_G2rCooAtomicFormatLoadIdxOp &g2r_coo_atomic_format_load_idx_op, T_G2rBValLoadOp &g2r_b_val_load_op, T_S2sCooAtomicValRestoreOp &s2s_coo_atomic_val_restore_op, T_S2rAValLoadOp &s2r_a_val_load_op, T_MmaOp &mma_op, T_B_val &B_val, T_C_val &C_val, T_val_coo_idx &val_coo_idx, T_val_coo_off &val_coo_off, T_val_coo_val &val_coo_val, T_val_sidx &val_sidx, T_val_soff &val_soff) {
-    // stage 0..0
-    g2s_val_sidx_load_op.template f<0>(
-        val_sidx,
-        l + 0
-    );
-    __pipeline_commit();
-    g2r_coo_atomic_format_load_off_op.template f<0>(
-        val_coo_off,
-        l + 0
-    );
-    // stage 0..1
-    g2s_val_sidx_load_op.template f<1>(
-        val_sidx,
-        l + 1
-    );
-    g2s_coo_atomic_format_load_val_op.template f<0>(
-        val_coo_val,
-        g2r_coo_atomic_format_load_off_op.template output<0, 0>(),
-        g2r_coo_atomic_format_load_off_op.template output<0, 1>()
-    );
-    __pipeline_commit();
-    g2r_coo_atomic_format_load_off_op.template f<1>(
-        val_coo_off,
-        l + 1
-    );
-    __pipeline_wait_prior(1);
-    __syncthreads();
-    s2r_val_sidx_load_op.template f<0>(
-        g2s_val_sidx_load_op.template output<0, 0>()
-    );
-    g2r_coo_atomic_format_load_idx_op.template f<0>(
-        val_coo_idx,
-        g2r_coo_atomic_format_load_off_op.template output<0, 0>(),
-        g2r_coo_atomic_format_load_off_op.template output<0, 1>()
-    );
-    // stage 0..2
-    g2s_val_sidx_load_op.template f<0>(
-        val_sidx,
-        l + 2
-    );
-    g2s_coo_atomic_format_load_val_op.template f<1>(
-        val_coo_val,
-        g2r_coo_atomic_format_load_off_op.template output<1, 0>(),
-        g2r_coo_atomic_format_load_off_op.template output<1, 1>()
-    );
-    __pipeline_commit();
-    g2r_coo_atomic_format_load_off_op.template f<0>(
-        val_coo_off,
-        l + 2
-    );
-    __pipeline_wait_prior(1);
-    __syncthreads();
-    s2r_val_sidx_load_op.template f<1>(
-        g2s_val_sidx_load_op.template output<1, 0>()
-    );
-    g2r_coo_atomic_format_load_idx_op.template f<1>(
-        val_coo_idx,
-        g2r_coo_atomic_format_load_off_op.template output<1, 0>(),
-        g2r_coo_atomic_format_load_off_op.template output<1, 1>()
-    );
-    g2r_b_val_load_op.template f<0>(
-        B_val,
-        s2r_val_sidx_load_op.template output<0, 0>()
-    );
-    __pipeline_wait_prior(1);
-    __syncthreads();
-    s2s_coo_atomic_val_restore_op.template f<0>(
-        g2s_coo_atomic_format_load_val_op.template output<0, 0>(),
-        g2r_coo_atomic_format_load_idx_op.template output<0, 0>(),
-        g2r_coo_atomic_format_load_idx_op.template output<0, 1>()
-    );
-    __syncthreads();
-    s2r_a_val_load_op.template f<0>(
-        s2s_coo_atomic_val_restore_op.template output<0, 0>()
-    );
-}
-
-// loop_step
-template <class T_G2sValSidxLoadOp, class T_G2rCooAtomicFormatLoadOffOp, class T_S2rValSidxLoadOp, class T_G2sCooAtomicFormatLoadValOp, class T_G2rCooAtomicFormatLoadIdxOp, class T_G2rBValLoadOp, class T_S2sCooAtomicValRestoreOp, class T_S2rAValLoadOp, class T_MmaOp, class T_B_val, class T_C_val, class T_val_coo_idx, class T_val_coo_off, class T_val_coo_val, class T_val_sidx, class T_val_soff>
-__device__ void loop_step(int i, int l, int r, T_G2sValSidxLoadOp &g2s_val_sidx_load_op, T_G2rCooAtomicFormatLoadOffOp &g2r_coo_atomic_format_load_off_op, T_S2rValSidxLoadOp &s2r_val_sidx_load_op, T_G2sCooAtomicFormatLoadValOp &g2s_coo_atomic_format_load_val_op, T_G2rCooAtomicFormatLoadIdxOp &g2r_coo_atomic_format_load_idx_op, T_G2rBValLoadOp &g2r_b_val_load_op, T_S2sCooAtomicValRestoreOp &s2s_coo_atomic_val_restore_op, T_S2rAValLoadOp &s2r_a_val_load_op, T_MmaOp &mma_op, T_B_val &B_val, T_C_val &C_val, T_val_coo_idx &val_coo_idx, T_val_coo_off &val_coo_off, T_val_coo_val &val_coo_val, T_val_sidx &val_sidx, T_val_soff &val_soff) {
-    // step 0
-    g2s_val_sidx_load_op.template f<1>(
-        val_sidx,
-        l + i + (0)
-    );
-    g2s_coo_atomic_format_load_val_op.template f<0>(
-        val_coo_val,
-        g2r_coo_atomic_format_load_off_op.template output<0, 0>(),
-        g2r_coo_atomic_format_load_off_op.template output<0, 1>()
-    );
-    __pipeline_commit();
-    g2r_coo_atomic_format_load_off_op.template f<1>(
-        val_coo_off,
-        l + i + (0)
-    );
-    __pipeline_wait_prior(1);
-    __syncthreads();
-    s2r_val_sidx_load_op.template f<0>(
-        g2s_val_sidx_load_op.template output<0, 0>()
-    );
-    g2r_coo_atomic_format_load_idx_op.template f<0>(
-        val_coo_idx,
-        g2r_coo_atomic_format_load_off_op.template output<0, 0>(),
-        g2r_coo_atomic_format_load_off_op.template output<0, 1>()
-    );
-    g2r_b_val_load_op.template f<1>(
-        B_val,
-        s2r_val_sidx_load_op.template output<1, 0>()
-    );
-    __pipeline_wait_prior(1);
-    __syncthreads();
-    s2s_coo_atomic_val_restore_op.template f<1>(
-        g2s_coo_atomic_format_load_val_op.template output<1, 0>(),
-        g2r_coo_atomic_format_load_idx_op.template output<1, 0>(),
-        g2r_coo_atomic_format_load_idx_op.template output<1, 1>()
-    );
-    __syncthreads();
-    s2r_a_val_load_op.template f<1>(
-        s2s_coo_atomic_val_restore_op.template output<1, 0>()
-    );
-    mma_op.template f<0>(
-        s2r_a_val_load_op.template output<0, 0>(),
-        g2r_b_val_load_op.template output<0, 0>()
-    );
-    // step 1
-    g2s_val_sidx_load_op.template f<0>(
-        val_sidx,
-        l + i + (1)
-    );
-    g2s_coo_atomic_format_load_val_op.template f<1>(
-        val_coo_val,
-        g2r_coo_atomic_format_load_off_op.template output<1, 0>(),
-        g2r_coo_atomic_format_load_off_op.template output<1, 1>()
-    );
-    __pipeline_commit();
-    g2r_coo_atomic_format_load_off_op.template f<0>(
-        val_coo_off,
-        l + i + (1)
-    );
-    __pipeline_wait_prior(1);
-    __syncthreads();
-    s2r_val_sidx_load_op.template f<1>(
-        g2s_val_sidx_load_op.template output<1, 0>()
-    );
-    g2r_coo_atomic_format_load_idx_op.template f<1>(
-        val_coo_idx,
-        g2r_coo_atomic_format_load_off_op.template output<1, 0>(),
-        g2r_coo_atomic_format_load_off_op.template output<1, 1>()
-    );
-    g2r_b_val_load_op.template f<0>(
-        B_val,
-        s2r_val_sidx_load_op.template output<0, 0>()
-    );
-    __pipeline_wait_prior(1);
-    __syncthreads();
-    s2s_coo_atomic_val_restore_op.template f<0>(
-        g2s_coo_atomic_format_load_val_op.template output<0, 0>(),
-        g2r_coo_atomic_format_load_idx_op.template output<0, 0>(),
-        g2r_coo_atomic_format_load_idx_op.template output<0, 1>()
-    );
-    __syncthreads();
-    s2r_a_val_load_op.template f<0>(
-        s2s_coo_atomic_val_restore_op.template output<0, 0>()
-    );
-    mma_op.template f<1>(
-        s2r_a_val_load_op.template output<1, 0>(),
-        g2r_b_val_load_op.template output<1, 0>()
-    );
-}
-
-// remainder
-template <class T_G2sValSidxLoadOp, class T_G2rCooAtomicFormatLoadOffOp, class T_S2rValSidxLoadOp, class T_G2sCooAtomicFormatLoadValOp, class T_G2rCooAtomicFormatLoadIdxOp, class T_G2rBValLoadOp, class T_S2sCooAtomicValRestoreOp, class T_S2rAValLoadOp, class T_MmaOp, class T_B_val, class T_C_val, class T_val_coo_idx, class T_val_coo_off, class T_val_coo_val, class T_val_sidx, class T_val_soff>
-__device__ void remains_1(int i, int l, int r, T_G2sValSidxLoadOp &g2s_val_sidx_load_op, T_G2rCooAtomicFormatLoadOffOp &g2r_coo_atomic_format_load_off_op, T_S2rValSidxLoadOp &s2r_val_sidx_load_op, T_G2sCooAtomicFormatLoadValOp &g2s_coo_atomic_format_load_val_op, T_G2rCooAtomicFormatLoadIdxOp &g2r_coo_atomic_format_load_idx_op, T_G2rBValLoadOp &g2r_b_val_load_op, T_S2sCooAtomicValRestoreOp &s2s_coo_atomic_val_restore_op, T_S2rAValLoadOp &s2r_a_val_load_op, T_MmaOp &mma_op, T_B_val &B_val, T_C_val &C_val, T_val_coo_idx &val_coo_idx, T_val_coo_off &val_coo_off, T_val_coo_val &val_coo_val, T_val_sidx &val_sidx, T_val_soff &val_soff) {
-    // total remains 1, current 0
-    g2s_val_sidx_load_op.template f<1>(
-        val_sidx,
-        l + i + (0)
-    );
-    g2s_coo_atomic_format_load_val_op.template f<0>(
-        val_coo_val,
-        g2r_coo_atomic_format_load_off_op.template output<0, 0>(),
-        g2r_coo_atomic_format_load_off_op.template output<0, 1>()
-    );
-    __pipeline_commit();
-    g2r_coo_atomic_format_load_off_op.template f<1>(
-        val_coo_off,
-        l + i + (0)
-    );
-    __pipeline_wait_prior(1);
-    __syncthreads();
-    s2r_val_sidx_load_op.template f<0>(
-        g2s_val_sidx_load_op.template output<0, 0>()
-    );
-    g2r_coo_atomic_format_load_idx_op.template f<0>(
-        val_coo_idx,
-        g2r_coo_atomic_format_load_off_op.template output<0, 0>(),
-        g2r_coo_atomic_format_load_off_op.template output<0, 1>()
-    );
-    g2r_b_val_load_op.template f<1>(
-        B_val,
-        s2r_val_sidx_load_op.template output<1, 0>()
-    );
-    __pipeline_wait_prior(1);
-    __syncthreads();
-    s2s_coo_atomic_val_restore_op.template f<1>(
-        g2s_coo_atomic_format_load_val_op.template output<1, 0>(),
-        g2r_coo_atomic_format_load_idx_op.template output<1, 0>(),
-        g2r_coo_atomic_format_load_idx_op.template output<1, 1>()
-    );
-    __syncthreads();
-    s2r_a_val_load_op.template f<1>(
-        s2s_coo_atomic_val_restore_op.template output<1, 0>()
-    );
-    mma_op.template f<0>(
-        s2r_a_val_load_op.template output<0, 0>(),
-        g2r_b_val_load_op.template output<0, 0>()
-    );
-}
-
-template <class T_G2sValSidxLoadOp, class T_G2rCooAtomicFormatLoadOffOp, class T_S2rValSidxLoadOp, class T_G2sCooAtomicFormatLoadValOp, class T_G2rCooAtomicFormatLoadIdxOp, class T_G2rBValLoadOp, class T_S2sCooAtomicValRestoreOp, class T_S2rAValLoadOp, class T_MmaOp, class T_B_val, class T_C_val, class T_val_coo_idx, class T_val_coo_off, class T_val_coo_val, class T_val_sidx, class T_val_soff>
-__device__ void remainder(int i, int l, int r, T_G2sValSidxLoadOp &g2s_val_sidx_load_op, T_G2rCooAtomicFormatLoadOffOp &g2r_coo_atomic_format_load_off_op, T_S2rValSidxLoadOp &s2r_val_sidx_load_op, T_G2sCooAtomicFormatLoadValOp &g2s_coo_atomic_format_load_val_op, T_G2rCooAtomicFormatLoadIdxOp &g2r_coo_atomic_format_load_idx_op, T_G2rBValLoadOp &g2r_b_val_load_op, T_S2sCooAtomicValRestoreOp &s2s_coo_atomic_val_restore_op, T_S2rAValLoadOp &s2r_a_val_load_op, T_MmaOp &mma_op, T_B_val &B_val, T_C_val &C_val, T_val_coo_idx &val_coo_idx, T_val_coo_off &val_coo_off, T_val_coo_val &val_coo_val, T_val_sidx &val_sidx, T_val_soff &val_soff) {
-    if (r - l - i == 1) {
-        remains_1(i, l, r, g2s_val_sidx_load_op, g2r_coo_atomic_format_load_off_op, s2r_val_sidx_load_op, g2s_coo_atomic_format_load_val_op, g2r_coo_atomic_format_load_idx_op, g2r_b_val_load_op, s2s_coo_atomic_val_restore_op, s2r_a_val_load_op, mma_op, B_val, C_val, val_coo_idx, val_coo_off, val_coo_val, val_sidx, val_soff);
+    __device__ void empty(int i, int l, int r, T_G2sValSidxLoadOp &g2s_val_sidx_load_op, T_G2rCooAtomicFormatLoadOffOp &g2r_coo_atomic_format_load_off_op, T_S2rValSidxLoadOp &s2r_val_sidx_load_op, T_G2sCooAtomicFormatLoadValOp &g2s_coo_atomic_format_load_val_op, T_G2rCooAtomicFormatLoadIdxOp &g2r_coo_atomic_format_load_idx_op, T_G2rBValLoadOp &g2r_b_val_load_op, T_S2sCooAtomicValRestoreOp &s2s_coo_atomic_val_restore_op, T_S2rAValLoadOp &s2r_a_val_load_op, T_MmaOp &mma_op, T_BValOp &B_val_op, T_CValOp &C_val_op, T_ValCooIdxOp &val_coo_idx_op, T_ValCooOffOp &val_coo_off_op, T_ValCooValOp &val_coo_val_op, T_ValSidxOp &val_sidx_op, T_ValSoffOp &val_soff_op) {
+        if ((r - l - i + (3)) % 2 == 0) {
+            empty_0(i, l, r, g2s_val_sidx_load_op, g2r_coo_atomic_format_load_off_op, s2r_val_sidx_load_op, g2s_coo_atomic_format_load_val_op, g2r_coo_atomic_format_load_idx_op, g2r_b_val_load_op, s2s_coo_atomic_val_restore_op, s2r_a_val_load_op, mma_op, B_val_op, C_val_op, val_coo_idx_op, val_coo_off_op, val_coo_val_op, val_sidx_op, val_soff_op);
+        }
+        else if ((r - l - i + (3)) % 2 == 1) {
+            empty_1(i, l, r, g2s_val_sidx_load_op, g2r_coo_atomic_format_load_off_op, s2r_val_sidx_load_op, g2s_coo_atomic_format_load_val_op, g2r_coo_atomic_format_load_idx_op, g2r_b_val_load_op, s2s_coo_atomic_val_restore_op, s2r_a_val_load_op, mma_op, B_val_op, C_val_op, val_coo_idx_op, val_coo_off_op, val_coo_val_op, val_sidx_op, val_soff_op);
+        }
     }
-}
 
-// empties
-template <class T_G2sValSidxLoadOp, class T_G2rCooAtomicFormatLoadOffOp, class T_S2rValSidxLoadOp, class T_G2sCooAtomicFormatLoadValOp, class T_G2rCooAtomicFormatLoadIdxOp, class T_G2rBValLoadOp, class T_S2sCooAtomicValRestoreOp, class T_S2rAValLoadOp, class T_MmaOp, class T_B_val, class T_C_val, class T_val_coo_idx, class T_val_coo_off, class T_val_coo_val, class T_val_sidx, class T_val_soff>
-__device__ void empty_0(int i, int l, int r, T_G2sValSidxLoadOp &g2s_val_sidx_load_op, T_G2rCooAtomicFormatLoadOffOp &g2r_coo_atomic_format_load_off_op, T_S2rValSidxLoadOp &s2r_val_sidx_load_op, T_G2sCooAtomicFormatLoadValOp &g2s_coo_atomic_format_load_val_op, T_G2rCooAtomicFormatLoadIdxOp &g2r_coo_atomic_format_load_idx_op, T_G2rBValLoadOp &g2r_b_val_load_op, T_S2sCooAtomicValRestoreOp &s2s_coo_atomic_val_restore_op, T_S2rAValLoadOp &s2r_a_val_load_op, T_MmaOp &mma_op, T_B_val &B_val, T_C_val &C_val, T_val_coo_idx &val_coo_idx, T_val_coo_off &val_coo_off, T_val_coo_val &val_coo_val, T_val_sidx &val_sidx, T_val_soff &val_soff) {
-    // stage 1..3
-    g2s_coo_atomic_format_load_val_op.template f<1>(
-        val_coo_val,
-        g2r_coo_atomic_format_load_off_op.template output<1, 0>(),
-        g2r_coo_atomic_format_load_off_op.template output<1, 1>()
-    );
-    __pipeline_commit();
-    __pipeline_wait_prior(1);
-    __syncthreads();
-    s2r_val_sidx_load_op.template f<1>(
-        g2s_val_sidx_load_op.template output<1, 0>()
-    );
-    g2r_coo_atomic_format_load_idx_op.template f<1>(
-        val_coo_idx,
-        g2r_coo_atomic_format_load_off_op.template output<1, 0>(),
-        g2r_coo_atomic_format_load_off_op.template output<1, 1>()
-    );
-    g2r_b_val_load_op.template f<0>(
-        B_val,
-        s2r_val_sidx_load_op.template output<0, 0>()
-    );
-    __pipeline_wait_prior(1);
-    __syncthreads();
-    s2s_coo_atomic_val_restore_op.template f<0>(
-        g2s_coo_atomic_format_load_val_op.template output<0, 0>(),
-        g2r_coo_atomic_format_load_idx_op.template output<0, 0>(),
-        g2r_coo_atomic_format_load_idx_op.template output<0, 1>()
-    );
-    __syncthreads();
-    s2r_a_val_load_op.template f<0>(
-        s2s_coo_atomic_val_restore_op.template output<0, 0>()
-    );
-    mma_op.template f<1>(
-        s2r_a_val_load_op.template output<1, 0>(),
-        g2r_b_val_load_op.template output<1, 0>()
-    );
-    // stage 2..3
-    g2r_b_val_load_op.template f<1>(
-        B_val,
-        s2r_val_sidx_load_op.template output<1, 0>()
-    );
-    __pipeline_wait_prior(0);
-    __syncthreads();
-    s2s_coo_atomic_val_restore_op.template f<1>(
-        g2s_coo_atomic_format_load_val_op.template output<1, 0>(),
-        g2r_coo_atomic_format_load_idx_op.template output<1, 0>(),
-        g2r_coo_atomic_format_load_idx_op.template output<1, 1>()
-    );
-    __syncthreads();
-    s2r_a_val_load_op.template f<1>(
-        s2s_coo_atomic_val_restore_op.template output<1, 0>()
-    );
-    mma_op.template f<0>(
-        s2r_a_val_load_op.template output<0, 0>(),
-        g2r_b_val_load_op.template output<0, 0>()
-    );
-    // stage 3..3
-    mma_op.template f<1>(
-        s2r_a_val_load_op.template output<1, 0>(),
-        g2r_b_val_load_op.template output<1, 0>()
-    );
-}
-
-template <class T_G2sValSidxLoadOp, class T_G2rCooAtomicFormatLoadOffOp, class T_S2rValSidxLoadOp, class T_G2sCooAtomicFormatLoadValOp, class T_G2rCooAtomicFormatLoadIdxOp, class T_G2rBValLoadOp, class T_S2sCooAtomicValRestoreOp, class T_S2rAValLoadOp, class T_MmaOp, class T_B_val, class T_C_val, class T_val_coo_idx, class T_val_coo_off, class T_val_coo_val, class T_val_sidx, class T_val_soff>
-__device__ void empty_1(int i, int l, int r, T_G2sValSidxLoadOp &g2s_val_sidx_load_op, T_G2rCooAtomicFormatLoadOffOp &g2r_coo_atomic_format_load_off_op, T_S2rValSidxLoadOp &s2r_val_sidx_load_op, T_G2sCooAtomicFormatLoadValOp &g2s_coo_atomic_format_load_val_op, T_G2rCooAtomicFormatLoadIdxOp &g2r_coo_atomic_format_load_idx_op, T_G2rBValLoadOp &g2r_b_val_load_op, T_S2sCooAtomicValRestoreOp &s2s_coo_atomic_val_restore_op, T_S2rAValLoadOp &s2r_a_val_load_op, T_MmaOp &mma_op, T_B_val &B_val, T_C_val &C_val, T_val_coo_idx &val_coo_idx, T_val_coo_off &val_coo_off, T_val_coo_val &val_coo_val, T_val_sidx &val_sidx, T_val_soff &val_soff) {
-    // stage 1..3
-    g2s_coo_atomic_format_load_val_op.template f<0>(
-        val_coo_val,
-        g2r_coo_atomic_format_load_off_op.template output<0, 0>(),
-        g2r_coo_atomic_format_load_off_op.template output<0, 1>()
-    );
-    __pipeline_commit();
-    __pipeline_wait_prior(1);
-    __syncthreads();
-    s2r_val_sidx_load_op.template f<0>(
-        g2s_val_sidx_load_op.template output<0, 0>()
-    );
-    g2r_coo_atomic_format_load_idx_op.template f<0>(
-        val_coo_idx,
-        g2r_coo_atomic_format_load_off_op.template output<0, 0>(),
-        g2r_coo_atomic_format_load_off_op.template output<0, 1>()
-    );
-    g2r_b_val_load_op.template f<1>(
-        B_val,
-        s2r_val_sidx_load_op.template output<1, 0>()
-    );
-    __pipeline_wait_prior(1);
-    __syncthreads();
-    s2s_coo_atomic_val_restore_op.template f<1>(
-        g2s_coo_atomic_format_load_val_op.template output<1, 0>(),
-        g2r_coo_atomic_format_load_idx_op.template output<1, 0>(),
-        g2r_coo_atomic_format_load_idx_op.template output<1, 1>()
-    );
-    __syncthreads();
-    s2r_a_val_load_op.template f<1>(
-        s2s_coo_atomic_val_restore_op.template output<1, 0>()
-    );
-    mma_op.template f<0>(
-        s2r_a_val_load_op.template output<0, 0>(),
-        g2r_b_val_load_op.template output<0, 0>()
-    );
-    // stage 2..3
-    g2r_b_val_load_op.template f<0>(
-        B_val,
-        s2r_val_sidx_load_op.template output<0, 0>()
-    );
-    __pipeline_wait_prior(0);
-    __syncthreads();
-    s2s_coo_atomic_val_restore_op.template f<0>(
-        g2s_coo_atomic_format_load_val_op.template output<0, 0>(),
-        g2r_coo_atomic_format_load_idx_op.template output<0, 0>(),
-        g2r_coo_atomic_format_load_idx_op.template output<0, 1>()
-    );
-    __syncthreads();
-    s2r_a_val_load_op.template f<0>(
-        s2s_coo_atomic_val_restore_op.template output<0, 0>()
-    );
-    mma_op.template f<1>(
-        s2r_a_val_load_op.template output<1, 0>(),
-        g2r_b_val_load_op.template output<1, 0>()
-    );
-    // stage 3..3
-    mma_op.template f<0>(
-        s2r_a_val_load_op.template output<0, 0>(),
-        g2r_b_val_load_op.template output<0, 0>()
-    );
-}
-
-template <class T_G2sValSidxLoadOp, class T_G2rCooAtomicFormatLoadOffOp, class T_S2rValSidxLoadOp, class T_G2sCooAtomicFormatLoadValOp, class T_G2rCooAtomicFormatLoadIdxOp, class T_G2rBValLoadOp, class T_S2sCooAtomicValRestoreOp, class T_S2rAValLoadOp, class T_MmaOp, class T_B_val, class T_C_val, class T_val_coo_idx, class T_val_coo_off, class T_val_coo_val, class T_val_sidx, class T_val_soff>
-__device__ void empty(int i, int l, int r, T_G2sValSidxLoadOp &g2s_val_sidx_load_op, T_G2rCooAtomicFormatLoadOffOp &g2r_coo_atomic_format_load_off_op, T_S2rValSidxLoadOp &s2r_val_sidx_load_op, T_G2sCooAtomicFormatLoadValOp &g2s_coo_atomic_format_load_val_op, T_G2rCooAtomicFormatLoadIdxOp &g2r_coo_atomic_format_load_idx_op, T_G2rBValLoadOp &g2r_b_val_load_op, T_S2sCooAtomicValRestoreOp &s2s_coo_atomic_val_restore_op, T_S2rAValLoadOp &s2r_a_val_load_op, T_MmaOp &mma_op, T_B_val &B_val, T_C_val &C_val, T_val_coo_idx &val_coo_idx, T_val_coo_off &val_coo_off, T_val_coo_val &val_coo_val, T_val_sidx &val_sidx, T_val_soff &val_soff) {
-    if ((r - l - i + (3)) % 2 == 0) {
-        empty_0(i, l, r, g2s_val_sidx_load_op, g2r_coo_atomic_format_load_off_op, s2r_val_sidx_load_op, g2s_coo_atomic_format_load_val_op, g2r_coo_atomic_format_load_idx_op, g2r_b_val_load_op, s2s_coo_atomic_val_restore_op, s2r_a_val_load_op, mma_op, B_val, C_val, val_coo_idx, val_coo_off, val_coo_val, val_sidx, val_soff);
+    __device__ void dispatch(T_G2sValSidxLoadOp &g2s_val_sidx_load_op, T_G2rCooAtomicFormatLoadOffOp &g2r_coo_atomic_format_load_off_op, T_S2rValSidxLoadOp &s2r_val_sidx_load_op, T_G2sCooAtomicFormatLoadValOp &g2s_coo_atomic_format_load_val_op, T_G2rCooAtomicFormatLoadIdxOp &g2r_coo_atomic_format_load_idx_op, T_G2rBValLoadOp &g2r_b_val_load_op, T_S2sCooAtomicValRestoreOp &s2s_coo_atomic_val_restore_op, T_S2rAValLoadOp &s2r_a_val_load_op, T_MmaOp &mma_op, T_BValOp &B_val_op, T_CValOp &C_val_op, T_ValCooIdxOp &val_coo_idx_op, T_ValCooOffOp &val_coo_off_op, T_ValCooValOp &val_coo_val_op, T_ValSidxOp &val_sidx_op, T_ValSoffOp &val_soff_op) {
+        int l = this->_l;
+        int r = this->_r;
+        int k = this->_r - this->_l;
+        if (k <= 3) {
+            short_pipe(k, l, r, g2s_val_sidx_load_op, g2r_coo_atomic_format_load_off_op, s2r_val_sidx_load_op, g2s_coo_atomic_format_load_val_op, g2r_coo_atomic_format_load_idx_op, g2r_b_val_load_op, s2s_coo_atomic_val_restore_op, s2r_a_val_load_op, mma_op, B_val_op, C_val_op, val_coo_idx_op, val_coo_off_op, val_coo_val_op, val_sidx_op, val_soff_op);
+        } else {
+            fill(l, r, g2s_val_sidx_load_op, g2r_coo_atomic_format_load_off_op, s2r_val_sidx_load_op, g2s_coo_atomic_format_load_val_op, g2r_coo_atomic_format_load_idx_op, g2r_b_val_load_op, s2s_coo_atomic_val_restore_op, s2r_a_val_load_op, mma_op, B_val_op, C_val_op, val_coo_idx_op, val_coo_off_op, val_coo_val_op, val_sidx_op, val_soff_op);
+            int i;
+            for (i = 3; i + 2 <= k; i += 2) {
+                loop_step(i, l, r, g2s_val_sidx_load_op, g2r_coo_atomic_format_load_off_op, s2r_val_sidx_load_op, g2s_coo_atomic_format_load_val_op, g2r_coo_atomic_format_load_idx_op, g2r_b_val_load_op, s2s_coo_atomic_val_restore_op, s2r_a_val_load_op, mma_op, B_val_op, C_val_op, val_coo_idx_op, val_coo_off_op, val_coo_val_op, val_sidx_op, val_soff_op);
+            }
+            remainder(i, l, r, g2s_val_sidx_load_op, g2r_coo_atomic_format_load_off_op, s2r_val_sidx_load_op, g2s_coo_atomic_format_load_val_op, g2r_coo_atomic_format_load_idx_op, g2r_b_val_load_op, s2s_coo_atomic_val_restore_op, s2r_a_val_load_op, mma_op, B_val_op, C_val_op, val_coo_idx_op, val_coo_off_op, val_coo_val_op, val_sidx_op, val_soff_op);
+            empty(i, l, r, g2s_val_sidx_load_op, g2r_coo_atomic_format_load_off_op, s2r_val_sidx_load_op, g2s_coo_atomic_format_load_val_op, g2r_coo_atomic_format_load_idx_op, g2r_b_val_load_op, s2s_coo_atomic_val_restore_op, s2r_a_val_load_op, mma_op, B_val_op, C_val_op, val_coo_idx_op, val_coo_off_op, val_coo_val_op, val_sidx_op, val_soff_op);
+        }
     }
-    else if ((r - l - i + (3)) % 2 == 1) {
-        empty_1(i, l, r, g2s_val_sidx_load_op, g2r_coo_atomic_format_load_off_op, s2r_val_sidx_load_op, g2s_coo_atomic_format_load_val_op, g2r_coo_atomic_format_load_idx_op, g2r_b_val_load_op, s2s_coo_atomic_val_restore_op, s2r_a_val_load_op, mma_op, B_val, C_val, val_coo_idx, val_coo_off, val_coo_val, val_sidx, val_soff);
+
+    template<typename = void>
+    CUTE_DEVICE void f(int l, int r) {
+        this->_l = l;
+        this->_r = r;
+        dispatch(g2s_val_sidx_load_op, g2r_coo_atomic_format_load_off_op, s2r_val_sidx_load_op, g2s_coo_atomic_format_load_val_op, g2r_coo_atomic_format_load_idx_op, g2r_b_val_load_op, s2s_coo_atomic_val_restore_op, s2r_a_val_load_op, mma_op, B_val_op, C_val_op, val_coo_idx_op, val_coo_off_op, val_coo_val_op, val_sidx_op, val_soff_op);
     }
-}
+};
+
+template <class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class T_ValSoffOp, class T_G2rSparseOffsetLoadOp, class T_PipelinedForLoopOp, class T_R2gCValStoreOp>
+class BlkXForLoopOp {
+public:
+    int _l, _r;
+    int _idx;
+    int _iter;
+
+    // Hardware parameters
+    int tid, lid, wid;
+
+    // Body Ops
+    T_ValSoffOp val_soff_op;
+    T_G2rSparseOffsetLoadOp g2r_sparse_offset_load_op;
+    T_PipelinedForLoopOp pipelined_for_loop_op;
+    T_R2gCValStoreOp r2g_c_val_store_op;
+
+    // Constructor
+    CUTE_DEVICE BlkXForLoopOp(int tid, int lid, int wid,
+    T_ValSoffOp &val_soff_op,
+    T_G2rSparseOffsetLoadOp &g2r_sparse_offset_load_op,
+    T_PipelinedForLoopOp &pipelined_for_loop_op,
+    T_R2gCValStoreOp &r2g_c_val_store_op) :
+    tid(tid), lid(lid), wid(wid),
+    val_soff_op(val_soff_op),
+    g2r_sparse_offset_load_op(g2r_sparse_offset_load_op),
+    pipelined_for_loop_op(pipelined_for_loop_op),
+    r2g_c_val_store_op(r2g_c_val_store_op) {}
+
+    // dispatch
+    CUTE_DEVICE void dispatch() {
+        for (int i = this->_l; i < this->_r; i++) {
+            this->_idx = i;
+            this->_iter = i - this->_l;
+
+            g2r_sparse_offset_load_op.template f<0>(
+                val_soff_op.template output<0>(),
+                this->_idx
+            );
+            
+            pipelined_for_loop_op.template f<>(
+                g2r_sparse_offset_load_op.template output<0, 0>(),
+                g2r_sparse_offset_load_op.template output<0, 1>()
+            );
+
+            r2g_c_val_store_op.template f<0>(
+                pipelined_for_loop_op.template output<0>()
+            );
+        }
+    }
+
+    // Body
+    template<typename = void>
+    CUTE_DEVICE void f() {
+        this->_l = blockIdx.x;
+        this->_r = blockIdx.x + 1;
+        dispatch();
+    }
+};
 
 // GLOBAL FUNCTION
 template <
 	class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK
 	, class tile_coo_val_size, class tile_sidx_size
-> __global__ void dtc_spmm_kernel_sstage_rstage(
+> 
+__global__ void dtc_spmm_kernel_sstage_rstage(
     half *dB_val,
     float *dC_val,
     int *dval_coo_idx,
@@ -1520,119 +1688,214 @@ template <
     const int wid = tid / 32;
 
     // gmem tensors
-    Tensor B_val = logical_divide(make_tensor(make_gmem_ptr(dB_val), make_shape(K, N)), make_shape(_1{}, get<1>(BLK_MNK{})))(_, make_coord(_, blockIdx.y));
-    Tensor C_val = logical_divide(make_tensor(make_gmem_ptr(dC_val), make_shape(N, M)), select<1, 0>(BLK_MNK{}))(make_coord(_, blockIdx.y), make_coord(_, blockIdx.x));
-    Tensor val_coo_idx = make_tensor(make_gmem_ptr(dval_coo_idx), make_shape(nnz));
-    Tensor val_coo_off = make_tensor(make_gmem_ptr(dval_coo_off), make_shape(Int<2>{}, nnz_block));
-    Tensor val_coo_val = make_tensor(make_gmem_ptr(dval_coo_val), make_shape(nnz));
-    Tensor val_sidx = make_tensor(make_gmem_ptr(dval_sidx), make_shape(tile_sidx_size{}, nnz_block));
-    Tensor val_soff = make_tensor(make_gmem_ptr(dval_soff), make_shape(Mo));
-
-    // prologue
-    using g2r_sparse_offset_load_op_t = G2rSparseOffsetLoadOp<Int<1>, BLK_MNK, MMA_MNK, BLK_MMA_MNK>;
-    g2r_sparse_offset_load_op_t g2r_sparse_offset_load_op{
-        tid, lid, wid, 
-        Mo,
-    };
-    
-    // stage 0
-    using g2s_val_sidx_load_op_t = G2sValSidxLoadOp<Int<2>, BLK_MNK, MMA_MNK, BLK_MMA_MNK, tile_sidx_size>;
-    using g2s_val_sidx_load_op_layout_o0 = typename g2s_val_sidx_load_op_t::Layout_o0;
-    __shared__ int tile_sidx_block[cosize_v<g2s_val_sidx_load_op_layout_o0>];
-    g2s_val_sidx_load_op_t g2s_val_sidx_load_op{
-        tid, lid, wid, 
-        tile_sidx_block, 
-        nnz_block,
-    };
-    
-    using g2r_coo_atomic_format_load_off_op_t = G2rCooAtomicFormatLoadOffOp<Int<2>, BLK_MNK, MMA_MNK, BLK_MMA_MNK>;
-    g2r_coo_atomic_format_load_off_op_t g2r_coo_atomic_format_load_off_op{
-        tid, lid, wid, 
-        nnz_block,
-    };
-    
-    // stage 1
-    using s2r_val_sidx_load_op_t = S2rValSidxLoadOp<Int<2>, BLK_MNK, MMA_MNK, BLK_MMA_MNK, tile_sidx_size>;
-    s2r_val_sidx_load_op_t s2r_val_sidx_load_op{
+    using B_val_op_t = BValOp<BLK_MNK, MMA_MNK, BLK_MMA_MNK>;
+    B_val_op_t B_val_op{
         tid, lid, wid,
-    };
-    
-    using g2s_coo_atomic_format_load_val_op_t = G2sCooAtomicFormatLoadValOp<Int<2>, BLK_MNK, MMA_MNK, BLK_MMA_MNK, tile_coo_val_size>;
-    using g2s_coo_atomic_format_load_val_op_layout_o0 = typename g2s_coo_atomic_format_load_val_op_t::Layout_o0;
-    __shared__ half tile_coo_val_block[cosize_v<g2s_coo_atomic_format_load_val_op_layout_o0>];
-    g2s_coo_atomic_format_load_val_op_t g2s_coo_atomic_format_load_val_op{
-        tid, lid, wid, 
-        tile_coo_val_block, 
-        nnz,
-    };
-    
-    using g2r_coo_atomic_format_load_idx_op_t = G2rCooAtomicFormatLoadIdxOp<Int<2>, BLK_MNK, MMA_MNK, BLK_MMA_MNK, tile_coo_val_size>;
-    g2r_coo_atomic_format_load_idx_op_t g2r_coo_atomic_format_load_idx_op{
-        tid, lid, wid, 
-        nnz,
-    };
-    
-    // stage 2
-    using g2r_b_val_load_op_t = G2rBValLoadOp<Int<2>, BLK_MNK, MMA_MNK, BLK_MMA_MNK>;
-    g2r_b_val_load_op_t g2r_b_val_load_op{
-        tid, lid, wid, 
         K,
+        N,
+        dB_val,
     };
-    
-    using s2s_coo_atomic_val_restore_op_t = S2sCooAtomicValRestoreOp<Int<2>, BLK_MNK, MMA_MNK, BLK_MMA_MNK, tile_coo_val_size>;
-    using s2s_coo_atomic_val_restore_op_layout_o0 = typename s2s_coo_atomic_val_restore_op_t::Layout_o0;
-    __shared__ half tile_coo_restore_val_block[cosize_v<s2s_coo_atomic_val_restore_op_layout_o0>];
-    s2s_coo_atomic_val_restore_op_t s2s_coo_atomic_val_restore_op{
-        tid, lid, wid, 
-        tile_coo_restore_val_block,
-    };
-    
-    using s2r_a_val_load_op_t = S2rAValLoadOp<Int<2>, BLK_MNK, MMA_MNK, BLK_MMA_MNK>;
-    s2r_a_val_load_op_t s2r_a_val_load_op{
+    using C_val_op_t = CValOp<BLK_MNK, MMA_MNK, BLK_MMA_MNK>;
+    C_val_op_t C_val_op{
         tid, lid, wid,
+        N,
+        M,
+        dC_val,
     };
-    
-    // stage 3
-    using mma_op_t = MmaOp<Int<2>, BLK_MNK, MMA_MNK, BLK_MMA_MNK>;
-    mma_op_t mma_op{
+    using val_coo_idx_op_t = ValCooIdxOp<BLK_MNK, MMA_MNK, BLK_MMA_MNK>;
+    val_coo_idx_op_t val_coo_idx_op{
         tid, lid, wid,
+        nnz,
+        dval_coo_idx,
     };
-    
-    // epilogue
-    using r2g_c_val_store_op_t = R2gCValStoreOp<Int<1>, BLK_MNK, MMA_MNK, BLK_MMA_MNK, decltype(C_val)>;
-    r2g_c_val_store_op_t r2g_c_val_store_op{
-        tid, lid, wid, 
-        C_val,
+    using val_coo_off_op_t = ValCooOffOp<BLK_MNK, MMA_MNK, BLK_MMA_MNK>;
+    val_coo_off_op_t val_coo_off_op{
+        tid, lid, wid,
+        nnz_block,
+        dval_coo_off,
+    };
+    using val_coo_val_op_t = ValCooValOp<BLK_MNK, MMA_MNK, BLK_MMA_MNK>;
+    val_coo_val_op_t val_coo_val_op{
+        tid, lid, wid,
+        nnz,
+        dval_coo_val,
+    };
+    using val_sidx_op_t = ValSidxOp<BLK_MNK, MMA_MNK, BLK_MMA_MNK>;
+    val_sidx_op_t val_sidx_op{
+        tid, lid, wid,
+        nnz_block,
+        dval_sidx,
+    };
+    using val_soff_op_t = ValSoffOp<BLK_MNK, MMA_MNK, BLK_MMA_MNK>;
+    val_soff_op_t val_soff_op{
+        tid, lid, wid,
+        Mo,
+        dval_soff,
     };
 
-    // prologue
-    g2r_sparse_offset_load_op.template f<0>(
-        val_soff,
-        blockIdx.x
-    );
-    
-    int l = g2r_sparse_offset_load_op.template output<0, 0>();
-    int r = g2r_sparse_offset_load_op.template output<0, 1>();
-    int k = r - l;
+        // prologue
+        using g2r_sparse_offset_load_op_t = G2rSparseOffsetLoadOp<Int<1>, BLK_MNK, MMA_MNK, BLK_MMA_MNK>;
+        using g2r_sparse_offset_load_op_layout_o0 = typename g2r_sparse_offset_load_op_t::Layout_o0;
+        int g2r_sparse_offset_load_op_tensor_o0[cosize_v<g2r_sparse_offset_load_op_layout_o0>];
+        using g2r_sparse_offset_load_op_layout_o1 = typename g2r_sparse_offset_load_op_t::Layout_o1;
+        int g2r_sparse_offset_load_op_tensor_o1[cosize_v<g2r_sparse_offset_load_op_layout_o1>];
+        g2r_sparse_offset_load_op_t g2r_sparse_offset_load_op{
+            tid, lid, wid, 
+            g2r_sparse_offset_load_op_tensor_o0,
+            g2r_sparse_offset_load_op_tensor_o1,
+            Mo,
+        };
+        
+            // stage 0
+            using g2s_val_sidx_load_op_t = G2sValSidxLoadOp<Int<2>, BLK_MNK, MMA_MNK, BLK_MMA_MNK, tile_sidx_size>;
+            using g2s_val_sidx_load_op_layout_o0 = typename g2s_val_sidx_load_op_t::Layout_o0;
+            __shared__ int g2s_val_sidx_load_op_tensor_o0[cosize_v<g2s_val_sidx_load_op_layout_o0>];
+            g2s_val_sidx_load_op_t g2s_val_sidx_load_op{
+                tid, lid, wid, 
+                g2s_val_sidx_load_op_tensor_o0,
+                nnz_block,
+            };
+            
+            using g2r_coo_atomic_format_load_off_op_t = G2rCooAtomicFormatLoadOffOp<Int<2>, BLK_MNK, MMA_MNK, BLK_MMA_MNK>;
+            using g2r_coo_atomic_format_load_off_op_layout_o0 = typename g2r_coo_atomic_format_load_off_op_t::Layout_o0;
+            int g2r_coo_atomic_format_load_off_op_tensor_o0[cosize_v<g2r_coo_atomic_format_load_off_op_layout_o0>];
+            using g2r_coo_atomic_format_load_off_op_layout_o1 = typename g2r_coo_atomic_format_load_off_op_t::Layout_o1;
+            int g2r_coo_atomic_format_load_off_op_tensor_o1[cosize_v<g2r_coo_atomic_format_load_off_op_layout_o1>];
+            g2r_coo_atomic_format_load_off_op_t g2r_coo_atomic_format_load_off_op{
+                tid, lid, wid, 
+                g2r_coo_atomic_format_load_off_op_tensor_o0,
+                g2r_coo_atomic_format_load_off_op_tensor_o1,
+                nnz_block,
+            };
+            
+            // stage 1
+            using s2r_val_sidx_load_op_t = S2rValSidxLoadOp<Int<2>, BLK_MNK, MMA_MNK, BLK_MMA_MNK, tile_sidx_size>;
+            using s2r_val_sidx_load_op_layout_o0 = typename s2r_val_sidx_load_op_t::Layout_o0;
+            int s2r_val_sidx_load_op_tensor_o0[cosize_v<s2r_val_sidx_load_op_layout_o0>];
+            s2r_val_sidx_load_op_t s2r_val_sidx_load_op{
+                tid, lid, wid,
+                s2r_val_sidx_load_op_tensor_o0,
+            };
+            
+            using g2s_coo_atomic_format_load_val_op_t = G2sCooAtomicFormatLoadValOp<Int<2>, BLK_MNK, MMA_MNK, BLK_MMA_MNK, tile_coo_val_size>;
+            using g2s_coo_atomic_format_load_val_op_layout_o0 = typename g2s_coo_atomic_format_load_val_op_t::Layout_o0;
+            __shared__ half g2s_coo_atomic_format_load_val_op_tensor_o0[cosize_v<g2s_coo_atomic_format_load_val_op_layout_o0>];
+            g2s_coo_atomic_format_load_val_op_t g2s_coo_atomic_format_load_val_op{
+                tid, lid, wid, 
+                g2s_coo_atomic_format_load_val_op_tensor_o0,
+                nnz,
+            };
+            
+            using g2r_coo_atomic_format_load_idx_op_t = G2rCooAtomicFormatLoadIdxOp<Int<2>, BLK_MNK, MMA_MNK, BLK_MMA_MNK, tile_coo_val_size>;
+            using g2r_coo_atomic_format_load_idx_op_layout_o0 = typename g2r_coo_atomic_format_load_idx_op_t::Layout_o0;
+            int g2r_coo_atomic_format_load_idx_op_tensor_o0[cosize_v<g2r_coo_atomic_format_load_idx_op_layout_o0>];
+            using g2r_coo_atomic_format_load_idx_op_layout_o1 = typename g2r_coo_atomic_format_load_idx_op_t::Layout_o1;
+            int g2r_coo_atomic_format_load_idx_op_tensor_o1[cosize_v<g2r_coo_atomic_format_load_idx_op_layout_o1>];
+            g2r_coo_atomic_format_load_idx_op_t g2r_coo_atomic_format_load_idx_op{
+                tid, lid, wid, 
+                g2r_coo_atomic_format_load_idx_op_tensor_o0,
+                g2r_coo_atomic_format_load_idx_op_tensor_o1,
+                nnz,
+            };
+            
+            // stage 2
+            using g2r_b_val_load_op_t = G2rBValLoadOp<Int<2>, BLK_MNK, MMA_MNK, BLK_MMA_MNK>;
+            using g2r_b_val_load_op_layout_o0 = typename g2r_b_val_load_op_t::Layout_o0;
+            half g2r_b_val_load_op_tensor_o0[cosize_v<g2r_b_val_load_op_layout_o0>];
+            g2r_b_val_load_op_t g2r_b_val_load_op{
+                tid, lid, wid, 
+                g2r_b_val_load_op_tensor_o0,
+                K,
+            };
+            
+            using s2s_coo_atomic_val_restore_op_t = S2sCooAtomicValRestoreOp<Int<2>, BLK_MNK, MMA_MNK, BLK_MMA_MNK, tile_coo_val_size>;
+            using s2s_coo_atomic_val_restore_op_layout_o0 = typename s2s_coo_atomic_val_restore_op_t::Layout_o0;
+            __shared__ half s2s_coo_atomic_val_restore_op_tensor_o0[cosize_v<s2s_coo_atomic_val_restore_op_layout_o0>];
+            s2s_coo_atomic_val_restore_op_t s2s_coo_atomic_val_restore_op{
+                tid, lid, wid, 
+                s2s_coo_atomic_val_restore_op_tensor_o0,
+            };
+            
+            using s2r_a_val_load_op_t = S2rAValLoadOp<Int<2>, BLK_MNK, MMA_MNK, BLK_MMA_MNK>;
+            using s2r_a_val_load_op_layout_o0 = typename s2r_a_val_load_op_t::Layout_o0;
+            half s2r_a_val_load_op_tensor_o0[cosize_v<s2r_a_val_load_op_layout_o0>];
+            s2r_a_val_load_op_t s2r_a_val_load_op{
+                tid, lid, wid,
+                s2r_a_val_load_op_tensor_o0,
+            };
+            
+            // stage 3
+            using mma_op_t = MmaOp<Int<2>, BLK_MNK, MMA_MNK, BLK_MMA_MNK>;
+            using mma_op_layout_o0 = typename mma_op_t::Layout_o0;
+            float mma_op_tensor_o0[cosize_v<mma_op_layout_o0>];
+            mma_op_t mma_op{
+                tid, lid, wid,
+                mma_op_tensor_o0,
+            };
 
-    if (k <= 3) {
-        short_pipe(k, l, r, g2s_val_sidx_load_op, g2r_coo_atomic_format_load_off_op, s2r_val_sidx_load_op, g2s_coo_atomic_format_load_val_op, g2r_coo_atomic_format_load_idx_op, g2r_b_val_load_op, s2s_coo_atomic_val_restore_op, s2r_a_val_load_op, mma_op, B_val, C_val, val_coo_idx, val_coo_off, val_coo_val, val_sidx, val_soff);
-    } else {
-        fill(l, r, g2s_val_sidx_load_op, g2r_coo_atomic_format_load_off_op, s2r_val_sidx_load_op, g2s_coo_atomic_format_load_val_op, g2r_coo_atomic_format_load_idx_op, g2r_b_val_load_op, s2s_coo_atomic_val_restore_op, s2r_a_val_load_op, mma_op, B_val, C_val, val_coo_idx, val_coo_off, val_coo_val, val_sidx, val_soff);
-        int i;
-        for (i = 3; i + 2 <= k; i += 2) {
-            loop_step(i, l, r, g2s_val_sidx_load_op, g2r_coo_atomic_format_load_off_op, s2r_val_sidx_load_op, g2s_coo_atomic_format_load_val_op, g2r_coo_atomic_format_load_idx_op, g2r_b_val_load_op, s2s_coo_atomic_val_restore_op, s2r_a_val_load_op, mma_op, B_val, C_val, val_coo_idx, val_coo_off, val_coo_val, val_sidx, val_soff);
-        }
-        remainder(i, l, r, g2s_val_sidx_load_op, g2r_coo_atomic_format_load_off_op, s2r_val_sidx_load_op, g2s_coo_atomic_format_load_val_op, g2r_coo_atomic_format_load_idx_op, g2r_b_val_load_op, s2s_coo_atomic_val_restore_op, s2r_a_val_load_op, mma_op, B_val, C_val, val_coo_idx, val_coo_off, val_coo_val, val_sidx, val_soff);
-        empty(i, l, r, g2s_val_sidx_load_op, g2r_coo_atomic_format_load_off_op, s2r_val_sidx_load_op, g2s_coo_atomic_format_load_val_op, g2r_coo_atomic_format_load_idx_op, g2r_b_val_load_op, s2s_coo_atomic_val_restore_op, s2r_a_val_load_op, mma_op, B_val, C_val, val_coo_idx, val_coo_off, val_coo_val, val_sidx, val_soff);
-    }
+        // for_loop
+        using pipelined_for_loop_op_t = PipelinedForLoopOp<BLK_MNK, MMA_MNK, BLK_MMA_MNK,
+        g2s_val_sidx_load_op_t,
+        g2r_coo_atomic_format_load_off_op_t,
+        s2r_val_sidx_load_op_t,
+        g2s_coo_atomic_format_load_val_op_t,
+        g2r_coo_atomic_format_load_idx_op_t,
+        g2r_b_val_load_op_t,
+        s2s_coo_atomic_val_restore_op_t,
+        s2r_a_val_load_op_t,
+        mma_op_t,
+        B_val_op_t,
+        C_val_op_t,
+        val_coo_idx_op_t,
+        val_coo_off_op_t,
+        val_coo_val_op_t,
+        val_sidx_op_t,
+        val_soff_op_t,
+        decltype(mma_op.template output<0>())
+        >;
+        pipelined_for_loop_op_t pipelined_for_loop_op{
+            tid, lid, wid,
+            g2s_val_sidx_load_op,
+            g2r_coo_atomic_format_load_off_op,
+            s2r_val_sidx_load_op,
+            g2s_coo_atomic_format_load_val_op,
+            g2r_coo_atomic_format_load_idx_op,
+            g2r_b_val_load_op,
+            s2s_coo_atomic_val_restore_op,
+            s2r_a_val_load_op,
+            mma_op,
+            B_val_op,
+            C_val_op,
+            val_coo_idx_op,
+            val_coo_off_op,
+            val_coo_val_op,
+            val_sidx_op,
+            val_soff_op
+        };
+        
+        // epilogue
+        using r2g_c_val_store_op_t = R2gCValStoreOp<Int<1>, BLK_MNK, MMA_MNK, BLK_MMA_MNK, std::decay_t<decltype(C_val_op.template output<0>())>>;
+        r2g_c_val_store_op_t r2g_c_val_store_op{
+            tid, lid, wid, 
+            C_val_op.template output<0>(),
+        };
 
-    // epilogue
-    r2g_c_val_store_op.template f<0>(
-        mma_op.template output<0, 0>()
-    );
+    using blk_x_for_loop_op_t = BlkXForLoopOp<BLK_MNK, MMA_MNK, BLK_MMA_MNK,
+    val_soff_op_t,
+    g2r_sparse_offset_load_op_t,
+    pipelined_for_loop_op_t,
+    r2g_c_val_store_op_t
+    >;
+    blk_x_for_loop_op_t blk_x_for_loop_op{
+        tid, lid, wid,
+        val_soff_op,
+        g2r_sparse_offset_load_op,
+        pipelined_for_loop_op,
+        r2g_c_val_store_op
+    };
+
+    blk_x_for_loop_op.template f<>();
 }
-
 
 template <int TILE_B>
 void ncu_test_all(
