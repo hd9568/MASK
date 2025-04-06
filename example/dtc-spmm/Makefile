@@ -19,7 +19,13 @@ dtc-spmm.o: dtc-spmm.cu
 dtc-spmm-gen.o: dtc-spmm-gen.cu kernel-gen.inc
 	$(CC) $(NVCC_FLAGS) -Icutlass/include -Icutlass/examples/common -Icutlass/tools/util/include -c $< -o $@ $(OPTIONS) $(LIBS) 
 
+dtc-spmm-demo.o: dtc-spmm-demo.cu
+	$(CC) $(NVCC_FLAGS) -Icutlass/include -Icutlass/examples/common -Icutlass/tools/util/include -c $< -o $@ $(OPTIONS) $(LIBS) 
+
 dtc: main.cu dtc-spmm.o
+	$(CC) $(NVCC_FLAGS) -Icutlass/include -Icutlass/examples/common -Icutlass/tools/util/include $^ -o $@ $(OPTIONS) $(LIBS)
+
+demo: main.cu dtc-spmm-demo.o
 	$(CC) $(NVCC_FLAGS) -Icutlass/include -Icutlass/examples/common -Icutlass/tools/util/include $^ -o $@ $(OPTIONS) $(LIBS)
 
 gen: main.cu dtc-spmm-gen.o
