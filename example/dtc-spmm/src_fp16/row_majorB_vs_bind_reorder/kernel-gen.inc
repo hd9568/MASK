@@ -568,60 +568,76 @@ __global__ void dtc_spmm_kernel_fp16_val_idx_bind_stage2(
 
     // TODO: change the invoke function below
     //>========================================================
-    //! A: memcpy async sparse encoding + value load (0)
-    g2s_sparse_encoding_load_op.template f<0>(val_coo_off, val_coo_val_idx_bind, l + 0/* i */);
-    // op_memcpy_async_sparse_encoding_value_load<TILE_B>(0, 0 % stages, dval_coo_off, dval_coo_val_idx_bind, l, r, coo_range_reg, lane_id, tileA_coo_val_idx_bind_block, tile_coo_val_size, tile_coo_restore_val_block);
     //! B: memcpy async sparse index load (0)
     g2s_sparse_index_load_op.template f<0>(val_sidx, l + 0/* i */);
     // op_memcpy_async_sparse_index_load<TILE_B>(0, 0 % stages, lane_id, tile_sidx_block, tile_sidx_size, dval_sidx, l);
     __pipeline_commit();
+    //! A: memcpy async sparse encoding + value load (0)
+    g2s_sparse_encoding_load_op.template f<0>(val_coo_off, val_coo_val_idx_bind, l + 0/* i */);
+    // op_memcpy_async_sparse_encoding_value_load<TILE_B>(0, 0 % stages, dval_coo_off, dval_coo_val_idx_bind, l, r, coo_range_reg, lane_id, tileA_coo_val_idx_bind_block, tile_coo_val_size, tile_coo_restore_val_block);
+    __pipeline_commit();
     // return;
     //>========================================================
-    //! A: memcpy async sparse encoding + value load (1)
-    g2s_sparse_encoding_load_op.template f<1>(val_coo_off, val_coo_val_idx_bind, l + 1/* i */);
-    // op_memcpy_async_sparse_encoding_value_load<TILE_B>(1, 1 % stages, dval_coo_off, dval_coo_val_idx_bind, l, r, coo_range_reg, lane_id, tileA_coo_val_idx_bind_block, tile_coo_val_size, tile_coo_restore_val_block);
     //! B: memcpy async sparse index load (1)
     g2s_sparse_index_load_op.template f<1>(val_sidx, l + 1/* i */);
     // op_memcpy_async_sparse_index_load<TILE_B>(1, 1 % stages, lane_id, tile_sidx_block, tile_sidx_size, dval_sidx, l);
-    __pipeline_wait_prior(0);
+    __pipeline_commit();
+    //! A: memcpy async sparse encoding + value load (1)
+    g2s_sparse_encoding_load_op.template f<1>(val_coo_off, val_coo_val_idx_bind, l + 1/* i */);
+    // op_memcpy_async_sparse_encoding_value_load<TILE_B>(1, 1 % stages, dval_coo_off, dval_coo_val_idx_bind, l, r, coo_range_reg, lane_id, tileA_coo_val_idx_bind_block, tile_coo_val_size, tile_coo_restore_val_block);
+    __pipeline_commit();
+    __pipeline_wait_prior(3);
     __syncthreads();
-    //! A: memcpy async restore matrix A (0)
-    s2s_restore_matrix_a_op.template f<0>(g2s_sparse_encoding_load_op.template output<0, 1>(), g2s_sparse_encoding_load_op.template output<0, 0>());
-    // op_restore_matrix_A<TILE_B>(0, 0 % stages, 0 % stages, lane_id, coo_range_reg, tile_coo_restore_val_block, tile_coo_val_size, tileA_coo_val_idx_bind_block);
-    
     //! B: memcpy async dense matrix B load (0)
     g2s_matrix_b_load_op.template f<0>(B_val, g2s_sparse_index_load_op.template output<0, 0>());
     // op_memcpy_async_matrix_B_load<TILE_B>(0, 0 % stages, 0 % stages, lane_id, tile_sidx_block, tile_sidx_size, tileB_block, tile_B_size, tile_B_row_num, dB_val, N, block_idx_y);
     __pipeline_commit();
+    __pipeline_wait_prior(3);
+    __syncthreads();
+    //! A: memcpy async restore matrix A (0)
+    s2s_restore_matrix_a_op.template f<0>(g2s_sparse_encoding_load_op.template output<0, 1>(), g2s_sparse_encoding_load_op.template output<0, 0>());
+    // op_restore_matrix_A<TILE_B>(0, 0 % stages, 0 % stages, lane_id, coo_range_reg, tile_coo_restore_val_block, tile_coo_val_size, tileA_coo_val_idx_bind_block);
     // return;
     //>========================================================
     for (i = 0; i + 2 < k; i++) {  
         if ((i + 2) % 2 == 0) {
-            g2s_sparse_encoding_load_op.template f<0>(val_coo_off, val_coo_val_idx_bind, l + i + 2);
             g2s_sparse_index_load_op.template f<0>(val_sidx, l + i + 2);
+            __pipeline_commit();
+            g2s_sparse_encoding_load_op.template f<0>(val_coo_off, val_coo_val_idx_bind, l + i + 2);
+            __pipeline_commit();
         } else {
-            g2s_sparse_encoding_load_op.template f<1>(val_coo_off, val_coo_val_idx_bind, l + i + 2);
             g2s_sparse_index_load_op.template f<1>(val_sidx, l + i + 2);
+            __pipeline_commit();
+            g2s_sparse_encoding_load_op.template f<1>(val_coo_off, val_coo_val_idx_bind, l + i + 2);
+            __pipeline_commit();
         }
         //! A: memcpy async sparse encoding + value load (i + 2)
         // op_memcpy_async_sparse_encoding_value_load<TILE_B>(i + 2, (i + 2) % stages, dval_coo_off, dval_coo_val_idx_bind, l, r, coo_range_reg, lane_id, tileA_coo_val_idx_bind_block, tile_coo_val_size, tile_coo_restore_val_block);
         //! B: memcpy async sparse index load (i + 2)
         // op_memcpy_async_sparse_index_load<TILE_B>(i + 2, (i + 2) % stages, lane_id, tile_sidx_block, tile_sidx_size, dval_sidx, l);
-        __pipeline_wait_prior(0);
-        __syncthreads();
+        
         if ((i + 1) % 2 == 0) {
-            s2s_restore_matrix_a_op.template f<0>(g2s_sparse_encoding_load_op.template output<0, 1>(), g2s_sparse_encoding_load_op.template output<0, 0>());
+            __pipeline_wait_prior(4);
+            __syncthreads();
             g2s_matrix_b_load_op.template f<0>(B_val, g2s_sparse_index_load_op.template output<0, 0>());
+            __pipeline_commit();
+            __pipeline_wait_prior(4);
+            s2s_restore_matrix_a_op.template f<0>(g2s_sparse_encoding_load_op.template output<0, 1>(), g2s_sparse_encoding_load_op.template output<0, 0>());
         } else {
-            s2s_restore_matrix_a_op.template f<1>(g2s_sparse_encoding_load_op.template output<1, 1>(), g2s_sparse_encoding_load_op.template output<1, 0>());
+            __pipeline_wait_prior(4);
+            __syncthreads();
             g2s_matrix_b_load_op.template f<1>(B_val, g2s_sparse_index_load_op.template output<1, 0>());
+            __pipeline_commit();
+            __pipeline_wait_prior(4);
+            s2s_restore_matrix_a_op.template f<1>(g2s_sparse_encoding_load_op.template output<1, 1>(), g2s_sparse_encoding_load_op.template output<1, 0>());
         }
         //! A: memcpy async restore matrix A (i + 1)
         // op_restore_matrix_A<TILE_B>(i + 1, (i + 1) % stages, (i + 1) % stages, lane_id, coo_range_reg, tile_coo_restore_val_block, tile_coo_val_size, tileA_coo_val_idx_bind_block);
         //! B: memcpy async dense matrix B load (i + 1)
         // op_memcpy_async_matrix_B_load<TILE_B>(i + 1, (i + 1) % stages, (i + 1) % stages, lane_id, tile_sidx_block, tile_sidx_size, tileB_block, tile_B_size, tile_B_row_num, dB_val, N, block_idx_y);
-        __pipeline_commit();
         //! ldmatrix A, ldmatrix B, and MMA (i)
+        __pipeline_wait_prior(3);
+        __syncthreads();
         if (i % 2 == 0) {
             s2r_a_val_load_op.template f<0>(s2s_restore_matrix_a_op.template output<0, 0>());
             s2r_b_val_load_op.template f<0>(g2s_matrix_b_load_op.template output<0, 0>());
@@ -634,20 +650,30 @@ __global__ void dtc_spmm_kernel_fp16_val_idx_bind_stage2(
         // op_calculate<TILE_B>(i, i % stages, i % stages, lane_id, tile_coo_restore_val_block, tile_coo_val_size, tileB_block, tile_B_size, tile_B_row_num, REGA, REGB, REGC);
     }
     for (; i + 1 < k; i++) {
-        __pipeline_wait_prior(0);
-        __syncthreads();
+        // __pipeline_wait_prior(0);
+        // __syncthreads();
         if ((i + 1) % 2 == 0) {
-            s2s_restore_matrix_a_op.template f<0>(g2s_sparse_encoding_load_op.template output<0, 1>(), g2s_sparse_encoding_load_op.template output<0, 0>());
+            __pipeline_wait_prior(2);
+            __syncthreads();
             g2s_matrix_b_load_op.template f<0>(B_val, g2s_sparse_index_load_op.template output<0, 0>());
+            __pipeline_commit();
+            __pipeline_wait_prior(2);
+            s2s_restore_matrix_a_op.template f<0>(g2s_sparse_encoding_load_op.template output<0, 1>(), g2s_sparse_encoding_load_op.template output<0, 0>());
+            
         } else {
-            s2s_restore_matrix_a_op.template f<1>(g2s_sparse_encoding_load_op.template output<1, 1>(), g2s_sparse_encoding_load_op.template output<1, 0>());
+            __pipeline_wait_prior(2);
+            __syncthreads();
             g2s_matrix_b_load_op.template f<1>(B_val, g2s_sparse_index_load_op.template output<1, 0>());
+            __pipeline_commit();
+            __pipeline_wait_prior(2);
+            s2s_restore_matrix_a_op.template f<1>(g2s_sparse_encoding_load_op.template output<1, 1>(), g2s_sparse_encoding_load_op.template output<1, 0>());
         }
         //! A: memcpy async restore matrix A (i + 1)
         // op_restore_matrix_A<TILE_B>(i + 1, (i + 1) % stages, (i + 1) % stages, lane_id, coo_range_reg, tile_coo_restore_val_block, tile_coo_val_size, tileA_coo_val_idx_bind_block);
         //! B: memcpy async dense matrix B load (i + 1)
         // op_memcpy_async_matrix_B_load<TILE_B>(i + 1, (i + 1) % stages, (i + 1) % stages, lane_id, tile_sidx_block, tile_sidx_size, tileB_block, tile_B_size, tile_B_row_num, dB_val, N, block_idx_y);
-        __pipeline_commit();
+        __pipeline_wait_prior(1);
+        __syncthreads();
         //! ldmatrix A, ldmatrix B, and MMA (i)
         if (i % 2 == 0) {
             s2r_a_val_load_op.template f<0>(s2s_restore_matrix_a_op.template output<0, 0>());

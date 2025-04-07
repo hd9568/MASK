@@ -69,11 +69,13 @@ add_subdirectory(${SRCDIR_FP16}/row_majorB_vs_bind_reorder/)
 
 # SRC_FP32 directory
 set(SRCDIR_FP32 ${CMAKE_CURRENT_SOURCE_DIR}/src_fp32)
-file(GLOB_RECURSE SRC_FP32_CUDA_FILES ${SRCDIR_FP32}/*.cu)
-add_executable(dtc_float ${SRC_CUDA_FILES} ${SRC_FP32_CUDA_FILES})
-target_compile_options(dtc_float PRIVATE ${CUDA_NVCC_FLAGS})
-target_link_libraries(dtc_float PRIVATE ${CUDA_LIBS})
-target_compile_definitions(dtc_float PRIVATE f32)
+add_subdirectory(${SRCDIR_FP32}/row_majorB_vs_bind_reorder/)
+
+# file(GLOB_RECURSE SRC_FP32_CUDA_FILES ${SRCDIR_FP32}/*.cu)
+# add_executable(dtc_float ${SRC_CUDA_FILES} ${SRC_FP32_CUDA_FILES})
+# target_compile_options(dtc_float PRIVATE ${CUDA_NVCC_FLAGS})
+# target_link_libraries(dtc_float PRIVATE ${CUDA_LIBS})
+# target_compile_definitions(dtc_float PRIVATE f32)
 
 # SRC_FP64 directory
 set(SRCDIR_FP64 ${CMAKE_CURRENT_SOURCE_DIR}/src_fp64)
