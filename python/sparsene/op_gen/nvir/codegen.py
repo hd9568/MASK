@@ -1,7 +1,8 @@
 from enum import Enum
-from typing import List, Dict, Tuple, Optional
+from typing import List, Dict, Tuple, Optional, Sequence
 from dataclasses import dataclass
 from sparsene.op_gen.nvir.nvop import (
+    ConstantNvOp,
     NvOp,
     NvOpInput,
     NvOpOutput,
@@ -14,8 +15,13 @@ from sparsene.op_gen.nvir.nvop import (
     IntShape,
     ParamShape,
     MnkShape,
+    NvOpSequence,
+    NvOpPipeline,
+    NvOpProgram,
+    NvOpTensor,
+    ForLoopNvOp,
+    GmemTensorNvOp,
 )
-from python.sparsene.op_gen.nvir.sequence import NvOpSequence, NvOpStage
 import sparsene.op_gen.nvir.templates as templates
 from itertools import chain
 from sparsene.logging import get_logger
@@ -23,24 +29,6 @@ from sparsene.logging import get_logger
 import re
 
 logger = get_logger(__name__)
-
-
-def convert_name(name: str, to_snake: bool = True) -> str:
-    if to_snake:
-        return re.sub(r"(?<!^)(?=[A-Z])", "_", name).lower()
-    else:
-        return re.sub(
-            r"_([a-z])", lambda match: match.group(1).upper(), name
-        ).capitalize()
-
-
-def to_snake(name: str) -> str:
-    return convert_name(name, to_snake=True)
-
-
-def to_pascal(name: str) -> str:
-    return convert_name(name, to_snake=False)
-
 
 class NvIrCodeGenerator:
     def __init__(self, indent_size: int = 4, debug_indent: bool = False):
@@ -72,10 +60,12 @@ class NvIrCodeGenerator:
             )
 
             in_types_strs = [
-                f"class TI{idx} = {inp.dtype}" for idx, inp in enumerate(op.inputs)
+                f"class TI{idx} = {inp.tensor.dtype}"
+                for idx, inp in enumerate(op.inputs)
             ]
             out_types_strs = [
-                f"class TO{idx} = {out.dtype}" for idx, out in enumerate(op.outputs)
+                f"class TO{idx} = {out.tensor.dtype}"
+                for idx, out in enumerate(op.outputs)
             ]
             io_types_str = ", ".join(chain(in_types_strs, out_types_strs))
             io_types_str = ", " + io_types_str if io_types_str else ""
@@ -90,7 +80,12 @@ class NvIrCodeGenerator:
                 else ""
             )
 
-            return f"template<class NBUF, class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK{parameter_types_str}{non_owning_tensor_types_str}{io_types_str}>"
+            if op.pipelined:
+                nbuf_type_str = "class NBUF, "
+            else:
+                nbuf_type_str = ""
+
+            return f"template<{nbuf_type_str}class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK{parameter_types_str}{non_owning_tensor_types_str}{io_types_str}>"
 
         template_head_str = dump_template_head()
 
@@ -110,13 +105,13 @@ class NvIrCodeGenerator:
             output_constructor_params = []
             for out in op.outputs:
                 if not out.owning:
-                    output_constructor_params.append(f"Tensor_o{out.idx} &{out.name}")
-                elif out.mem != "rmem":
-                    output_constructor_params.append(f"{out.dtype} *{out.name}")
+                    output_constructor_params.append(f"Tensor_o{out.idx} {out.name}")
+                else:
+                    output_constructor_params.append(f"TO{out.idx} *{out.name}")
             varlen_modes_constructor_params = []
             for out in op.outputs:
                 i: int = 0
-                for s in out.shape:
+                for s in out.tensor.shape:
                     if isinstance(s, VarlenShape):
                         varlen_modes_constructor_params.append(
                             f"int mode_o{out.idx}_{i}"
@@ -124,7 +119,7 @@ class NvIrCodeGenerator:
                         i += 1
             for inp in op.inputs:
                 i: int = 0
-                for s in inp.shape:
+                for s in inp.tensor.shape:
                     if isinstance(s, VarlenShape):
                         varlen_modes_constructor_params.append(
                             f"int mode_i{inp.idx}_{i}"
@@ -149,9 +144,9 @@ class NvIrCodeGenerator:
         for out in op.outputs:
             if not out.owning:
                 output_constructor_init_list.append(f"{out.name}({out.name})")
-            elif out.mem != "rmem":
+            else:
                 output_constructor_init_list.append(
-                    f"{out.name}(make_tensor(make_{out.mem}_ptr({out.name}), Layout_o{out.idx}{{}}))"
+                    f"{out.name}(make_tensor(make_{out.tensor.mem}_ptr({out.name}), Layout_o{out.idx}{{}}))"
                 )
 
         constructor_init_list = (
@@ -162,7 +157,7 @@ class NvIrCodeGenerator:
         constructor_init_list_str = ", ".join(constructor_init_list)
         constructor_str = f"{constructor_head_str}\n: {constructor_init_list_str} {{}}"
 
-        output_method_str = self.dump_get_output_method(op)
+        get_output_method_str = self.dump_get_output_method(op)
 
         f_method_str = self.dump_f_method(op)
 
@@ -172,10 +167,247 @@ class NvIrCodeGenerator:
             f"{self._indent_lines(outputs_str)}\n\n"
             f"{self._indent_lines(hw_param_str)}\n\n"
             f"{self._indent_lines(constructor_str)}\n\n"
-            f"{self._indent_lines(output_method_str)}\n\n"
+            f"{self._indent_lines(get_output_method_str)}\n\n"
             f"{self._indent_lines(f_method_str)}\n"
             "};"
         )
+
+    def dump_gmem_tensor_nvop_class_def(self, op: GmemTensorNvOp) -> str:
+        parameter_types_strs = [
+            f"class {param} = Int<{op.parameters[param]}>" for param in op.parameters
+        ]
+        parameter_types_str = ", ".join(parameter_types_strs)
+        parameter_types_str = ", " + parameter_types_str if parameter_types_str else ""
+
+        in_dtypes_strs = [
+            f"class TI{idx} = {inp.tensor.dtype}" for idx, inp in enumerate(op.inputs)
+        ]
+        out_dtypes_strs = [
+            f"class TO{idx} = {out.tensor.dtype}" for idx, out in enumerate(op.outputs)
+        ]
+        io_dtypes_str = ", ".join(chain(in_dtypes_strs, out_dtypes_strs))
+        io_dtypes_str = ", " + io_dtypes_str if io_dtypes_str else ""
+        op_name_str = op.name
+        tensor_type_str = op.gmem_inout.tensor_type_str
+        tensor_str = op.gmem_inout.tensor_str
+        tensor_name = op.gmem_inout.name
+
+        varlen_modes_constructor_params = []
+        for out in op.outputs:
+            i: int = 0
+            for s in out.tensor.shape:
+                if isinstance(s, VarlenShape):
+                    varlen_modes_constructor_params.append(f"int {s.name}")
+                    i += 1
+        for inp in op.inputs:
+            i: int = 0
+            for s in inp.tensor.shape:
+                if isinstance(s, VarlenShape):
+                    varlen_modes_constructor_params.append(f"int {s.name}")
+                    i += 1
+        varlen_modes_constructor_params_str = "".join(
+            f", {param}" for param in varlen_modes_constructor_params
+        )
+
+        get_output_method_str = self.dump_get_output_method(op)
+
+        return templates.GMEM_TENSOR_NVOP_CLASS_DEF_SKELETON.format(
+            parameter_types=parameter_types_str,
+            io_dtypes=io_dtypes_str,
+            op_name=op_name_str,
+            tensor_type_str=tensor_type_str,
+            tensor_name=tensor_name,
+            varlen_modes_constructor_params=varlen_modes_constructor_params_str,
+            tensor_str=tensor_str,
+            get_output_method=self._indent_lines(get_output_method_str),
+        )
+
+    def dump_constant_nvop_class_def(self, op: ConstantNvOp) -> str:
+        nbuf_type_str = "class NBUF, " if op.pipelined else ""
+        parameter_types_strs = [
+            f"class {param} = Int<{op.parameters[param]}>" for param in op.parameters
+        ]
+        parameter_types_str = ", ".join(parameter_types_strs)
+        parameter_types_str = ", " + parameter_types_str if parameter_types_str else ""
+
+        in_dtypes_strs = [
+            f"class TI{idx} = {inp.tensor.dtype}" for idx, inp in enumerate(op.inputs)
+        ]
+        out_dtypes_strs = [
+            f"class TO{idx} = {out.tensor.dtype}" for idx, out in enumerate(op.outputs)
+        ]
+        io_dtypes_str = ", ".join(chain(in_dtypes_strs, out_dtypes_strs))
+        io_dtypes_str = ", " + io_dtypes_str if io_dtypes_str else ""
+        op_name_str = op.name
+        make_shape_str = self.dump_decl_make_shape(op.outputs[0].tensor.shape, nbuf=False)
+        mem_type_str = op.outputs[0].tensor.mem
+        tensor_name = op.outputs[0].name
+        if op.value == 0:
+            f_body = f"clear({tensor_name});"
+        else:
+            f_body = f"for (int i = 0; i < {tensor_name}.size(); i++) {{ {tensor_name}(i) = {op.value}; }}"
+
+        get_output_method_str = self.dump_get_output_method(op)
+
+        return templates.CONSTANT_NVOP_CLASS_DEF_SKELETON.format(
+            nbuf_type=nbuf_type_str,
+            parameter_types=parameter_types_str,
+            io_dtypes=io_dtypes_str,
+            op_name=op_name_str,
+            make_shape_str=make_shape_str,
+            mem_type_str=mem_type_str,
+            tensor_name=tensor_name,
+            f_body=f_body,
+            get_output_method=self._indent_lines(get_output_method_str),
+        )
+
+    def dump_pipelined_for_loop_nvop_class_def(
+        self, op: ForLoopNvOp, visible_ops: Sequence[NvOp]
+    ) -> str:
+        visible_op_type_template_params = [f"class T_{op.name}" for op in visible_ops]
+        visible_op_type_template_params_str = "".join(
+            f", {param}" for param in visible_op_type_template_params
+        )
+
+        non_owning_tensor_type_template_params = [
+            f"class Tensor_o{out.idx}" for out in op.outputs
+        ]
+        non_owning_tensor_type_template_params_str = "".join(
+            f", {param}" for param in non_owning_tensor_type_template_params
+        )
+
+        in_dtypes_strs = [
+            f"class TI{idx} = {inp.tensor.dtype}" for idx, inp in enumerate(op.inputs)
+        ]
+        out_dtypes_strs = [
+            f"class TO{idx} = {out.tensor.dtype}" for idx, out in enumerate(op.outputs)
+        ]
+        io_dtype_template_params_str = "".join(
+            f", {dtype}" for dtype in chain(in_dtypes_strs, out_dtypes_strs)
+        )
+
+        parameter_types_strs = [
+            f"class {param} = Int<{op.parameters[param]}>" for param in op.parameters
+        ]
+        parameter_template_params_str = "".join(
+            f", {param}" for param in parameter_types_strs
+        )
+
+        op_name_str = op.name
+
+        inputs_str = f"// Inputs\n" + "\n".join(
+            map(lambda inp: self.dump_input_decl(inp), op.inputs)
+        )
+        outputs_str = f"// Outputs\n" + "\n".join(
+            map(lambda out: self.dump_output_decl(out), op.outputs)
+        )
+
+        get_output_method_str = self.dump_get_output_method(op)
+
+        visible_op_strs = [f"T_{op.name} &{op.name}_v;" for op in visible_ops]
+        visible_ops_str = "\n".join(visible_op_strs)
+
+        visible_op_as_params_strs = [f"T_{op.name} &{op.name}_v" for op in visible_ops]
+        visible_op_as_params_str = "".join(
+            f", {param}" for param in visible_op_as_params_strs
+        )
+
+        visible_op_init_strs = [f"{op.name}_v({op.name}_v)" for op in visible_ops]
+        visible_op_inits_str = "".join(
+            f", {init_str}" for init_str in visible_op_init_strs
+        )
+
+        pipeline_methods = self.dump_pipelined_for_loop_nvop_methods(op)
+
+        get_output_method_str = self.dump_get_output_method(op)
+
+        non_owning_tensor_as_params_strs = [f"Tensor_o{out.idx} {out.name}" for out in op.outputs]
+        non_owning_tensor_as_params_str = "".join(
+            f", {param}" for param in non_owning_tensor_as_params_strs
+        )
+
+        non_owning_tensor_inits_strs = [f"{out.name}({out.name})" for out in op.outputs]
+        non_owning_tensor_inits_str = "".join(
+            f", {init_str}" for init_str in non_owning_tensor_inits_strs
+        )
+
+        return templates.PIPELINED_FOR_LOOP_NVOP_DEF_SKELETON.format(
+            visible_op_type_template_params=visible_op_type_template_params_str,
+            non_owning_tensor_type_template_params=non_owning_tensor_type_template_params_str,
+            non_owning_tensor_as_params=non_owning_tensor_as_params_str,
+            non_owning_tensor_inits=non_owning_tensor_inits_str,
+            io_dtype_template_params=io_dtype_template_params_str,
+            parameter_template_params=parameter_template_params_str,
+            op_name=op_name_str,
+            outputs=self._indent_lines(outputs_str),
+            visible_ops=self._indent_lines(visible_ops_str),
+            visible_op_as_params=visible_op_as_params_str,
+            visible_op_inits=visible_op_inits_str,
+            pipeline_methods=self._indent_lines(pipeline_methods),
+            get_output_method=self._indent_lines(get_output_method_str),
+        )
+
+    def dump_blk_idx_for_loop_nvop_class_def(
+        self, op: ForLoopNvOp, visible_ops: Sequence[NvOp]
+    ) -> str:
+        def dump_loop_body() -> str:
+            op_calls = []
+            for bop in op.body.ops:
+                op_calls.append(
+                    self.dump_f_method_call(bop, buf_idx_str="", shift_constant="")
+                )
+            return "\n".join(op_calls)
+
+        visible_op_type_template_params = [f"class T_{op.name}" for op in visible_ops]
+        visible_op_type_template_params_str = "".join(
+            f", {param}" for param in visible_op_type_template_params
+        )
+
+        parameter_types_strs = [
+            f"class {param} = Int<{op.parameters[param]}>" for param in op.parameters
+        ]
+        parameter_template_params_str = "".join(
+            f", {param}" for param in parameter_types_strs
+        )
+
+        op_name_str = op.name
+
+        visible_op_strs = [f"T_{op.name} &{op.name}_v;" for op in visible_ops]
+        visible_ops_str = "\n".join(visible_op_strs)
+
+        visible_op_as_params_strs = [f"T_{op.name} &{op.name}_v" for op in visible_ops]
+        visible_op_as_params_str = "".join(
+            f", {param}" for param in visible_op_as_params_strs
+        )
+
+        visible_op_init_strs = [f"{op.name}_v({op.name}_v)" for op in visible_ops]
+        visible_op_inits_str = "".join(
+            f", {init_str}" for init_str in visible_op_init_strs
+        )
+
+        body_str = dump_loop_body()
+
+        block_idx_dim_str = op.blk_idx_mapping
+        assert block_idx_dim_str in ["x", "y", "z"]
+
+        return templates.BLK_IDX_FOR_LOOP_NVOP_DEF_SKELETON.format(
+            visible_op_type_template_params=visible_op_type_template_params_str,
+            parameter_template_params=parameter_template_params_str,
+            op_name=op_name_str,
+            visible_ops=self._indent_lines(visible_ops_str),
+            visible_op_as_params=visible_op_as_params_str,
+            visible_op_inits=visible_op_inits_str,
+            body=self._indent_lines(body_str, 2),
+            block_idx_dim=block_idx_dim_str,
+        )
+
+    def dump_sequential_for_loop_nvop_class_def(
+        self, op: ForLoopNvOp, visible_ops: Sequence[NvOp]
+    ) -> str:
+        if op.blk_idx_mapping:
+            return self.dump_blk_idx_for_loop_nvop_class_def(op, visible_ops)
+
+        raise NotImplementedError("Sequential for loop is not implemented")
 
     def dump_f_method(self, op: NvOp) -> str:
         def dump_nested_tuple_access(
@@ -209,24 +441,32 @@ class NvIrCodeGenerator:
                         )
 
             for inp in op.inputs:
-                dump_static_assert(inp.shape, inp, [])
-            # f"CUTE_STATIC_ASSERT_V((get<{i}>(shape_i{inp.idx}) == size<{i}>(shape({inp.name}))));"
-            # f"CUTE_STATIC_ASSERT((is_static<decltype(size<{i}>(shape({inp.name})))>::value));"
+                dump_static_assert(inp.tensor.shape, inp, [])
+                # f"CUTE_STATIC_ASSERT_V((get<{i}>(shape_i{inp.idx}) == size<{i}>(shape({inp.name}))));"
+                # f"CUTE_STATIC_ASSERT((is_static<decltype(size<{i}>(shape({inp.name})))>::value));"
 
         dump_static_assert()
 
+        if op.pipelined:
+            nbuf_template_param_str = "size_t buf_idx, "
+        else:
+            nbuf_template_param_str = ""
+
         code_str = "\n".join([*static_assert_strs, op.impl.code_template])
         f_template_head_str = (
-            "template<size_t buf_idx"
+            f"template<{nbuf_template_param_str}"
             # + (", size_t wait_num" if op.mem_type[0] == "s" else "")
-            + "".join(
-                f", class Tensor_i{inp.idx}" for inp in op.inputs if len(inp.shape) > 0
+            + ", ".join(
+                f"class Tensor_i{inp.idx}"
+                for inp in op.inputs
+                if len(inp.tensor.shape) > 0
             )
             + ">"
         )
         f_input_list = []
         for inp in op.inputs:
-            if len(inp.shape) > 0:
+            # f_input_list.append(f"Tensor_i{inp.idx} {inp.name}")
+            if len(inp.tensor.shape) > 0:
                 f_input_list.append(f"Tensor_i{inp.idx} {inp.name}")
             else:
                 f_input_list.append(f"TI{inp.idx} {inp.name}")
@@ -244,61 +484,78 @@ class NvIrCodeGenerator:
         inp: NvOpInput,
         buf_idx_str: str,
         shift_constant: Optional[str] = None,
-        indent_level: int = 0,
     ) -> str:
         # g2r_coo_atomic_format_load_off_op.template output<(i - shift1) % nbuf_rmem, 0>()
         # l + i + shift1 + shift2
-        # print(inp.source)
-        if isinstance(inp.source, tuple):
-            return f"{to_snake(inp.source[0].name)}.template output<{buf_idx_str}, {inp.source[1]}>()"
-        else:
-            if "{c}" in inp.source:
+        if isinstance(inp.tensor.source, NvOpOutput):
+            assert isinstance(inp.tensor.source.op, NvOp)
+            if inp.tensor.source.op.pipelined:
+                buf_idx_str = ", " + buf_idx_str
+            else:
+                buf_idx_str = ""
+            arg = f"{inp.tensor.source.op.name}_v.template output<{inp.tensor.source.idx}{buf_idx_str}>()"
+            if len(inp.tensor.shape) == 0:
+                arg += "(0)"
+            return arg
+        elif isinstance(inp.tensor.source, str):
+            if "{c}" in inp.tensor.source:
                 if shift_constant is not None:
-                    return inp.source.format(c=shift_constant)
+                    return inp.tensor.source.format(c=shift_constant)
                 else:
                     raise ValueError("Missing value for 'c'")
-            return inp.source
+            return inp.tensor.source
+        else:
+            raise ValueError(f"Unknown source type: {type(inp.tensor.source)}")
 
     def dump_f_method_call(
         self,
         op: NvOp,
         buf_idx_str: str,
         shift_constant: Optional[str] = None,
-        indent_level: int = 0,
     ) -> str:
         # g2s_coo_atomic_format_load_val_op.template f<(i - shift1) % nbuf_rmem>(val_coo_val,
         #     g2r_coo_atomic_format_load_off_op.template output<(i - shift1) % nbuf_rmem, 0>(),
         #     g2r_coo_atomic_format_load_off_op.template output<(i - shift1) % nbuf_rmem, 1>()
         # );
         arg_strs = [
-            self.dump_f_method_call_arg(inp, buf_idx_str, shift_constant, indent_level)
+            self.dump_f_method_call_arg(inp, buf_idx_str, shift_constant)
             for inp in op.inputs
         ]
-        # print(arg_strs)
-        # print(op.name, buf_idx_str, shift_constant)
+        if not op.pipelined:
+            buf_idx_str = ""
+
+        if len(arg_strs) == 0:
+            return f"{op.name}_v.template f<{buf_idx_str}>();"
+        if isinstance(op, ForLoopNvOp) and op.blk_idx_mapping is not None:
+            return f"{op.name}_v.template f<{buf_idx_str}>();" # 映射到blk idx的for循环本质上只会迭代一次，无需lr
+
         return (
-            f"{to_snake(op.name)}.template f<{buf_idx_str}>(\n"
-            + self._indent_lines(",\n".join(arg_strs))  # 使用缩进
-            + "\n);"  # 结束模板结构
+            f"{op.name}_v.template f<{buf_idx_str}>(\n"
+            + self._indent_lines(",\n".join(arg_strs))
+            + "\n);"
         )
 
-    def dump_short_parallel(self, stages: List[NvOpStage], shifts: List[int]) -> str:
+    def dump_short_parallel(self, pipeline: NvOpPipeline) -> str:
+        stages = pipeline.stages
+        shifts = pipeline.shifts
+
         def get_wait_num(
             op: NvOp, i: int, pipeline_records: List[List[Tuple[NvOp, int]]]
         ) -> int:
             wait_num = 0
             find_flag = False
-            # print("test_pipeline_records = ", pipeline_records)
             for list_op in reversed(pipeline_records):
-                # print("test inputs: ", op.inputs)
                 for inp in op.inputs:
                     # print("test source", inp.source, "source name = ", inp.source[0].name)
-                    if not isinstance(inp.source, tuple):
+                    if not isinstance(inp.tensor.source, NvOpOutput):
+                        # if not isinstance(inp.source, tuple):
                         continue
+                    assert isinstance(inp.tensor.source.op, NvOp)
 
                     for item in list_op:
                         # print("test item = ", item)
-                        if inp.source[0].name == item[0].name and i == item[1]:
+                        # if inp.source[0].name == item[0].name and i == item[1]:
+                        if inp.tensor.source.op.name == item[0].name and i == item[1]:
                             find_flag = True
                             break
                     if find_flag:
@@ -368,8 +625,8 @@ class NvIrCodeGenerator:
                         )
                 buf_idx_str = str(item[1] % nbuf_num)
                 shift_constant = str(i)
-                output_str += self.dump_f_method_call(
-                    item[0], buf_idx_str, shift_constant
+                output_str += (
+                    self.dump_f_method_call(item[0], buf_idx_str, shift_constant) + "\n"
                 )
 
             return output_str
@@ -397,7 +654,10 @@ class NvIrCodeGenerator:
 
     def dump_get_output_method(self, op: NvOp) -> str:
         def dump_output_with_buf_idx_switch(idx: int) -> str:
-            coord_str = "_, " * len(op.outputs[idx].shape) + "buf_idx"
+            if len(op.outputs[idx].tensor.shape) == 0:
+                coord_str = "_, buf_idx"
+            else:
+                coord_str = "_, " * len(op.outputs[idx].tensor.shape) + "buf_idx"
             return (
                 f"if constexpr (output_idx == {idx}) {{\n"
                 + self._indent_lines(f"return {op.outputs[idx].name}({coord_str});")
@@ -414,12 +674,14 @@ class NvIrCodeGenerator:
             )
 
         output_with_buf_idx_str = (
-            "template<size_t buf_idx, size_t output_idx>\n"
+            "template<size_t output_idx, size_t buf_idx>\n"
             + "CUTE_DEVICE auto output() {\n"
             + "\n".join(
-                self._indent_lines(dump_output_with_buf_idx_switch(idx))
-                if not op.outputs[idx].unique
-                else self._indent_lines(dump_output_without_buf_idx_switch(idx))
+                (
+                    self._indent_lines(dump_output_with_buf_idx_switch(idx))
+                    if not op.outputs[idx].unique
+                    else self._indent_lines(dump_output_without_buf_idx_switch(idx))
+                )
                 for idx in range(len(op.outputs))
             )
             + "\n"
@@ -437,7 +699,10 @@ class NvIrCodeGenerator:
             + "}"
         )
 
-        return output_with_buf_idx_str + "\n\n" + output_without_buf_idx_str
+        if op.pipelined:
+            return output_with_buf_idx_str + "\n\n" + output_without_buf_idx_str
+        else:
+            return output_without_buf_idx_str
 
     def dump_decl_make_shape(self, shape: Shape, *, nbuf: bool) -> str:
         shape_strs = []
@@ -456,6 +721,8 @@ class NvIrCodeGenerator:
                 shape_strs.append(self.dump_decl_make_shape(s, nbuf=False))
             else:
                 raise ValueError(f"Unknown shape type: {type(s)}")
+        if len(shape_strs) == 0:
+            shape_strs.append("_1{}")
         if nbuf:
             shape_strs.append("NBUF{}")
         comma_seperated_shapes = ", ".join(shape_strs)
@@ -463,7 +730,7 @@ class NvIrCodeGenerator:
 
     def dump_input_decl(self, inp: NvOpInput) -> str:
         def dump_decl_input_shape_type() -> str:
-            make_shape_str = self.dump_decl_make_shape(inp.shape, nbuf=False)
+            make_shape_str = self.dump_decl_make_shape(inp.tensor.shape, nbuf=False)
             decl_shape_str = f"decltype({make_shape_str})"
             return f"using Shape_i{inp.idx} = {decl_shape_str};"
 
@@ -473,7 +740,11 @@ class NvIrCodeGenerator:
         def dump_decl_input_tensor() -> str:
             return f"// Tensor_i{inp.idx} {inp.name};"
 
-        if len(inp.shape) > 0:
+        # shape_type_str = dump_decl_input_shape_type()
+        # shape_str = dump_decl_input_shape()
+        # tensor_str = dump_decl_input_tensor()
+        # return f"{shape_type_str}\n{shape_str}\n{tensor_str}"
+        if len(inp.tensor.shape) > 0:
             shape_type_str = dump_decl_input_shape_type()
             shape_str = dump_decl_input_shape()
             tensor_str = dump_decl_input_tensor()
@@ -483,10 +754,11 @@ class NvIrCodeGenerator:
 
     def dump_output_decl(self, out: NvOpOutput) -> str:
         def dump_decl_output_shape_type() -> str:
-            if out.unique:
-                make_shape_str = self.dump_decl_make_shape(out.shape, nbuf=False)
+            assert out.op is not None
+            if not out.op.pipelined or out.unique:
+                make_shape_str = self.dump_decl_make_shape(out.tensor.shape, nbuf=False)
             else:
-                make_shape_str = self.dump_decl_make_shape(out.shape, nbuf=True)
+                make_shape_str = self.dump_decl_make_shape(out.tensor.shape, nbuf=True)
             decl_shape_str = f"decltype({make_shape_str})"
             return f"using Shape_o{out.idx} = {decl_shape_str};"
 
@@ -504,15 +776,16 @@ class NvIrCodeGenerator:
                 )
 
         def dump_decl_output_tensor_type() -> str:
-            match out.mem:
+            match out.tensor.mem:
                 case "gmem":
                     decl_tensor_str = f"decltype(make_tensor(make_gmem_ptr((TO{out.idx}*)nullptr), Layout_o{out.idx}{{}}))"
                 case "smem":
                     decl_tensor_str = f"decltype(make_tensor(make_smem_ptr((TO{out.idx}*)nullptr), Layout_o{out.idx}{{}}))"
                 case "rmem":
-                    decl_tensor_str = (
-                        f"decltype(make_tensor<TO{out.idx}>(Layout_o{out.idx}{{}}))"
-                    )
+                    decl_tensor_str = f"decltype(make_tensor(make_rmem_ptr((TO{out.idx}*)nullptr), Layout_o{out.idx}{{}}))"
+                    # decl_tensor_str = (
+                    #     f"decltype(make_tensor<TO{out.idx}>(Layout_o{out.idx}{{}}))"
+                    # )
             return f"using Tensor_o{out.idx} = {decl_tensor_str};"
 
         def dump_decl_output_shape() -> str:
@@ -522,10 +795,7 @@ class NvIrCodeGenerator:
             return f"Layout_o{out.idx} layout_o{out.idx};"
 
         def dump_decl_output_tensor() -> str:
-            if out.owning:
-                return f"Tensor_o{out.idx} {out.name};"
-            else:
-                return f"Tensor_o{out.idx} &{out.name};"
+            return f"Tensor_o{out.idx} {out.name};"
 
         if out.owning:
             shape_type_str = dump_decl_output_shape_type()
@@ -545,7 +815,7 @@ class NvIrCodeGenerator:
         init_strs = []
         for idx, inp in enumerate(op.inputs):
             make_shape_str, varlen_idx = self.dump_init_make_shape(
-                idx, inp.shape, is_output=False
+                idx, inp.tensor.shape, is_output=False
             )
             if varlen_idx > 0:
                 init_strs.append(f"shape_i{idx}({make_shape_str})")
@@ -555,7 +825,7 @@ class NvIrCodeGenerator:
         init_strs = []
         for idx, out in enumerate(op.outputs):
             make_shape_str, varlen_idx = self.dump_init_make_shape(
-                idx, out.shape, is_output=True
+                idx, out.tensor.shape, is_output=True
             )
             if varlen_idx > 0:
                 init_strs.append(f"shape_o{idx}({make_shape_str})")
@@ -586,45 +856,88 @@ class NvIrCodeGenerator:
             shape_strs.append("NBUF{}")
         comma_seperated_shapes = ", ".join(shape_strs)
         return f"make_shape({comma_seperated_shapes})", varlen_idx
+    
+    def dump_non_owning_tensor_type_template_arg_strs(self, op: NvOp) -> List[str]:
+        non_owning_tensor_type_template_arg_strs = []
+        for out in op.outputs:
+            if not out.owning:
+                assert isinstance(out.tensor.source, NvOpOutput)
+                origin = out.tensor.source.origin
+                assert origin is not None
+                assert origin.op is not None
+                origin_out_str = (
+                    f"{origin.op.name}_v.template output<{origin.idx}>()"
+                )
+                non_owning_tensor_type_template_arg_strs.append(
+                    f"std::decay_t<decltype({origin_out_str})>"
+                )
+        return non_owning_tensor_type_template_arg_strs
+    
+    def dump_non_owning_tensor_as_arg_strs(self, op: NvOp) -> List[str]:
+        non_owning_tensor_as_arg_strs = []
+        for out in op.outputs:
+            if not out.owning:
+                assert isinstance(out.tensor.source, NvOpOutput)
+                origin = out.tensor.source.origin
+                assert origin is not None
+                assert origin.op is not None
+                origin_out_str = (
+                    f"{origin.op.name}_v.template output<{origin.idx}>()"
+                )
+                non_owning_tensor_as_arg_strs.append(origin_out_str)
+        return non_owning_tensor_as_arg_strs
 
     def dump_nvop_create(self, op: NvOp, nbuf: int) -> str:
-        snake_name = to_snake(op.name)
-        rmem_outputs = [out for out in op.outputs if out.mem == "rmem"]
-        smem_outputs = [out for out in op.outputs if out.mem == "smem"]
-        gmem_outputs = [out for out in op.outputs if out.mem == "gmem"]
+        rmem_outputs = [out for out in op.outputs if out.tensor.mem == "rmem"]
+        smem_outputs = [out for out in op.outputs if out.tensor.mem == "smem"]
+        gmem_outputs = [out for out in op.outputs if out.tensor.mem == "gmem"]
 
         template_args = []
-        template_args.append(f"Int<{nbuf}>")
+        if op.pipelined:
+            template_args.append(f"Int<{nbuf}>")
         template_args.extend(["BLK_MNK", "MMA_MNK", "BLK_MMA_MNK"])
-        template_args.extend([parameter for parameter in op.parameters])
-        template_args.extend([f"decltype({out.name})" for out in op.outputs if not out.owning])
+        # template_args.extend([parameter for parameter in op.parameters])
+        template_args.extend(self.dump_non_owning_tensor_type_template_arg_strs(op))
+
         template_args_str = ", ".join(template_args)
-        using_type_str = f"using {snake_name}_t = {op.name}<{template_args_str}>;"
+        using_type_str = f"using {op.name}_t = {op.name}<{template_args_str}>;"
 
         smem_output_shapes = [
-            f"using {snake_name}_layout_o{out.idx} = typename {snake_name}_t::Layout_o{out.idx};"
-            for out in smem_outputs
+            f"using {op.name}_layout_o{out.idx} = typename {op.name}_t::Layout_o{out.idx};"
+            for out in smem_outputs if out.owning
         ]
         smem_output_array_defs = [
-            f"__shared__ {out.dtype} {out.name}[cosize_v<{snake_name}_layout_o{out.idx}>];"
-            for out in smem_outputs
+            f"__shared__ {out.tensor.dtype} {op.name}_tensor_o{out.idx}[cosize_v<{op.name}_layout_o{out.idx}>];"
+            for out in smem_outputs if out.owning
+        ]
+
+        rmem_output_shapes = [
+            f"using {op.name}_layout_o{out.idx} = typename {op.name}_t::Layout_o{out.idx};"
+            for out in rmem_outputs if out.owning
+        ]
+        rmem_output_array_defs = [
+            f"{out.tensor.dtype} {op.name}_tensor_o{out.idx}[cosize_v<{op.name}_layout_o{out.idx}>];"
+            for out in rmem_outputs if out.owning
         ]
 
         outputs = []
         for out in op.outputs:
-            if not out.owning:
-                if isinstance(out.source, Tuple):
+            if out.owning:
+                outputs.append(f"{op.name}_tensor_o{out.idx}")
+            else:
+                if isinstance(out.tensor.source, NvOpOutput):
+                    origin = out.tensor.source.origin
+                    assert origin is not None
+                    assert origin.op is not None
                     outputs.append(
-                        f"{to_snake(out.source[0].name)}.template output<{out.source[1]}>()"
+                        f"{origin.op.name}_v.template output<{origin.idx}>()"
                     )
                 else:
-                    outputs.append(out.source)
-            elif out.mem == "smem":
-                outputs.append(out.name)
+                    outputs.append(out.tensor.source)
 
         varlen_modes = []
         for io in chain(op.inputs, op.outputs):
-            for s in io.shape:
+            for s in io.tensor.shape:
                 if isinstance(s, VarlenShape):
                     varlen_modes.append(s.name)
 
@@ -647,10 +960,7 @@ class NvIrCodeGenerator:
         else:
             args_str = ", ".join(args_0) + ","
         op_var_def_str = (
-            f"{snake_name}_t {snake_name}{{\n"
-            + self._indent_lines(args_str)
-            + "\n"
-            + "};"
+            f"{op.name}_t {op.name}_v{{\n" + self._indent_lines(args_str) + "\n" + "};"
         )
 
         return (
@@ -662,27 +972,88 @@ class NvIrCodeGenerator:
                 if smem_output_array_defs
                 else ""
             )
+            + (("\n".join(rmem_output_shapes) + "\n") if rmem_output_shapes else "")
+            + (
+                ("\n".join(rmem_output_array_defs) + "\n")
+                if rmem_output_array_defs
+                else ""
+            )
             + op_var_def_str
         )
 
-    def dump_nvop_pipeline_device_functions(self, pipeline: NvOpSequence) -> str:
-        ops = [op for stage in pipeline.stages for op in stage.ops]
-        snake_names = [to_snake(op.name) for op in ops]
-        op_types = ", ".join([f"class T_{op.name}" for op in ops])
-        op_as_params = ", ".join(
-            [f"T_{op.name} &{snake_name}" for op, snake_name in zip(ops, snake_names)]
-        )
-        gmem_tensor_types = "".join(
-            [f", class T_{name}" for name in pipeline.gmem_inouts.keys()]
-        )
-        gmem_tensor_as_params = "".join(
-            [f", T_{name} &{name}" for name in pipeline.gmem_inouts.keys()]
-        )
-        op_as_args = ", ".join(snake_names)
-        gmem_tensor_as_args = "".join(
-            [f", {name}" for name in pipeline.gmem_inouts.keys()]
+    def dump_gmem_tensor_nvop_create(
+        self,
+        op: GmemTensorNvOp,
+    ) -> str:
+        op_name = op.name
+        tensor_name = op.gmem_inout.name
+        varlen_modes_constructor_args = [
+            s.name for s in op.gmem_inout.shape if isinstance(s, VarlenShape)
+        ]
+        varlen_modes_constructor_args_str = "".join(
+            ", " + arg for arg in varlen_modes_constructor_args
         )
 
+        return templates.GMEM_TENSOR_NVOP_CREATE_SKELETON.format(
+            op_name=op_name,
+            tensor_name=tensor_name,
+            varlen_modes_constructor_args=varlen_modes_constructor_args_str,
+        )
+
+    def dump_constant_nvop_create(
+        self,
+        op: ConstantNvOp,
+    ) -> str:
+        op_name = op.name
+        dtype = op.outputs[0].tensor.dtype
+
+        return templates.CONSTANT_NVOP_CREATE_SKELETON.format(
+            op_name=op_name,
+            dtype=dtype,
+        )
+
+    def dump_for_loop_nvop_create(
+        self, op: ForLoopNvOp, visible_ops: Sequence[NvOp]
+    ) -> str:
+        op_name = op.name
+        visible_op_type_template_args_strs = [f"{vop.name}_t" for vop in visible_ops]
+        visible_op_as_args_strs = [f"{vop.name}_v" for vop in visible_ops]
+        visible_op_type_template_args_str = "".join(
+            f", {arg}" for arg in visible_op_type_template_args_strs
+        )
+        visible_op_as_args_str = "".join(f", {arg}" for arg in visible_op_as_args_strs)
+
+        non_owning_tensor_type_template_arg_strs = self.dump_non_owning_tensor_type_template_arg_strs(op)
+        non_owning_tensor_type_template_args_str = "".join(
+            f", {arg_str}" for arg_str in non_owning_tensor_type_template_arg_strs
+        )
+
+        non_owning_tensor_as_arg_strs = self.dump_non_owning_tensor_as_arg_strs(op)
+        non_owning_tensor_as_args_str = "".join(
+            f", {arg}" for arg in non_owning_tensor_as_arg_strs
+        )
+
+        return templates.FOR_LOOP_NVOP_CREATE_SKELETON.format(
+            op_name=op_name,
+            visible_op_type_template_args=visible_op_type_template_args_str,
+            non_owning_tensor_type_template_args=non_owning_tensor_type_template_args_str,
+            visible_op_as_args=visible_op_as_args_str,
+            non_owning_tensor_as_args=non_owning_tensor_as_args_str,
+        )
+
+    def dump_pipelined_for_loop_nvop_create(
+        self, op: ForLoopNvOp, visible_ops: Sequence[NvOp]
+    ) -> str:
+        return self.dump_for_loop_nvop_create(op, visible_ops)
+
+    def dump_sequential_for_loop_nvop_create(
+        self, op: ForLoopNvOp, visible_ops: Sequence[NvOp]
+    ) -> str:
+        return self.dump_for_loop_nvop_create(op, visible_ops)
+
+    def dump_pipelined_for_loop_nvop_methods(self, op: ForLoopNvOp) -> str:
+        assert isinstance(op.body, NvOpPipeline)
+        pipeline = op.body
         nbuf = max(pipeline.shifts) + 1
 
         op_stage_idx_mapping = {
@@ -749,8 +1120,10 @@ class NvIrCodeGenerator:
 
         def depends_on_g2s(op: NvOp) -> bool:
             for inp in op.inputs:
-                if isinstance(inp.source, Tuple):
-                    if inp.source[0].mem_type == ("g", "s"):
+                # if isinstance(inp.source, Tuple):
+                if isinstance(inp.tensor.source, NvOpOutput):
+                    assert isinstance(inp.tensor.source.op, NvOp)
+                    if inp.tensor.source.op.mem_type == ("g", "s"):
                         return True
             return False
 
@@ -825,12 +1198,8 @@ class NvIrCodeGenerator:
             return "\n".join(inst_strs)
 
         def dump_short_pipe_device_function() -> str:
-            short_pipe_body = self.dump_short_parallel(pipeline.stages, pipeline.shifts)
-            return templates.SHORT_PIPE_DEVICE_FUNCTION_SKELETON.format(
-                op_types=op_types,
-                op_as_params=op_as_params,
-                gmem_tensor_types=gmem_tensor_types,
-                gmem_tensor_as_params=gmem_tensor_as_params,
+            short_pipe_body = self.dump_short_parallel(pipeline)
+            return templates.SHORT_PIPE_SKELETON.format(
                 short_pipe_body=self._indent_lines(short_pipe_body),
             )
 
@@ -863,11 +1232,7 @@ class NvIrCodeGenerator:
                         all_insts.extend(insts)
                 return dump_insts(all_insts)
 
-            return templates.FILL_DEVICE_FUNCTION_SKELETON.format(
-                op_types=op_types,
-                op_as_params=op_as_params,
-                gmem_tensor_types=gmem_tensor_types,
-                gmem_tensor_as_params=gmem_tensor_as_params,
+            return templates.FILL_SKELETON.format(
                 fill_body=self._indent_lines(dump_fill_body()),
             )
 
@@ -905,11 +1270,7 @@ class NvIrCodeGenerator:
 
                 return dump_insts(all_insts)
 
-            return templates.LOOP_STEP_DEVICE_FUNCTION_SKELETON.format(
-                op_types=op_types,
-                op_as_params=op_as_params,
-                gmem_tensor_types=gmem_tensor_types,
-                gmem_tensor_as_params=gmem_tensor_as_params,
+            return templates.LOOP_STEP_SKELETON.format(
                 loop_step_body=self._indent_lines(dump_loop_step_body()),
             )
 
@@ -950,11 +1311,7 @@ class NvIrCodeGenerator:
 
                     return dump_insts(all_insts)
 
-                return templates.REMAINS_R_DEVICE_FUNCTION_SKELETON.format(
-                    op_types=op_types,
-                    op_as_params=op_as_params,
-                    gmem_tensor_types=gmem_tensor_types,
-                    gmem_tensor_as_params=gmem_tensor_as_params,
+                return templates.REMAINS_R_SKELETON.format(
                     r=r,
                     remains_r_body=self._indent_lines(dump_remains_r_body()),
                 )
@@ -962,9 +1319,7 @@ class NvIrCodeGenerator:
             def dump_remainder_dispatch() -> str:
                 def dump_remainder_dispatch_body() -> str:
                     def dump_remains_i_call(i: int) -> str:
-                        return (
-                            f"remains_{i}(i, l, r, {op_as_args}{gmem_tensor_as_args});"
-                        )
+                        return f"remains_{i}(i, l, r);"
 
                     def dump_remains_i_switch_i(i: int) -> str:
                         return ("else " if i > 1 else "") + (
@@ -976,11 +1331,7 @@ class NvIrCodeGenerator:
 
                     return "\n".join(dump_remains_i_switch_i(i) for i in range(1, nbuf))
 
-                return templates.REMAINDER_DEVICE_FUNCTION_SKELETON.format(
-                    op_types=op_types,
-                    op_as_params=op_as_params,
-                    gmem_tensor_types=gmem_tensor_types,
-                    gmem_tensor_as_params=gmem_tensor_as_params,
+                return templates.REMAINDER_SKELETON.format(
                     remainder_dispatch_body=self._indent_lines(
                         dump_remainder_dispatch_body()
                     ),
@@ -1033,11 +1384,7 @@ class NvIrCodeGenerator:
 
                     return dump_insts(all_insts)
 
-                return templates.EMPTY_FROM_IDX_DEVICE_FUNCTION_SKELETON.format(
-                    op_types=op_types,
-                    op_as_params=op_as_params,
-                    gmem_tensor_types=gmem_tensor_types,
-                    gmem_tensor_as_params=gmem_tensor_as_params,
+                return templates.EMPTY_FROM_IDX_SKELETON.format(
                     from_idx=from_idx,
                     empty_from_idx_body=self._indent_lines(
                         dump_empty_from_idx_body(from_idx)
@@ -1047,9 +1394,7 @@ class NvIrCodeGenerator:
             def dump_empty_from_idx_dispatch() -> str:
                 def dump_empty_dispatch_body() -> str:
                     def dump_empty_from_idx_call(idx: int) -> str:
-                        return (
-                            f"empty_{idx}(i, l, r, {op_as_args}{gmem_tensor_as_args});"
-                        )
+                        return f"empty_{idx}(i, l, r);"
 
                     def dump_empty_from_buf_idx_switch_i(idx: int) -> str:
                         return ("else " if idx > 0 else "") + (
@@ -1063,11 +1408,7 @@ class NvIrCodeGenerator:
                         dump_empty_from_buf_idx_switch_i(i) for i in range(nbuf)
                     )
 
-                return templates.EMPTY_DEVICE_FUNCTION_SKELETON.format(
-                    op_types=op_types,
-                    op_as_params=op_as_params,
-                    gmem_tensor_types=gmem_tensor_types,
-                    gmem_tensor_as_params=gmem_tensor_as_params,
+                return templates.EMPTY_SKELETON.format(
                     empty_dispatch_body=self._indent_lines(dump_empty_dispatch_body()),
                 )
 
@@ -1076,6 +1417,37 @@ class NvIrCodeGenerator:
                 + "\n\n"
                 + dump_empty_from_idx_dispatch()
             )
+
+        def dump_dispatch() -> str:
+            sum_shifts = sum(pipeline.shifts)
+
+            nbuf = max(pipeline.shifts) + 1
+
+            def dump_short_pipe_dispatch() -> str:
+                return f"short_pipe(k, l, r);"
+
+            def dump_fill_dispatch() -> str:
+                return f"fill(l, r);"
+
+            def dump_loop_step_dispatch() -> str:
+                return f"loop_step(i, l, r);"
+
+            def dump_remainder_dispatch() -> str:
+                return f"remainder(i, l, r);"
+
+            def dump_empty_dispatch() -> str:
+                return f"empty(i, l, r);"
+
+            return templates.PIPELINE_DISPATCH_SKELETON.format(
+                sum_shifts=sum_shifts,
+                nbuf=nbuf,
+                short_pipe_dispatch=dump_short_pipe_dispatch(),
+                fill_dispatch=dump_fill_dispatch(),
+                loop_step_dispatch=dump_loop_step_dispatch(),
+                remainder_dispatch=dump_remainder_dispatch(),
+                empty_dispatch=dump_empty_dispatch(),
+            )
+
 
         return (
             "// short pipe\n"
@@ -1088,179 +1460,174 @@ class NvIrCodeGenerator:
             + dump_remainder()
             + "\n\n// empties\n"
             + dump_empties()
+            + "\n\n// dispatch\n"
+            + dump_dispatch()
         )
 
-    def dump_dispatch(self, pipeline: NvOpSequence) -> str:
-        ops = [op for stage in pipeline.stages for op in stage.ops]
-        snake_names = [to_snake(op.name) for op in ops]
-        op_as_args = ", ".join(snake_names)
-        gmem_tensor_as_args = "".join(
-            [f", {name}" for name in pipeline.gmem_inouts.keys()]
-        )
-        sum_shifts = sum(pipeline.shifts)
+    def dump_nvop_class_defs(self, program: NvOpProgram) -> str:
+        class_defs = []
+        visible_ops = {}
 
-        nbuf = max(pipeline.shifts) + 1
+        def _dump_sequential_for_loop_nvop(
+            for_loop_op: ForLoopNvOp, current_level: int
+        ) -> None:
+            for op in for_loop_op.body.ops:
+                _dump_nvop(op, current_level + 1)
+            class_defs.append(
+                self.dump_sequential_for_loop_nvop_class_def(
+                    for_loop_op,
+                    [
+                        op
+                        for l in range(current_level + 2)
+                        for op in visible_ops.setdefault(l, [])
+                    ],
+                )
+            )
+            del visible_ops[current_level + 1]
 
-        def dump_short_pipe_dispatch() -> str:
-            return f"short_pipe(k, l, r, {op_as_args}{gmem_tensor_as_args});"
+        def _dump_pipelined_for_loop_nvop(
+            for_loop_op: ForLoopNvOp, current_level: int
+        ) -> None:
+            assert isinstance(for_loop_op.body, NvOpPipeline)
+            for stage in for_loop_op.body.stages:
+                for op in stage.ops:
+                    _dump_nvop(op, current_level + 1)
+            class_defs.append(
+                self.dump_pipelined_for_loop_nvop_class_def(
+                    for_loop_op,
+                    [
+                        op
+                        for l in range(current_level + 2)
+                        for op in visible_ops.setdefault(l, [])
+                    ],
+                )
+            )
+            del visible_ops[current_level + 1]
 
-        def dump_fill_dispatch() -> str:
-            return f"fill(l, r, {op_as_args}{gmem_tensor_as_args});"
+        def _dump_nvop(op: NvOp, current_level: int) -> None:
+            if isinstance(op, GmemTensorNvOp):
+                class_defs.append(self.dump_gmem_tensor_nvop_class_def(op))
+            elif isinstance(op, ForLoopNvOp):
+                if isinstance(op.body, NvOpPipeline):
+                    _dump_pipelined_for_loop_nvop(op, current_level)
+                elif isinstance(op.body, NvOpSequence):
+                    _dump_sequential_for_loop_nvop(op, current_level)
+                else:
+                    raise ValueError(f"Unknown body type: {type(op.body)}")
+            elif isinstance(op, ConstantNvOp):
+                class_defs.append(self.dump_constant_nvop_class_def(op))
+            else:
+                class_defs.append(self.dump_nvop_class_def(op))
+            visible_ops.setdefault(current_level, []).append(op)
 
-        def dump_loop_step_dispatch() -> str:
-            return f"loop_step(i, l, r, {op_as_args}{gmem_tensor_as_args});"
+        for op in program.ops:
+            _dump_nvop(op, 0)
 
-        def dump_remainder_dispatch() -> str:
-            return f"remainder(i, l, r, {op_as_args}{gmem_tensor_as_args});"
+        return "\n\n".join(class_defs)
 
-        def dump_empty_dispatch() -> str:
-            return f"empty(i, l, r, {op_as_args}{gmem_tensor_as_args});"
+    def dump_nvop_inits(self, program: NvOpProgram) -> str:
+        nvop_inits = []
+        visible_ops = {}
 
-        return templates.GLOBAL_FUNCTION_DISPATCH_SKELETON.format(
-            sum_shifts=sum_shifts,
-            nbuf=nbuf,
-            short_pipe_dispatch=dump_short_pipe_dispatch(),
-            fill_dispatch=dump_fill_dispatch(),
-            loop_step_dispatch=dump_loop_step_dispatch(),
-            remainder_dispatch=dump_remainder_dispatch(),
-            empty_dispatch=dump_empty_dispatch(),
-        )
+        def _dump_sequential_for_loop_nvop(
+            for_loop_op: ForLoopNvOp, current_level: int
+        ) -> None:
+            for op in for_loop_op.body.ops:
+                _dump_nvop(op, current_level + 1, nbuf=1)
+            nvop_inits.append(
+                self.dump_sequential_for_loop_nvop_create(
+                    for_loop_op,
+                    [
+                        op
+                        for l in range(current_level + 2)
+                        for op in visible_ops.setdefault(l, [])
+                    ],
+                )
+            )
+            del visible_ops[current_level + 1]
 
-    def dump_prologue(self, pipeline: NvOpSequence) -> str:
-        prologue_op_str = f"// prologue\n"
-        prologue_ops = [
-            self.dump_f_method_call(op, buf_idx_str="0") for op in pipeline.prologue
-        ]
-        prologue_op_str += "\n\n".join(prologue_ops)
-        return prologue_op_str + "\n" + templates.DTC_PROLOGUE
-        # return templates.DTC_PROLOGUE
+        def _dump_pipelined_for_loop_nvop(
+            for_loop_op: ForLoopNvOp, current_level: int
+        ) -> None:
+            assert isinstance(for_loop_op.body, NvOpPipeline)
+            for stage in for_loop_op.body.stages:
+                for op in stage.ops:
+                    _dump_nvop(op, current_level + 1, nbuf=for_loop_op.body.nbuf)
+            nvop_inits.append(
+                self.dump_pipelined_for_loop_nvop_create(
+                    for_loop_op,
+                    [
+                        op
+                        for l in range(current_level + 2)
+                        for op in visible_ops.setdefault(l, [])
+                    ],
+                )
+            )
+            del visible_ops[current_level + 1]
 
-    def dump_epilogue(self, pipeline: NvOpSequence) -> str:
-        epilogue_op_str = f"// epilogue\n"
-        epilogue_ops = [
-            self.dump_f_method_call(op, buf_idx_str="0") for op in pipeline.epilogue
-        ]
-        epilogue_op_str += "\n\n".join(epilogue_ops)
-        return epilogue_op_str
-        # return templates.DTC_EPILOGUE
+        def _dump_nvop(op: NvOp, current_level: int, nbuf: int) -> None:
+            if isinstance(op, GmemTensorNvOp):
+                nvop_inits.append(self.dump_gmem_tensor_nvop_create(op))
+            elif isinstance(op, ForLoopNvOp):
+                if isinstance(op.body, NvOpPipeline):
+                    _dump_pipelined_for_loop_nvop(op, current_level)
+                elif isinstance(op.body, NvOpSequence):
+                    _dump_sequential_for_loop_nvop(op, current_level)
+                else:
+                    raise ValueError(f"Unknown body type: {type(op.body)}")
+            elif isinstance(op, ConstantNvOp):
+                nvop_inits.append(self.dump_constant_nvop_create(op))
+            else:
+                nvop_inits.append(self.dump_nvop_create(op, nbuf))
+            visible_ops.setdefault(current_level, []).append(op)
 
-    def dump_nvop_pipeline_global_function(self, pipeline: NvOpSequence) -> str:
+        for op in program.ops:
+            _dump_nvop(op, 0, nbuf=1)
+
+        return "\n".join(nvop_inits)
+
+    def dump_nvop_global_function(self, program: NvOpProgram) -> str:
 
         def dump_all_parameters() -> str:
-            all_parameters = pipeline.all_parameters()
+            all_parameters = sorted(program.all_parameters())
             return "".join([f", class {param}" for param in all_parameters])
-
-        def dump_shifts() -> str:
-            return ", ".join(f"int shift{i + 1}" for i in range(len(pipeline.shifts)))
 
         def dump_gmem_ptrs() -> str:
             return ",\n".join(
-                [f"{io.dtype} *d{name}" for name, io in pipeline.gmem_inouts.items()]
+                # [f"{io.dtype} *d{name}" for name, io in program.gmem_inouts.items()]
+                [f"{program.gmem_inouts[name].dtype} *d{name}" for name in sorted(program.gmem_inouts.keys())]
             )
 
         def dump_varlens() -> str:
-            return ", ".join([f"int {name}" for name in pipeline.all_varlens()])
+            all_varlens = sorted(program.all_varlens())
+            return ", ".join([f"int {name}" for name in all_varlens])
 
-        def dump_gmem_tensor_init() -> str:
-            def dump_make_shape(shape: Shape) -> str:
-                shape_strs = []
-                for s in shape:
-                    if isinstance(s, IntShape):
-                        shape_strs.append(f"Int<{s.value}>{{}}")
-                    elif isinstance(s, ParamShape):
-                        shape_strs.append(f"{s.param}{{}}")
-                    elif isinstance(s, VarlenShape):
-                        shape_strs.append(s.name)
-                    elif isinstance(s, MnkShape):
-                        shape_strs.append(
-                            f"get<{0 if s.mnk == 'm' else 1 if s.mnk == 'n' else 2}>({s.param}{{}})"
-                        )
-                    elif isinstance(s, Shape):
-                        shape_strs.append(dump_make_shape(s))
-                    else:
-                        raise ValueError(f"Unknown shape type: {type(s)}")
-                comma_seperated_shapes = ", ".join(shape_strs)
-                return f"make_shape({comma_seperated_shapes})"
-
-            tensor_init_strs = ["// gmem tensors"]
-            blk_slice_strs = {
-                "B_val": "logical_divide({tensor}, make_shape(_1{{}}, get<1>(BLK_MNK{{}})))(_, make_coord(_, blockIdx.y))",
-                "C_val": "logical_divide({tensor}, select<1, 0>(BLK_MNK{{}}))(make_coord(_, blockIdx.y), make_coord(_, blockIdx.x))",
-            }
-            for name, io in pipeline.gmem_inouts.items():
-                make_tensor_str = (
-                    f"make_tensor(make_gmem_ptr(d{name}), {dump_make_shape(io.shape)})"
-                )
-                if name in blk_slice_strs:
-                    make_tensor_str = blk_slice_strs[name].format(
-                        tensor=make_tensor_str
-                    )
-                tensor_init_strs.append(f"Tensor {name} = {make_tensor_str};")
-            return "\n".join(tensor_init_strs)
+        def dump_nvop_calls() -> str:
+            return "\n".join(
+                [self.dump_f_method_call(op, buf_idx_str="0") for op in program.ops if not isinstance(op, GmemTensorNvOp)]
+            )
 
         all_parameters = dump_all_parameters()
-        shifts = dump_shifts()
-        kernel_name = pipeline.name
+        kernel_name = program.name
         gmem_ptrs = self._indent_lines(dump_gmem_ptrs())
         varlens = self._indent_lines(dump_varlens())
-        gmem_tensor_init = self._indent_lines(dump_gmem_tensor_init())
-        nvop_inits = self._indent_lines(self.dump_nvop_inits(pipeline))
-        prologue = self._indent_lines(self.dump_prologue(pipeline))
-        dispatch = self._indent_lines(self.dump_dispatch(pipeline))
-        epilogue = self._indent_lines(self.dump_epilogue(pipeline))
+        nvop_inits = self._indent_lines(self.dump_nvop_inits(program))
+        nvop_calls = self._indent_lines(dump_nvop_calls())
         return templates.GLOBAL_FUNCTION_SKELETON.format(
-            all_parameters=all_parameters,
-            shifts=shifts,
+            parameter_types=all_parameters,
             kernel_name=kernel_name,
             gmem_ptrs=gmem_ptrs,
             varlens=varlens,
-            gmem_tensor_init=gmem_tensor_init,
             nvop_inits=nvop_inits,
-            prologue=prologue,
-            dispatch=dispatch,
-            epilogue=epilogue,
+            nvop_calls=nvop_calls,
         )
 
-    def dump_nvop_defs(self, pipeline: NvOpSequence) -> str:
-        stages = []
-        for stage_idx, stage in enumerate(pipeline.stages):
-            stage_op_str = f"// stage {stage_idx}\n"
-            ops = [self.dump_nvop_class_def(op) for op in stage.ops]
-            stage_op_str += "\n\n".join(ops)
-            stages.append(stage_op_str)
-        prologue_op_str = f"// prologue\n"
-        prologue_ops = [self.dump_nvop_class_def(op) for op in pipeline.prologue]
-        prologue_op_str += "\n\n".join(prologue_ops)
-        epilogue_op_str = f"// epilogue\n"
-        epilogue_ops = [self.dump_nvop_class_def(op) for op in pipeline.epilogue]
-        epilogue_op_str += "\n\n".join(epilogue_ops)
-        return "\n\n".join([prologue_op_str] + stages + [epilogue_op_str])
-
-    def dump_nvop_inits(self, pipeline: NvOpSequence) -> str:
-        stages = []
-        for stage_idx, stage in enumerate(pipeline.stages):
-            stage_op_str = f"// stage {stage_idx}\n"
-            ops = [self.dump_nvop_create(op, pipeline.nbuf) for op in stage.ops]
-            stage_op_str += "\n\n".join(ops)
-            stages.append(stage_op_str)
-        prologue_op_str = f"// prologue\n"
-        prologue_ops = [self.dump_nvop_create(op, 1) for op in pipeline.prologue]
-        prologue_op_str += "\n\n".join(prologue_ops)
-        epilogue_op_str = f"// epilogue\n"
-        epilogue_ops = [self.dump_nvop_create(op, 1) for op in pipeline.epilogue]
-        epilogue_op_str += "\n\n".join(epilogue_ops)
-        return "\n\n".join([prologue_op_str] + stages + [epilogue_op_str])
-
-    def dump_nvop_pipeline(self, pipeline: NvOpSequence) -> str:
+    def dump_nvop_program(self, program: NvOpProgram) -> str:
         device_helper_functions = templates.DTC_HELPER_FUNCTIONS
-        nvop_defs = self.dump_nvop_defs(pipeline)
-        nvop_pipeline_device_functions = self.dump_nvop_pipeline_device_functions(
-            pipeline
-        )
-        global_function = self.dump_nvop_pipeline_global_function(pipeline)
+        nvop_defs = self.dump_nvop_class_defs(program)
+        global_function = self.dump_nvop_global_function(program)
         return templates.CUDA_SOURCE_SKELETON.format(
             device_helper_functions=device_helper_functions,
             nvop_defs=nvop_defs,
-            nvop_pipeline_device_functions=nvop_pipeline_device_functions,
             global_function=global_function,
         )

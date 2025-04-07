@@ -1,6 +1,6 @@
 #compilers
 CC=nvcc
-NVCC_FLAGS = -std=c++17 -g -lineinfo -O3 -m64 -gencode arch=compute_80,code=sm_80 --expt-relaxed-constexpr
+NVCC_FLAGS = -std=c++17 -g -lineinfo -O3 -m64 -gencode arch=compute_80,code=sm_80 --expt-relaxed-constexpr --ptxas-options=-v
 
 # #ENVIRONMENT_PARAMETERS
 # CUDA_INSTALL_PATH = /usr/local/cuda-12.0

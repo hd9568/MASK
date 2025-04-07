@@ -69,6 +69,48 @@ int main() {
     printf("\n");
 
 
+    printf("Testing if cute would copy tensors created without ptr\n");
+    auto tensor_A = make_tensor<float>(make_shape(_16{}));
+    for (int i = 0; i < 16; i++) {
+        tensor_A(i) = i;
+    }
+    auto tensor_B = tensor_A;
+    printf("After tensor_B = tensor_A, tensor_B: ");
+    for (int i = 0; i < 16; i++) {
+        printf("%f ", tensor_B(i));
+    }
+    printf("\n");
+    tensor_A(0) = 100.0f;
+    printf("After tensor_A(0) = 100.0f, tensor_B: ");
+    for (int i = 0; i < 16; i++) {
+        printf("%f ", tensor_B(i));
+    }
+    printf("\n");
+
+    printf("Testing if cute would copy tensors created with ptr\n");
+    auto ptr = new float[16];
+    auto tensor_pA = make_tensor(ptr, make_shape(_16{}));
+    for (int i = 0; i < 16; i++) {
+        tensor_pA(i) = i;
+    }
+    auto tensor_pB = tensor_pA;
+    printf("After tensor_pB = tensor_pA, tensor_pB: ");
+    for (int i = 0; i < 16; i++) {
+        printf("%f ", tensor_pB(i));
+    }
+    printf("\n");
+    tensor_pA(0) = 100.0f;
+    printf("After tensor_pA(0) = 100.0f, tensor_pB: ");
+    for (int i = 0; i < 16; i++) {
+        printf("%f ", tensor_pB(i));
+    }
+    printf("\n");
+
+    auto tensor_0d = make_tensor<float>(Shape<_1>{});
+    tensor_0d(0) = 101.0f;
+    printf("tensor_0d: %f\n", tensor_0d(0));
+
+
     // auto C0 = new float[C_tr * C_tc * C_vc * C_vr * C_p];
     // auto C1 = new float[C_tr * C_tc * C_vc * C_vr * C_p];
     // Tensor C_tensor_pt2v2_0 = make_tensor(C0, C_pt2v2_layout);

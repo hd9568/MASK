@@ -1,3 +1,265 @@
+DTC_HELPER_FUNCTIONS = """__device__ __forceinline__ void ldmatrix_m8n8k8_x4(uint32_t* fragment, void* ptr) {
+    uint32_t values_tile_int_ptr = static_cast<uint32_t>(__cvta_generic_to_shared(ptr));
+    asm volatile(
+        "ldmatrix.sync.aligned.m8n8.x4.shared.b16 \\t"
+        " { %0, %1, %2, %3 }, \\t"
+        " [%4];"
+        : "=r"(fragment[0]), "=r"(fragment[1]), "=r"(fragment[2]), "=r"(fragment[3])
+        : "r"(values_tile_int_ptr)
+    );
+}
+
+__device__ __forceinline__ void mma_m16n8k16_fp32(float* acc, uint32_t* A, half* half_B) {
+    uint32_t* B = reinterpret_cast<uint32_t*>(half_B);
+    asm volatile(
+        "mma.sync.aligned.m16n8k16.row.col.f32.f16.f16.f32 "
+        "{%0, %1, %2, %3}, {%4, %5, %6, %7}, {%8, %9}, {%0, %1, %2, %3};"
+        : "+f"(acc[0]), "+f"(acc[1]), "+f"(acc[2]), "+f"(acc[3])
+        : "r"(A[0]), "r"(A[1]), "r"(A[2]), "r"(A[3]), "r"(B[0]), "r"(B[1])
+    );
+}"""
+
+SHORT_PIPE_SKELETON = """CUTE_DEVICE void short_pipe(int k, int l, int r) {{
+{short_pipe_body}
+}}"""
+
+FILL_SKELETON = """CUTE_DEVICE void fill(int l, int r) {{
+{fill_body}
+}}"""
+
+EMPTY_FROM_IDX_SKELETON = """CUTE_DEVICE void empty_{from_idx}(int i, int l, int r) {{
+{empty_from_idx_body}
+}}"""
+
+EMPTY_SKELETON = """CUTE_DEVICE void empty(int i, int l, int r) {{
+{empty_dispatch_body}
+}}"""
+
+LOOP_STEP_SKELETON = """CUTE_DEVICE void loop_step(int i, int l, int r) {{
+{loop_step_body}
+}}"""
+
+REMAINS_R_SKELETON = """CUTE_DEVICE void remains_{r}(int i, int l, int r) {{
+{remains_r_body}
+}}"""
+
+REMAINDER_SKELETON = """CUTE_DEVICE void remainder(int i, int l, int r) {{
+{remainder_dispatch_body}
+}}"""
+
+PIPELINE_DISPATCH_SKELETON = """CUTE_DEVICE void dispatch() {{
+    int l = this->_l;
+    int r = this->_r;
+    int k = r - l;
+    if (k <= {sum_shifts}) {{
+        {short_pipe_dispatch}
+    }} else {{
+        {fill_dispatch}
+        int i;
+        for (i = {sum_shifts}; i + {nbuf} <= k; i += {nbuf}) {{
+            {loop_step_dispatch}
+        }}
+        {remainder_dispatch}
+        {empty_dispatch}
+    }}
+}}"""
+
+PIPELINED_FOR_LOOP_NVOP_F_SKELETON = """this->_l = l;
+this->_r = r;
+{pipeline_dispatch}
+"""
+
+PIPELINED_FOR_LOOP_NVOP_DEF_SKELETON = """template <class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK{visible_op_type_template_params}{non_owning_tensor_type_template_params}{io_dtype_template_params}{parameter_template_params}>
+class {op_name} {{
+public:
+    // Inputs
+    int _l, _r;
+    int _idx; // i + _l
+    int _iter; // i
+
+{outputs}
+
+    // Hardware parameters
+    int tid, lid, wid;
+
+    // Body Ops
+{visible_ops}
+
+    // Constructor
+    CUTE_DEVICE {op_name}(int tid, int lid, int wid{visible_op_as_params}{non_owning_tensor_as_params})
+    : tid(tid), lid(lid), wid(wid){visible_op_inits}{non_owning_tensor_inits} {{}}
+
+    // Pipeline methods
+{pipeline_methods}
+
+{get_output_method}
+
+    // f
+    template<typename = void>
+    CUTE_DEVICE void f(int l, int r) {{
+        _l = l;
+        _r = r;
+        dispatch();
+    }}
+}};"""
+
+BLK_IDX_FOR_LOOP_NVOP_DEF_SKELETON = """template <class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK{visible_op_type_template_params}{parameter_template_params}>
+class {op_name} {{
+public:
+    // Inputs
+    int _idx;
+
+    // Hardware parameters
+    int tid, lid, wid;
+
+    // Body Ops
+{visible_ops}
+
+    // Constructor
+    CUTE_DEVICE {op_name}(int tid, int lid, int wid{visible_op_as_params})
+    : tid(tid), lid(lid), wid(wid){visible_op_inits} {{}}
+
+    // Body
+    CUTE_DEVICE void body() {{
+{body}
+    }}
+
+    // f
+    template<typename = void>
+    CUTE_DEVICE void f() {{
+        this->_idx = blockIdx.{block_idx_dim};
+        body();
+    }}
+}};"""
+
+SEQUENTIAL_FOR_LOOP_NVOP_DEF_SKELETON = """template <class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK{visible_op_type_template_params}{non_owning_tensor_type_template_params}{io_dtype_template_params}{parameter_template_params}>
+class {op_name} {{
+public:
+    // Inputs
+    int _l, _r;
+    int _idx; // i + _l
+    int _iter; // i
+
+{loop_result_outputs}
+
+    // Hardware parameters
+    int tid, lid, wid;
+
+    // Body Ops
+{visible_ops}
+
+    // Constructor
+    CUTE_DEVICE {op_name}(int tid, int lid, int wid{visible_op_as_params}{non_owning_tensor_as_params})
+    : tid(tid), lid(lid), wid(wid){visible_op_inits}{non_owning_tensor_inits} {{}}
+
+{loop_result_outputs}
+
+    // f
+    template<class Tensor_i0, class Tensor_i1>
+    CUTE_DEVICE void f(Tensor_i0 l, Tensor_i1 r) {{
+        _l = l;
+        _r = r;
+        for (int i = _l; i < _r; i++) {{
+            _idx = i;
+            _iter = i - _l;
+{loop_body}
+        }}
+    }}
+}};"""
+
+NVOP_CLASS_DEF_SKELETON = """template <{nbuf}class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK{non_owning_tensor_type_template_params}{io_dtypes}{parameter_types}>
+class {op_name} {{
+public:
+{inputs_defs}
+
+{output_defs}
+
+    // Hardware parameters
+    int tid, lid, wid;
+
+    // Constructor
+    CUTE_DEVICE {op_name}(int tid, int lid, int wid{non_owning_tensor_refs_as_params})
+    : tid(tid), lid(lid), wid(wid){non_owning_tensor_refs_inits} {{}}
+
+    // output
+{get_output_method}
+
+    // f
+    template<{f_template_params}>
+    CUTE_DEVICE void f({f_params}) {{
+{f_body}
+    }}
+}};"""
+
+CONSTANT_NVOP_CLASS_DEF_SKELETON = """template <{nbuf_type}class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK{parameter_types}{io_dtypes}>
+class {op_name} {{
+public:
+    // No Inputs
+    // Outputs
+    using Shape_o0 = decltype({make_shape_str});
+    using Layout_o0 = decltype(make_layout(Shape_o0{{}}));
+    using Tensor_o0 = decltype(make_tensor(make_{mem_type_str}_ptr((TO0*)nullptr), Layout_o0{{}}));
+    Shape_o0 shape_o0;
+    Layout_o0 layout_o0;
+    Tensor_o0 {tensor_name};
+
+    // Hardware parameters
+    int tid, lid, wid;
+
+    // Constructor
+    CUTE_DEVICE {op_name}(int tid, int lid, int wid, TO0 *{tensor_name})
+    : tid(tid), lid(lid), wid(wid), {tensor_name}(make_tensor(make_{mem_type_str}_ptr({tensor_name}), Layout_o0{{}})) {{}}
+
+    // output
+{get_output_method}
+    
+    // f
+    template<typename = void>
+    CUTE_DEVICE void f() {{
+        {f_body}
+    }}
+}};"""
+
+GMEM_TENSOR_NVOP_CLASS_DEF_SKELETON = """template <class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK{parameter_types}{io_dtypes}>
+class {op_name} {{
+public:
+    // Outputs
+    using Tensor_o0 = {tensor_type_str};
+    using Layout_o0 = decltype(Tensor_o0{{}}.layout());
+    using Shape_o0 = decltype(Layout_o0{{}}.shape());
+    Shape_o0 shape_o0;
+    Layout_o0 layout_o0;
+    Tensor_o0 {tensor_name};
+
+    // Hardware parameters
+    int tid, lid, wid;
+
+    // Constructor
+    CUTE_DEVICE {op_name}(int tid, int lid, int wid{varlen_modes_constructor_params}, TO0 *d{tensor_name})
+    : tid(tid), lid(lid), wid(wid),
+    shape_o0({tensor_str}.shape()),
+    layout_o0({tensor_str}.layout()),
+    {tensor_name}({tensor_str}) {{}}
+
+    // output
+{get_output_method}
+}};"""
+
+GLOBAL_FUNCTION_SKELETON = """template <class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK{parameter_types}>
+__global__ void {kernel_name}(
+{gmem_ptrs},
+{varlens}
+) {{
+    const int tid = threadIdx.x;
+    const int lid = tid % 32;
+    const int wid = tid / 32;
+
+{nvop_inits}
+
+{nvop_calls}
+}};"""
+
+
 CUDA_SOURCE_SKELETON = """#include <stdlib.h>
 #include <stdio.h>
 #include <math.h>
@@ -37,114 +299,16 @@ using namespace cute;
 
 {nvop_defs}
 
-{nvop_pipeline_device_functions}
-
 // GLOBAL FUNCTION
-{global_function}
-"""
+{global_function}"""
 
-DTC_HELPER_FUNCTIONS = """__device__ __forceinline__ void ldmatrix_m8n8k8_x4(uint32_t* fragment, void* ptr) {
-    uint32_t values_tile_int_ptr = static_cast<uint32_t>(__cvta_generic_to_shared(ptr));
-    asm volatile(
-        "ldmatrix.sync.aligned.m8n8.x4.shared.b16 \\t"
-        " { %0, %1, %2, %3 }, \\t"
-        " [%4];"
-        : "=r"(fragment[0]), "=r"(fragment[1]), "=r"(fragment[2]), "=r"(fragment[3])
-        : "r"(values_tile_int_ptr)
-    );
-}
+GMEM_TENSOR_NVOP_CREATE_SKELETON = """using {op_name}_t = {op_name}<BLK_MNK, MMA_MNK, BLK_MMA_MNK>;
+{op_name}_t {op_name}_v{{tid, lid, wid{varlen_modes_constructor_args}, d{tensor_name}}};"""
 
-__device__ __forceinline__ void mma_m16n8k16_fp32(float* acc, uint32_t* A, half* half_B) {
-    uint32_t* B = reinterpret_cast<uint32_t*>(half_B);
-    asm volatile(
-        "mma.sync.aligned.m16n8k16.row.col.f32.f16.f16.f32 "
-        "{%0, %1, %2, %3}, {%4, %5, %6, %7}, {%8, %9}, {%0, %1, %2, %3};"
-        : "+f"(acc[0]), "+f"(acc[1]), "+f"(acc[2]), "+f"(acc[3])
-        : "r"(A[0]), "r"(A[1]), "r"(A[2]), "r"(A[3]), "r"(B[0]), "r"(B[1])
-    );
-}"""
+CONSTANT_NVOP_CREATE_SKELETON = """using {op_name}_t = {op_name}<BLK_MNK, MMA_MNK, BLK_MMA_MNK>;
+using {op_name}_layout_o0 = typename {op_name}_t::Layout_o0;
+{dtype} {op_name}_tensor_o0[cosize_v<{op_name}_layout_o0>];
+{op_name}_t {op_name}_v{{tid, lid, wid, {op_name}_tensor_o0}};"""
 
-DTC_PROLOGUE = """
-int l = g2r_sparse_offset_load_op.template output<0, 0>();
-int r = g2r_sparse_offset_load_op.template output<0, 1>();
-int k = r - l;"""
-
-DTC_EPILOGUE = """//! write back
-auto REGC = mma_op.template output<0, 0>();
-for (int i_tileN = 0; i_tileN < get<1>(BLK_MNK{}) / 8; i_tileN++) {
-    int row = blockIdx.x * 16 + lid / 4;
-    int col = blockIdx.y * get<1>(BLK_MNK{}) + i_tileN * 8 + lid % 4 * 2;
-    C_val(col, row) = REGC(0, i_tileN);
-    C_val(col + 1, row) = REGC(1, i_tileN);
-    C_val(col, row + 8) = REGC(2, i_tileN);
-    C_val(col + 1, row + 8) = REGC(3, i_tileN);
-}"""
-
-GLOBAL_FUNCTION_SKELETON = """template <
-	class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK
-	{all_parameters}
-> __global__ void {kernel_name}(
-{gmem_ptrs},
-{varlens}
-) {{
-    const int tid = threadIdx.x;
-    const int lid = tid % 32;
-    const int wid = tid / 32;
-
-{gmem_tensor_init}
-
-{nvop_inits}
-
-{prologue}
-
-{dispatch}
-
-{epilogue}
-}}"""
-
-GLOBAL_FUNCTION_DISPATCH_SKELETON = """if (k <= {sum_shifts}) {{
-    {short_pipe_dispatch}
-}} else {{
-    {fill_dispatch}
-    int i;
-    for (i = {sum_shifts}; i + {nbuf} <= k; i += {nbuf}) {{
-        {loop_step_dispatch}
-    }}
-    {remainder_dispatch}
-    {empty_dispatch}
-}}"""
-
-SHORT_PIPE_DEVICE_FUNCTION_SKELETON = """template <{op_types}{gmem_tensor_types}>
-__device__ void short_pipe(int k, int l, int r, {op_as_params}{gmem_tensor_as_params}) {{
-{short_pipe_body}
-}}"""
-
-FILL_DEVICE_FUNCTION_SKELETON = """template <{op_types}{gmem_tensor_types}>
-__device__ void fill(int l, int r, {op_as_params}{gmem_tensor_as_params}) {{
-{fill_body}
-}}"""
-
-EMPTY_FROM_IDX_DEVICE_FUNCTION_SKELETON = """template <{op_types}{gmem_tensor_types}>
-__device__ void empty_{from_idx}(int i, int l, int r, {op_as_params}{gmem_tensor_as_params}) {{
-{empty_from_idx_body}
-}}"""
-
-EMPTY_DEVICE_FUNCTION_SKELETON = """template <{op_types}{gmem_tensor_types}>
-__device__ void empty(int i, int l, int r, {op_as_params}{gmem_tensor_as_params}) {{
-{empty_dispatch_body}
-}}"""
-
-LOOP_STEP_DEVICE_FUNCTION_SKELETON = """template <{op_types}{gmem_tensor_types}>
-__device__ void loop_step(int i, int l, int r, {op_as_params}{gmem_tensor_as_params}) {{
-{loop_step_body}
-}}"""
-
-REMAINS_R_DEVICE_FUNCTION_SKELETON = """template <{op_types}{gmem_tensor_types}>
-__device__ void remains_{r}(int i, int l, int r, {op_as_params}{gmem_tensor_as_params}) {{
-{remains_r_body}
-}}"""
-
-REMAINDER_DEVICE_FUNCTION_SKELETON = """template <{op_types}{gmem_tensor_types}>
-__device__ void remainder(int i, int l, int r, {op_as_params}{gmem_tensor_as_params}) {{
-{remainder_dispatch_body}
-}}"""
+FOR_LOOP_NVOP_CREATE_SKELETON = """using {op_name}_t = {op_name}<BLK_MNK, MMA_MNK, BLK_MMA_MNK{visible_op_type_template_args}{non_owning_tensor_type_template_args}>;
+{op_name}_t {op_name}_v{{tid, lid, wid{visible_op_as_args}{non_owning_tensor_as_args}}};"""

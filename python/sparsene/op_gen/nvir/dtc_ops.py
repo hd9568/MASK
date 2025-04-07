@@ -9,36 +9,300 @@ from sparsene.op_gen.nvir.nvop import (
     VarlenShape,
     MnkShape,
     LayoutHint,
-)
-from python.sparsene.op_gen.nvir.sequence import (
-    NvOpStage,
     NvOpSequence,
+    NvOpPipeline,
     GmemInout,
+    NvOpTensor,
+    MetaNvOp,
+    ForLoopNvOp,
+    ConstantNvOp,
+    NvOpProgram,
 )
-from python.sparsene.op_gen.nvir.generate import visit_and_extract_gmem_inouts
+from sparsene.op_gen.nvir.pipeliner import PipelinePlan, apply_pipeline
 
-g2s_val_sidx_load_op = NvOp(
-    name="G2sValSidxLoadOp",
+dtc_program = NvOpProgram(
+    name="dtc_spmm_kernel_sstage_rstage",
+    gmem_inouts={
+        "val_sidx": GmemInout(
+            shape=Shape(ParamShape("tile_sidx_size"), VarlenShape("nnz_block")),
+            name="val_sidx",
+            dtype="int",
+            tensor_str="make_tensor(make_gmem_ptr(dval_sidx), make_shape(tile_sidx_size{}, nnz_block))",
+            tensor_type_str="decltype(make_tensor(make_gmem_ptr((TO0*)nullptr), make_shape(tile_sidx_size{}, VARLEN)))",
+            parameters={"tile_sidx_size": 16},
+        ),
+        "val_coo_off": GmemInout(
+            shape=Shape(IntShape(2), VarlenShape("nnz_block")),
+            name="val_coo_off",
+            dtype="int",
+            tensor_str="make_tensor(make_gmem_ptr(dval_coo_off), make_shape(Int<2>{}, nnz_block))",
+            tensor_type_str="decltype(make_tensor(make_gmem_ptr((TO0*)nullptr), make_shape(Int<2>{}, VARLEN)))",
+        ),
+        "val_coo_val": GmemInout(
+            shape=Shape(VarlenShape("nnz")),
+            name="val_coo_val",
+            dtype="half",
+            tensor_str="make_tensor(make_gmem_ptr(dval_coo_val), make_shape(nnz))",
+            tensor_type_str="decltype(make_tensor(make_gmem_ptr((TO0*)nullptr), make_shape(VARLEN)))",
+        ),
+        "val_coo_idx": GmemInout(
+            shape=Shape(VarlenShape("nnz")),
+            name="val_coo_idx",
+            dtype="int",
+            tensor_str="make_tensor(make_gmem_ptr(dval_coo_idx), make_shape(nnz))",
+            tensor_type_str="decltype(make_tensor(make_gmem_ptr((TO0*)nullptr), make_shape(VARLEN)))",
+        ),
+        "val_soff": GmemInout(
+            shape=Shape(VarlenShape("Mo")),
+            name="val_soff",
+            dtype="int",
+            tensor_str="make_tensor(make_gmem_ptr(dval_soff), make_shape(Mo))",
+            tensor_type_str="decltype(make_tensor(make_gmem_ptr((TO0*)nullptr), make_shape(VARLEN)))",
+        ),
+        "B_val": GmemInout(
+            shape=Shape(VarlenShape("K"), VarlenShape("N")),
+            name="B_val",
+            dtype="half",
+            tensor_str="logical_divide(make_tensor(make_gmem_ptr(dB_val), make_shape(K, N)), make_shape(_1{}, get<1>(BLK_MNK{})))(_, make_coord(_, blockIdx.y))",
+            tensor_type_str="decltype(logical_divide(make_tensor(make_gmem_ptr((TO0*)nullptr), make_shape(VARLEN, VARLEN)), make_shape(_1{}, get<1>(BLK_MNK{})))(_, make_coord(_, VARLEN)))",
+        ),
+        "C_val": GmemInout(
+            shape=Shape(VarlenShape("N"), VarlenShape("M")),
+            name="C_val",
+            dtype="float",
+            tensor_str="logical_divide(make_tensor(make_gmem_ptr(dC_val), make_shape(N, M)), select<1, 0>(BLK_MNK{}))(make_coord(_, blockIdx.y), make_coord(_, blockIdx.x))",
+            tensor_type_str="decltype(logical_divide(make_tensor(make_gmem_ptr((TO0*)nullptr), make_shape(VARLEN, VARLEN)), select<1, 0>(BLK_MNK{}))(make_coord(_, VARLEN), make_coord(_, VARLEN)))",
+        ),
+    },
+)
+
+# dtc program body
+blk_y_loop_zero_op = ConstantNvOp(
+    name="BlkYLoopZeroOp",
+    shape=Shape(),
+    dtype="int",
+    value=0,
+)
+dtc_program.append_op(blk_y_loop_zero_op)
+BlockDimY_op = ConstantNvOp(
+    name="BlockDimYOp",
+    shape=Shape(),
+    dtype="int",
+    value="blockDim.y",
+)
+dtc_program.append_op(BlockDimY_op)
+dtc_blk_y_loop_op = ForLoopNvOp(
+    name="dtc_spmm_kernel_blk_y_loop",
+    blk_idx_mapping="y",
+    loop_l=NvOpInput(
+        idx=0,
+        name="l",
+        tensor=NvOpTensor(
+            shape=Shape(),
+            mem="rmem",
+            dtype="int",
+            source=blk_y_loop_zero_op.outputs[0],
+        ),
+    ),
+    loop_r=NvOpInput(
+        idx=1,
+        name="r",
+        tensor=NvOpTensor(
+            shape=Shape(),
+            mem="rmem",
+            dtype="int",
+            source=BlockDimY_op.outputs[0],
+        ),
+    ),
+    loop_result=[],
+    body=NvOpSequence(),
+    iter_args={},
+)
+dtc_program.append_op(dtc_blk_y_loop_op)
+
+# blk_y_loop body
+blk_x_loop_zero_op = ConstantNvOp(
+    name="BlkXLoopZeroOp",
+    shape=Shape(),
+    dtype="int",
+    value=0,
+)
+dtc_blk_y_loop_op.append(blk_x_loop_zero_op)
+BlockDimX_op = ConstantNvOp(
+    name="BlockDimXOp",
+    shape=Shape(),
+    dtype="int",
+    value="blockDim.x",
+)
+dtc_blk_y_loop_op.append(BlockDimX_op)
+dtc_blk_x_loop_op = ForLoopNvOp(
+    name="dtc_spmm_kernel_blk_x_loop",
+    blk_idx_mapping="x",
+    loop_l=NvOpInput(
+        idx=0,
+        name="l",
+        tensor=NvOpTensor(
+            shape=Shape(),
+            mem="rmem",
+            dtype="int",
+            source=blk_y_loop_zero_op.outputs[0],
+        ),
+    ),
+    loop_r=NvOpInput(
+        idx=1,
+        name="r",
+        tensor=NvOpTensor(
+            shape=Shape(),
+            mem="rmem",
+            dtype="int",
+            source=BlockDimX_op.outputs[0],
+        ),
+    ),
+    loop_result=[],
+    body=NvOpSequence(),
+    iter_args={},
+)
+dtc_blk_y_loop_op.append(dtc_blk_x_loop_op)
+
+# blk_x_loop body
+g2r_sparse_offset_load_op = NvOp(
+    name="G2rSparseOffsetLoadOp",
     inputs=[
         NvOpInput(
             idx=0,
-            shape=Shape(ParamShape("tile_sidx_size"), VarlenShape("nnz_block")),
-            mem="gmem",
-            name="val_sidx",
-            dtype="int",
-            source="val_sidx",
+            name="val_soff",
+            tensor=NvOpTensor(
+                shape=Shape(VarlenShape("Mo")),
+                mem="gmem",
+                dtype="int",
+                source=dtc_program.gmem_tensor_ops["val_soff"].outputs[0],
+            ),
         ),
         NvOpInput(
-            idx=1, shape=Shape(), mem="rmem", name="i", dtype="int", source="l + {c}"
+            idx=1,
+            name="i",
+            tensor=NvOpTensor(
+                shape=Shape(),
+                mem="rmem",
+                dtype="int",
+                source="blockIdx.x",
+            ),
         ),
     ],
     outputs=[
         NvOpOutput(
             idx=0,
-            shape=Shape(ParamShape("tile_sidx_size")),
-            mem="smem",
-            name="tile_sidx_block",
+            name="l",
+            tensor=NvOpTensor(shape=Shape(), mem="rmem", dtype="int"),
+        ),
+        NvOpOutput(
+            idx=1,
+            name="r",
+            tensor=NvOpTensor(shape=Shape(), mem="rmem", dtype="int"),
+        ),
+    ],
+    impl=NvOpImpl(
+        code_template="""l(0) = val_soff(i);
+r(0) = val_soff(i + 1);"""
+    ),
+    mem_type=("g", "r"),
+    parameters={},
+)
+dtc_blk_x_loop_op.append(g2r_sparse_offset_load_op)
+
+zeros_op = ConstantNvOp(
+    name="ZerosOp",
+    shape=Shape(
+        IntShape(4),
+        Shape(
+            MnkShape("BLK_MMA_MNK", "m"),
+            MnkShape("BLK_MMA_MNK", "n"),
+        ),
+    ),
+    dtype="float",
+    value=0,
+)
+
+dtc_blk_x_loop_op.append(zeros_op)
+
+dtc_main_loop_op = ForLoopNvOp(
+    name="DtcMainLoopOp",
+    loop_l=NvOpInput(
+        idx=0,
+        name="l",
+        tensor=NvOpTensor(
+            shape=Shape(),
+            mem="rmem",
             dtype="int",
+            source=g2r_sparse_offset_load_op.outputs[0],
+        ),
+    ),
+    loop_r=NvOpInput(
+        idx=1,
+        name="r",
+        tensor=NvOpTensor(
+            shape=Shape(),
+            mem="rmem",
+            dtype="int",
+            source=g2r_sparse_offset_load_op.outputs[1],
+        ),
+    ),
+    loop_result=[
+        NvOpOutput(
+            idx=0,
+            name="REGC",
+            tensor=NvOpTensor(
+                shape=Shape(
+                    IntShape(4),
+                    Shape(
+                        MnkShape("BLK_MMA_MNK", "m"),
+                        MnkShape("BLK_MMA_MNK", "n"),
+                    ),
+                ),
+                mem="rmem",
+                dtype="float",
+            ),
+        ),
+    ],
+    body=NvOpSequence(),
+    iter_args={},
+)
+dtc_blk_x_loop_op.append(dtc_main_loop_op)
+
+# main_loop body
+g2s_val_sidx_load_op = NvOp(
+    name="G2sValSidxLoadOp",
+    inputs=[
+        NvOpInput(
+            idx=0,
+            name="val_sidx",
+            tensor=NvOpTensor(
+                shape=Shape(ParamShape("tile_sidx_size"), VarlenShape("nnz_block")),
+                mem="gmem",
+                dtype="int",
+                source=dtc_program.gmem_tensor_ops["val_sidx"].outputs[0],
+            ),
+        ),
+        NvOpInput(
+            idx=1,
+            name="i",
+            tensor=NvOpTensor(
+                shape=Shape(),
+                mem="rmem",
+                dtype="int",
+                source="l + {c}",
+            ),
+        ),
+    ],
+    outputs=[
+        NvOpOutput(
+            idx=0,
+            name="tile_sidx_block",
+            tensor=NvOpTensor(
+                shape=Shape(ParamShape("tile_sidx_size")),
+                mem="smem",
+                dtype="int",
+            ),
         )
     ],
     impl=NvOpImpl(
@@ -53,53 +317,75 @@ copy(Copy_Atom<UniversalCopy<uint128_t>, int>{}, src, dst);
     mem_type=("g", "s"),
     parameters={"tile_sidx_size": 16},
 )
+dtc_main_loop_op.append(g2s_val_sidx_load_op)
 
 g2r_coo_atomic_format_load_off_op = NvOp(
     name="G2rCooAtomicFormatLoadOffOp",
     inputs=[
         NvOpInput(
             idx=0,
-            shape=Shape(IntShape(2), VarlenShape("nnz_block")),
-            mem="gmem",
             name="val_coo_off",
-            dtype="int",
-            source="val_coo_off",
+            tensor=NvOpTensor(
+                shape=Shape(IntShape(2), VarlenShape("nnz_block")),
+                mem="gmem",
+                dtype="int",
+                source=dtc_program.gmem_tensor_ops["val_coo_off"].outputs[0],
+            ),
         ),
         NvOpInput(
-            idx=1, shape=Shape(), mem="rmem", name="i", dtype="int", source="l + {c}"
+            idx=1,
+            name="i",
+            tensor=NvOpTensor(
+                shape=Shape(),
+                mem="rmem",
+                dtype="int",
+                source="l + {c}",
+            ),
         ),
     ],
     outputs=[
-        NvOpOutput(idx=0, shape=Shape(), mem="rmem", name="l", dtype="int"),
-        NvOpOutput(idx=1, shape=Shape(), mem="rmem", name="r", dtype="int"),
+        NvOpOutput(
+            idx=0,
+            name="l",
+            tensor=NvOpTensor(shape=Shape(), mem="rmem", dtype="int"),
+        ),
+        NvOpOutput(
+            idx=1,
+            name="r",
+            tensor=NvOpTensor(shape=Shape(), mem="rmem", dtype="int"),
+        ),
     ],
     impl=NvOpImpl(
         code_template="""l(buf_idx) = val_coo_off(0, i);
 r(buf_idx) = val_coo_off(1, i);"""
     ),
     mem_type=("g", "r"),
-    parameters={},
 )
+dtc_main_loop_op.append(g2r_coo_atomic_format_load_off_op)
 
 s2r_val_sidx_load_op = NvOp(
     name="S2rValSidxLoadOp",
     inputs=[
         NvOpInput(
             idx=0,
-            shape=Shape(ParamShape("tile_sidx_size")),
-            mem="smem",
             name="tile_sidx_block",
-            dtype="int",
-            source=(g2s_val_sidx_load_op, 0),
+            tensor=NvOpTensor(
+                shape=Shape(ParamShape("tile_sidx_size")),
+                mem="smem",
+                dtype="int",
+                source=g2s_val_sidx_load_op.outputs[0],
+            ),
         )
     ],
     outputs=[
         NvOpOutput(
             idx=0,
-            shape=Shape(ParamShape("tile_sidx_size")),
-            mem="rmem",
             name="val_sidx_reg",
-            dtype="int",
+            tensor=NvOpTensor(
+                shape=Shape(ParamShape("tile_sidx_size")),
+                mem="rmem",
+                dtype="int",
+            ),
         )
     ],
     impl=NvOpImpl(
@@ -110,42 +396,51 @@ copy(src, dst);"""
     mem_type=("s", "r"),
     parameters={"tile_sidx_size": 16},
 )
+dtc_main_loop_op.append(s2r_val_sidx_load_op)
 
 g2s_coo_atomic_format_load_val_op = NvOp(
     name="G2sCooAtomicFormatLoadValOp",
     inputs=[
         NvOpInput(
             idx=0,
-            shape=Shape(VarlenShape("nnz")),
-            mem="gmem",
             name="val_coo_val",
-            dtype="half",
-            source="val_coo_val",
+            tensor=NvOpTensor(
+                shape=Shape(VarlenShape("nnz")),
+                mem="gmem",
+                dtype="half",
+                source=dtc_program.gmem_tensor_ops["val_coo_val"].outputs[0],
+            ),
         ),
         NvOpInput(
             idx=1,
-            shape=Shape(),
-            mem="rmem",
             name="ll",
-            dtype="int",
-            source=(g2r_coo_atomic_format_load_off_op, 0),
+            tensor=NvOpTensor(
+                shape=Shape(),
+                mem="rmem",
+                dtype="int",
+                source=g2r_coo_atomic_format_load_off_op.outputs[0],
+            ),
         ),
         NvOpInput(
             idx=2,
-            shape=Shape(),
-            mem="rmem",
             name="rr",
-            dtype="int",
-            source=(g2r_coo_atomic_format_load_off_op, 1),
+            tensor=NvOpTensor(
+                shape=Shape(),
+                mem="rmem",
+                dtype="int",
+                source=g2r_coo_atomic_format_load_off_op.outputs[1],
+            ),
         ),
     ],
     outputs=[
         NvOpOutput(
             idx=0,
-            shape=Shape(ParamShape("tile_coo_val_size")),
-            mem="smem",
             name="tile_coo_val_block",
-            dtype="half",
+            tensor=NvOpTensor(
+                shape=Shape(ParamShape("tile_coo_val_size")),
+                mem="smem",
+                dtype="half",
+            ),
         ),
     ],
     impl=NvOpImpl(
@@ -161,42 +456,63 @@ if (lid * 8 < rr - ll) {
 }"""
     ),
     mem_type=("g", "s"),
-    parameters={"tile_coo_val_size": 16},
+    parameters={"tile_coo_val_size": 256},
 )
+dtc_main_loop_op.append(g2s_coo_atomic_format_load_val_op)
 
 g2r_coo_atomic_format_load_idx_op = NvOp(
     name="G2rCooAtomicFormatLoadIdxOp",
     inputs=[
         NvOpInput(
             idx=0,
-            shape=Shape(VarlenShape("nnz")),
-            mem="gmem",
             name="val_coo_idx",
-            dtype="int",
-            source="val_coo_idx",
+            tensor=NvOpTensor(
+                shape=Shape(VarlenShape("nnz")),
+                mem="gmem",
+                dtype="int",
+                source=dtc_program.gmem_tensor_ops["val_coo_idx"].outputs[0],
+            ),
         ),
         NvOpInput(
             idx=1,
-            shape=Shape(),
-            mem="rmem",
             name="ll",
-            dtype="int",
-            source=(g2r_coo_atomic_format_load_off_op, 0),
+            tensor=NvOpTensor(
+                shape=Shape(),
+                mem="rmem",
+                dtype="int",
+                source=g2r_coo_atomic_format_load_off_op.outputs[0],
+            ),
         ),
         NvOpInput(
             idx=2,
-            shape=Shape(),
-            mem="rmem",
             name="rr",
-            dtype="int",
-            source=(g2r_coo_atomic_format_load_off_op, 1),
+            tensor=NvOpTensor(
+                shape=Shape(),
+                mem="rmem",
+                dtype="int",
+                source=g2r_coo_atomic_format_load_off_op.outputs[1],
+            ),
         ),
     ],
     outputs=[
         NvOpOutput(
-            idx=0, shape=Shape(IntShape(8)), mem="rmem", name="coo_idx_reg", dtype="int"
+            idx=0,
+            name="coo_idx_reg",
+            tensor=NvOpTensor(
+                shape=Shape(IntShape(8)),
+                mem="rmem",
+                dtype="int",
+            ),
         ),
-        NvOpOutput(idx=1, shape=Shape(), mem="rmem", name="coo_range_reg", dtype="int"),
+        NvOpOutput(
+            idx=1,
+            name="coo_range_reg",
+            tensor=NvOpTensor(
+                shape=Shape(),
+                mem="rmem",
+                dtype="int",
+            ),
+        ),
     ],
     impl=NvOpImpl(
         code_template="""auto thr_tiler = make_shape(_8{});
@@ -210,39 +526,43 @@ if (lid * 8 < rr - ll) {
 }"""
     ),
     mem_type=("g", "r"),
-    parameters={"tile_coo_val_size": 16},
+    parameters={"tile_coo_val_size": 256},
 )
+dtc_main_loop_op.append(g2r_coo_atomic_format_load_idx_op)
 
 g2r_b_val_load_op = NvOp(
     name="G2rBValLoadOp",
     inputs=[
         NvOpInput(
             idx=0,
-            shape=Shape(
-                VarlenShape("K"),
-                MnkShape("BLK_MNK", "n"),
-            ),
-            mem="gmem",
             name="B_val",
-            dtype="half",
-            source="B_val",
+            tensor=NvOpTensor(
+                shape=Shape(VarlenShape("K"), MnkShape("BLK_MNK", "n")),
+                mem="gmem",
+                dtype="half",
+                source=dtc_program.gmem_tensor_ops["B_val"].outputs[0],
+            ),
         ),
         NvOpInput(
             idx=1,
-            shape=Shape(MnkShape("BLK_MNK", "k")),
-            mem="rmem",
             name="val_sidx_reg",
-            dtype="int",
-            source=(s2r_val_sidx_load_op, 0),
+            tensor=NvOpTensor(
+                shape=Shape(MnkShape("BLK_MNK", "k")),
+                mem="rmem",
+                dtype="int",
+                source=s2r_val_sidx_load_op.outputs[0],
+            ),
         ),
     ],
     outputs=[
         NvOpOutput(
             idx=0,
-            shape=Shape(IntShape(4), MnkShape("BLK_MMA_MNK", "n")),
-            mem="rmem",
             name="REGB",
-            dtype="half",
+            tensor=NvOpTensor(
+                shape=Shape(IntShape(4), MnkShape("BLK_MMA_MNK", "n")),
+                mem="rmem",
+                dtype="half",
+            ),
         ),
     ],
     impl=NvOpImpl(
@@ -256,50 +576,55 @@ g2r_b_val_load_op = NvOp(
 }"""
     ),
     mem_type=("g", "r"),
-    parameters={},
 )
+dtc_main_loop_op.append(g2r_b_val_load_op)
 
 s2s_coo_atomic_val_restore_op = NvOp(
     name="S2sCooAtomicValRestoreOp",
     inputs=[
         NvOpInput(
             idx=0,
-            shape=Shape(ParamShape("tile_coo_val_size")),
-            mem="smem",
             name="tile_coo_val_block",
-            dtype="half",
-            source=(g2s_coo_atomic_format_load_val_op, 0),
+            tensor=NvOpTensor(
+                shape=Shape(ParamShape("tile_coo_val_size")),
+                mem="smem",
+                dtype="half",
+                source=g2s_coo_atomic_format_load_val_op.outputs[0],
+            ),
         ),
         NvOpInput(
             idx=1,
-            shape=Shape(IntShape(8)),
-            mem="rmem",
             name="coo_idx_reg",
-            dtype="int",
-            source=(g2r_coo_atomic_format_load_idx_op, 0),
+            tensor=NvOpTensor(
+                shape=Shape(IntShape(8)),
+                mem="rmem",
+                dtype="int",
+                source=g2r_coo_atomic_format_load_idx_op.outputs[0],
+            ),
         ),
         NvOpInput(
             idx=2,
-            shape=Shape(),
-            mem="rmem",
             name="nnz_num",
-            dtype="int",
-            source=(g2r_coo_atomic_format_load_idx_op, 1),
+            tensor=NvOpTensor(
+                shape=Shape(),
+                mem="rmem",
+                dtype="int",
+                source=g2r_coo_atomic_format_load_idx_op.outputs[1],
+            ),
         ),
     ],
     outputs=[
         NvOpOutput(
             idx=0,
-            shape=Shape(
-                MnkShape("BLK_MNK", "k"),
-                MnkShape("BLK_MNK", "m"),
-            ),
-            mem="smem",
             name="tile_coo_restore_val_block",
-            dtype="half",
-            # swizzle=(2, 3, 3),
-            # row_major=True,
-            # FIXME: row major is buggy because LayoutRight would make nbuf the least significant dimension
+            tensor=NvOpTensor(
+                shape=Shape(
+                    MnkShape("BLK_MNK", "k"),
+                    MnkShape("BLK_MNK", "m"),
+                ),
+                mem="smem",
+                dtype="half",
+            ),
         ),
     ],
     impl=NvOpImpl(
@@ -316,28 +641,33 @@ for (int i_restore = 0; i_restore < 8; i_restore++) {
 }"""
     ),
     mem_type=("s", "s"),
-    parameters={"tile_coo_val_size": 16},
+    parameters={"tile_coo_val_size": 256},
 )
+dtc_main_loop_op.append(s2s_coo_atomic_val_restore_op)
 
 s2r_a_val_load_op = NvOp(
     name="S2rAValLoadOp",
     inputs=[
         NvOpInput(
             idx=0,
-            shape=Shape(MnkShape("BLK_MNK", "k"), MnkShape("BLK_MNK", "m")),
-            mem="smem",
             name="tile_coo_restore_val_block",
-            dtype="half",
-            source=(s2s_coo_atomic_val_restore_op, 0),
+            tensor=NvOpTensor(
+                shape=Shape(MnkShape("BLK_MNK", "k"), MnkShape("BLK_MNK", "m")),
+                mem="smem",
+                dtype="half",
+                source=s2s_coo_atomic_val_restore_op.outputs[0],
+            ),
         ),
     ],
     outputs=[
         NvOpOutput(
             idx=0,
-            shape=Shape(IntShape(8), MnkShape("BLK_MMA_MNK", "m")),
-            mem="rmem",
             name="REGA",
-            dtype="half",
+            tensor=NvOpTensor(
+                shape=Shape(IntShape(8), MnkShape("BLK_MMA_MNK", "m")),
+                mem="rmem",
+                dtype="half",
+            ),
         ),
     ],
     impl=NvOpImpl(
@@ -354,70 +684,49 @@ for (int m_iter = 0; m_iter < get<0>(BLK_MMA_MNK{}); m_iter++) { // now the m_it
 }"""
     ),
     mem_type=("s", "r"),
-    parameters={},
 )
+dtc_main_loop_op.append(s2r_a_val_load_op)
 
 mma_op = NvOp(
     name="MmaOp",
     inputs=[
         NvOpInput(
             idx=0,
-            shape=Shape(IntShape(8), MnkShape("BLK_MMA_MNK", "m")),
-            mem="rmem",
             name="REGA",
-            dtype="half",
-            source=(s2r_a_val_load_op, 0),
-            layout_hint=LayoutHint(
-                P=2,
-                Tr=8,
-                Tc=4,
-                Vr=2,
-                Vc=2,
-                P_major="row",
-                T_major="row",
-                V_major="col",
+            tensor=NvOpTensor(
+                shape=Shape(IntShape(8), MnkShape("BLK_MMA_MNK", "m")),
+                mem="rmem",
+                dtype="half",
+                source=s2r_a_val_load_op.outputs[0],
             ),
         ),
         NvOpInput(
             idx=1,
-            shape=Shape(IntShape(4), MnkShape("BLK_MMA_MNK", "n")),
-            mem="rmem",
             name="REGB",
-            dtype="half",
-            source=(g2r_b_val_load_op, 0),
-            layout_hint=LayoutHint(
-                P=2,
-                Tr=4,
-                Tc=8,
-                Vr=2,
-                Vc=1,
-                P_major="col",
-                T_major="col",
-                V_major="col",
+            tensor=NvOpTensor(
+                shape=Shape(IntShape(4), MnkShape("BLK_MMA_MNK", "n")),
+                mem="rmem",
+                dtype="half",
+                source=g2r_b_val_load_op.outputs[0],
             ),
         ),
     ],
     outputs=[
         NvOpOutput(
             idx=0,
-            shape=Shape(
-                IntShape(4),
-                Shape(MnkShape("BLK_MMA_MNK", "m"), MnkShape("BLK_MMA_MNK", "n")),
-            ),
-            mem="rmem",
             name="REGC",
-            dtype="float",
-            unique=True,
-            layout_hint=LayoutHint(
-                P=2,
-                Tr=8,
-                Tc=4,
-                Vr=2,
-                Vc=1,
-                P_major="row",
-                T_major="row",
-                V_major="col",
+            tensor=NvOpTensor(
+                shape=Shape(
+                    IntShape(4),
+                    Shape(
+                        MnkShape("BLK_MMA_MNK", "m"),
+                        MnkShape("BLK_MMA_MNK", "n"),
+                    ),
+                ),
+                mem="rmem",
+                dtype="float",
             ),
+            origin=zeros_op.outputs[0],
         ),
     ],
     impl=NvOpImpl(
@@ -428,34 +737,29 @@ mma_op = NvOp(
 }"""
     ),
     mem_type=("r", "r"),
-    parameters={},
 )
-
-g2r_sparse_offset_load_op = NvOp(
-    name="G2rSparseOffsetLoadOp",
-    inputs=[
-        NvOpInput(
-            idx=0,
-            shape=Shape(VarlenShape("Mo")),
-            mem="gmem",
-            name="val_soff",
-            dtype="int",
-            source="val_soff",
-        ),
-        NvOpInput(
-            idx=1, shape=Shape(), mem="rmem", name="i", dtype="int", source="blockIdx.x"
-        ),
-    ],
-    outputs=[
-        NvOpOutput(idx=0, shape=Shape(), mem="rmem", name="l", dtype="int"),
-        NvOpOutput(idx=1, shape=Shape(), mem="rmem", name="r", dtype="int"),
-    ],
-    impl=NvOpImpl(
-        code_template="""l(buf_idx) = val_soff(i);
-r(buf_idx) = val_soff(i + 1);"""
-    ),
-    mem_type=("g", "r"),
-    parameters={},
+dtc_main_loop_op.append(mma_op)
+s0 = NvOpSequence(
+    g2s_val_sidx_load_op,
+    g2r_coo_atomic_format_load_off_op,
+)
+s1 = NvOpSequence(
+    s2r_val_sidx_load_op,
+    g2s_coo_atomic_format_load_val_op,
+    g2r_coo_atomic_format_load_idx_op,
+)
+s2 = NvOpSequence(
+    g2r_b_val_load_op,
+    s2s_coo_atomic_val_restore_op,
+    s2r_a_val_load_op,
+)
+s3 = NvOpSequence(
+    mma_op,
+)
+dtc_main_loop_op.outputs[0].origin = mma_op.outputs[0]
+apply_pipeline(
+    dtc_main_loop_op,
+    PipelinePlan([s0, s1, s2, s3], [1, 1, 1]),
 )
 
 r2g_c_val_store_op = NvOp(
@@ -463,29 +767,34 @@ r2g_c_val_store_op = NvOp(
     inputs=[
         NvOpInput(
             idx=0,
-            shape=Shape(
-                IntShape(4),
-                Shape(MnkShape("BLK_MMA_MNK", "m"), MnkShape("BLK_MMA_MNK", "n")),
-            ),
-            mem="rmem",
             name="REGC",
-            dtype="float",
-            source=(mma_op, 0),
+            tensor=NvOpTensor(
+                shape=Shape(
+                    IntShape(4),
+                    Shape(
+                        MnkShape("BLK_MMA_MNK", "m"),
+                        MnkShape("BLK_MMA_MNK", "n"),
+                    ),
+                ),
+                mem="rmem",
+                dtype="float",
+                source=dtc_main_loop_op.outputs[0],
+            ),
         ),
     ],
     outputs=[
         NvOpOutput(
             idx=0,
-            shape=Shape(
-                MnkShape("BLK_MNK", "n"),
-                MnkShape("BLK_MNK", "m"),
-            ),
-            mem="gmem",
             name="C_val",
-            dtype="float",
-            source="C_val",
-            owning=False,
-            unique=True,
+            tensor=NvOpTensor(
+                shape=Shape(
+                    MnkShape("BLK_MNK", "n"),
+                    MnkShape("BLK_MNK", "m"),
+                ),
+                mem="gmem",
+                dtype="float",
+            ),
+            origin=dtc_program.gmem_tensor_ops["C_val"].outputs[0],
         ),
     ],
     impl=NvOpImpl(
@@ -500,85 +809,11 @@ for (int i_tileN = 0; i_tileN < get<1>(BLK_MNK{}) / 8; i_tileN++) {
 }"""
     ),
     mem_type=("r", "g"),
-    parameters={},
 )
-
-
-dtc_stage1 = NvOpStage([g2s_val_sidx_load_op, g2r_coo_atomic_format_load_off_op])
-dtc_stage2 = NvOpStage(
-    [
-        s2r_val_sidx_load_op,
-        g2s_coo_atomic_format_load_val_op,
-        g2r_coo_atomic_format_load_idx_op,
-    ]
-)
-dtc_stage3 = NvOpStage(
-    [g2r_b_val_load_op, s2s_coo_atomic_val_restore_op, s2r_a_val_load_op]
-)
-dtc_stage4 = NvOpStage([mma_op])
-shifts = [1, 1, 1]
-stages = [dtc_stage1, dtc_stage2, dtc_stage3, dtc_stage4]
-
-prologue = [g2r_sparse_offset_load_op]
-epilogue = [r2g_c_val_store_op]
-
-dtc_pipeline = NvOpSequence(
-    "dtc_spmm_kernel_sstage_rstage",
-    stages,
-    shifts,
-    prologue,
-    epilogue,
-    gmem_inouts={
-        "val_sidx": GmemInout(
-            shape=Shape(ParamShape("tile_sidx_size"), VarlenShape("nnz_block")),
-            name="val_sidx",
-            dtype="int",
-        ),
-        "val_coo_off": GmemInout(
-            shape=Shape(IntShape(2), VarlenShape("nnz_block")),
-            name="val_coo_off",
-            dtype="int",
-        ),
-        "val_coo_val": GmemInout(
-            shape=Shape(VarlenShape("nnz")),
-            name="val_coo_val",
-            dtype="half",
-        ),
-        "val_coo_idx": GmemInout(
-            shape=Shape(VarlenShape("nnz")),
-            name="val_coo_idx",
-            dtype="int",
-        ),
-        "val_soff": GmemInout(
-            shape=Shape(VarlenShape("Mo")),
-            name="val_soff",
-            dtype="int",
-        ),
-        "B_val": GmemInout(
-            shape=Shape(VarlenShape("K"), VarlenShape("N")),
-            name="B_val",
-            dtype="half",
-        ),
-        "C_val": GmemInout(
-            shape=Shape(VarlenShape("N"), VarlenShape("M")),
-            name="C_val",
-            dtype="float",
-        ),
-    },
-)
+dtc_blk_x_loop_op.append(r2g_c_val_store_op)
 
 
 if __name__ == "__main__":
-    from python.sparsene.op_gen.nvir.codegen import NvIrCodeGenerator
+    from sparsene.op_gen.nvir.codegen import NvIrCodeGenerator
 
-
-    print(NvIrCodeGenerator().dump_nvop_pipeline(dtc_pipeline))
-    # 1. op之间的依赖关系 (source: Optional[Tuple[NvOp, int] | str]) (dtc_ops.py)
-    # 2. 生成short_pipe, fill, empty, remainder, loop_step (commit和wait_group写在外面)
-    #    输入NvOpPipeline,输出字符串
-    # 3. 生成write_back
-
-    # codegen的输入：
-    # stages: List[List[NvOp]]
-    # shifts: List[int]
-    # constraints: len(shifts) = len(stages) - 1
+    print(NvIrCodeGenerator().dump_nvop_program(dtc_program))

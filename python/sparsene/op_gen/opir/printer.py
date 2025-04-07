@@ -15,7 +15,6 @@ from .op_ir import (
     OpOperand,
     IntType,
     FloatType,
-    RangeType,
     ArrayType,
     BlockArgument,
 )
@@ -258,9 +257,6 @@ class Printer:
     def dump_float_type(self, type: FloatType) -> str:
         return "float"
 
-    def dump_range_type(self, type: RangeType) -> str:
-        return "range"
-
     def dump_array_type(self, type: ArrayType) -> str:
         dims = [str(dim) for dim in type.dims]
         return f"array<{self.dump_type(type.datatype)}>[{']['.join(dims)}]"
@@ -336,8 +332,6 @@ class Printer:
             return self.dump_int_type(type)
         elif isinstance(type, FloatType):
             return self.dump_float_type(type)
-        elif isinstance(type, RangeType):
-            return self.dump_range_type(type)
         elif isinstance(type, ArrayType):
             return self.dump_array_type(type)
         else:

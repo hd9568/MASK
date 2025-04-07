@@ -1,23 +1,33 @@
 from __future__ import annotations
 
-from typing import Literal, List, Dict, Union, Tuple, Any, Optional
+from typing import Literal, List, Dict, Union, Tuple, Any, Optional, Sequence, Set
 from dataclasses import dataclass
 from enum import Enum
+from itertools import chain
+import uuid
+from sparsene.logging import get_logger
 
-IoMemType = Literal["gmem", "smem", "rmem"]
+logger = get_logger(__name__)
+
 OpMemType = Union[
-    Tuple[Literal["r"], Literal["s"]],
-    Tuple[Literal["s"], Literal["r"]],
-    Tuple[Literal["g"], Literal["s"]],
-    Tuple[Literal["s"], Literal["g"]],
-    Tuple[Literal["g"], Literal["r"]],
-    Tuple[Literal["r"], Literal["g"]],
-    Tuple[Literal["r"], Literal["r"]],
-    Tuple[Literal["s"], Literal["s"]],
-    Tuple[Literal["g"], Literal["g"]],
+    Tuple[Literal["r"], Literal["s"]],  # rmem to smem
+    Tuple[Literal["s"], Literal["r"]],  # smem to rmem
+    Tuple[Literal["g"], Literal["s"]],  # gmem to smem
+    Tuple[Literal["s"], Literal["g"]],  # smem to gmem
+    Tuple[Literal["g"], Literal["r"]],  # gmem to rmem
+    Tuple[Literal["r"], Literal["g"]],  # rmem to gmem
+    Tuple[Literal["r"], Literal["r"]],  # rmem to rmem
+    Tuple[Literal["s"], Literal["s"]],  # smem to smem
+    Tuple[Literal["g"], Literal["g"]],  # gmem to gmem
+    Tuple[Literal["x"], Literal["g"]],  # gmem without source
+    Tuple[Literal["x"], Literal["s"]],  # smem without source
+    Tuple[Literal["x"], Literal["r"]],  # rmem without source
+    Tuple[Literal["x"], Literal["x"]],  # all unknown
 ]
+IoMemType = Literal["gmem", "smem", "rmem", "xmem"]  # xmem means unspecified
 
 
+@dataclass
 class NvOpImpl:
     code_template: str
 
@@ -38,10 +48,12 @@ class Copy1DNvOpImpl(NvOpImpl):
         return ""
 
 
+@dataclass
 class ShapeEle:
     pass
 
 
+@dataclass
 class IntShape(ShapeEle):
     value: int
 
@@ -55,6 +67,7 @@ class IntShape(ShapeEle):
         return f"Int({self.value})"
 
 
+@dataclass
 class ParamShape(ShapeEle):
     param: str
 
@@ -68,6 +81,7 @@ class ParamShape(ShapeEle):
         return f"Param({self.param})"
 
 
+@dataclass
 class MnkShape(ShapeEle):
     param: Literal["BLK_MNK", "MMA_MNK", "BLK_MMA_MNK"]
     mnk: Literal["m", "n", "k"]
@@ -87,6 +101,7 @@ class MnkShape(ShapeEle):
         return f"Mnk({self.param}, {self.mnk})"
 
 
+@dataclass
 class VarlenShape(ShapeEle):
     name: str
 
@@ -100,6 +115,7 @@ class VarlenShape(ShapeEle):
         return f"Varlen({self.name})"
 
 
+@dataclass
 class Shape(ShapeEle):
     elems: List[ShapeEle]
 
@@ -121,119 +137,161 @@ class Shape(ShapeEle):
     def __repr__(self) -> str:
         return "(" + ", ".join(repr(elem) for elem in self.elems) + ")"
 
+    def all_parameters(self) -> Set[str]:
+        params = set()
+        for e in self.elems:
+            if isinstance(e, ParamShape):
+                params.add(e.param)
+            elif isinstance(e, Shape):
+                params.update(e.all_parameters())
+        return params
+
+
+@dataclass
+class NvOpTensor:
+    shape: Shape
+    mem: IoMemType
+    dtype: str
+    source: Optional[
+        NvOpOutput
+        | ForLoopStart
+        | ForLoopEnd
+        | ForLoopCurrentIdx
+        | ForLoopCurrentIter
+        | str
+    ]
+
+    def __init__(
+        self,
+        shape: Shape,
+        mem: IoMemType,
+        dtype: str,
+        source: Optional[
+            NvOpOutput
+            | ForLoopStart
+            | ForLoopEnd
+            | ForLoopCurrentIdx
+            | ForLoopCurrentIter
+            | str
+        ] = None,
+    ):
+        self.shape = shape
+        self.mem = mem
+        self.dtype = dtype
+        self.source = source
+
 
 class NvOpInput:
     idx: int
-    shape: Shape
-    mem: IoMemType
     name: str
-    dtype: str
-    source: Tuple[NvOp, int] | str
+    tensor: NvOpTensor
     layout_hint: Optional[LayoutHint]
 
     def __init__(
         self,
         idx: int,
-        shape: Shape,
-        mem: IoMemType,
         name: str,
-        dtype: str,
-        source: Tuple[NvOp, int] | str,
+        tensor: NvOpTensor,
         layout_hint: Optional[LayoutHint] = None,
     ):
         self.idx = idx
-        self.shape = shape
-        self.mem = mem
         self.name = name
-        self.dtype = dtype
-        self.source = source
+        self.tensor = tensor
         self.layout_hint = layout_hint
 
-    def to_json(self):
-        return {
-            "idx": self.idx,
-            "name": self.name,
-            "shape": self.shape.__dict__,
-            "mem": self.mem,
-            "dtype": self.dtype,
-            "source": (
-                f'"{self.source}"'
-                if isinstance(self.source, str)
-                else f"{self.source[0].name}.output({self.source[1]})"
-            ),
-            "layout_hint": self.layout_hint.__dict__,
-        }
+
+@dataclass
+class ForLoopStart:
+    for_loop: ForLoopNvOp
+
+
+@dataclass
+class ForLoopEnd:
+    for_loop: ForLoopNvOp
+
+
+@dataclass
+class ForLoopCurrentIdx:
+    for_loop: ForLoopNvOp
+
+
+@dataclass
+class ForLoopCurrentIter:
+    for_loop: ForLoopNvOp
 
 
 class NvOpOutput:
     idx: int
-    shape: Shape
-    mem: IoMemType
     name: str
-    dtype: str
+    tensor: NvOpTensor
     owning: bool
-    source: Optional[Tuple[NvOp, int] | str]
+    origin: Optional[NvOpOutput]
     unique: bool  # unique的output的nbuf维度永远为1
     attrs: Dict[str, Any]
     consumers: List[NvOp]
+    op: Optional[NvOp]
 
     def __init__(
         self,
         idx: int,
-        shape: Shape,
-        mem: IoMemType,
         name: str,
-        dtype: str,
+        tensor: NvOpTensor,
         *,
-        owning: bool = True,
-        source: Optional[Tuple[NvOp, int] | str] = None,
-        unique: bool = False,
+        origin: Optional[NvOpOutput] = None,
+        unique: Optional[bool] = None,
         layout_hint: Optional[LayoutHint] = None,
         **kwargs: Any,
     ):
         self.idx = idx
-        self.shape = shape
-        self.mem = mem
+        self.tensor = tensor
         self.name = name
-        self.dtype = dtype
         self.attrs = kwargs
-        self.owning = owning
-        self.source = source
-        self.unique = unique
-        self.consumers = []
-        self.layout_hint = layout_hint
+        self.origin = origin
 
-    def to_json(self):
-        output_dict = {
-            "idx": self.idx,
-            "name": self.name,
-            "shape": self.shape.__dict__,
-            "mem": self.mem,
-            "dtype": self.dtype,
-            "owning": self.owning,
-        }
-        if self.source is not None:
-            output_dict["source"] = (
-                f'"{self.source}"'
-                if isinstance(self.source, str)
-                else f"{self.source[0].name}.output({self.source[1]})"
-            )
-        if self.unique:
-            output_dict["unique"] = self.unique
-        if self.attrs:
-            output_dict["attrs"] = self.attrs
-        return output_dict
+        if self.origin is None:
+            self.owning = True
+            self.unique = unique is True
+        else:
+            self.owning = False
+            self.unique = self.origin.unique
+            if unique is not None:
+                logger.warning(
+                    f"NvOpOutput {self.name} unique={unique} ignored because origin {self.origin.name} already has unique={self.origin.unique}."
+                )
+
+        self.consumers = []
+        self.op = None
+        self.layout_hint = layout_hint
+    
+    def __setattr__(self, name: str, value: Any) -> None:
+        if name == "origin":
+            self.owning = False
+        super().__setattr__(name, value)
 
 
 class GmemInout:
     shape: Shape
     name: str
     dtype: str
+    tensor_str: str
+    tensor_type_str: str
+    parameters: Dict[str, int]
 
-    def __init__(self, shape: Shape, name: str, dtype: str):
+    def __init__(
+        self,
+        shape: Shape,
+        name: str,
+        dtype: str,
+        tensor_str: str,
+        tensor_type_str: str,
+        parameters: Dict[str, int] = {},
+    ):
         self.shape = shape
         self.name = name
         self.dtype = dtype
+        self.tensor_str = tensor_str
+        self.tensor_type_str = tensor_type_str
+        self.parameters = parameters
 
     def __str__(self) -> str:
         return f"gmem({self.name}): {self.dtype}({self.shape})"
@@ -244,19 +302,15 @@ class GmemInout:
 
 @dataclass
 class LayoutHint:
-    # Layout hints是用来指导上游inputs的layout的
-    # Layout hints 的传播规则：
-    #  有hints的出发，先传播，每个op只被影响一次
-    #  最终没有被hints影响的op，按照默认的copy layout计算方式得到layout
-    #  layout hint会影响被传播op的ouput_shape和body实现，也会影响传播发起者op的input_shape
-    P: int
+    Pr: int
+    Pc: int
     Tr: int
     Vr: int
     Tc: int
     Vc: int
-    P_major: Literal["row", "col"]
-    T_major: Literal["row", "col"]
-    V_major: Literal["row", "col"]
+    Pmajor: Literal["row", "col"]
+    Tmajor: Literal["row", "col"]
+    Vmajor: Literal["row", "col"]
 
 
 class NvOpType(Enum):
@@ -270,6 +324,7 @@ class NvOpType(Enum):
     LOAD_LR_OFF = "load_lr_off"  # 从一个offset数组中读取l,r
     LOAD_LR_PAIR = "load_lr_pair"  # 从一个同时存了l和r的offset数组中读取l,r
     OTHERS = "others"
+    UNKNOWN = "unknown"
 
 
 class NvOp:
@@ -277,6 +332,7 @@ class NvOp:
     inputs: List[NvOpInput]
     outputs: List[NvOpOutput]
     impl: NvOpImpl
+    pipelined: bool
 
     op_type: NvOpType
     mem_type: OpMemType
@@ -288,89 +344,241 @@ class NvOp:
     def __init__(
         self,
         name: str,
-        inputs: List[NvOpInput],
-        outputs: List[NvOpOutput],
+        inputs: Sequence[NvOpInput],
+        outputs: Sequence[NvOpOutput],
         impl: NvOpImpl,
-        mem_type: OpMemType,
-        parameters: Dict[str, int],
+        mem_type: OpMemType = ("x", "x"),
+        parameters: Dict[str, int] = {},
+        op_type: NvOpType = NvOpType.UNKNOWN,
         **kwargs: Any,
     ):
         self.name = name
-        self.inputs = inputs
-        self.outputs = outputs
         self.impl = impl
+        self.op_type = op_type
         self.mem_type = mem_type
         self.parameters = parameters
         self.attrs = kwargs
+        self.pipelined = False
 
+        self.inputs = []
+        self.outputs = []
+        for inp in inputs:
+            self.add_input(inp)
+        for out in outputs:
+            self.add_output(out)
+
+    def add_input(self, input: NvOpInput):
+        self.inputs.append(input)
+        if isinstance(input.tensor.source, NvOpOutput):
+            input.tensor.source.consumers.append(self)
+
+    def add_output(self, output: NvOpOutput):
+        self.outputs.append(output)
+        output.op = self
+        output.tensor.source = output
+
+    def all_varlens(self) -> Set[str]:
+        varlens = set()
         for inp in self.inputs:
-            if isinstance(inp.source, tuple):
-                inp.source[0].outputs[inp.source[1]].consumers.append(self)
+            for shape in inp.tensor.shape:
+                if isinstance(shape, VarlenShape):
+                    varlens.add(shape.name)
+        for out in self.outputs:
+            for shape in out.tensor.shape:
+                if isinstance(shape, VarlenShape):
+                    varlens.add(shape.name)
+        return varlens
 
-    def to_json(self):
-        return {
-            "name": self.name,
-            "inputs": [inp.to_json() for inp in self.inputs],
-            "outputs": [out.to_json() for out in self.outputs],
-            "mem_type": self.mem_type,
-            "parameters": self.parameters,
-            "attrs": self.attrs,
-        }
+    def all_parameters(self) -> Set[str]:
+        # print("WAKUWAKU", self.name, self.parameters)
+        return set(self.parameters.keys())
 
 
-class ForLoopOp(NvOp):
+class ConstantNvOp(NvOp):
+    value: int | float | str
+
+    def __init__(
+        self,
+        name: str,
+        shape: Shape,
+        dtype: str,
+        value: int | float | str,
+        **kwargs: Any,
+    ):
+        super().__init__(
+            name=name or f"constant_{dtype}_{value}_{str(uuid.uuid4())[:8]}",
+            inputs=[],
+            outputs=[
+                NvOpOutput(
+                    idx=0,
+                    name=f"{name}_out",
+                    tensor=NvOpTensor(shape=shape, mem="rmem", dtype=dtype),
+                    owning=True,
+                    unique=True,
+                )
+            ],
+            impl=NvOpImpl(code_template=""),
+            op_type=NvOpType.UNKNOWN,
+        )
+        self.value = value
+
+
+class GmemTensorNvOp(NvOp):
+    gmem_inout: GmemInout
+
+    def __init__(self, gmem_inout: GmemInout, **kwargs: Any):
+        super().__init__(
+            name=gmem_inout.name + "Op",
+            inputs=[],
+            outputs=[
+                NvOpOutput(
+                    idx=0,
+                    name=gmem_inout.name,
+                    tensor=NvOpTensor(
+                        shape=gmem_inout.shape,
+                        mem="gmem",
+                        dtype=gmem_inout.dtype,
+                    ),
+                    owning=True,
+                    unique=True,
+                ),
+            ],
+            impl=NvOpImpl(code_template=""),
+            op_type=NvOpType.UNKNOWN,
+            mem_type=("x", "g"),
+            parameters=gmem_inout.parameters,
+        )
+        self.gmem_inout = gmem_inout
+        for out in self.outputs:
+            out.tensor.source = out
+
+
+class ForLoopNvOp(NvOp):
     name: str
     iter_args: Dict[str, NvOpInput]
     loop_l: NvOpInput
     loop_r: NvOpInput
     body: NvOpSequence
+    blk_idx_mapping: Optional[Literal["x", "y", "z"]]
 
     def __init__(
         self,
         name: str,
-        iter_args: Dict[str, NvOpInput],
         loop_l: NvOpInput,
         loop_r: NvOpInput,
-        loop_result: NvOpOutput,
+        loop_result: Sequence[NvOpOutput],
+        iter_args: Dict[str, NvOpInput],
+        body: NvOpSequence,
+        blk_idx_mapping: Optional[Literal["x", "y", "z"]] = None,
         **kwargs: Any,
     ):
-        super().__init__(name, [], [], **kwargs)
+        super().__init__(
+            name=name,
+            inputs=[loop_l, loop_r] + list(iter_args.values()),
+            outputs=list(loop_result),
+            impl=NvOpImpl(code_template=""),
+            **kwargs,
+        )
         self.iter_args = iter_args
         self.loop_l = loop_l
         self.loop_r = loop_r
-        self.outputs = [loop_result]
+        self.body = body
+        self.blk_idx_mapping = blk_idx_mapping
+
+    def append(self, op: NvOp):
+        self.body.append(op)
+
+    def extend(self, ops: Sequence[NvOp]):
+        self.body.extend(ops)
+
+    def find_op_by_name(self, name: str) -> NvOp:
+        return self.body.find_op_by_name(name)
+
+    def all_varlens(self) -> Set[str]:
+        return self.body.all_varlens()
+
+    def all_parameters(self) -> Set[str]:
+        return self.body.all_parameters()
 
 
-class NvOpStage:
-    ops: List[NvOp]
+class MetaNvOp(NvOp):
+    name: str
+    body: NvOpSequence
 
-    def __init__(self, ops: List[NvOp]):
-        self.ops = ops
+    def __init__(self, name: str, body: NvOpSequence, **kwargs: Any):
+        super().__init__(name, [], [], impl=NvOpImpl(""), **kwargs)
+        self.body = body
+
+    def append(self, op: NvOp):
+        self.body.append(op)
+
+    def extend(self, ops: Sequence[NvOp]):
+        self.body.extend(ops)
+
+    def find_op_by_name(self, name: str) -> NvOp:
+        return self.body.find_op_by_name(name)
+
+    def all_varlens(self) -> Set[str]:
+        return self.body.all_varlens()
+
+    def all_parameters(self) -> Set[str]:
+        return self.body.all_parameters()
 
 
 class NvOpSequence:
     name: str
-    stages: List[NvOpStage]
+    ops: List[NvOp]
+
+    def __init__(self, *ops: NvOp, name: str = ""):
+        self.name = name
+        self.ops = list(ops)
+
+    def append(self, op: NvOp):
+        self.ops.append(op)
+
+    def extend(self, ops: Sequence[NvOp]):
+        self.ops.extend(ops)
+
+    def all_varlens(self) -> Set[str]:
+        varlens = set()
+        for op in self.ops:
+            varlens.update(op.all_varlens())
+        return varlens
+
+    def all_parameters(self) -> Set[str]:
+        parameters = set()
+        for op in self.ops:
+            parameters.update(op.all_parameters())
+        return parameters
+
+    def find_op_by_name(self, name: str) -> NvOp:
+        for op in self.ops:
+            if isinstance(op, ForLoopNvOp):
+                try:
+                    return op.find_op_by_name(name)
+                except ValueError:
+                    pass
+            elif op.name == name:
+                return op
+        raise ValueError(f"NvOp {name} not found")
+
+
+class NvOpPipeline(NvOpSequence):
+    stages: List[NvOpSequence]
     shifts: List[int]
-    prologue: List[NvOp]
-    epilogue: List[NvOp]
-    gmem_inouts: Dict[str, GmemInout]
 
     def __init__(
         self,
         name: str,
-        stages: List[NvOpStage],
-        shifts: List[int],
-        prologue: List[NvOp],
-        epilogue: List[NvOp],
-        gmem_inouts: Dict[str, GmemInout],
+        stages: Sequence[NvOpSequence],
+        shifts: Sequence[int],
     ):
-        self.name = name
-        self.stages = stages
-        self.shifts = shifts
-        self.prologue = prologue
-        self.epilogue = epilogue
-        self.gmem_inouts = {k: gmem_inouts[k] for k in sorted(gmem_inouts.keys())}
+        super().__init__(
+            *chain(*(stage.ops for stage in stages)),
+            name=name,
+        )
+        self.stages = list(stages)
+        self.shifts = list(shifts)
 
     @property
     def num_stages(self) -> int:
@@ -384,41 +592,81 @@ class NvOpSequence:
     def nbuf(self) -> int:
         return self.num_buf
 
-    def all_parameters(self) -> List[str]:
-        parameters = []
+    def all_parameters(self) -> Set[str]:
+        parameters = set()
         for stage in self.stages:
-            for op in stage.ops:
-                parameters.extend(op.parameters)
-        return sorted(dict.fromkeys(parameters))  # fromkeys trick to dedup
+            parameters.update(stage.all_parameters())
+        return parameters
 
-    def all_varlens(self) -> List[str]:
-        varlens = []
+    def all_varlens(self) -> Set[str]:
+        varlens = set()
         for stage in self.stages:
-            for op in stage.ops:
-                for inp in op.inputs:
-                    for shape in inp.shape:
-                        if isinstance(shape, VarlenShape):
-                            varlens.append(shape.name)
-                for out in op.outputs:
-                    for shape in out.shape:
-                        if isinstance(shape, VarlenShape):
-                            varlens.append(shape.name)
+            varlens.update(stage.all_varlens())
+        return varlens
+
+    def find_op_by_name(self, name: str) -> NvOp:
+        for stage in self.stages:
+            try:
+                op = stage.find_op_by_name(name)
+            except ValueError:
+                pass
+            else:
+                return op
+        raise ValueError(f"NvOp {name} not found")
+
+
+class NvOpProgram:
+    name: str
+    meta_op: MetaNvOp
+    gmem_inouts: Dict[str, GmemInout]
+    gmem_tensor_ops: Dict[str, GmemTensorNvOp]
+
+    def __init__(
+        self,
+        name: str,
+        gmem_inouts: Dict[str, GmemInout],
+    ):
+        self.name = name
+        self.meta_op = MetaNvOp(
+            name=name,
+            body=NvOpSequence(),
+        )
+        self.gmem_inouts = {k: gmem_inouts[k] for k in sorted(gmem_inouts.keys())}
+
+        self.gmem_tensor_ops = {}
+        for gmem_inout in self.gmem_inouts.values():
+            gmem_tensor_op = GmemTensorNvOp(gmem_inout)
+            self.append_op(gmem_tensor_op)
+            self.gmem_tensor_ops[gmem_inout.name] = gmem_tensor_op
+
+    @property
+    def ops(self) -> List[NvOp]:
+        return self.meta_op.body.ops
+
+    def append_op(self, op: NvOp):
+        self.meta_op.append(op)
+
+    def extend_ops(self, ops: Sequence[NvOp]):
+        self.meta_op.extend(ops)
+
+    def all_parameters(self) -> Set[str]:
+        return self.meta_op.all_parameters()
+
+    def all_varlens(self) -> Set[str]:
+        varlens = set()
+
+        varlens.update(self.meta_op.all_varlens())
 
         for io in self.gmem_inouts.values():
             for shape in io.shape:
                 if isinstance(shape, VarlenShape):
-                    varlens.append(shape.name)
-        return sorted(dict.fromkeys(varlens))  # fromkeys trick to dedup
+                    varlens.add(shape.name)
+        return varlens
 
     def find_op_by_name(self, name: str) -> NvOp:
-        for op in self.prologue:
-            if op.name == name:
-                return op
-        for stage in self.stages:
-            for op in stage.ops:
-                if op.name == name:
-                    return op
-        for op in self.epilogue:
-            if op.name == name:
-                return op
-        raise ValueError(f"NvOp {name} not found")
+        return self.meta_op.find_op_by_name(name)
+
+    def add_gmem_inout(self, gmem_inout: GmemInout):
+        self.gmem_inouts[gmem_inout.name] = gmem_inout
+        self.gmem_tensor_ops[gmem_inout.name] = GmemTensorNvOp(gmem_inout)
+        self.append_op(self.gmem_tensor_ops[gmem_inout.name])

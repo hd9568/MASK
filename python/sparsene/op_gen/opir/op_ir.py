@@ -169,11 +169,6 @@ class FloatType(Type):
 
 
 @dataclass
-class RangeType(Type):
-    pass
-
-
-@dataclass
 class ArrayType(Type):
     dims: List[Expr]
     datatype: Type
@@ -229,10 +224,18 @@ class OpResult(Value):
 class BlockArgument(Value):
     owner: Block
     name_hint: Optional[str]
+    arg_idx: int
 
-    def __init__(self, type: Type, owner: Block, name_hint: Optional[str] = None):
+    def __init__(
+        self,
+        type: Type,
+        owner: Block,
+        result_idx_in_owner: int,
+        name_hint: Optional[str] = None,
+    ):
         super().__init__(type, name_hint)
         self.owner = owner
+        self.arg_idx = result_idx_in_owner
 
     def __hash__(self) -> int:
         return hash(id(self))
@@ -306,6 +309,12 @@ class Op(ABC):
     @property
     @abstractmethod
     def name(self) -> str: ...
+
+    def operand_name(self, idx: int) -> str:
+        return f"operand_{idx}"
+
+    def result_name(self, idx: int) -> str:
+        return f"result_{idx}"
 
 
 class ExternalSymbolOp(Op):
@@ -460,13 +469,33 @@ class ForLoopOp(BlockOp):
                 for i, arg in enumerate(iter_args.values())
             ],
         )
-        self.body.args.append(BlockArgument(IntType(), self.body, induction_var))
-        for name, arg in iter_args.items():
-            self.body.args.append(BlockArgument(arg.type, self.body, name))
+        self.body.args.append(
+            BlockArgument(
+                IntType(), self.body, result_idx_in_owner=0, name_hint=induction_var
+            )
+        )
+        for i, (name, arg) in enumerate(iter_args.items()):
+            self.body.args.append(
+                BlockArgument(
+                    arg.type, self.body, result_idx_in_owner=i + 1, name_hint=name
+                )
+            )
 
     @property
     def name(self) -> str:
         return "for_loop"
+
+    @property
+    def range(self) -> Tuple[Value, Value]:
+        return self.operands[0].source, self.operands[1].source
+
+    @property
+    def num_iter_args(self) -> int:
+        return len(self.body.args) - 1
+
+    @property
+    def induction_var(self) -> BlockArgument:
+        return self.body.args[0]
 
     def get_induction_var(self) -> BlockArgument:
         return self.body.args[0]
