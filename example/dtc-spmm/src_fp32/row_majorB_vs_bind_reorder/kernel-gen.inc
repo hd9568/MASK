@@ -73,11 +73,10 @@ __device__ __forceinline__ void mma_m16n8k16_fp32(float* acc, uint32_t* A, uint3
 
 __device__ __forceinline__ void mma_m16n8k8_fp32_tf32_tf32_fp32(float* acc, uint32_t* frag_A, uint32_t* frag_B) {
     asm volatile(
-        "mma.sync.aligned.m16n8k8.row.col.f32.tf32.tf32.f32 {%0,%1,%2,%3}, {%4,%5, %6, %7}, {%8,%9}, {%10,%11,%12,%13};\n"
-        : "=f"(acc[0]), "=f"(acc[1]), "=f"(acc[2]), "=f"(acc[3])
+        "mma.sync.aligned.m16n8k8.row.col.f32.tf32.tf32.f32 {%0,%1,%2,%3}, {%4,%5, %6, %7}, {%8,%9}, {%0,%1,%2,%3};\n"
+        : "+f"(acc[0]), "+f"(acc[1]), "+f"(acc[2]), "+f"(acc[3])
         : "r"(frag_A[0]), "r"(frag_A[1]), "r"(frag_A[2]), "r"(frag_A[3]), 
-            "r"(frag_B[0]), "r"(frag_B[2]), 
-            "f"(acc[0]), "f"(acc[1]), "f"(acc[2]), "f"(acc[3])
+            "r"(frag_B[0]), "r"(frag_B[1])
     );
 }
 
@@ -295,8 +294,8 @@ class S2sRestoreMatrixAOp {
         for (int i_restore = lid; i_restore < nnz_num; i_restore += 32) {
             float value = tileA_coo_val(i_restore);
             int idx = tileA_coo_idx(i_restore);
-            int row = idx / 16;
-            int col = idx % 16;
+            int row = idx / 8;
+            int col = idx % 8;
             tile_coo_restore_val_block(row, col, buf_idx) = value;
         }
     }
@@ -352,6 +351,7 @@ class G2sMatrixBLoadOp {
     CUTE_DEVICE void f(Tensor_i0 dB_val, Tensor_i1 tile_sidx_block) {
         // auto thr_tiler = make_shape(_4{});
         // auto thr_coord = make_coord(lid);
+        __syncthreads();
         auto load_tile_n = _4{};
         for (int iter_i = lid; iter_i < get<2>(BLK_MNK{}) * get<1>(BLK_MNK{}) / load_tile_n; iter_i += 32) {
             int row = iter_i / (get<1>(BLK_MNK{}) / load_tile_n);
@@ -460,19 +460,20 @@ class S2rBValLoadOp {
         __syncthreads();
         //> row major B float - cannot use ldmatrix.trans
         // way1: direct load
-        for (int n_iter = 0; n_iter < get<1>(BLK_MMA_MNK{}); n_iter++) {
-            int row_b = lid % 4;
-            int col_b = lid / 4;
-            REGB(_0{}, n_iter, buf_idx) = tileB_block(row_b, col_b + n_iter * 8);
-            REGB(_1{}, n_iter, buf_idx) = tileB_block(row_b + 4, col_b + n_iter * 8);
-        }
+        // for (int n_iter = 0; n_iter < get<1>(BLK_MMA_MNK{}); n_iter++) {
+        //     int row_b = lid % 4;
+        //     int col_b = lid / 4;
+        //     REGB(_0{}, n_iter, buf_idx) = tileB_block(row_b, col_b + n_iter * 8);
+        //     REGB(_1{}, n_iter, buf_idx) = tileB_block(row_b + 4, col_b + n_iter * 8);
+        // }
+        
         // way2: ldmatrix + shuffle
         for (int n_iter = 0; n_iter < get<1>(BLK_MMA_MNK{}); n_iter++) {
             int row_b = lid / 2;
             int col_b = lid % 2;
             ldmatrix_m8n8k8_x2(
                 (uint32_t*)(REGB(_, n_iter, buf_idx).data()),
-                (void*)(&tileB_block(row_b, col_b * 4))
+                (void*)(&tileB_block(row_b, col_b * 4 + n_iter * 8))
             );
             REGB(_0{}, n_iter, buf_idx) = __shfl_sync(0xffffffff, REGB(_0{}, n_iter, buf_idx), lid / 4 + lid % 4 * 8);
             REGB(_1{}, n_iter, buf_idx) = __shfl_sync(0xffffffff, REGB(_1{}, n_iter, buf_idx), lid / 4 + lid % 4 * 8);
@@ -521,13 +522,20 @@ class CalculateOp {
             for (int n_iter = 0; n_iter < get<1>(BLK_MMA_MNK{}); n_iter++) {
                 uint32_t frag_A[4];
                 uint32_t frag_B[2];
-                asm("cvt.rna.tf32.f32  %0, %1;\n" : "=r"(frag_A[0]) : "f"(REGA(Int<0>{}, m_iter)));
-                asm("cvt.rna.tf32.f32  %0, %1;\n" : "=r"(frag_A[1]) : "f"(REGA(Int<1>{}, m_iter)));
-                asm("cvt.rna.tf32.f32  %0, %1;\n" : "=r"(frag_A[2]) : "f"(REGA(Int<2>{}, m_iter)));
-                asm("cvt.rna.tf32.f32  %0, %1;\n" : "=r"(frag_A[3]) : "f"(REGA(Int<3>{}, m_iter)));
-                asm("cvt.rna.tf32.f32  %0, %1;\n" : "=r"(frag_B[0]) : "f"(REGB(Int<0>{}, n_iter)));
-                asm("cvt.rna.tf32.f32  %0, %1;\n" : "=r"(frag_B[1]) : "f"(REGB(Int<1>{}, n_iter)));
-                mma_m16n8k16_fp32(REGC(_, (m_iter, n_iter), buf_idx).data(), frag_A, frag_B);
+                // asm("cvt.rna.tf32.f32  %0, %1;\n" : "=r"(frag_A[0]) : "f"(REGA(Int<0>{}, m_iter)));
+                // asm("cvt.rna.tf32.f32  %0, %1;\n" : "=r"(frag_A[1]) : "f"(REGA(Int<1>{}, m_iter)));
+                // asm("cvt.rna.tf32.f32  %0, %1;\n" : "=r"(frag_A[2]) : "f"(REGA(Int<2>{}, m_iter)));
+                // asm("cvt.rna.tf32.f32  %0, %1;\n" : "=r"(frag_A[3]) : "f"(REGA(Int<3>{}, m_iter)));
+                // asm("cvt.rna.tf32.f32  %0, %1;\n" : "=r"(frag_B[0]) : "f"(REGB(Int<0>{}, n_iter)));
+                // asm("cvt.rna.tf32.f32  %0, %1;\n" : "=r"(frag_B[1]) : "f"(REGB(Int<1>{}, n_iter)));
+                asm("cvt.rna.tf32.f32  %0, %1;\n" : "=r"(frag_A[0]) : "f"(REGA(0, m_iter)));
+                asm("cvt.rna.tf32.f32  %0, %1;\n" : "=r"(frag_A[1]) : "f"(REGA(1, m_iter)));
+                asm("cvt.rna.tf32.f32  %0, %1;\n" : "=r"(frag_A[2]) : "f"(REGA(2, m_iter)));
+                asm("cvt.rna.tf32.f32  %0, %1;\n" : "=r"(frag_A[3]) : "f"(REGA(3, m_iter)));
+                asm("cvt.rna.tf32.f32  %0, %1;\n" : "=r"(frag_B[0]) : "f"(REGB(0, n_iter)));
+                asm("cvt.rna.tf32.f32  %0, %1;\n" : "=r"(frag_B[1]) : "f"(REGB(1, n_iter)));
+
+                mma_m16n8k8_fp32_tf32_tf32_fp32(REGC(_, (m_iter, n_iter), buf_idx).data(), frag_A, frag_B);
             }
         }
     }
@@ -645,6 +653,7 @@ __global__ void dtc_spmm_kernel_fp32_val_idx_bind_stage2(
     g2s_sparse_coo_val_load_op.template f<0>(val_coo_off, val_coo_val, l + 0);
     __pipeline_commit();
     //>========================================================
+    if (i + 1 < k) {
     //! B: memcpy async sparse index load (1)
     g2s_sparse_index_load_op.template f<1>(val_sidx, l + 1);
     __pipeline_commit();
@@ -661,8 +670,19 @@ __global__ void dtc_spmm_kernel_fp32_val_idx_bind_stage2(
     __syncthreads();
     //! A: restore matrix A (0)
     s2s_restore_matrix_a_op.template f<0>(g2s_sparse_coo_idx_load_op.template output<0, 1>(), g2s_sparse_coo_val_load_op.template output<0, 0>(), g2s_sparse_coo_idx_load_op.template output<0, 0>());
+    } else {
+        __pipeline_wait_prior(1);
+        __syncthreads();
+        //! B: memcpy async dense matrix B load (0)
+        g2s_matrix_b_load_op.template f<0>(B_val, g2s_sparse_index_load_op.template output<0, 0>());
+        __pipeline_commit();
+        __pipeline_wait_prior(1);
+        __syncthreads();
+        //! A: restore matrix A (0)
+        s2s_restore_matrix_a_op.template f<0>(g2s_sparse_coo_idx_load_op.template output<0, 1>(), g2s_sparse_coo_val_load_op.template output<0, 0>(), g2s_sparse_coo_idx_load_op.template output<0, 0>());
+    }
     //>========================================================
-    for (int i = 0; i + 2 < k; i++) {
+    for (; i + 2 < k; i++) {
         //! B: memcpy async sparse index load (i + 2)
         //! A: memcpy async sparse encoding + value load (i + 2)
         if ((i + 2) % 2 == 0) {

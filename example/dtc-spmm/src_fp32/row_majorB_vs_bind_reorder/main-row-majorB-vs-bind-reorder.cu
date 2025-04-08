@@ -19,7 +19,7 @@ using namespace std;
 #define OFFSET_COL(row, col, lda) ((col) * (lda) + (row))
 
 #define ROW_WINDOW_M 16
-#define TC_BLOCK_K 16
+#define TC_BLOCK_K 8
 #define TC_BLOCK_M 16
 
 template <int TILE_B>
@@ -206,6 +206,13 @@ void convertToMETCF(
         }
     }
 
+    {//! check sidx
+        // printf("check sparse AtoB array: ");
+        // for (int i = 0; i < total_TCBlock_num * TC_BLOCK_K; i++) {
+        //     printf("%d ", val_sidx[i]);
+        // } printf("\n");
+    }
+
     // TODO: need to change according to swizzle
     //! reorder
 
@@ -376,15 +383,73 @@ int main(int argc, char** argv) {
     // initVec(B, K * N);
     initVec(csrValA, nnz);
     initVector(B, K * N, 0);
+
+    {//! debug convert to dense
+        // float* restoreA = (float*)malloc(sizeof(float) * rowA * colA);
+        // memset(restoreA, 0, sizeof(float) * rowA * colA);
+        // for (int i_row = 0; i_row < rowA; i_row++) {
+        //     for (int j = csrPtrA[i_row]; j < csrPtrA[i_row + 1]; j++) {
+        //         int col = csrColIdxA[j];
+        //         float value = (float)csrValA[j];
+        //         restoreA[i_row * colA + col] = value;
+        //     }
+        // }
+
+        // for (int k_ptr = 0; k_ptr < colA / 8; k_ptr++) {
+        //     printf("host check tileA: i=%d\n", k_ptr);
+        //     for (int i = 0; i < 16; i++) {
+        //         for (int j = 0; j < 8; j++) {
+        //             printf("%.0f ", restoreA[OFFSET_ROW(i, k_ptr * 8 + j, colA)]);
+        //         } printf("\n");
+        //     }
+        // }
+    }
+
+    {//! debug tile B
+        // for (int k_ptr = 0; k_ptr < colA / 8; k_ptr++) {
+        //     printf("host check tile B: i = %d\n", k_ptr);
+        //     for (int i = 0; i < 8; i++) {
+        //         for (int j = 0; j < 8; j++) {
+        //             printf("%.0f ", B[OFFSET_ROW(i + k_ptr * 8, j, N)]);
+        //         } printf("\n");
+        //     }
+        // }
+    }
     
     float* C_cuda = (float*)malloc(sizeof(float) * M * N);
     convertToMETCF(M, N, K, nnz, csrPtrA, csrColIdxA, csrValA, B, C_cuda);
 
     // host check
     float* C_cpu = (float*)malloc(sizeof(float) * M * N);
-    memset(C_cpu, 0, sizeof(half) * M * N);
+    memset(C_cpu, 0, sizeof(float) * M * N);
     cusparse_spmm_all(csrValA, csrPtrA, csrColIdxA, B, C_cpu, M, N, K, nnz);
     verify_new(C_cpu, C_cuda, M, N);
+
+    {//! debug check cusparse
+        // float* restoreA = (float*)malloc(sizeof(float) * rowA * colA);
+        // memset(restoreA, 0, sizeof(float) * rowA * colA);
+        // for (int i_row = 0; i_row < rowA; i_row++) {
+        //     for (int j = csrPtrA[i_row]; j < csrPtrA[i_row + 1]; j++) {
+        //         int col = csrColIdxA[j];
+        //         float value = (float)csrValA[j];
+        //         restoreA[i_row * colA + col] = value;
+        //     }
+        // }
+        // float* c_hand = (float*)malloc(sizeof(float) * M * N);
+        // memset(c_hand, 0, sizeof(float) * M * N);
+        // for (int i = 0; i < M; i++) {
+        //     for (int j = 0; j < N; j++) {
+        //         for (int k = 0; k < K; k++) {
+        //             if (k % 8 == 0 && i == 0 && j == 0) {
+        //                 printf("k == %d, c_hand[0, 0] = %.0f\n", k, c_hand[OFFSET_ROW(i, j, N)]);   
+        //             }
+        //             c_hand[OFFSET_ROW(i, j, N)] += restoreA[OFFSET_ROW(i, k, K)] * B[OFFSET_ROW(k, j, N)];
+        //         }
+        //     }
+        // }
+        // printf("check hand\n");
+        // verify_new(C_cpu, c_hand, M, N);
+    }
 
     printf("check nan: cusp %.1f mykernel %.1f\n", C_cpu[0], C_cuda[0]);
     return 0;

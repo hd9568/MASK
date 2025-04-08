@@ -102,7 +102,7 @@ void dtc_spmm_test_val_sidx_bind_reorder(
     CHECK_CUDA2(cudaMalloc(&dval_sidx, sizeof(int) * TCBlock_num * TC_BLOCK_K));
 
     CHECK_CUDA2(cudaMalloc(&dval_soff, sizeof(int) * (row_window_num + 1)));
-    CHECK_CUDA2(cudaMalloc(&dB_val, sizeof(half) * K * N));
+    CHECK_CUDA2(cudaMalloc(&dB_val, sizeof(float) * K * N));
     //! coo
     CHECK_CUDA2(cudaMalloc(&dval_coo_idx, (nnz + 8 - 1) / 8 * 8 * sizeof(int)));
     CHECK_CUDA2(cudaMemset(dval_coo_idx, 0, (nnz + 8 - 1) / 8 * 8 * sizeof(int)));
@@ -112,7 +112,7 @@ void dtc_spmm_test_val_sidx_bind_reorder(
     CHECK_CUDA2(cudaMalloc(&dC, sizeof(float) * (row_window_num * ROW_WINDOW_M) * N)); // C is row major (alloc more copy some)
     CHECK_CUDA2(cudaMemcpy(dval_sidx, val_sidx, sizeof(int) * TCBlock_num * TC_BLOCK_K, cudaMemcpyHostToDevice));
     CHECK_CUDA2(cudaMemcpy(dval_soff, val_soff, sizeof(int) * (row_window_num + 1), cudaMemcpyHostToDevice));
-    CHECK_CUDA2(cudaMemcpy(dB_val, B_val, sizeof(half) * K * N, cudaMemcpyHostToDevice));
+    CHECK_CUDA2(cudaMemcpy(dB_val, B_val, sizeof(float) * K * N, cudaMemcpyHostToDevice));
     //! coo
     CHECK_CUDA2(cudaMemcpy(dval_coo_idx, val_coo_idx, sizeof(int) * nnz, cudaMemcpyHostToDevice));
     CHECK_CUDA2(cudaMemcpy(dval_coo_val, val_coo_val, sizeof(float) * nnz, cudaMemcpyHostToDevice));
