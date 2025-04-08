@@ -15,11 +15,8 @@ def visualize_op_graph(graph: OpGraph, filename: str) -> None:
 
     # Add nodes with labels
     for node_id, node in graph.nodes.items():
-        if isinstance(node, OpGraph.OpNode):
-            label = f"Op\n{node.op}"
-            color = "lightgreen"
-        else:
-            raise ValueError(f"Unsupported node type: {type(node)}")
+        label = f"Op\n{node.op}"
+        color = "lightgreen"
 
         G.add_node(node_id, label=label, color=color)
 

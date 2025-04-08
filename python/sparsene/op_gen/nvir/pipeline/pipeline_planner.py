@@ -1,3 +1,6 @@
+from sparsene.op_gen.nvir.opgraph.graph import OpGraph, construct_graph_from_op_sequence
+from itertools import product
+from typing import Dict
 from sparsene.op_gen.nvir.nvop import (
     NvOpPipeline,
     NvOpProgram,
@@ -8,54 +11,11 @@ from sparsene.op_gen.nvir.nvop import (
     NvOp,
     ForLoopNvOp,
 )
-from dataclasses import dataclass
+from sparsene.op_gen.nvir.plan import PipelinePlan
 from typing import List
-
-from sparsene.op_gen.nvir.opgraph.graph import OpGraph, construct_graph_from_op_sequence
-
-# NvOpProram{
-#     meta_op = NvOpSequence{
-#         gmem_tensor_op;
-#         op0,
-#         op1,
-#         op2 = ForLoopOp{ # blk_y
-#             body= NvOpSequence(
-#                 op0, 
-#                 op1, 
-#                 ForLoopOp { # blk_x
-#                     body = NvOpSequence(
-#                         op0,
-#                         op1,
-#                         ForLoopOp { # intra-block for-loop
-#                             # pipelined
-#                             body= NvOpPipeline
-#                         }
-#                     )
-#                 }
-#             )
-#         },
-#         op3
-#     }
-# }
-
-@dataclass
-class PipelinePlan:
-    stages: List[NvOpSequence]
-    shifts: List[int]
-
-    def __post_init__(self):
-        assert len(self.stages) == len(self.shifts) + 1
-
-
-def apply_pipeline(for_loop_op: ForLoopNvOp, pipeline_plan: PipelinePlan) -> None:
-    pipeline = NvOpPipeline(
-        name=for_loop_op.body.name,
-        stages=pipeline_plan.stages,
-        shifts=pipeline_plan.shifts,
-    )
-    for op in pipeline.ops:
-        op.pipelined = True
-    for_loop_op.body = pipeline
+from sparsene.op_gen.nvir.pipeline.int_planner import (
+    generate_all_partitions_with_constraints,
+)
 
 
 def validate_pipeline_plan(op_graph: OpGraph, pipeline_plan: PipelinePlan) -> bool:
@@ -84,10 +44,52 @@ def validate_pipeline_plan(op_graph: OpGraph, pipeline_plan: PipelinePlan) -> bo
 
 
 def enumerate_pipeline_plans(
-    for_loop_op: ForLoopNvOp, max_shift: int = 3
+    for_loop_op: ForLoopNvOp,
+    min_nstages: int = 1,
+    max_nstages: int = 99,
+    min_ops_per_stage: int = 1,
+    max_ops_per_stage: int = 99,
+    min_shift: int = 1,
+    max_shift: int = 3,
 ) -> List[PipelinePlan]:
     assert not isinstance(
         for_loop_op.body, NvOpPipeline
     )  # The for loop should not be pipelined yet
 
     op_graph = construct_graph_from_op_sequence(for_loop_op.body)
+
+    op_name2idx: Dict[str, int] = {}
+    idx2op: Dict[int, NvOp] = {}
+    for idx, op_name in enumerate(op_graph.nodes.keys()):
+        op_name2idx[op_name] = idx
+        idx2op[idx] = op_graph.nodes[op_name].op
+
+    constraints = []
+    for e in op_graph.edges:
+        constraints.append((op_name2idx[e.src.node_id], op_name2idx[e.dst.node_id]))
+
+    partitions = generate_all_partitions_with_constraints(
+        len(op_graph.nodes),
+        constraints,
+        min_nstages,
+        max_nstages,
+        min_ops_per_stage,
+        max_ops_per_stage,
+    )
+
+    plans = []
+
+    for partition in partitions:
+        stages = []
+        for seg in partition:
+            stage = NvOpSequence()
+            for idx in seg:
+                stage.append(idx2op[idx])
+            stages.append(stage)
+
+        for shifts in product(range(min_shift, max_shift + 1), repeat=len(stages) - 1):
+            if validate_pipeline_plan(op_graph, PipelinePlan(stages, shifts)):
+                plan = PipelinePlan(stages, shifts)
+                plans.append(plan)
+
+    return plans

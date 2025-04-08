@@ -13,18 +13,13 @@ class OpGraph:
         node_id: str
         inputs: List[OpGraph.Edge]
         outputs: List[OpGraph.Edge]
-
-        def __init__(self, node_id: str):
-            self.node_id = node_id
-            self.inputs = []
-            self.outputs = []
-
-    class OpNode(Node):
         op: nvop.NvOp
 
         def __init__(self, op: nvop.NvOp):
-            super().__init__(op.name)
+            self.node_id = op.name
             self.op = op
+            self.inputs = []
+            self.outputs = []
 
     class Edge:
         src: OpGraph.Node
@@ -67,7 +62,7 @@ def construct_graph_from_op_sequence(op_seq: nvop.NvOpSequence) -> OpGraph:
     logger.debug(f"Adding OpNodes")
     for op in op_seq.ops:
         logger.debug(f"Adding node {op.name}: {op}")
-        graph.add_node(OpGraph.OpNode(op))
+        graph.add_node(OpGraph.Node(op))
     logger.debug(f"Nodes: {graph.nodes}")
 
     # Add edges

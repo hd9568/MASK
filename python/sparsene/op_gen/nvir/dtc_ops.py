@@ -18,7 +18,10 @@ from sparsene.op_gen.nvir.nvop import (
     ConstantNvOp,
     NvOpProgram,
 )
-from sparsene.op_gen.nvir.pipeliner import PipelinePlan, apply_pipeline, enumerate_pipeline_plans
+from sparsene.op_gen.nvir.plan import apply_pipeline, PipelinePlan
+from sparsene.op_gen.nvir.pipeline.pipeline_planner import (
+    enumerate_pipeline_plans,
+)
 
 
 def dtc():
@@ -845,18 +848,19 @@ if __name__ == "__main__":
     )
 
     plans = enumerate_pipeline_plans(dtc_main_loop_op)
+    print("Possible plans:", len(plans))
     for plan in plans:
         new_loop, new_dtc_program = dtc()
         apply_pipeline(new_loop, plan)
         print(NvIrCodeGenerator().dump_nvop_program(new_dtc_program))
 
-# bit-bsr
-# flash-llm
-#### acc-spmm (dtc-spmm + 修改restore A val)
+    # bit-bsr
+    # flash-llm
+    #### acc-spmm (dtc-spmm + 修改restore A val)
 
-    # apply_pipeline(
-    #     dtc_main_loop_op,
-    #     PipelinePlan([s0, s1, s2, s3], [1, 1, 1]),
-    # )
+    apply_pipeline(
+        dtc_main_loop_op,
+        PipelinePlan([s0, s1, s2, s3], [1, 1, 1]),
+    )
 
     print(NvIrCodeGenerator().dump_nvop_program(dtc_program))
