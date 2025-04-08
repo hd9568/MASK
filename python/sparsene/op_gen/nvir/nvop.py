@@ -262,7 +262,7 @@ class NvOpOutput:
         self.consumers = []
         self.op = None
         self.layout_hint = layout_hint
-    
+
     def __setattr__(self, name: str, value: Any) -> None:
         if name == "origin":
             self.owning = False
@@ -499,6 +499,9 @@ class ForLoopNvOp(NvOp):
 
     def all_parameters(self) -> Set[str]:
         return self.body.all_parameters()
+
+    def set_loop_result(self, idx: int, result: NvOpOutput):
+        self.outputs[idx].origin = result
 
 
 class MetaNvOp(NvOp):
