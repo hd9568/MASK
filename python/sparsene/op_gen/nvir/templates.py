@@ -17,7 +17,36 @@ __device__ __forceinline__ void mma_m16n8k16_fp32(float* acc, uint32_t* A, half*
         : "+f"(acc[0]), "+f"(acc[1]), "+f"(acc[2]), "+f"(acc[3])
         : "r"(A[0]), "r"(A[1]), "r"(A[2]), "r"(A[3]), "r"(B[0]), "r"(B[1])
     );
-}"""
+}
+
+__device__ __forceinline__ void ldmatrix_m8n8k8_x2_trans(uint32_t* fragment, void* ptr) {
+    uint32_t values_tile_int_ptr = static_cast<uint32_t>(__cvta_generic_to_shared(ptr));
+    asm volatile(
+        "ldmatrix.sync.aligned.m8n8.x2.trans.shared.b16 \t"
+        " { %0, %1 }, \t"
+        " [%2];"
+        : "=r"(fragment[0]), "=r"(fragment[1])
+        : "r"(values_tile_int_ptr)
+    );
+}
+
+__device__ __forceinline__ void mma_m16n8k16_fp32(float* acc, uint32_t* A, half* half_B) {
+    uint32_t* B = reinterpret_cast<uint32_t*>(half_B);
+    asm volatile(
+        "mma.sync.aligned.m16n8k16.row.col.f32.f16.f16.f32 "
+        "{%0, %1, %2, %3}, {%4, %5, %6, %7}, {%8, %9}, {%0, %1, %2, %3};"
+        : "+f"(acc[0]), "+f"(acc[1]), "+f"(acc[2]), "+f"(acc[3])
+        : "r"(A[0]), "r"(A[1]), "r"(A[2]), "r"(A[3]), "r"(B[0]), "r"(B[1])
+    );
+}
+
+__device__ __forceinline__ void unpack_half_short(uint32_t packed, half& h, short & s) {
+    uint16_t half_bits = static_cast<uint16_t>(packed >> 16);
+    uint16_t short_bits = static_cast<uint16_t>(packed & 0xFFFF);
+    h = *reinterpret_cast<half*>(&half_bits);
+    s = static_cast<short>(short_bits);
+}
+"""
 
 SHORT_PIPE_SKELETON = """CUTE_DEVICE void short_pipe(int k, int l, int r) {{
 {short_pipe_body}
@@ -294,6 +323,9 @@ using namespace cute;
                    __LINE__, cudaGetErrorString(status), status);      \\
         }}                                                              \\
     }}
+
+#define OFFSET_ROW(row, col, lda) ((row) * (lda) + (col))
+#define OFFSET_COL(row, col, lda) ((col) * (lda) + (row))
 
 {device_helper_functions}
 

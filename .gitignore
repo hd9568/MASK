@@ -8,6 +8,12 @@ cmake-build-*
 logs
 **/*.log
 
+
 .VSCodeCounter
 
 python/**/*.pdf
+
+example/dtc-spmm/build/
+
+example/dtc-spmm/report/
+
