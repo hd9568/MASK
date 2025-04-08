@@ -55,6 +55,41 @@ class G{
 
 using namespace cute;
 
+// Generic 2D Layout to console table
+template <class Layout>
+CUTE_HOST_DEVICE
+void
+print_layout_local(Layout const& layout)  // (m,n) -> idx
+{
+  CUTE_STATIC_ASSERT_V(rank(layout) == Int<2>{});
+
+  int idx_width = num_digits(cosize(layout)) + 2;
+  const char* delim = "+-----------------------";
+
+  print(layout); print("\n");
+
+  // Column indices
+  print("    ");
+  for (int n = 0; n < size<1>(layout); ++n) { printf("  %*d ", idx_width-2, n); }
+  printf("\n");
+
+  // Print out A m-by-n
+  for (int m = 0; m < size<0>(layout); ++m) {
+    // Header
+    print("    ");
+    for (int n = 0; n < size<1>(layout); ++n) { printf("%.*s", idx_width+1, delim); }
+    printf("+\n");
+    // Values
+    printf("%2d  ", m);  // Row indices
+    for (int n = 0; n < size<1>(layout); ++n) { printf("| %*d ", idx_width-2, int(layout(m,n)) % 8); }
+    printf("|\n");
+  }
+  // Footer
+  print("    ");
+  for (int n = 0; n < size<1>(layout); ++n) { printf("%.*s", idx_width+1, delim); }
+  printf("+\n");
+}
+
 int main() {
 	// auto a = cute::Int<16>{};
 	// // std::cout << a * a << std::endl;
@@ -102,18 +137,161 @@ int main() {
 	// for (int i = 0; i < cosize(layout(tensor0)); i++) {
 	// 	printf("%f ", ptr[i]);
 	// }
-	auto tA = make_tensor<float>(make_shape(make_shape(_2{}, _4{}), _3{}));
-	auto tB = make_tensor<float>(make_shape(_2{}, _4{}));
-	print(tA); putchar('\n');
-	print(tA(_, 0)); putchar('\n');
-	print(tA((_, _), 0)); putchar('\n');
-	print(tB); putchar('\n');
-	// printf("%d\n", a());
-	auto tensor = make_tensor<float>(make_shape(_16{}));
-    decltype(make_shape(Int<4>{})) thr_tiler;
-	for (int i = 0; i < 5; i++) {
-		auto thr_coord = make_coord(i);
-		print(local_tile(tensor, thr_tiler, thr_coord)); putchar('\n');
+	// auto tA = make_tensor<float>(make_shape(make_shape(_2{}, _4{}), _3{}));
+	// auto tB = make_tensor<float>(make_shape(_2{}, _4{}));
+	// print(tA); putchar('\n');
+	// print(tA(_, 0)); putchar('\n');
+	// print(tA((_, _), 0)); putchar('\n');
+	// print(tB); putchar('\n');
+	// // printf("%d\n", a());
+	// auto tensor = make_tensor<float>(make_shape(_16{}));
+    // decltype(make_shape(Int<4>{})) thr_tiler;
+	// for (int i = 0; i < 5; i++) {
+	// 	auto thr_coord = make_coord(i);
+	// 	print(local_tile(tensor, thr_tiler, thr_coord)); putchar('\n');
+	// }
+	{
+		auto a = Layout<Shape<_32, _16>, Stride<_16, _1>>{};
+		auto b = composition(Swizzle<3, 0, 3>{}, Layout<Shape<_32, _16>, Stride<_16, _1>>{});
+		printf("Layout a: "); print(a); printf("\n");
+		printf("Layout b: "); print(b); printf("\n");
+		
+		print_layout_local(b);
 	}
+	{
+		auto a = Layout<Shape<_32, _16>, Stride<_16, _1>>{};
+		auto b = composition(Swizzle<2, 0, 4>{}, Layout<Shape<_32, _16>, Stride<_16, _1>>{});
+		printf("Layout a: "); print(a); printf("\n");
+		printf("Layout b: "); print(b); printf("\n");
+		
+		print_layout_local(b);
+	}
+	{
+		auto a = Layout<Shape<_32, _16>, Stride<_16, _1>>{};
+		auto b = composition(Swizzle<3, 0, 4>{}, Layout<Shape<_32, _16>, Stride<_16, _1>>{});
+		printf("Layout a: "); print(a); printf("\n");
+		printf("Layout b: "); print(b); printf("\n");
+		
+		print_layout_local(b);
+	}
+	{
+		auto a = Layout<Shape<_32, _16>, Stride<_16, _1>>{};
+		auto b = composition(Swizzle<4, 0, 4>{}, Layout<Shape<_32, _16>, Stride<_16, _1>>{});
+		printf("Layout a: "); print(a); printf("\n");
+		printf("Layout b: "); print(b); printf("\n");
+		
+		print_layout_local(b);
+	}
+	{
+		auto a = Layout<Shape<_32, _8>, Stride<_8, _1>>{};
+		auto b = composition(Swizzle<3, 0, 3>{}, Layout<Shape<_32, _8>, Stride<_8, _1>>{});
+		printf("Layout a: "); print(a); printf("\n");
+		printf("Layout b: "); print(b); printf("\n");
+		
+		print_layout_local(b);
+	}
+	{
+		auto a = Layout<Shape<_32, _8>, Stride<_8, _1>>{};
+		auto b = composition(Swizzle<2, 0, 3>{}, Layout<Shape<_32, _8>, Stride<_8, _1>>{});
+		printf("Layout a: "); print(a); printf("\n");
+		printf("Layout b: "); print(b); printf("\n");
+		
+		print_layout_local(b);
+	}
+	{
+		auto a = Layout<Shape<_32, _8>, Stride<_8, _1>>{};
+		auto b = composition(Swizzle<1, 0, 3>{}, Layout<Shape<_32, _8>, Stride<_8, _1>>{});
+		printf("Layout a: "); print(a); printf("\n");
+		printf("Layout b: "); print(b); printf("\n");
+		
+		print_layout_local(b);
+	}
+	{
+		auto a = Layout<Shape<_32, _8>, Stride<_8, _1>>{};
+		auto b = composition(Swizzle<4, 0, 4>{}, Layout<Shape<_32, _8>, Stride<_8, _1>>{});
+		printf("Layout a: "); print(a); printf("\n");
+		printf("Layout b: "); print(b); printf("\n");
+		
+		print_layout_local(b);
+	}
+	{
+		auto a = Layout<Shape<_32, _8>, Stride<_8, _1>>{};
+		auto b = composition(Swizzle<3, 0, 4>{}, Layout<Shape<_32, _8>, Stride<_8, _1>>{});
+		printf("Layout a: "); print(a); printf("\n");
+		printf("Layout b: "); print(b); printf("\n");
+		
+		print_layout_local(b);
+	}
+	{
+		auto a = Layout<Shape<_32, _8>, Stride<_8, _1>>{};
+		auto b = composition(Swizzle<3, 0, 4>{}, Layout<Shape<_32, _8>, Stride<_8, _1>>{});
+		printf("Layout a: "); print(a); printf("\n");
+		printf("Layout b: "); print(b); printf("\n");
+		
+		print_layout_local(b);
+	}
+	{	// suppose tile N = 32 (无冲突)
+		auto a = Layout<Shape<_32, _4>, Stride<_4, _1>>{};
+		auto b = composition(Swizzle<2, 0, 3>{}, Layout<Shape<_32, _4>, Stride<_4, _1>>{});
+		printf("Layout a: "); print(a); printf("\n");
+		printf("Layout b: "); print(b); printf("\n");
+		
+		print_layout_local(b);
+	}
+	{	// suppose tile N = 32 （有冲突）
+		auto a = Layout<Shape<_32, _4>, Stride<_4, _1>>{};
+		auto b = composition(Swizzle<2, 0, 2>{}, Layout<Shape<_32, _4>, Stride<_4, _1>>{});
+		printf("Layout a: "); print(a); printf("\n");
+		printf("Layout b: "); print(b); printf("\n");
+		
+		print_layout_local(b);
+	}
+	{	// suppose tile N = 32 (无冲突)
+		auto a = Layout<Shape<_32, _4>, Stride<_4, _1>>{};
+		auto b = composition(Swizzle<3, 0, 3>{}, Layout<Shape<_32, _4>, Stride<_4, _1>>{});
+		printf("Layout a: "); print(a); printf("\n");
+		printf("Layout b: "); print(b); printf("\n");
+		
+		print_layout_local(b);
+	}
+	{	// suppose tile N = 32 (无冲突)
+		auto a = Layout<Shape<_32, _4>, Stride<_4, _1>>{};
+		auto b = composition(Swizzle<1, 0, 3>{}, Layout<Shape<_32, _4>, Stride<_4, _1>>{});
+		printf("Layout a: "); print(a); printf("\n");
+		printf("Layout b: "); print(b); printf("\n");
+		
+		print_layout_local(b);
+	}
+	{	// suppose tile N = 16 (无冲突)
+		auto a = Layout<Shape<_16, _2>, Stride<_2, _1>>{};
+		auto b = composition(Swizzle<3, 0, 3>{}, Layout<Shape<_16, _2>, Stride<_2, _1>>{});
+		printf("Layout a: "); print(a); printf("\n");
+		printf("Layout b: "); print(b); printf("\n");
+		
+		print_layout_local(b);
+		printf("%14s: %d\n", "cosize(layout)", (int)cosize(b));
+		// printf("size = %d\n", cosize(b));
+	}
+	{	// suppose tile N = 16 (无冲突)
+		auto a = Layout<Shape<_16, _2>, Stride<_2, _1>>{};
+		auto b = composition(Swizzle<1, 0, 3>{}, Layout<Shape<_16, _2>, Stride<_2, _1>>{});
+		printf("Layout a: "); print(a); printf("\n");
+		printf("Layout b: "); print(b); printf("\n");
+		
+		print_layout_local(b);
+		printf("%14s: %d\n", "cosize(layout)", (int)cosize(b));
+		// printf("size = %d\n", cosize(b));
+	}
+	{	// suppose tile N = 16 (无冲突)
+		auto a = Layout<Shape<_16, _2>, Stride<_2, _1>>{};
+		auto b = composition(Swizzle<2, 0, 2>{}, Layout<Shape<_16, _2>, Stride<_2, _1>>{});
+		printf("Layout a: "); print(a); printf("\n");
+		printf("Layout b: "); print(b); printf("\n");
+		
+		print_layout_local(b);
+		printf("%14s: %d\n", "cosize(layout)", (int)cosize(b));
+		// printf("size = %d\n", cosize(b));
+	}
+
     return 0;
 }
