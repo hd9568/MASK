@@ -475,7 +475,7 @@ class NvIrCodeGenerator:
                 for inp in op.inputs
                 if len(inp.tensor.shape) > 0
             )
-            + ">"
+            + ", typename = void>"
         )
         f_input_list = []
         for inp in op.inputs:
