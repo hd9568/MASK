@@ -46,8 +46,8 @@ FILL_SKELETON = """CUTE_DEVICE void fill(int l, int r) {{
 {fill_body}
 }}"""
 
-EMPTY_FROM_IDX_SKELETON = """CUTE_DEVICE void empty_{from_idx}(int i, int l, int r) {{
-{empty_from_idx_body}
+EMPTY_AFTER_REMAIN_R_SKELETON = """CUTE_DEVICE void empty_after_remain_{r}(int i, int l, int r) {{
+{empty_after_remain_r_body}
 }}"""
 
 EMPTY_SKELETON = """CUTE_DEVICE void empty(int i, int l, int r) {{
@@ -70,12 +70,12 @@ PIPELINE_DISPATCH_SKELETON = """CUTE_DEVICE void dispatch() {{
     int l = this->_l;
     int r = this->_r;
     int k = r - l;
-    if (k <= {sum_shifts}) {{
+    if (k <= {fill_len}) {{
         {short_pipe_dispatch}
     }} else {{
         {fill_dispatch}
         int i;
-        for (i = {sum_shifts}; i + {nbuf} <= k; i += {nbuf}) {{
+        for (i = {fill_len}; i + {nbuf} <= k; i += {nbuf}) {{
             {loop_step_dispatch}
         }}
         {remainder_dispatch}

@@ -588,12 +588,12 @@ class NvOpPipeline(NvOpSequence):
         return len(self.stages)
 
     @property
-    def num_buf(self) -> int:
-        return max(self.shifts) + 1
+    def max_shift(self) -> int:
+        return max(self.shifts)
 
     @property
     def nbuf(self) -> int:
-        return self.num_buf
+        return self.max_shift + 1
 
     def all_parameters(self) -> Set[str]:
         parameters = set()

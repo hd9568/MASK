@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from enum import Enum
 from typing import List, Dict, Tuple, Optional, Sequence
 from dataclasses import dataclass
@@ -29,6 +31,7 @@ from sparsene.logging import get_logger
 import re
 
 logger = get_logger(__name__)
+
 
 class NvIrCodeGenerator:
     def __init__(self, indent_size: int = 4, debug_indent: bool = False):
@@ -239,7 +242,9 @@ class NvIrCodeGenerator:
         io_dtypes_str = ", ".join(chain(in_dtypes_strs, out_dtypes_strs))
         io_dtypes_str = ", " + io_dtypes_str if io_dtypes_str else ""
         op_name_str = op.name
-        make_shape_str = self.dump_decl_make_shape(op.outputs[0].tensor.shape, nbuf=False)
+        make_shape_str = self.dump_decl_make_shape(
+            op.outputs[0].tensor.shape, nbuf=False
+        )
         mem_type_str = op.outputs[0].tensor.mem
         tensor_name = op.outputs[0].name
         if op.value == 0:
@@ -321,7 +326,9 @@ class NvIrCodeGenerator:
 
         get_output_method_str = self.dump_get_output_method(op)
 
-        non_owning_tensor_as_params_strs = [f"Tensor_o{out.idx} {out.name}" for out in op.outputs]
+        non_owning_tensor_as_params_strs = [
+            f"Tensor_o{out.idx} {out.name}" for out in op.outputs
+        ]
         non_owning_tensor_as_params_str = "".join(
             f", {param}" for param in non_owning_tensor_as_params_strs
         )
@@ -527,7 +534,7 @@ class NvIrCodeGenerator:
         if len(arg_strs) == 0:
             return f"{op.name}_v.template f<{buf_idx_str}>();"
         if isinstance(op, ForLoopNvOp) and op.blk_idx_mapping is not None:
-            return f"{op.name}_v.template f<{buf_idx_str}>();" # 映射到blk idx的for循环本质上只会迭代一次，无需lr
+            return f"{op.name}_v.template f<{buf_idx_str}>();"  # 映射到blk idx的for循环本质上只会迭代一次，无需lr
 
         return (
             f"{op.name}_v.template f<{buf_idx_str}>(\n"
@@ -535,11 +542,18 @@ class NvIrCodeGenerator:
             + "\n);"
         )
 
+    # TODO: 调整commit和wait num的发射逻辑：所有以SMEM为输出的Op都添加commit；wait num每个op判断wait num
+    # TODO: short pipe 延长到sum shifts + max shift(现在是sum shifts)
+    # TODO: 依赖的种类
+    # 输入是SMEM
+    # 输出是SMEM,但是这个SMEM的owner是其他op(origin带来的依赖)
+    # depends_on(op1, op2) -> bool:
     def dump_short_parallel(self, pipeline: NvOpPipeline) -> str:
         stages = pipeline.stages
         shifts = pipeline.shifts
 
-        def get_wait_num(
+        #! deprecated
+        def get_wait_num_old(
             op: NvOp, i: int, pipeline_records: List[List[Tuple[NvOp, int]]]
         ) -> int:
             wait_num = 0
@@ -567,6 +581,34 @@ class NvIrCodeGenerator:
             if not find_flag:
                 return -1
 
+        def depends_on(current_op: NvOp, depend_op: NvOp) -> bool:
+            for inp in current_op.inputs:
+                if not isinstance(inp.tensor.source, NvOpOutput):
+                    continue
+                assert isinstance(inp.tensor.source.op, NvOp)
+                # print("debug inp tensor source = ", inp.tensor.source)
+                if inp.tensor.source.op.name == depend_op.name:
+                    return True
+            return False
+
+        def get_wait_num(
+            current_op: NvOp, i: int, pipeline_records: List[Tuple[NvOp, int]]
+        ) -> int:
+            wait_num = 0
+            for item in reversed(pipeline_records):
+                if i == item[1] and depends_on(current_op, item[0]):
+                    return wait_num
+                else:
+                    wait_num += 1
+            return -1
+
+        def launch_commit(current_op: NvOp) -> bool:
+            # 输出是否有SMEM的东西
+            for opt in current_op.outputs:
+                if opt.tensor.mem == "smem":
+                    return True
+            return False
+
         def dump_short_parallel_i(i, K_total, pipeline_records) -> str:
             output_str = f"// i = {i}\n"
             op_list: List[Tuple[NvOp, int]] = []  # {op, "i"}
@@ -584,50 +626,69 @@ class NvIrCodeGenerator:
                         op_list.append((op, i - shift_val))
             # for item in op_list:
             #     print(f"{{{item[0].name}, {item[1]}}}, ")
-            # > 2. op list 排序，g2s的op在前
-            # return output_str
-            op_list_g2s: List[Tuple[NvOp, int]] = []
-            op_list_other: List[Tuple[NvOp, int]] = []
+            # > 顺序发射op list。每个op: 1. 判断依赖关系，决定是否发射wait; 2. 发射op; 3. 判断是否需要发射commit
             for item in op_list:
-                if item[0].mem_type == ("g", "s"):
-                    op_list_g2s.append(item)
-                else:
-                    op_list_other.append(item)
-            logger.debug("op_list_g2s:")
-            for item in op_list_g2s:
-                logger.debug(f"\t{{{item[0].name}, {item[1]}}}, ")
-            logger.debug("op_list_other:")
-            for item in op_list_other:
-                logger.debug(f"\t{{{item[0].name}, {item[1]}}}, ")
-            # return output_str
-
-            # > 生成g2s操作
-            for item in op_list_g2s:
+                # > i. 判断依赖关系，决定是否发射wait
+                wait_num = get_wait_num(item[0], item[1], pipeline_records)
+                if wait_num != -1:
+                    output_str += (
+                        f"__pipeline_wait_prior({wait_num});\n__syncthreads();\n"
+                    )
+                # > ii. 发射op
                 buf_idx_str = str(item[1] % nbuf_num)
                 shift_constant = str(i)
                 output_str += (
                     self.dump_f_method_call(item[0], buf_idx_str, shift_constant) + "\n"
                 )
+                # > iii. 判断是否发射commit
+                if launch_commit(item[0]):
+                    output_str += "__pipeline_commit();\n"
+                    pipeline_records.append(item)
 
-            # > 3. 所有g2s操作做完之后整体添加一个commit
-            if len(op_list_g2s) != 0:
-                output_str += "__pipeline_commit();\n"
-                pipeline_records.append(op_list_g2s)
-            # return output_str
-            # > 4. 生成所有其他op
-            for item in op_list_other:
-                # > 如果是从SMEM到其他位置的op，需要插入一条wait prior指令
-                if item[0].mem_type[0] == "s":
-                    wait_num = get_wait_num(item[0], item[1], pipeline_records)
-                    if wait_num != -1:
-                        output_str += (
-                            f"__pipeline_wait_prior({wait_num});\n__syncthreads();\n"
-                        )
-                buf_idx_str = str(item[1] % nbuf_num)
-                shift_constant = str(i)
-                output_str += (
-                    self.dump_f_method_call(item[0], buf_idx_str, shift_constant) + "\n"
-                )
+            # # > 2. op list 排序，g2s的op在前
+            # # return output_str
+            # op_list_g2s: List[Tuple[NvOp, int]] = []
+            # op_list_other: List[Tuple[NvOp, int]] = []
+            # for item in op_list:
+            #     if item[0].mem_type == ("g", "s"):
+            #         op_list_g2s.append(item)
+            #     else:
+            #         op_list_other.append(item)
+            # logger.debug("op_list_g2s:")
+            # for item in op_list_g2s:
+            #     logger.debug(f"\t{{{item[0].name}, {item[1]}}}, ")
+            # logger.debug("op_list_other:")
+            # for item in op_list_other:
+            #     logger.debug(f"\t{{{item[0].name}, {item[1]}}}, ")
+            # # return output_str
+
+            # # > 生成g2s操作
+            # for item in op_list_g2s:
+            #     buf_idx_str = str(item[1] % nbuf_num)
+            #     shift_constant = str(i)
+            #     output_str += (
+            #         self.dump_f_method_call(item[0], buf_idx_str, shift_constant) + "\n"
+            #     )
+
+            # # > 3. 所有g2s操作做完之后整体添加一个commit
+            # if len(op_list_g2s) != 0:
+            #     output_str += "__pipeline_commit();\n"
+            #     pipeline_records.append(op_list_g2s)
+            # # return output_str
+            # # > 4. 生成所有其他op
+            # for item in op_list_other:
+            #     # > 如果是从SMEM到其他位置的op，需要插入一条wait prior指令
+            #     if item[0].mem_type[0] == "s":
+            #         wait_num = get_wait_num(item[0], item[1], pipeline_records)
+            #         if wait_num != -1:
+            #             output_str += (
+            #                 f"__pipeline_wait_prior({wait_num});\n__syncthreads();\n"
+            #             )
+            #     buf_idx_str = str(item[1] % nbuf_num)
+            #     shift_constant = str(i)
+            #     output_str += (
+            #         self.dump_f_method_call(item[0], buf_idx_str, shift_constant) + "\n"
+            #     )
 
             return output_str
 
@@ -638,7 +699,7 @@ class NvIrCodeGenerator:
                 output_strs.append(dump_short_parallel_i(i, K_total, pipeline_records))
             return "\n\n".join(output_strs)
 
-        total_stages = sum(shifts)
+        total_stages = sum(shifts) + max(shifts)
 
         output_str = ""  #! 函数头参数似乎时固定的？(pipeline_switch + pipeline)
         for K_total in range(total_stages + 1):
@@ -856,7 +917,7 @@ class NvIrCodeGenerator:
             shape_strs.append("NBUF{}")
         comma_seperated_shapes = ", ".join(shape_strs)
         return f"make_shape({comma_seperated_shapes})", varlen_idx
-    
+
     def dump_non_owning_tensor_type_template_arg_strs(self, op: NvOp) -> List[str]:
         non_owning_tensor_type_template_arg_strs = []
         for out in op.outputs:
@@ -865,14 +926,12 @@ class NvIrCodeGenerator:
                 origin = out.tensor.source.origin
                 assert origin is not None
                 assert origin.op is not None
-                origin_out_str = (
-                    f"{origin.op.name}_v.template output<{origin.idx}>()"
-                )
+                origin_out_str = f"{origin.op.name}_v.template output<{origin.idx}>()"
                 non_owning_tensor_type_template_arg_strs.append(
                     f"std::decay_t<decltype({origin_out_str})>"
                 )
         return non_owning_tensor_type_template_arg_strs
-    
+
     def dump_non_owning_tensor_as_arg_strs(self, op: NvOp) -> List[str]:
         non_owning_tensor_as_arg_strs = []
         for out in op.outputs:
@@ -881,9 +940,7 @@ class NvIrCodeGenerator:
                 origin = out.tensor.source.origin
                 assert origin is not None
                 assert origin.op is not None
-                origin_out_str = (
-                    f"{origin.op.name}_v.template output<{origin.idx}>()"
-                )
+                origin_out_str = f"{origin.op.name}_v.template output<{origin.idx}>()"
                 non_owning_tensor_as_arg_strs.append(origin_out_str)
         return non_owning_tensor_as_arg_strs
 
@@ -904,20 +961,24 @@ class NvIrCodeGenerator:
 
         smem_output_shapes = [
             f"using {op.name}_layout_o{out.idx} = typename {op.name}_t::Layout_o{out.idx};"
-            for out in smem_outputs if out.owning
+            for out in smem_outputs
+            if out.owning
         ]
         smem_output_array_defs = [
             f"__shared__ {out.tensor.dtype} {op.name}_tensor_o{out.idx}[cosize_v<{op.name}_layout_o{out.idx}>];"
-            for out in smem_outputs if out.owning
+            for out in smem_outputs
+            if out.owning
         ]
 
         rmem_output_shapes = [
             f"using {op.name}_layout_o{out.idx} = typename {op.name}_t::Layout_o{out.idx};"
-            for out in rmem_outputs if out.owning
+            for out in rmem_outputs
+            if out.owning
         ]
         rmem_output_array_defs = [
             f"{out.tensor.dtype} {op.name}_tensor_o{out.idx}[cosize_v<{op.name}_layout_o{out.idx}>];"
-            for out in rmem_outputs if out.owning
+            for out in rmem_outputs
+            if out.owning
         ]
 
         outputs = []
@@ -1023,7 +1084,9 @@ class NvIrCodeGenerator:
         )
         visible_op_as_args_str = "".join(f", {arg}" for arg in visible_op_as_args_strs)
 
-        non_owning_tensor_type_template_arg_strs = self.dump_non_owning_tensor_type_template_arg_strs(op)
+        non_owning_tensor_type_template_arg_strs = (
+            self.dump_non_owning_tensor_type_template_arg_strs(op)
+        )
         non_owning_tensor_type_template_args_str = "".join(
             f", {arg_str}" for arg_str in non_owning_tensor_type_template_arg_strs
         )
@@ -1054,7 +1117,6 @@ class NvIrCodeGenerator:
     def dump_pipelined_for_loop_nvop_methods(self, op: ForLoopNvOp) -> str:
         assert isinstance(op.body, NvOpPipeline)
         pipeline = op.body
-        nbuf = max(pipeline.shifts) + 1
 
         op_stage_idx_mapping = {
             op: stage_idx
@@ -1068,7 +1130,7 @@ class NvIrCodeGenerator:
         @dataclass
         class OpCall(Inst):
             op: NvOp
-            buf_idx_str: str
+            buf_idx: int
             shift_constant: str
 
         @dataclass
@@ -1088,89 +1150,90 @@ class NvIrCodeGenerator:
         @dataclass
         class SyncThreads(Inst): ...
 
-        @dataclass
-        class PipelinePhase: ...
-
-        @dataclass
-        class Filling(PipelinePhase):
-            stage: int
-            step_in_stage: int
-
-        @dataclass
-        class LoopStep(PipelinePhase):
-            step: int
-
-        @dataclass
-        class Remains(PipelinePhase):
-            remains: int
-            step: int
-
-        @dataclass
-        class Emptying(PipelinePhase):
-            stage: int
-            step_in_stage: int
-
-        # TODO: more elegant way to find the earliest emptying stage without g2s ops
-        no_g2s_emptying_stage_idx = pipeline.num_stages
-        while not any(
-            op.mem_type == ("g", "s")
-            for op in pipeline.stages[no_g2s_emptying_stage_idx - 1].ops
-        ):
-            no_g2s_emptying_stage_idx -= 1
-
-        def depends_on_g2s(op: NvOp) -> bool:
-            for inp in op.inputs:
-                # if isinstance(inp.source, Tuple):
-                if isinstance(inp.tensor.source, NvOpOutput):
-                    assert isinstance(inp.tensor.source.op, NvOp)
-                    if inp.tensor.source.op.mem_type == ("g", "s"):
-                        return True
+        def smem_depends_on(current_op: NvOp, depend_op: NvOp) -> bool:
+            for inp in current_op.inputs:
+                if inp.tensor.mem != "smem":
+                    continue
+                if not isinstance(inp.tensor.source, NvOpOutput):
+                    continue
+                assert isinstance(inp.tensor.source.op, NvOp)
+                if inp.tensor.source.op.name == depend_op.name:
+                    return True
             return False
 
-        def g2s_first_schedule(
-            op_calls: List[OpCall], phase: PipelinePhase
+        def get_wait_num(
+            current_op: NvOp, i: int, pipeline_records: List[Tuple[NvOp, int]]
+        ) -> int:
+            wait_num = 0
+            for item in reversed(pipeline_records):
+                if not has_cp_async_smem_output(item[0]):
+                    continue
+                if i == item[1] and smem_depends_on(current_op, item[0]):
+                    return wait_num
+                else:
+                    wait_num += 1
+            return -1
+
+        def get_full_pipeline_history(
+            stage_buf_offset_global: int,
+        ) -> List[Tuple[NvOp, int]]:
+            # 每个stage的buf_idx偏移量，假设最后一个stage的偏移量为0 + stage_buf_offset_global
+            # 前面各个stage的偏移量由于进行的更提前，所以依次增加
+            stage_buf_offsets = [
+                sum(pipeline.shifts[i:]) + stage_buf_offset_global
+                for i in range(len(pipeline.stages))
+            ]
+            history = []
+
+            # exactly pipeline.max_shift步
+            for step in range(pipeline.max_shift):
+                for stage_idx, stage in enumerate(pipeline.stages):
+                    stage_buf_idx = (
+                        stage_buf_offsets[stage_idx] + step
+                    ) % pipeline.nbuf
+                    for op in stage.ops:
+                        history.append((op, stage_buf_idx))
+            return history
+
+        def has_cp_async_smem_output(current_op: NvOp) -> bool:
+            # 输出是否有SMEM的东西
+            for opt in current_op.outputs:
+                if opt.tensor.mem == "smem" and opt.attrs.get("cp_async", True):
+                    return True
+            return False
+
+        def has_cp_async_smem_input(current_op: NvOp) -> bool:
+            for inp in current_op.inputs:
+                if inp.tensor.mem == "smem" and inp.tensor.source.op.attrs.get("cp_async", True):
+                    return True
+            return False
+
+        def default_schedule(
+            op_calls: List[OpCall], pipeline_history: List[Tuple[NvOp, int]]
         ) -> List[Inst]:
             instructions = []
-            g2s_ops = []
 
-            # 1. extract g2s ops first
             for op_call in op_calls:
-                if op_call.op.mem_type == ("g", "s"):
-                    g2s_ops.append(op_call)
+                if has_cp_async_smem_input(op_call.op):
+                    wait_num = get_wait_num(
+                        op_call.op, op_call.buf_idx, pipeline_history
+                    )
+                    if wait_num != -1:
+                        instructions.append(PipelineWait(wait_num=wait_num))
+                        instructions.append(SyncThreads())
 
-            instructions.extend(g2s_ops)
-            if len(g2s_ops) != 0:
-                instructions.append(PipelineCommit())
-
-            # 2. schedule the rest
-            for op_call in op_calls:
-                if op_call.op.mem_type == ("g", "s"):
-                    continue
-                if depends_on_g2s(op_call.op):
-                    if (
-                        isinstance(phase, Emptying)
-                        and phase.stage >= no_g2s_emptying_stage_idx
-                    ):
-                        wait_num = sum(
-                            pipeline.shifts[
-                                (no_g2s_emptying_stage_idx - 1) : (
-                                    op_stage_idx_mapping[op_call.op]
-                                )
-                            ]
-                        ) - (phase.step_in_stage + 1)
-                    else:
-                        wait_num = (
-                            pipeline.shifts[op_stage_idx_mapping[op_call.op] - 1]
-                            if op_stage_idx_mapping[op_call.op] > 0
-                            else 0
-                        )
-                    instructions.append(PipelineWait(wait_num=wait_num))
-                    instructions.append(SyncThreads())
-                elif (
-                    op_call.op.mem_type[0] == "s"
-                ):  # sync smem write before reading, need sync
-                    instructions.append(SyncThreads())
+                
+                instructions.append(
+                    Comment(
+                        f"op_call |buf_idx={op_call.buf_idx}| {op_call.shift_constant} {op_call.op.name} "
+                    )
+                )
                 instructions.append(op_call)
+
+                if has_cp_async_smem_output(op_call.op):
+                    instructions.append(PipelineCommit())
+
+                pipeline_history.append((op_call.op, op_call.buf_idx))
 
             return instructions
 
@@ -1181,7 +1244,7 @@ class NvIrCodeGenerator:
                     inst_strs.append(
                         self.dump_f_method_call(
                             inst.op,
-                            buf_idx_str=inst.buf_idx_str,
+                            buf_idx_str=str(inst.buf_idx),
                             shift_constant=inst.shift_constant,
                         )
                     )
@@ -1206,29 +1269,41 @@ class NvIrCodeGenerator:
         def dump_fill() -> str:
             def dump_fill_body() -> str:
                 # All stages start from 0
-                stage_counter = [0 for _ in range(len(pipeline.shifts))]
+                stage_counter = [0 for _ in range(len(pipeline.stages))]
 
+                # Stage k has offset -(shift0 + shift1 + ... + shiftk-1)
+                # The first stage has offset 0
+                stage_idx_offsets = [
+                    -sum(pipeline.shifts[:i]) for i in range(len(pipeline.stages))
+                ]
+
+                pipeline_history = []
                 all_insts = []
-                for i in range(len(pipeline.shifts)):
+                total_step = 0
+                for i in range(len(pipeline.stages)):
                     all_insts.append(Comment(f"stage 0..{i}"))
-                    for step in range(pipeline.shifts[i]):
-                        # Stage 0; Stage 0, 1; Stage 0, 1, 2; ...; Stage 0, 1, 2, ..., nstages - 2
+                    # 最后一个
+                    nsteps = (
+                        pipeline.shifts[i]
+                        if i < len(pipeline.shifts)
+                        else pipeline.max_shift
+                    )
+                    for _ in range(nsteps):
+                        # Stage 0; Stage 0, 1; Stage 0, 1, 2; ...; Stage 0, 1, 2, ..., nstages - 1
                         op_calls = []  # [op0, op1, op2, ...]
                         for stage_idx, stage in enumerate(pipeline.stages[: i + 1]):
                             for op in stage.ops:
                                 op_calls.append(
                                     OpCall(
                                         op,
-                                        buf_idx_str=str(
-                                            stage_counter[stage_idx] % nbuf
-                                        ),
-                                        shift_constant=f"{i}",
+                                        buf_idx=stage_counter[stage_idx]
+                                        % pipeline.nbuf,
+                                        shift_constant=f"{total_step + stage_idx_offsets[stage_idx]}",
                                     )
                                 )
                             stage_counter[stage_idx] += 1
-                        insts = g2s_first_schedule(
-                            op_calls, Filling(stage=i, step_in_stage=step)
-                        )
+                        total_step += 1
+                        insts = default_schedule(op_calls, pipeline_history)
                         all_insts.extend(insts)
                 return dump_insts(all_insts)
 
@@ -1239,9 +1314,10 @@ class NvIrCodeGenerator:
         def dump_loop_step() -> str:
             def dump_loop_step_body() -> str:
                 # Stage k has buf_offset (shiftk + shiftk+1 + ... + shiftnstages-1)
-                # The last stage has buf_offset 0
+                # The last stage has buf_offset max_shift due to 如Full
                 stage_buf_offsets = [
-                    sum(pipeline.shifts[i:]) for i in range(len(pipeline.stages))
+                    sum(pipeline.shifts[i:]) + pipeline.max_shift
+                    for i in range(len(pipeline.stages))
                 ]
 
                 # Stage k has offset -(shift0 + shift1 + ... + shiftk-1)
@@ -1250,8 +1326,9 @@ class NvIrCodeGenerator:
                     -sum(pipeline.shifts[:i]) for i in range(len(pipeline.stages))
                 ]
 
+                pipeline_history = get_full_pipeline_history(0)
                 all_insts = []
-                for step in range(nbuf):
+                for step in range(pipeline.nbuf):
                     all_insts.append(Comment(f"step {step}"))
                     op_calls = []
                     for stage_idx, stage in enumerate(pipeline.stages):
@@ -1259,13 +1336,12 @@ class NvIrCodeGenerator:
                             op_calls.append(
                                 OpCall(
                                     op,
-                                    buf_idx_str=str(
-                                        (step + stage_buf_offsets[stage_idx]) % nbuf
-                                    ),
+                                    buf_idx=(step + stage_buf_offsets[stage_idx])
+                                    % pipeline.nbuf,
                                     shift_constant=f"i + ({step + stage_idx_offsets[stage_idx]})",
                                 )
                             )
-                    insts = g2s_first_schedule(op_calls, LoopStep(step=step))
+                    insts = default_schedule(op_calls, pipeline_history)
                     all_insts.extend(insts)
 
                 return dump_insts(all_insts)
@@ -1280,7 +1356,8 @@ class NvIrCodeGenerator:
                     # Stage k has buf_offset (shiftk + shiftk+1 + ... + shiftnstages-1)
                     # The last stage has buf_offset 0
                     stage_buf_offsets = [
-                        sum(pipeline.shifts[i:]) for i in range(len(pipeline.stages))
+                        sum(pipeline.shifts[i:]) + pipeline.max_shift
+                        for i in range(len(pipeline.stages))
                     ]
 
                     # Stage k has offset -(shift0 + shift1 + ... + shiftk-1)
@@ -1289,6 +1366,7 @@ class NvIrCodeGenerator:
                         -sum(pipeline.shifts[:i]) for i in range(len(pipeline.stages))
                     ]
 
+                    pipeline_history = get_full_pipeline_history(0)
                     all_insts = []
                     for step in range(r):
                         all_insts.append(Comment(f"total remains {r}, current {step}"))
@@ -1298,15 +1376,12 @@ class NvIrCodeGenerator:
                                 op_calls.append(
                                     OpCall(
                                         op,
-                                        buf_idx_str=str(
-                                            (step + stage_buf_offsets[stage_idx]) % nbuf
-                                        ),
+                                        buf_idx=(step + stage_buf_offsets[stage_idx])
+                                        % pipeline.nbuf,
                                         shift_constant=f"i + ({step + stage_idx_offsets[stage_idx]})",
                                     )
                                 )
-                        insts = g2s_first_schedule(
-                            op_calls, Remains(remains=r, step=step)
-                        )
+                        insts = default_schedule(op_calls, pipeline_history)
                         all_insts.extend(insts)
 
                     return dump_insts(all_insts)
@@ -1329,7 +1404,9 @@ class NvIrCodeGenerator:
                             + "}"
                         )
 
-                    return "\n".join(dump_remains_i_switch_i(i) for i in range(1, nbuf))
+                    return "\n".join(
+                        dump_remains_i_switch_i(i) for i in range(1, pipeline.nbuf)
+                    )
 
                 return templates.REMAINDER_SKELETON.format(
                     remainder_dispatch_body=self._indent_lines(
@@ -1338,74 +1415,77 @@ class NvIrCodeGenerator:
                 )
 
             return (
-                "\n\n".join(dump_remains_r(i) for i in range(1, nbuf))
+                "\n\n".join(dump_remains_r(i) for i in range(1, pipeline.nbuf))
                 + "\n\n"
                 + dump_remainder_dispatch()
             )
 
         def dump_empties() -> str:
-            def dump_empty_from_idx(from_idx: int) -> str:
-                def dump_empty_from_idx_body(idx: int) -> str:
+            def dump_empty_after_remain_r(r: int) -> str:
+                def dump_empty_after_remain_r_body() -> str:
                     # Stage 0 is completed
                     # Stage 1, 2, 3, ... starts from [idx - shift0, idx - shift0 - shift1, idx - shift0 - shift1 - shift2, ...]
                     stage_counter = [
-                        idx - sum(pipeline.shifts[: i + 1])
-                        for i in range(len(pipeline.shifts))
+                        r + sum(pipeline.shifts[i:]) + pipeline.max_shift
+                        for i in range(len(pipeline.stages))
                     ]
 
+                    stage_idx_offsets = [
+                        r - sum(pipeline.shifts[:i]) for i in range(len(pipeline.stages))
+                    ]
+
+                    pipeline_history = get_full_pipeline_history(r)
                     all_insts = []
                     total_step = 0
-                    for i in range(len(pipeline.shifts)):
+                    for i in range(1, len(pipeline.stages)):
                         all_insts.append(
-                            Comment(f"stage {i + 1}..{len(pipeline.stages) - 1}")
+                            Comment(f"stage {i}..{len(pipeline.stages) - 1}")
                         )
-                        for step in range(pipeline.shifts[i]):
+                        nsteps = pipeline.shifts[i - 1]
+                        for _ in range(nsteps):
                             # Stage 1, 2, ... nstages - 1; Stage 2, 3, ... nstages - 1; ...; Stage nstages - 1
                             op_calls = []
                             for stage_idx, stage in enumerate(
-                                pipeline.stages[i + 1 :], start=i
+                                pipeline.stages[i:], start=i
                             ):
                                 for op in stage.ops:
                                     op_calls.append(
                                         OpCall(
                                             op,
-                                            buf_idx_str=str(
-                                                stage_counter[stage_idx] % nbuf
-                                            ),
-                                            shift_constant=f"i + ({total_step})",
+                                            buf_idx=stage_counter[stage_idx]
+                                            % pipeline.nbuf,
+                                            shift_constant=f"i + ({total_step + stage_idx_offsets[stage_idx]})",
                                         )
                                     )
                                 stage_counter[stage_idx] += 1
                             total_step += 1
-                            insts = g2s_first_schedule(
-                                op_calls, Emptying(stage=i + 1, step_in_stage=step)
-                            )
+                            insts = default_schedule(op_calls, pipeline_history)
                             all_insts.extend(insts)
-
                     return dump_insts(all_insts)
 
-                return templates.EMPTY_FROM_IDX_SKELETON.format(
-                    from_idx=from_idx,
-                    empty_from_idx_body=self._indent_lines(
-                        dump_empty_from_idx_body(from_idx)
+                return templates.EMPTY_AFTER_REMAIN_R_SKELETON.format(
+                    r=r,
+                    empty_after_remain_r_body=self._indent_lines(
+                        dump_empty_after_remain_r_body()
                     ),
                 )
 
-            def dump_empty_from_idx_dispatch() -> str:
+            def dump_empty_after_remain_r_dispatch() -> str:
                 def dump_empty_dispatch_body() -> str:
-                    def dump_empty_from_idx_call(idx: int) -> str:
-                        return f"empty_{idx}(i, l, r);"
+                    def dump_empty_after_remain_r_call(r: int) -> str:
+                        return f"empty_after_remain_{r}(i, l, r);"
 
-                    def dump_empty_from_buf_idx_switch_i(idx: int) -> str:
-                        return ("else " if idx > 0 else "") + (
-                            f"if ((r - l - i + ({sum(pipeline.shifts)})) % {nbuf} == {idx}) {{\n"
-                            + self._indent_lines(dump_empty_from_idx_call(idx))
+                    def dump_empty_after_remain_r_switch_r(r: int) -> str:
+                        return ("else " if r > 0 else "") + (
+                            f"if (r - l - i == {r}) {{\n"
+                            + self._indent_lines(dump_empty_after_remain_r_call(r))
                             + "\n"
                             + "}"
                         )
 
                     return "\n".join(
-                        dump_empty_from_buf_idx_switch_i(i) for i in range(nbuf)
+                        dump_empty_after_remain_r_switch_r(i)
+                        for i in range(pipeline.nbuf)
                     )
 
                 return templates.EMPTY_SKELETON.format(
@@ -1413,15 +1493,13 @@ class NvIrCodeGenerator:
                 )
 
             return (
-                "\n\n".join(dump_empty_from_idx(i) for i in range(nbuf))
+                "\n\n".join(dump_empty_after_remain_r(i) for i in range(pipeline.nbuf))
                 + "\n\n"
-                + dump_empty_from_idx_dispatch()
+                + dump_empty_after_remain_r_dispatch()
             )
 
         def dump_dispatch() -> str:
-            sum_shifts = sum(pipeline.shifts)
-
-            nbuf = max(pipeline.shifts) + 1
+            fill_len = sum(pipeline.shifts) + pipeline.max_shift
 
             def dump_short_pipe_dispatch() -> str:
                 return f"short_pipe(k, l, r);"
@@ -1439,15 +1517,14 @@ class NvIrCodeGenerator:
                 return f"empty(i, l, r);"
 
             return templates.PIPELINE_DISPATCH_SKELETON.format(
-                sum_shifts=sum_shifts,
-                nbuf=nbuf,
+                fill_len=fill_len,
+                nbuf=pipeline.nbuf,
                 short_pipe_dispatch=dump_short_pipe_dispatch(),
                 fill_dispatch=dump_fill_dispatch(),
                 loop_step_dispatch=dump_loop_step_dispatch(),
                 remainder_dispatch=dump_remainder_dispatch(),
                 empty_dispatch=dump_empty_dispatch(),
             )
-
 
         return (
             "// short pipe\n"
@@ -1595,7 +1672,10 @@ class NvIrCodeGenerator:
         def dump_gmem_ptrs() -> str:
             return ",\n".join(
                 # [f"{io.dtype} *d{name}" for name, io in program.gmem_inouts.items()]
-                [f"{program.gmem_inouts[name].dtype} *d{name}" for name in sorted(program.gmem_inouts.keys())]
+                [
+                    f"{program.gmem_inouts[name].dtype} *d{name}"
+                    for name in sorted(program.gmem_inouts.keys())
+                ]
             )
 
         def dump_varlens() -> str:
@@ -1604,7 +1684,11 @@ class NvIrCodeGenerator:
 
         def dump_nvop_calls() -> str:
             return "\n".join(
-                [self.dump_f_method_call(op, buf_idx_str="0") for op in program.ops if not isinstance(op, GmemTensorNvOp)]
+                [
+                    self.dump_f_method_call(op, buf_idx_str="0")
+                    for op in program.ops
+                    if not isinstance(op, GmemTensorNvOp)
+                ]
             )
 
         all_parameters = dump_all_parameters()

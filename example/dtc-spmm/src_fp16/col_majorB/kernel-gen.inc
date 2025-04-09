@@ -33,6 +33,9 @@ using namespace cute;
         }                                                              \
     }
 
+#define OFFSET_ROW(row, col, lda) ((row) * (lda) + (col))
+#define OFFSET_COL(row, col, lda) ((col) * (lda) + (row))
+
 __device__ __forceinline__ void ldmatrix_m8n8k8_x4(uint32_t* fragment, void* ptr) {
     uint32_t values_tile_int_ptr = static_cast<uint32_t>(__cvta_generic_to_shared(ptr));
     asm volatile(
@@ -40,6 +43,17 @@ __device__ __forceinline__ void ldmatrix_m8n8k8_x4(uint32_t* fragment, void* ptr
         " { %0, %1, %2, %3 }, \t"
         " [%4];"
         : "=r"(fragment[0]), "=r"(fragment[1]), "=r"(fragment[2]), "=r"(fragment[3])
+        : "r"(values_tile_int_ptr)
+    );
+}
+
+__device__ __forceinline__ void ldmatrix_m8n8k8_x2_trans(uint32_t* fragment, void* ptr) {
+    uint32_t values_tile_int_ptr = static_cast<uint32_t>(__cvta_generic_to_shared(ptr));
+    asm volatile(
+        "ldmatrix.sync.aligned.m8n8.x2.trans.shared.b16 	"
+        " { %0, %1 }, 	"
+        " [%2];"
+        : "=r"(fragment[0]), "=r"(fragment[1])
         : "r"(values_tile_int_ptr)
     );
 }
@@ -53,6 +67,14 @@ __device__ __forceinline__ void mma_m16n8k16_fp32(float* acc, uint32_t* A, half*
         : "r"(A[0]), "r"(A[1]), "r"(A[2]), "r"(A[3]), "r"(B[0]), "r"(B[1])
     );
 }
+
+__device__ __forceinline__ void unpack_half_short(uint32_t packed, half& h, short & s) {
+    uint16_t half_bits = static_cast<uint16_t>(packed >> 16);
+    uint16_t short_bits = static_cast<uint16_t>(packed & 0xFFFF);
+    h = *reinterpret_cast<half*>(&half_bits);
+    s = static_cast<short>(short_bits);
+}
+
 
 template <class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class TO0 = half>
 class B_valOp {
@@ -521,11 +543,11 @@ public:
     CUTE_DEVICE void f(Tensor_i0 val_sidx, TI1 i) {
         CUTE_STATIC_ASSERT_V((get<0>(shape_i0) == size<0>(shape(val_sidx))));
         if (lid < 4) {
-        auto thr_tiler = make_shape(Int<4>{});
-        auto thr_coord = make_coord(lid);
-        auto src = local_tile(val_sidx(_, i), thr_tiler, thr_coord);
-        auto dst = local_tile(tile_sidx_block(_, buf_idx), thr_tiler, thr_coord);
-        copy(Copy_Atom<UniversalCopy<uint128_t>, int>{}, src, dst);
+            auto thr_tiler = make_shape(Int<4>{});
+            auto thr_coord = make_coord(lid);
+            auto src = local_tile(val_sidx(_, i), thr_tiler, thr_coord);
+            auto dst = local_tile(tile_sidx_block(_, buf_idx), thr_tiler, thr_coord);
+            copy(Copy_Atom<UniversalCopy<uint128_t>, int>{}, src, dst);
         }
     }
 };
@@ -1021,6 +1043,18 @@ public:
             
             // i = 2
             
+            
+            // i = 3
+            
+            
+            // i = 4
+            
+            
+            // i = 5
+            
+            
+            // i = 6
+            
         }
         else if (k == 1) {
             // i = 0
@@ -1036,17 +1070,20 @@ public:
             
             
             // i = 1
+            
+            
+            // i = 2
+            __pipeline_wait_prior(0);
+            __syncthreads();
+            S2rValSidxLoadOp_v.template f<0>(
+                G2sValSidxLoadOp_v.template output<0, 0>()
+            );
             G2sCooAtomicFormatLoadValOp_v.template f<0>(
                 val_coo_valOp_v.template output<0>(),
                 G2rCooAtomicFormatLoadOffOp_v.template output<0, 0>()(0),
                 G2rCooAtomicFormatLoadOffOp_v.template output<1, 0>()(0)
             );
             __pipeline_commit();
-            __pipeline_wait_prior(1);
-            __syncthreads();
-            S2rValSidxLoadOp_v.template f<0>(
-                G2sValSidxLoadOp_v.template output<0, 0>()
-            );
             G2rCooAtomicFormatLoadIdxOp_v.template f<0>(
                 val_coo_idxOp_v.template output<0>(),
                 G2rCooAtomicFormatLoadOffOp_v.template output<0, 0>()(0),
@@ -1054,7 +1091,13 @@ public:
             );
             
             
-            // i = 2
+            // i = 3
+            
+            
+            // i = 4
+            
+            
+            // i = 5
             G2rBValLoadOp_v.template f<0>(
                 B_valOp_v.template output<0>(),
                 S2rValSidxLoadOp_v.template output<0, 0>()
@@ -1066,12 +1109,18 @@ public:
                 G2rCooAtomicFormatLoadIdxOp_v.template output<0, 0>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<1, 0>()(0)
             );
+            __pipeline_commit();
+            __pipeline_wait_prior(0);
+            __syncthreads();
             S2rAValLoadOp_v.template f<0>(
                 S2sCooAtomicValRestoreOp_v.template output<0, 0>()
             );
             
             
-            // i = 3
+            // i = 6
+            
+            
+            // i = 7
             MmaOp_v.template f<0>(
                 S2rAValLoadOp_v.template output<0, 0>(),
                 G2rBValLoadOp_v.template output<0, 0>()
@@ -1096,21 +1145,25 @@ public:
                 val_sidxOp_v.template output<0>(),
                 l + 1
             );
+            __pipeline_commit();
+            G2rCooAtomicFormatLoadOffOp_v.template f<1>(
+                val_coo_offOp_v.template output<0>(),
+                l + 1
+            );
+            
+            
+            // i = 2
+            __pipeline_wait_prior(1);
+            __syncthreads();
+            S2rValSidxLoadOp_v.template f<0>(
+                G2sValSidxLoadOp_v.template output<0, 0>()
+            );
             G2sCooAtomicFormatLoadValOp_v.template f<0>(
                 val_coo_valOp_v.template output<0>(),
                 G2rCooAtomicFormatLoadOffOp_v.template output<0, 0>()(0),
                 G2rCooAtomicFormatLoadOffOp_v.template output<1, 0>()(0)
             );
             __pipeline_commit();
-            G2rCooAtomicFormatLoadOffOp_v.template f<1>(
-                val_coo_offOp_v.template output<0>(),
-                l + 1
-            );
-            __pipeline_wait_prior(1);
-            __syncthreads();
-            S2rValSidxLoadOp_v.template f<0>(
-                G2sValSidxLoadOp_v.template output<0, 0>()
-            );
             G2rCooAtomicFormatLoadIdxOp_v.template f<0>(
                 val_coo_idxOp_v.template output<0>(),
                 G2rCooAtomicFormatLoadOffOp_v.template output<0, 0>()(0),
@@ -1118,23 +1171,29 @@ public:
             );
             
             
-            // i = 2
+            // i = 3
+            __pipeline_wait_prior(1);
+            __syncthreads();
+            S2rValSidxLoadOp_v.template f<1>(
+                G2sValSidxLoadOp_v.template output<0, 1>()
+            );
             G2sCooAtomicFormatLoadValOp_v.template f<1>(
                 val_coo_valOp_v.template output<0>(),
                 G2rCooAtomicFormatLoadOffOp_v.template output<0, 1>()(0),
                 G2rCooAtomicFormatLoadOffOp_v.template output<1, 1>()(0)
             );
             __pipeline_commit();
-            __pipeline_wait_prior(1);
-            __syncthreads();
-            S2rValSidxLoadOp_v.template f<1>(
-                G2sValSidxLoadOp_v.template output<0, 1>()
-            );
             G2rCooAtomicFormatLoadIdxOp_v.template f<1>(
                 val_coo_idxOp_v.template output<0>(),
                 G2rCooAtomicFormatLoadOffOp_v.template output<0, 1>()(0),
                 G2rCooAtomicFormatLoadOffOp_v.template output<1, 1>()(0)
             );
+            
+            
+            // i = 4
+            
+            
+            // i = 5
             G2rBValLoadOp_v.template f<0>(
                 B_valOp_v.template output<0>(),
                 S2rValSidxLoadOp_v.template output<0, 0>()
@@ -1146,33 +1205,42 @@ public:
                 G2rCooAtomicFormatLoadIdxOp_v.template output<0, 0>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<1, 0>()(0)
             );
+            __pipeline_commit();
+            __pipeline_wait_prior(0);
+            __syncthreads();
             S2rAValLoadOp_v.template f<0>(
                 S2sCooAtomicValRestoreOp_v.template output<0, 0>()
             );
             
             
-            // i = 3
+            // i = 6
             G2rBValLoadOp_v.template f<1>(
                 B_valOp_v.template output<0>(),
                 S2rValSidxLoadOp_v.template output<0, 1>()
             );
-            __pipeline_wait_prior(0);
+            __pipeline_wait_prior(1);
             __syncthreads();
             S2sCooAtomicValRestoreOp_v.template f<1>(
                 G2sCooAtomicFormatLoadValOp_v.template output<0, 1>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<0, 1>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<1, 1>()(0)
             );
+            __pipeline_commit();
+            __pipeline_wait_prior(0);
+            __syncthreads();
             S2rAValLoadOp_v.template f<1>(
                 S2sCooAtomicValRestoreOp_v.template output<0, 1>()
             );
+            
+            
+            // i = 7
             MmaOp_v.template f<0>(
                 S2rAValLoadOp_v.template output<0, 0>(),
                 G2rBValLoadOp_v.template output<0, 0>()
             );
             
             
-            // i = 4
+            // i = 8
             MmaOp_v.template f<1>(
                 S2rAValLoadOp_v.template output<0, 1>(),
                 G2rBValLoadOp_v.template output<0, 1>()
@@ -1197,21 +1265,34 @@ public:
                 val_sidxOp_v.template output<0>(),
                 l + 1
             );
+            __pipeline_commit();
+            G2rCooAtomicFormatLoadOffOp_v.template f<1>(
+                val_coo_offOp_v.template output<0>(),
+                l + 1
+            );
+            
+            
+            // i = 2
+            G2sValSidxLoadOp_v.template f<2>(
+                val_sidxOp_v.template output<0>(),
+                l + 2
+            );
+            __pipeline_commit();
+            G2rCooAtomicFormatLoadOffOp_v.template f<2>(
+                val_coo_offOp_v.template output<0>(),
+                l + 2
+            );
+            __pipeline_wait_prior(2);
+            __syncthreads();
+            S2rValSidxLoadOp_v.template f<0>(
+                G2sValSidxLoadOp_v.template output<0, 0>()
+            );
             G2sCooAtomicFormatLoadValOp_v.template f<0>(
                 val_coo_valOp_v.template output<0>(),
                 G2rCooAtomicFormatLoadOffOp_v.template output<0, 0>()(0),
                 G2rCooAtomicFormatLoadOffOp_v.template output<1, 0>()(0)
             );
             __pipeline_commit();
-            G2rCooAtomicFormatLoadOffOp_v.template f<1>(
-                val_coo_offOp_v.template output<0>(),
-                l + 1
-            );
-            __pipeline_wait_prior(1);
-            __syncthreads();
-            S2rValSidxLoadOp_v.template f<0>(
-                G2sValSidxLoadOp_v.template output<0, 0>()
-            );
             G2rCooAtomicFormatLoadIdxOp_v.template f<0>(
                 val_coo_idxOp_v.template output<0>(),
                 G2rCooAtomicFormatLoadOffOp_v.template output<0, 0>()(0),
@@ -1219,10 +1300,11 @@ public:
             );
             
             
-            // i = 2
-            G2sValSidxLoadOp_v.template f<0>(
-                val_sidxOp_v.template output<0>(),
-                l + 2
+            // i = 3
+            __pipeline_wait_prior(2);
+            __syncthreads();
+            S2rValSidxLoadOp_v.template f<1>(
+                G2sValSidxLoadOp_v.template output<0, 1>()
             );
             G2sCooAtomicFormatLoadValOp_v.template f<1>(
                 val_coo_valOp_v.template output<0>(),
@@ -1230,48 +1312,485 @@ public:
                 G2rCooAtomicFormatLoadOffOp_v.template output<1, 1>()(0)
             );
             __pipeline_commit();
-            G2rCooAtomicFormatLoadOffOp_v.template f<0>(
-                val_coo_offOp_v.template output<0>(),
-                l + 2
-            );
-            __pipeline_wait_prior(1);
-            __syncthreads();
-            S2rValSidxLoadOp_v.template f<1>(
-                G2sValSidxLoadOp_v.template output<0, 1>()
-            );
             G2rCooAtomicFormatLoadIdxOp_v.template f<1>(
                 val_coo_idxOp_v.template output<0>(),
                 G2rCooAtomicFormatLoadOffOp_v.template output<0, 1>()(0),
                 G2rCooAtomicFormatLoadOffOp_v.template output<1, 1>()(0)
             );
+            
+            
+            // i = 4
+            __pipeline_wait_prior(2);
+            __syncthreads();
+            S2rValSidxLoadOp_v.template f<2>(
+                G2sValSidxLoadOp_v.template output<0, 2>()
+            );
+            G2sCooAtomicFormatLoadValOp_v.template f<2>(
+                val_coo_valOp_v.template output<0>(),
+                G2rCooAtomicFormatLoadOffOp_v.template output<0, 2>()(0),
+                G2rCooAtomicFormatLoadOffOp_v.template output<1, 2>()(0)
+            );
+            __pipeline_commit();
+            G2rCooAtomicFormatLoadIdxOp_v.template f<2>(
+                val_coo_idxOp_v.template output<0>(),
+                G2rCooAtomicFormatLoadOffOp_v.template output<0, 2>()(0),
+                G2rCooAtomicFormatLoadOffOp_v.template output<1, 2>()(0)
+            );
+            
+            
+            // i = 5
             G2rBValLoadOp_v.template f<0>(
                 B_valOp_v.template output<0>(),
                 S2rValSidxLoadOp_v.template output<0, 0>()
             );
-            __pipeline_wait_prior(1);
+            __pipeline_wait_prior(2);
             __syncthreads();
             S2sCooAtomicValRestoreOp_v.template f<0>(
                 G2sCooAtomicFormatLoadValOp_v.template output<0, 0>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<0, 0>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<1, 0>()(0)
             );
+            __pipeline_commit();
+            __pipeline_wait_prior(0);
+            __syncthreads();
             S2rAValLoadOp_v.template f<0>(
                 S2sCooAtomicValRestoreOp_v.template output<0, 0>()
             );
             
             
-            // i = 3
+            // i = 6
+            G2rBValLoadOp_v.template f<1>(
+                B_valOp_v.template output<0>(),
+                S2rValSidxLoadOp_v.template output<0, 1>()
+            );
+            __pipeline_wait_prior(2);
+            __syncthreads();
+            S2sCooAtomicValRestoreOp_v.template f<1>(
+                G2sCooAtomicFormatLoadValOp_v.template output<0, 1>(),
+                G2rCooAtomicFormatLoadIdxOp_v.template output<0, 1>(),
+                G2rCooAtomicFormatLoadIdxOp_v.template output<1, 1>()(0)
+            );
+            __pipeline_commit();
+            __pipeline_wait_prior(0);
+            __syncthreads();
+            S2rAValLoadOp_v.template f<1>(
+                S2sCooAtomicValRestoreOp_v.template output<0, 1>()
+            );
+            
+            
+            // i = 7
+            G2rBValLoadOp_v.template f<2>(
+                B_valOp_v.template output<0>(),
+                S2rValSidxLoadOp_v.template output<0, 2>()
+            );
+            __pipeline_wait_prior(2);
+            __syncthreads();
+            S2sCooAtomicValRestoreOp_v.template f<2>(
+                G2sCooAtomicFormatLoadValOp_v.template output<0, 2>(),
+                G2rCooAtomicFormatLoadIdxOp_v.template output<0, 2>(),
+                G2rCooAtomicFormatLoadIdxOp_v.template output<1, 2>()(0)
+            );
+            __pipeline_commit();
+            __pipeline_wait_prior(0);
+            __syncthreads();
+            S2rAValLoadOp_v.template f<2>(
+                S2sCooAtomicValRestoreOp_v.template output<0, 2>()
+            );
+            MmaOp_v.template f<0>(
+                S2rAValLoadOp_v.template output<0, 0>(),
+                G2rBValLoadOp_v.template output<0, 0>()
+            );
+            
+            
+            // i = 8
+            MmaOp_v.template f<1>(
+                S2rAValLoadOp_v.template output<0, 1>(),
+                G2rBValLoadOp_v.template output<0, 1>()
+            );
+            
+            
+            // i = 9
+            MmaOp_v.template f<2>(
+                S2rAValLoadOp_v.template output<0, 2>(),
+                G2rBValLoadOp_v.template output<0, 2>()
+            );
+            
+        }
+        else if (k == 4) {
+            // i = 0
+            G2sValSidxLoadOp_v.template f<0>(
+                val_sidxOp_v.template output<0>(),
+                l + 0
+            );
+            __pipeline_commit();
+            G2rCooAtomicFormatLoadOffOp_v.template f<0>(
+                val_coo_offOp_v.template output<0>(),
+                l + 0
+            );
+            
+            
+            // i = 1
+            G2sValSidxLoadOp_v.template f<1>(
+                val_sidxOp_v.template output<0>(),
+                l + 1
+            );
+            __pipeline_commit();
+            G2rCooAtomicFormatLoadOffOp_v.template f<1>(
+                val_coo_offOp_v.template output<0>(),
+                l + 1
+            );
+            
+            
+            // i = 2
+            G2sValSidxLoadOp_v.template f<2>(
+                val_sidxOp_v.template output<0>(),
+                l + 2
+            );
+            __pipeline_commit();
+            G2rCooAtomicFormatLoadOffOp_v.template f<2>(
+                val_coo_offOp_v.template output<0>(),
+                l + 2
+            );
+            __pipeline_wait_prior(2);
+            __syncthreads();
+            S2rValSidxLoadOp_v.template f<0>(
+                G2sValSidxLoadOp_v.template output<0, 0>()
+            );
             G2sCooAtomicFormatLoadValOp_v.template f<0>(
                 val_coo_valOp_v.template output<0>(),
                 G2rCooAtomicFormatLoadOffOp_v.template output<0, 0>()(0),
                 G2rCooAtomicFormatLoadOffOp_v.template output<1, 0>()(0)
             );
             __pipeline_commit();
-            __pipeline_wait_prior(1);
+            G2rCooAtomicFormatLoadIdxOp_v.template f<0>(
+                val_coo_idxOp_v.template output<0>(),
+                G2rCooAtomicFormatLoadOffOp_v.template output<0, 0>()(0),
+                G2rCooAtomicFormatLoadOffOp_v.template output<1, 0>()(0)
+            );
+            
+            
+            // i = 3
+            G2sValSidxLoadOp_v.template f<3>(
+                val_sidxOp_v.template output<0>(),
+                l + 3
+            );
+            __pipeline_commit();
+            G2rCooAtomicFormatLoadOffOp_v.template f<3>(
+                val_coo_offOp_v.template output<0>(),
+                l + 3
+            );
+            __pipeline_wait_prior(3);
+            __syncthreads();
+            S2rValSidxLoadOp_v.template f<1>(
+                G2sValSidxLoadOp_v.template output<0, 1>()
+            );
+            G2sCooAtomicFormatLoadValOp_v.template f<1>(
+                val_coo_valOp_v.template output<0>(),
+                G2rCooAtomicFormatLoadOffOp_v.template output<0, 1>()(0),
+                G2rCooAtomicFormatLoadOffOp_v.template output<1, 1>()(0)
+            );
+            __pipeline_commit();
+            G2rCooAtomicFormatLoadIdxOp_v.template f<1>(
+                val_coo_idxOp_v.template output<0>(),
+                G2rCooAtomicFormatLoadOffOp_v.template output<0, 1>()(0),
+                G2rCooAtomicFormatLoadOffOp_v.template output<1, 1>()(0)
+            );
+            
+            
+            // i = 4
+            __pipeline_wait_prior(3);
+            __syncthreads();
+            S2rValSidxLoadOp_v.template f<2>(
+                G2sValSidxLoadOp_v.template output<0, 2>()
+            );
+            G2sCooAtomicFormatLoadValOp_v.template f<2>(
+                val_coo_valOp_v.template output<0>(),
+                G2rCooAtomicFormatLoadOffOp_v.template output<0, 2>()(0),
+                G2rCooAtomicFormatLoadOffOp_v.template output<1, 2>()(0)
+            );
+            __pipeline_commit();
+            G2rCooAtomicFormatLoadIdxOp_v.template f<2>(
+                val_coo_idxOp_v.template output<0>(),
+                G2rCooAtomicFormatLoadOffOp_v.template output<0, 2>()(0),
+                G2rCooAtomicFormatLoadOffOp_v.template output<1, 2>()(0)
+            );
+            
+            
+            // i = 5
+            __pipeline_wait_prior(2);
+            __syncthreads();
+            S2rValSidxLoadOp_v.template f<3>(
+                G2sValSidxLoadOp_v.template output<0, 3>()
+            );
+            G2sCooAtomicFormatLoadValOp_v.template f<3>(
+                val_coo_valOp_v.template output<0>(),
+                G2rCooAtomicFormatLoadOffOp_v.template output<0, 3>()(0),
+                G2rCooAtomicFormatLoadOffOp_v.template output<1, 3>()(0)
+            );
+            __pipeline_commit();
+            G2rCooAtomicFormatLoadIdxOp_v.template f<3>(
+                val_coo_idxOp_v.template output<0>(),
+                G2rCooAtomicFormatLoadOffOp_v.template output<0, 3>()(0),
+                G2rCooAtomicFormatLoadOffOp_v.template output<1, 3>()(0)
+            );
+            G2rBValLoadOp_v.template f<0>(
+                B_valOp_v.template output<0>(),
+                S2rValSidxLoadOp_v.template output<0, 0>()
+            );
+            __pipeline_wait_prior(4);
+            __syncthreads();
+            S2sCooAtomicValRestoreOp_v.template f<0>(
+                G2sCooAtomicFormatLoadValOp_v.template output<0, 0>(),
+                G2rCooAtomicFormatLoadIdxOp_v.template output<0, 0>(),
+                G2rCooAtomicFormatLoadIdxOp_v.template output<1, 0>()(0)
+            );
+            __pipeline_commit();
+            __pipeline_wait_prior(0);
+            __syncthreads();
+            S2rAValLoadOp_v.template f<0>(
+                S2sCooAtomicValRestoreOp_v.template output<0, 0>()
+            );
+            
+            
+            // i = 6
+            G2rBValLoadOp_v.template f<1>(
+                B_valOp_v.template output<0>(),
+                S2rValSidxLoadOp_v.template output<0, 1>()
+            );
+            __pipeline_wait_prior(3);
+            __syncthreads();
+            S2sCooAtomicValRestoreOp_v.template f<1>(
+                G2sCooAtomicFormatLoadValOp_v.template output<0, 1>(),
+                G2rCooAtomicFormatLoadIdxOp_v.template output<0, 1>(),
+                G2rCooAtomicFormatLoadIdxOp_v.template output<1, 1>()(0)
+            );
+            __pipeline_commit();
+            __pipeline_wait_prior(0);
+            __syncthreads();
+            S2rAValLoadOp_v.template f<1>(
+                S2sCooAtomicValRestoreOp_v.template output<0, 1>()
+            );
+            
+            
+            // i = 7
+            G2rBValLoadOp_v.template f<2>(
+                B_valOp_v.template output<0>(),
+                S2rValSidxLoadOp_v.template output<0, 2>()
+            );
+            __pipeline_wait_prior(3);
+            __syncthreads();
+            S2sCooAtomicValRestoreOp_v.template f<2>(
+                G2sCooAtomicFormatLoadValOp_v.template output<0, 2>(),
+                G2rCooAtomicFormatLoadIdxOp_v.template output<0, 2>(),
+                G2rCooAtomicFormatLoadIdxOp_v.template output<1, 2>()(0)
+            );
+            __pipeline_commit();
+            __pipeline_wait_prior(0);
+            __syncthreads();
+            S2rAValLoadOp_v.template f<2>(
+                S2sCooAtomicValRestoreOp_v.template output<0, 2>()
+            );
+            MmaOp_v.template f<0>(
+                S2rAValLoadOp_v.template output<0, 0>(),
+                G2rBValLoadOp_v.template output<0, 0>()
+            );
+            
+            
+            // i = 8
+            G2rBValLoadOp_v.template f<3>(
+                B_valOp_v.template output<0>(),
+                S2rValSidxLoadOp_v.template output<0, 3>()
+            );
+            __pipeline_wait_prior(3);
+            __syncthreads();
+            S2sCooAtomicValRestoreOp_v.template f<3>(
+                G2sCooAtomicFormatLoadValOp_v.template output<0, 3>(),
+                G2rCooAtomicFormatLoadIdxOp_v.template output<0, 3>(),
+                G2rCooAtomicFormatLoadIdxOp_v.template output<1, 3>()(0)
+            );
+            __pipeline_commit();
+            __pipeline_wait_prior(0);
+            __syncthreads();
+            S2rAValLoadOp_v.template f<3>(
+                S2sCooAtomicValRestoreOp_v.template output<0, 3>()
+            );
+            MmaOp_v.template f<1>(
+                S2rAValLoadOp_v.template output<0, 1>(),
+                G2rBValLoadOp_v.template output<0, 1>()
+            );
+            
+            
+            // i = 9
+            MmaOp_v.template f<2>(
+                S2rAValLoadOp_v.template output<0, 2>(),
+                G2rBValLoadOp_v.template output<0, 2>()
+            );
+            
+            
+            // i = 10
+            MmaOp_v.template f<3>(
+                S2rAValLoadOp_v.template output<0, 3>(),
+                G2rBValLoadOp_v.template output<0, 3>()
+            );
+            
+        }
+        else if (k == 5) {
+            // i = 0
+            G2sValSidxLoadOp_v.template f<0>(
+                val_sidxOp_v.template output<0>(),
+                l + 0
+            );
+            __pipeline_commit();
+            G2rCooAtomicFormatLoadOffOp_v.template f<0>(
+                val_coo_offOp_v.template output<0>(),
+                l + 0
+            );
+            
+            
+            // i = 1
+            G2sValSidxLoadOp_v.template f<1>(
+                val_sidxOp_v.template output<0>(),
+                l + 1
+            );
+            __pipeline_commit();
+            G2rCooAtomicFormatLoadOffOp_v.template f<1>(
+                val_coo_offOp_v.template output<0>(),
+                l + 1
+            );
+            
+            
+            // i = 2
+            G2sValSidxLoadOp_v.template f<2>(
+                val_sidxOp_v.template output<0>(),
+                l + 2
+            );
+            __pipeline_commit();
+            G2rCooAtomicFormatLoadOffOp_v.template f<2>(
+                val_coo_offOp_v.template output<0>(),
+                l + 2
+            );
+            __pipeline_wait_prior(2);
             __syncthreads();
             S2rValSidxLoadOp_v.template f<0>(
                 G2sValSidxLoadOp_v.template output<0, 0>()
             );
+            G2sCooAtomicFormatLoadValOp_v.template f<0>(
+                val_coo_valOp_v.template output<0>(),
+                G2rCooAtomicFormatLoadOffOp_v.template output<0, 0>()(0),
+                G2rCooAtomicFormatLoadOffOp_v.template output<1, 0>()(0)
+            );
+            __pipeline_commit();
+            G2rCooAtomicFormatLoadIdxOp_v.template f<0>(
+                val_coo_idxOp_v.template output<0>(),
+                G2rCooAtomicFormatLoadOffOp_v.template output<0, 0>()(0),
+                G2rCooAtomicFormatLoadOffOp_v.template output<1, 0>()(0)
+            );
+            
+            
+            // i = 3
+            G2sValSidxLoadOp_v.template f<3>(
+                val_sidxOp_v.template output<0>(),
+                l + 3
+            );
+            __pipeline_commit();
+            G2rCooAtomicFormatLoadOffOp_v.template f<3>(
+                val_coo_offOp_v.template output<0>(),
+                l + 3
+            );
+            __pipeline_wait_prior(3);
+            __syncthreads();
+            S2rValSidxLoadOp_v.template f<1>(
+                G2sValSidxLoadOp_v.template output<0, 1>()
+            );
+            G2sCooAtomicFormatLoadValOp_v.template f<1>(
+                val_coo_valOp_v.template output<0>(),
+                G2rCooAtomicFormatLoadOffOp_v.template output<0, 1>()(0),
+                G2rCooAtomicFormatLoadOffOp_v.template output<1, 1>()(0)
+            );
+            __pipeline_commit();
+            G2rCooAtomicFormatLoadIdxOp_v.template f<1>(
+                val_coo_idxOp_v.template output<0>(),
+                G2rCooAtomicFormatLoadOffOp_v.template output<0, 1>()(0),
+                G2rCooAtomicFormatLoadOffOp_v.template output<1, 1>()(0)
+            );
+            
+            
+            // i = 4
+            G2sValSidxLoadOp_v.template f<0>(
+                val_sidxOp_v.template output<0>(),
+                l + 4
+            );
+            __pipeline_commit();
+            G2rCooAtomicFormatLoadOffOp_v.template f<0>(
+                val_coo_offOp_v.template output<0>(),
+                l + 4
+            );
+            __pipeline_wait_prior(4);
+            __syncthreads();
+            S2rValSidxLoadOp_v.template f<2>(
+                G2sValSidxLoadOp_v.template output<0, 2>()
+            );
+            G2sCooAtomicFormatLoadValOp_v.template f<2>(
+                val_coo_valOp_v.template output<0>(),
+                G2rCooAtomicFormatLoadOffOp_v.template output<0, 2>()(0),
+                G2rCooAtomicFormatLoadOffOp_v.template output<1, 2>()(0)
+            );
+            __pipeline_commit();
+            G2rCooAtomicFormatLoadIdxOp_v.template f<2>(
+                val_coo_idxOp_v.template output<0>(),
+                G2rCooAtomicFormatLoadOffOp_v.template output<0, 2>()(0),
+                G2rCooAtomicFormatLoadOffOp_v.template output<1, 2>()(0)
+            );
+            
+            
+            // i = 5
+            __pipeline_wait_prior(3);
+            __syncthreads();
+            S2rValSidxLoadOp_v.template f<3>(
+                G2sValSidxLoadOp_v.template output<0, 3>()
+            );
+            G2sCooAtomicFormatLoadValOp_v.template f<3>(
+                val_coo_valOp_v.template output<0>(),
+                G2rCooAtomicFormatLoadOffOp_v.template output<0, 3>()(0),
+                G2rCooAtomicFormatLoadOffOp_v.template output<1, 3>()(0)
+            );
+            __pipeline_commit();
+            G2rCooAtomicFormatLoadIdxOp_v.template f<3>(
+                val_coo_idxOp_v.template output<0>(),
+                G2rCooAtomicFormatLoadOffOp_v.template output<0, 3>()(0),
+                G2rCooAtomicFormatLoadOffOp_v.template output<1, 3>()(0)
+            );
+            G2rBValLoadOp_v.template f<0>(
+                B_valOp_v.template output<0>(),
+                S2rValSidxLoadOp_v.template output<0, 0>()
+            );
+            __pipeline_wait_prior(5);
+            __syncthreads();
+            S2sCooAtomicValRestoreOp_v.template f<0>(
+                G2sCooAtomicFormatLoadValOp_v.template output<0, 0>(),
+                G2rCooAtomicFormatLoadIdxOp_v.template output<0, 0>(),
+                G2rCooAtomicFormatLoadIdxOp_v.template output<1, 0>()(0)
+            );
+            __pipeline_commit();
+            __pipeline_wait_prior(0);
+            __syncthreads();
+            S2rAValLoadOp_v.template f<0>(
+                S2sCooAtomicValRestoreOp_v.template output<0, 0>()
+            );
+            
+            
+            // i = 6
+            __pipeline_wait_prior(3);
+            __syncthreads();
+            S2rValSidxLoadOp_v.template f<0>(
+                G2sValSidxLoadOp_v.template output<0, 0>()
+            );
+            G2sCooAtomicFormatLoadValOp_v.template f<0>(
+                val_coo_valOp_v.template output<0>(),
+                G2rCooAtomicFormatLoadOffOp_v.template output<0, 0>()(0),
+                G2rCooAtomicFormatLoadOffOp_v.template output<1, 0>()(0)
+            );
+            __pipeline_commit();
             G2rCooAtomicFormatLoadIdxOp_v.template f<0>(
                 val_coo_idxOp_v.template output<0>(),
                 G2rCooAtomicFormatLoadOffOp_v.template output<0, 0>()(0),
@@ -1281,15 +1800,38 @@ public:
                 B_valOp_v.template output<0>(),
                 S2rValSidxLoadOp_v.template output<0, 1>()
             );
-            __pipeline_wait_prior(1);
+            __pipeline_wait_prior(5);
             __syncthreads();
             S2sCooAtomicValRestoreOp_v.template f<1>(
                 G2sCooAtomicFormatLoadValOp_v.template output<0, 1>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<0, 1>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<1, 1>()(0)
             );
+            __pipeline_commit();
+            __pipeline_wait_prior(0);
+            __syncthreads();
             S2rAValLoadOp_v.template f<1>(
                 S2sCooAtomicValRestoreOp_v.template output<0, 1>()
+            );
+            
+            
+            // i = 7
+            G2rBValLoadOp_v.template f<2>(
+                B_valOp_v.template output<0>(),
+                S2rValSidxLoadOp_v.template output<0, 2>()
+            );
+            __pipeline_wait_prior(4);
+            __syncthreads();
+            S2sCooAtomicValRestoreOp_v.template f<2>(
+                G2sCooAtomicFormatLoadValOp_v.template output<0, 2>(),
+                G2rCooAtomicFormatLoadIdxOp_v.template output<0, 2>(),
+                G2rCooAtomicFormatLoadIdxOp_v.template output<1, 2>()(0)
+            );
+            __pipeline_commit();
+            __pipeline_wait_prior(0);
+            __syncthreads();
+            S2rAValLoadOp_v.template f<2>(
+                S2sCooAtomicValRestoreOp_v.template output<0, 2>()
             );
             MmaOp_v.template f<0>(
                 S2rAValLoadOp_v.template output<0, 0>(),
@@ -1297,20 +1839,23 @@ public:
             );
             
             
-            // i = 4
-            G2rBValLoadOp_v.template f<0>(
+            // i = 8
+            G2rBValLoadOp_v.template f<3>(
                 B_valOp_v.template output<0>(),
-                S2rValSidxLoadOp_v.template output<0, 0>()
+                S2rValSidxLoadOp_v.template output<0, 3>()
             );
+            __pipeline_wait_prior(4);
+            __syncthreads();
+            S2sCooAtomicValRestoreOp_v.template f<3>(
+                G2sCooAtomicFormatLoadValOp_v.template output<0, 3>(),
+                G2rCooAtomicFormatLoadIdxOp_v.template output<0, 3>(),
+                G2rCooAtomicFormatLoadIdxOp_v.template output<1, 3>()(0)
+            );
+            __pipeline_commit();
             __pipeline_wait_prior(0);
             __syncthreads();
-            S2sCooAtomicValRestoreOp_v.template f<0>(
-                G2sCooAtomicFormatLoadValOp_v.template output<0, 0>(),
-                G2rCooAtomicFormatLoadIdxOp_v.template output<0, 0>(),
-                G2rCooAtomicFormatLoadIdxOp_v.template output<1, 0>()(0)
-            );
-            S2rAValLoadOp_v.template f<0>(
-                S2sCooAtomicValRestoreOp_v.template output<0, 0>()
+            S2rAValLoadOp_v.template f<3>(
+                S2sCooAtomicValRestoreOp_v.template output<0, 3>()
             );
             MmaOp_v.template f<1>(
                 S2rAValLoadOp_v.template output<0, 1>(),
@@ -1318,10 +1863,2111 @@ public:
             );
             
             
-            // i = 5
+            // i = 9
+            G2rBValLoadOp_v.template f<0>(
+                B_valOp_v.template output<0>(),
+                S2rValSidxLoadOp_v.template output<0, 0>()
+            );
+            __pipeline_wait_prior(3);
+            __syncthreads();
+            S2sCooAtomicValRestoreOp_v.template f<0>(
+                G2sCooAtomicFormatLoadValOp_v.template output<0, 0>(),
+                G2rCooAtomicFormatLoadIdxOp_v.template output<0, 0>(),
+                G2rCooAtomicFormatLoadIdxOp_v.template output<1, 0>()(0)
+            );
+            __pipeline_commit();
+            __pipeline_wait_prior(0);
+            __syncthreads();
+            S2rAValLoadOp_v.template f<0>(
+                S2sCooAtomicValRestoreOp_v.template output<0, 0>()
+            );
+            MmaOp_v.template f<2>(
+                S2rAValLoadOp_v.template output<0, 2>(),
+                G2rBValLoadOp_v.template output<0, 2>()
+            );
+            
+            
+            // i = 10
+            MmaOp_v.template f<3>(
+                S2rAValLoadOp_v.template output<0, 3>(),
+                G2rBValLoadOp_v.template output<0, 3>()
+            );
+            
+            
+            // i = 11
             MmaOp_v.template f<0>(
                 S2rAValLoadOp_v.template output<0, 0>(),
                 G2rBValLoadOp_v.template output<0, 0>()
+            );
+            
+        }
+        else if (k == 6) {
+            // i = 0
+            G2sValSidxLoadOp_v.template f<0>(
+                val_sidxOp_v.template output<0>(),
+                l + 0
+            );
+            __pipeline_commit();
+            G2rCooAtomicFormatLoadOffOp_v.template f<0>(
+                val_coo_offOp_v.template output<0>(),
+                l + 0
+            );
+            
+            
+            // i = 1
+            G2sValSidxLoadOp_v.template f<1>(
+                val_sidxOp_v.template output<0>(),
+                l + 1
+            );
+            __pipeline_commit();
+            G2rCooAtomicFormatLoadOffOp_v.template f<1>(
+                val_coo_offOp_v.template output<0>(),
+                l + 1
+            );
+            
+            
+            // i = 2
+            G2sValSidxLoadOp_v.template f<2>(
+                val_sidxOp_v.template output<0>(),
+                l + 2
+            );
+            __pipeline_commit();
+            G2rCooAtomicFormatLoadOffOp_v.template f<2>(
+                val_coo_offOp_v.template output<0>(),
+                l + 2
+            );
+            __pipeline_wait_prior(2);
+            __syncthreads();
+            S2rValSidxLoadOp_v.template f<0>(
+                G2sValSidxLoadOp_v.template output<0, 0>()
+            );
+            G2sCooAtomicFormatLoadValOp_v.template f<0>(
+                val_coo_valOp_v.template output<0>(),
+                G2rCooAtomicFormatLoadOffOp_v.template output<0, 0>()(0),
+                G2rCooAtomicFormatLoadOffOp_v.template output<1, 0>()(0)
+            );
+            __pipeline_commit();
+            G2rCooAtomicFormatLoadIdxOp_v.template f<0>(
+                val_coo_idxOp_v.template output<0>(),
+                G2rCooAtomicFormatLoadOffOp_v.template output<0, 0>()(0),
+                G2rCooAtomicFormatLoadOffOp_v.template output<1, 0>()(0)
+            );
+            
+            
+            // i = 3
+            G2sValSidxLoadOp_v.template f<3>(
+                val_sidxOp_v.template output<0>(),
+                l + 3
+            );
+            __pipeline_commit();
+            G2rCooAtomicFormatLoadOffOp_v.template f<3>(
+                val_coo_offOp_v.template output<0>(),
+                l + 3
+            );
+            __pipeline_wait_prior(3);
+            __syncthreads();
+            S2rValSidxLoadOp_v.template f<1>(
+                G2sValSidxLoadOp_v.template output<0, 1>()
+            );
+            G2sCooAtomicFormatLoadValOp_v.template f<1>(
+                val_coo_valOp_v.template output<0>(),
+                G2rCooAtomicFormatLoadOffOp_v.template output<0, 1>()(0),
+                G2rCooAtomicFormatLoadOffOp_v.template output<1, 1>()(0)
+            );
+            __pipeline_commit();
+            G2rCooAtomicFormatLoadIdxOp_v.template f<1>(
+                val_coo_idxOp_v.template output<0>(),
+                G2rCooAtomicFormatLoadOffOp_v.template output<0, 1>()(0),
+                G2rCooAtomicFormatLoadOffOp_v.template output<1, 1>()(0)
+            );
+            
+            
+            // i = 4
+            G2sValSidxLoadOp_v.template f<0>(
+                val_sidxOp_v.template output<0>(),
+                l + 4
+            );
+            __pipeline_commit();
+            G2rCooAtomicFormatLoadOffOp_v.template f<0>(
+                val_coo_offOp_v.template output<0>(),
+                l + 4
+            );
+            __pipeline_wait_prior(4);
+            __syncthreads();
+            S2rValSidxLoadOp_v.template f<2>(
+                G2sValSidxLoadOp_v.template output<0, 2>()
+            );
+            G2sCooAtomicFormatLoadValOp_v.template f<2>(
+                val_coo_valOp_v.template output<0>(),
+                G2rCooAtomicFormatLoadOffOp_v.template output<0, 2>()(0),
+                G2rCooAtomicFormatLoadOffOp_v.template output<1, 2>()(0)
+            );
+            __pipeline_commit();
+            G2rCooAtomicFormatLoadIdxOp_v.template f<2>(
+                val_coo_idxOp_v.template output<0>(),
+                G2rCooAtomicFormatLoadOffOp_v.template output<0, 2>()(0),
+                G2rCooAtomicFormatLoadOffOp_v.template output<1, 2>()(0)
+            );
+            
+            
+            // i = 5
+            G2sValSidxLoadOp_v.template f<1>(
+                val_sidxOp_v.template output<0>(),
+                l + 5
+            );
+            __pipeline_commit();
+            G2rCooAtomicFormatLoadOffOp_v.template f<1>(
+                val_coo_offOp_v.template output<0>(),
+                l + 5
+            );
+            __pipeline_wait_prior(4);
+            __syncthreads();
+            S2rValSidxLoadOp_v.template f<3>(
+                G2sValSidxLoadOp_v.template output<0, 3>()
+            );
+            G2sCooAtomicFormatLoadValOp_v.template f<3>(
+                val_coo_valOp_v.template output<0>(),
+                G2rCooAtomicFormatLoadOffOp_v.template output<0, 3>()(0),
+                G2rCooAtomicFormatLoadOffOp_v.template output<1, 3>()(0)
+            );
+            __pipeline_commit();
+            G2rCooAtomicFormatLoadIdxOp_v.template f<3>(
+                val_coo_idxOp_v.template output<0>(),
+                G2rCooAtomicFormatLoadOffOp_v.template output<0, 3>()(0),
+                G2rCooAtomicFormatLoadOffOp_v.template output<1, 3>()(0)
+            );
+            G2rBValLoadOp_v.template f<0>(
+                B_valOp_v.template output<0>(),
+                S2rValSidxLoadOp_v.template output<0, 0>()
+            );
+            __pipeline_wait_prior(6);
+            __syncthreads();
+            S2sCooAtomicValRestoreOp_v.template f<0>(
+                G2sCooAtomicFormatLoadValOp_v.template output<0, 0>(),
+                G2rCooAtomicFormatLoadIdxOp_v.template output<0, 0>(),
+                G2rCooAtomicFormatLoadIdxOp_v.template output<1, 0>()(0)
+            );
+            __pipeline_commit();
+            __pipeline_wait_prior(0);
+            __syncthreads();
+            S2rAValLoadOp_v.template f<0>(
+                S2sCooAtomicValRestoreOp_v.template output<0, 0>()
+            );
+            
+            
+            // i = 6
+            __pipeline_wait_prior(4);
+            __syncthreads();
+            S2rValSidxLoadOp_v.template f<0>(
+                G2sValSidxLoadOp_v.template output<0, 0>()
+            );
+            G2sCooAtomicFormatLoadValOp_v.template f<0>(
+                val_coo_valOp_v.template output<0>(),
+                G2rCooAtomicFormatLoadOffOp_v.template output<0, 0>()(0),
+                G2rCooAtomicFormatLoadOffOp_v.template output<1, 0>()(0)
+            );
+            __pipeline_commit();
+            G2rCooAtomicFormatLoadIdxOp_v.template f<0>(
+                val_coo_idxOp_v.template output<0>(),
+                G2rCooAtomicFormatLoadOffOp_v.template output<0, 0>()(0),
+                G2rCooAtomicFormatLoadOffOp_v.template output<1, 0>()(0)
+            );
+            G2rBValLoadOp_v.template f<1>(
+                B_valOp_v.template output<0>(),
+                S2rValSidxLoadOp_v.template output<0, 1>()
+            );
+            __pipeline_wait_prior(6);
+            __syncthreads();
+            S2sCooAtomicValRestoreOp_v.template f<1>(
+                G2sCooAtomicFormatLoadValOp_v.template output<0, 1>(),
+                G2rCooAtomicFormatLoadIdxOp_v.template output<0, 1>(),
+                G2rCooAtomicFormatLoadIdxOp_v.template output<1, 1>()(0)
+            );
+            __pipeline_commit();
+            __pipeline_wait_prior(0);
+            __syncthreads();
+            S2rAValLoadOp_v.template f<1>(
+                S2sCooAtomicValRestoreOp_v.template output<0, 1>()
+            );
+            
+            
+            // i = 7
+            __pipeline_wait_prior(4);
+            __syncthreads();
+            S2rValSidxLoadOp_v.template f<1>(
+                G2sValSidxLoadOp_v.template output<0, 1>()
+            );
+            G2sCooAtomicFormatLoadValOp_v.template f<1>(
+                val_coo_valOp_v.template output<0>(),
+                G2rCooAtomicFormatLoadOffOp_v.template output<0, 1>()(0),
+                G2rCooAtomicFormatLoadOffOp_v.template output<1, 1>()(0)
+            );
+            __pipeline_commit();
+            G2rCooAtomicFormatLoadIdxOp_v.template f<1>(
+                val_coo_idxOp_v.template output<0>(),
+                G2rCooAtomicFormatLoadOffOp_v.template output<0, 1>()(0),
+                G2rCooAtomicFormatLoadOffOp_v.template output<1, 1>()(0)
+            );
+            G2rBValLoadOp_v.template f<2>(
+                B_valOp_v.template output<0>(),
+                S2rValSidxLoadOp_v.template output<0, 2>()
+            );
+            __pipeline_wait_prior(6);
+            __syncthreads();
+            S2sCooAtomicValRestoreOp_v.template f<2>(
+                G2sCooAtomicFormatLoadValOp_v.template output<0, 2>(),
+                G2rCooAtomicFormatLoadIdxOp_v.template output<0, 2>(),
+                G2rCooAtomicFormatLoadIdxOp_v.template output<1, 2>()(0)
+            );
+            __pipeline_commit();
+            __pipeline_wait_prior(0);
+            __syncthreads();
+            S2rAValLoadOp_v.template f<2>(
+                S2sCooAtomicValRestoreOp_v.template output<0, 2>()
+            );
+            MmaOp_v.template f<0>(
+                S2rAValLoadOp_v.template output<0, 0>(),
+                G2rBValLoadOp_v.template output<0, 0>()
+            );
+            
+            
+            // i = 8
+            G2rBValLoadOp_v.template f<3>(
+                B_valOp_v.template output<0>(),
+                S2rValSidxLoadOp_v.template output<0, 3>()
+            );
+            __pipeline_wait_prior(5);
+            __syncthreads();
+            S2sCooAtomicValRestoreOp_v.template f<3>(
+                G2sCooAtomicFormatLoadValOp_v.template output<0, 3>(),
+                G2rCooAtomicFormatLoadIdxOp_v.template output<0, 3>(),
+                G2rCooAtomicFormatLoadIdxOp_v.template output<1, 3>()(0)
+            );
+            __pipeline_commit();
+            __pipeline_wait_prior(0);
+            __syncthreads();
+            S2rAValLoadOp_v.template f<3>(
+                S2sCooAtomicValRestoreOp_v.template output<0, 3>()
+            );
+            MmaOp_v.template f<1>(
+                S2rAValLoadOp_v.template output<0, 1>(),
+                G2rBValLoadOp_v.template output<0, 1>()
+            );
+            
+            
+            // i = 9
+            G2rBValLoadOp_v.template f<0>(
+                B_valOp_v.template output<0>(),
+                S2rValSidxLoadOp_v.template output<0, 0>()
+            );
+            __pipeline_wait_prior(4);
+            __syncthreads();
+            S2sCooAtomicValRestoreOp_v.template f<0>(
+                G2sCooAtomicFormatLoadValOp_v.template output<0, 0>(),
+                G2rCooAtomicFormatLoadIdxOp_v.template output<0, 0>(),
+                G2rCooAtomicFormatLoadIdxOp_v.template output<1, 0>()(0)
+            );
+            __pipeline_commit();
+            __pipeline_wait_prior(0);
+            __syncthreads();
+            S2rAValLoadOp_v.template f<0>(
+                S2sCooAtomicValRestoreOp_v.template output<0, 0>()
+            );
+            MmaOp_v.template f<2>(
+                S2rAValLoadOp_v.template output<0, 2>(),
+                G2rBValLoadOp_v.template output<0, 2>()
+            );
+            
+            
+            // i = 10
+            G2rBValLoadOp_v.template f<1>(
+                B_valOp_v.template output<0>(),
+                S2rValSidxLoadOp_v.template output<0, 1>()
+            );
+            __pipeline_wait_prior(3);
+            __syncthreads();
+            S2sCooAtomicValRestoreOp_v.template f<1>(
+                G2sCooAtomicFormatLoadValOp_v.template output<0, 1>(),
+                G2rCooAtomicFormatLoadIdxOp_v.template output<0, 1>(),
+                G2rCooAtomicFormatLoadIdxOp_v.template output<1, 1>()(0)
+            );
+            __pipeline_commit();
+            __pipeline_wait_prior(0);
+            __syncthreads();
+            S2rAValLoadOp_v.template f<1>(
+                S2sCooAtomicValRestoreOp_v.template output<0, 1>()
+            );
+            MmaOp_v.template f<3>(
+                S2rAValLoadOp_v.template output<0, 3>(),
+                G2rBValLoadOp_v.template output<0, 3>()
+            );
+            
+            
+            // i = 11
+            MmaOp_v.template f<0>(
+                S2rAValLoadOp_v.template output<0, 0>(),
+                G2rBValLoadOp_v.template output<0, 0>()
+            );
+            
+            
+            // i = 12
+            MmaOp_v.template f<1>(
+                S2rAValLoadOp_v.template output<0, 1>(),
+                G2rBValLoadOp_v.template output<0, 1>()
+            );
+            
+        }
+        else if (k == 7) {
+            // i = 0
+            G2sValSidxLoadOp_v.template f<0>(
+                val_sidxOp_v.template output<0>(),
+                l + 0
+            );
+            __pipeline_commit();
+            G2rCooAtomicFormatLoadOffOp_v.template f<0>(
+                val_coo_offOp_v.template output<0>(),
+                l + 0
+            );
+            
+            
+            // i = 1
+            G2sValSidxLoadOp_v.template f<1>(
+                val_sidxOp_v.template output<0>(),
+                l + 1
+            );
+            __pipeline_commit();
+            G2rCooAtomicFormatLoadOffOp_v.template f<1>(
+                val_coo_offOp_v.template output<0>(),
+                l + 1
+            );
+            
+            
+            // i = 2
+            G2sValSidxLoadOp_v.template f<2>(
+                val_sidxOp_v.template output<0>(),
+                l + 2
+            );
+            __pipeline_commit();
+            G2rCooAtomicFormatLoadOffOp_v.template f<2>(
+                val_coo_offOp_v.template output<0>(),
+                l + 2
+            );
+            __pipeline_wait_prior(2);
+            __syncthreads();
+            S2rValSidxLoadOp_v.template f<0>(
+                G2sValSidxLoadOp_v.template output<0, 0>()
+            );
+            G2sCooAtomicFormatLoadValOp_v.template f<0>(
+                val_coo_valOp_v.template output<0>(),
+                G2rCooAtomicFormatLoadOffOp_v.template output<0, 0>()(0),
+                G2rCooAtomicFormatLoadOffOp_v.template output<1, 0>()(0)
+            );
+            __pipeline_commit();
+            G2rCooAtomicFormatLoadIdxOp_v.template f<0>(
+                val_coo_idxOp_v.template output<0>(),
+                G2rCooAtomicFormatLoadOffOp_v.template output<0, 0>()(0),
+                G2rCooAtomicFormatLoadOffOp_v.template output<1, 0>()(0)
+            );
+            
+            
+            // i = 3
+            G2sValSidxLoadOp_v.template f<3>(
+                val_sidxOp_v.template output<0>(),
+                l + 3
+            );
+            __pipeline_commit();
+            G2rCooAtomicFormatLoadOffOp_v.template f<3>(
+                val_coo_offOp_v.template output<0>(),
+                l + 3
+            );
+            __pipeline_wait_prior(3);
+            __syncthreads();
+            S2rValSidxLoadOp_v.template f<1>(
+                G2sValSidxLoadOp_v.template output<0, 1>()
+            );
+            G2sCooAtomicFormatLoadValOp_v.template f<1>(
+                val_coo_valOp_v.template output<0>(),
+                G2rCooAtomicFormatLoadOffOp_v.template output<0, 1>()(0),
+                G2rCooAtomicFormatLoadOffOp_v.template output<1, 1>()(0)
+            );
+            __pipeline_commit();
+            G2rCooAtomicFormatLoadIdxOp_v.template f<1>(
+                val_coo_idxOp_v.template output<0>(),
+                G2rCooAtomicFormatLoadOffOp_v.template output<0, 1>()(0),
+                G2rCooAtomicFormatLoadOffOp_v.template output<1, 1>()(0)
+            );
+            
+            
+            // i = 4
+            G2sValSidxLoadOp_v.template f<0>(
+                val_sidxOp_v.template output<0>(),
+                l + 4
+            );
+            __pipeline_commit();
+            G2rCooAtomicFormatLoadOffOp_v.template f<0>(
+                val_coo_offOp_v.template output<0>(),
+                l + 4
+            );
+            __pipeline_wait_prior(4);
+            __syncthreads();
+            S2rValSidxLoadOp_v.template f<2>(
+                G2sValSidxLoadOp_v.template output<0, 2>()
+            );
+            G2sCooAtomicFormatLoadValOp_v.template f<2>(
+                val_coo_valOp_v.template output<0>(),
+                G2rCooAtomicFormatLoadOffOp_v.template output<0, 2>()(0),
+                G2rCooAtomicFormatLoadOffOp_v.template output<1, 2>()(0)
+            );
+            __pipeline_commit();
+            G2rCooAtomicFormatLoadIdxOp_v.template f<2>(
+                val_coo_idxOp_v.template output<0>(),
+                G2rCooAtomicFormatLoadOffOp_v.template output<0, 2>()(0),
+                G2rCooAtomicFormatLoadOffOp_v.template output<1, 2>()(0)
+            );
+            
+            
+            // i = 5
+            G2sValSidxLoadOp_v.template f<1>(
+                val_sidxOp_v.template output<0>(),
+                l + 5
+            );
+            __pipeline_commit();
+            G2rCooAtomicFormatLoadOffOp_v.template f<1>(
+                val_coo_offOp_v.template output<0>(),
+                l + 5
+            );
+            __pipeline_wait_prior(4);
+            __syncthreads();
+            S2rValSidxLoadOp_v.template f<3>(
+                G2sValSidxLoadOp_v.template output<0, 3>()
+            );
+            G2sCooAtomicFormatLoadValOp_v.template f<3>(
+                val_coo_valOp_v.template output<0>(),
+                G2rCooAtomicFormatLoadOffOp_v.template output<0, 3>()(0),
+                G2rCooAtomicFormatLoadOffOp_v.template output<1, 3>()(0)
+            );
+            __pipeline_commit();
+            G2rCooAtomicFormatLoadIdxOp_v.template f<3>(
+                val_coo_idxOp_v.template output<0>(),
+                G2rCooAtomicFormatLoadOffOp_v.template output<0, 3>()(0),
+                G2rCooAtomicFormatLoadOffOp_v.template output<1, 3>()(0)
+            );
+            G2rBValLoadOp_v.template f<0>(
+                B_valOp_v.template output<0>(),
+                S2rValSidxLoadOp_v.template output<0, 0>()
+            );
+            __pipeline_wait_prior(6);
+            __syncthreads();
+            S2sCooAtomicValRestoreOp_v.template f<0>(
+                G2sCooAtomicFormatLoadValOp_v.template output<0, 0>(),
+                G2rCooAtomicFormatLoadIdxOp_v.template output<0, 0>(),
+                G2rCooAtomicFormatLoadIdxOp_v.template output<1, 0>()(0)
+            );
+            __pipeline_commit();
+            __pipeline_wait_prior(0);
+            __syncthreads();
+            S2rAValLoadOp_v.template f<0>(
+                S2sCooAtomicValRestoreOp_v.template output<0, 0>()
+            );
+            
+            
+            // i = 6
+            G2sValSidxLoadOp_v.template f<2>(
+                val_sidxOp_v.template output<0>(),
+                l + 6
+            );
+            __pipeline_commit();
+            G2rCooAtomicFormatLoadOffOp_v.template f<2>(
+                val_coo_offOp_v.template output<0>(),
+                l + 6
+            );
+            __pipeline_wait_prior(5);
+            __syncthreads();
+            S2rValSidxLoadOp_v.template f<0>(
+                G2sValSidxLoadOp_v.template output<0, 0>()
+            );
+            G2sCooAtomicFormatLoadValOp_v.template f<0>(
+                val_coo_valOp_v.template output<0>(),
+                G2rCooAtomicFormatLoadOffOp_v.template output<0, 0>()(0),
+                G2rCooAtomicFormatLoadOffOp_v.template output<1, 0>()(0)
+            );
+            __pipeline_commit();
+            G2rCooAtomicFormatLoadIdxOp_v.template f<0>(
+                val_coo_idxOp_v.template output<0>(),
+                G2rCooAtomicFormatLoadOffOp_v.template output<0, 0>()(0),
+                G2rCooAtomicFormatLoadOffOp_v.template output<1, 0>()(0)
+            );
+            G2rBValLoadOp_v.template f<1>(
+                B_valOp_v.template output<0>(),
+                S2rValSidxLoadOp_v.template output<0, 1>()
+            );
+            __pipeline_wait_prior(7);
+            __syncthreads();
+            S2sCooAtomicValRestoreOp_v.template f<1>(
+                G2sCooAtomicFormatLoadValOp_v.template output<0, 1>(),
+                G2rCooAtomicFormatLoadIdxOp_v.template output<0, 1>(),
+                G2rCooAtomicFormatLoadIdxOp_v.template output<1, 1>()(0)
+            );
+            __pipeline_commit();
+            __pipeline_wait_prior(0);
+            __syncthreads();
+            S2rAValLoadOp_v.template f<1>(
+                S2sCooAtomicValRestoreOp_v.template output<0, 1>()
+            );
+            
+            
+            // i = 7
+            __pipeline_wait_prior(5);
+            __syncthreads();
+            S2rValSidxLoadOp_v.template f<1>(
+                G2sValSidxLoadOp_v.template output<0, 1>()
+            );
+            G2sCooAtomicFormatLoadValOp_v.template f<1>(
+                val_coo_valOp_v.template output<0>(),
+                G2rCooAtomicFormatLoadOffOp_v.template output<0, 1>()(0),
+                G2rCooAtomicFormatLoadOffOp_v.template output<1, 1>()(0)
+            );
+            __pipeline_commit();
+            G2rCooAtomicFormatLoadIdxOp_v.template f<1>(
+                val_coo_idxOp_v.template output<0>(),
+                G2rCooAtomicFormatLoadOffOp_v.template output<0, 1>()(0),
+                G2rCooAtomicFormatLoadOffOp_v.template output<1, 1>()(0)
+            );
+            G2rBValLoadOp_v.template f<2>(
+                B_valOp_v.template output<0>(),
+                S2rValSidxLoadOp_v.template output<0, 2>()
+            );
+            __pipeline_wait_prior(7);
+            __syncthreads();
+            S2sCooAtomicValRestoreOp_v.template f<2>(
+                G2sCooAtomicFormatLoadValOp_v.template output<0, 2>(),
+                G2rCooAtomicFormatLoadIdxOp_v.template output<0, 2>(),
+                G2rCooAtomicFormatLoadIdxOp_v.template output<1, 2>()(0)
+            );
+            __pipeline_commit();
+            __pipeline_wait_prior(0);
+            __syncthreads();
+            S2rAValLoadOp_v.template f<2>(
+                S2sCooAtomicValRestoreOp_v.template output<0, 2>()
+            );
+            MmaOp_v.template f<0>(
+                S2rAValLoadOp_v.template output<0, 0>(),
+                G2rBValLoadOp_v.template output<0, 0>()
+            );
+            
+            
+            // i = 8
+            __pipeline_wait_prior(4);
+            __syncthreads();
+            S2rValSidxLoadOp_v.template f<2>(
+                G2sValSidxLoadOp_v.template output<0, 2>()
+            );
+            G2sCooAtomicFormatLoadValOp_v.template f<2>(
+                val_coo_valOp_v.template output<0>(),
+                G2rCooAtomicFormatLoadOffOp_v.template output<0, 2>()(0),
+                G2rCooAtomicFormatLoadOffOp_v.template output<1, 2>()(0)
+            );
+            __pipeline_commit();
+            G2rCooAtomicFormatLoadIdxOp_v.template f<2>(
+                val_coo_idxOp_v.template output<0>(),
+                G2rCooAtomicFormatLoadOffOp_v.template output<0, 2>()(0),
+                G2rCooAtomicFormatLoadOffOp_v.template output<1, 2>()(0)
+            );
+            G2rBValLoadOp_v.template f<3>(
+                B_valOp_v.template output<0>(),
+                S2rValSidxLoadOp_v.template output<0, 3>()
+            );
+            __pipeline_wait_prior(7);
+            __syncthreads();
+            S2sCooAtomicValRestoreOp_v.template f<3>(
+                G2sCooAtomicFormatLoadValOp_v.template output<0, 3>(),
+                G2rCooAtomicFormatLoadIdxOp_v.template output<0, 3>(),
+                G2rCooAtomicFormatLoadIdxOp_v.template output<1, 3>()(0)
+            );
+            __pipeline_commit();
+            __pipeline_wait_prior(0);
+            __syncthreads();
+            S2rAValLoadOp_v.template f<3>(
+                S2sCooAtomicValRestoreOp_v.template output<0, 3>()
+            );
+            MmaOp_v.template f<1>(
+                S2rAValLoadOp_v.template output<0, 1>(),
+                G2rBValLoadOp_v.template output<0, 1>()
+            );
+            
+            
+            // i = 9
+            G2rBValLoadOp_v.template f<0>(
+                B_valOp_v.template output<0>(),
+                S2rValSidxLoadOp_v.template output<0, 0>()
+            );
+            __pipeline_wait_prior(5);
+            __syncthreads();
+            S2sCooAtomicValRestoreOp_v.template f<0>(
+                G2sCooAtomicFormatLoadValOp_v.template output<0, 0>(),
+                G2rCooAtomicFormatLoadIdxOp_v.template output<0, 0>(),
+                G2rCooAtomicFormatLoadIdxOp_v.template output<1, 0>()(0)
+            );
+            __pipeline_commit();
+            __pipeline_wait_prior(0);
+            __syncthreads();
+            S2rAValLoadOp_v.template f<0>(
+                S2sCooAtomicValRestoreOp_v.template output<0, 0>()
+            );
+            MmaOp_v.template f<2>(
+                S2rAValLoadOp_v.template output<0, 2>(),
+                G2rBValLoadOp_v.template output<0, 2>()
+            );
+            
+            
+            // i = 10
+            G2rBValLoadOp_v.template f<1>(
+                B_valOp_v.template output<0>(),
+                S2rValSidxLoadOp_v.template output<0, 1>()
+            );
+            __pipeline_wait_prior(4);
+            __syncthreads();
+            S2sCooAtomicValRestoreOp_v.template f<1>(
+                G2sCooAtomicFormatLoadValOp_v.template output<0, 1>(),
+                G2rCooAtomicFormatLoadIdxOp_v.template output<0, 1>(),
+                G2rCooAtomicFormatLoadIdxOp_v.template output<1, 1>()(0)
+            );
+            __pipeline_commit();
+            __pipeline_wait_prior(0);
+            __syncthreads();
+            S2rAValLoadOp_v.template f<1>(
+                S2sCooAtomicValRestoreOp_v.template output<0, 1>()
+            );
+            MmaOp_v.template f<3>(
+                S2rAValLoadOp_v.template output<0, 3>(),
+                G2rBValLoadOp_v.template output<0, 3>()
+            );
+            
+            
+            // i = 11
+            G2rBValLoadOp_v.template f<2>(
+                B_valOp_v.template output<0>(),
+                S2rValSidxLoadOp_v.template output<0, 2>()
+            );
+            __pipeline_wait_prior(3);
+            __syncthreads();
+            S2sCooAtomicValRestoreOp_v.template f<2>(
+                G2sCooAtomicFormatLoadValOp_v.template output<0, 2>(),
+                G2rCooAtomicFormatLoadIdxOp_v.template output<0, 2>(),
+                G2rCooAtomicFormatLoadIdxOp_v.template output<1, 2>()(0)
+            );
+            __pipeline_commit();
+            __pipeline_wait_prior(0);
+            __syncthreads();
+            S2rAValLoadOp_v.template f<2>(
+                S2sCooAtomicValRestoreOp_v.template output<0, 2>()
+            );
+            MmaOp_v.template f<0>(
+                S2rAValLoadOp_v.template output<0, 0>(),
+                G2rBValLoadOp_v.template output<0, 0>()
+            );
+            
+            
+            // i = 12
+            MmaOp_v.template f<1>(
+                S2rAValLoadOp_v.template output<0, 1>(),
+                G2rBValLoadOp_v.template output<0, 1>()
+            );
+            
+            
+            // i = 13
+            MmaOp_v.template f<2>(
+                S2rAValLoadOp_v.template output<0, 2>(),
+                G2rBValLoadOp_v.template output<0, 2>()
+            );
+            
+        }
+        else if (k == 8) {
+            // i = 0
+            G2sValSidxLoadOp_v.template f<0>(
+                val_sidxOp_v.template output<0>(),
+                l + 0
+            );
+            __pipeline_commit();
+            G2rCooAtomicFormatLoadOffOp_v.template f<0>(
+                val_coo_offOp_v.template output<0>(),
+                l + 0
+            );
+            
+            
+            // i = 1
+            G2sValSidxLoadOp_v.template f<1>(
+                val_sidxOp_v.template output<0>(),
+                l + 1
+            );
+            __pipeline_commit();
+            G2rCooAtomicFormatLoadOffOp_v.template f<1>(
+                val_coo_offOp_v.template output<0>(),
+                l + 1
+            );
+            
+            
+            // i = 2
+            G2sValSidxLoadOp_v.template f<2>(
+                val_sidxOp_v.template output<0>(),
+                l + 2
+            );
+            __pipeline_commit();
+            G2rCooAtomicFormatLoadOffOp_v.template f<2>(
+                val_coo_offOp_v.template output<0>(),
+                l + 2
+            );
+            __pipeline_wait_prior(2);
+            __syncthreads();
+            S2rValSidxLoadOp_v.template f<0>(
+                G2sValSidxLoadOp_v.template output<0, 0>()
+            );
+            G2sCooAtomicFormatLoadValOp_v.template f<0>(
+                val_coo_valOp_v.template output<0>(),
+                G2rCooAtomicFormatLoadOffOp_v.template output<0, 0>()(0),
+                G2rCooAtomicFormatLoadOffOp_v.template output<1, 0>()(0)
+            );
+            __pipeline_commit();
+            G2rCooAtomicFormatLoadIdxOp_v.template f<0>(
+                val_coo_idxOp_v.template output<0>(),
+                G2rCooAtomicFormatLoadOffOp_v.template output<0, 0>()(0),
+                G2rCooAtomicFormatLoadOffOp_v.template output<1, 0>()(0)
+            );
+            
+            
+            // i = 3
+            G2sValSidxLoadOp_v.template f<3>(
+                val_sidxOp_v.template output<0>(),
+                l + 3
+            );
+            __pipeline_commit();
+            G2rCooAtomicFormatLoadOffOp_v.template f<3>(
+                val_coo_offOp_v.template output<0>(),
+                l + 3
+            );
+            __pipeline_wait_prior(3);
+            __syncthreads();
+            S2rValSidxLoadOp_v.template f<1>(
+                G2sValSidxLoadOp_v.template output<0, 1>()
+            );
+            G2sCooAtomicFormatLoadValOp_v.template f<1>(
+                val_coo_valOp_v.template output<0>(),
+                G2rCooAtomicFormatLoadOffOp_v.template output<0, 1>()(0),
+                G2rCooAtomicFormatLoadOffOp_v.template output<1, 1>()(0)
+            );
+            __pipeline_commit();
+            G2rCooAtomicFormatLoadIdxOp_v.template f<1>(
+                val_coo_idxOp_v.template output<0>(),
+                G2rCooAtomicFormatLoadOffOp_v.template output<0, 1>()(0),
+                G2rCooAtomicFormatLoadOffOp_v.template output<1, 1>()(0)
+            );
+            
+            
+            // i = 4
+            G2sValSidxLoadOp_v.template f<0>(
+                val_sidxOp_v.template output<0>(),
+                l + 4
+            );
+            __pipeline_commit();
+            G2rCooAtomicFormatLoadOffOp_v.template f<0>(
+                val_coo_offOp_v.template output<0>(),
+                l + 4
+            );
+            __pipeline_wait_prior(4);
+            __syncthreads();
+            S2rValSidxLoadOp_v.template f<2>(
+                G2sValSidxLoadOp_v.template output<0, 2>()
+            );
+            G2sCooAtomicFormatLoadValOp_v.template f<2>(
+                val_coo_valOp_v.template output<0>(),
+                G2rCooAtomicFormatLoadOffOp_v.template output<0, 2>()(0),
+                G2rCooAtomicFormatLoadOffOp_v.template output<1, 2>()(0)
+            );
+            __pipeline_commit();
+            G2rCooAtomicFormatLoadIdxOp_v.template f<2>(
+                val_coo_idxOp_v.template output<0>(),
+                G2rCooAtomicFormatLoadOffOp_v.template output<0, 2>()(0),
+                G2rCooAtomicFormatLoadOffOp_v.template output<1, 2>()(0)
+            );
+            
+            
+            // i = 5
+            G2sValSidxLoadOp_v.template f<1>(
+                val_sidxOp_v.template output<0>(),
+                l + 5
+            );
+            __pipeline_commit();
+            G2rCooAtomicFormatLoadOffOp_v.template f<1>(
+                val_coo_offOp_v.template output<0>(),
+                l + 5
+            );
+            __pipeline_wait_prior(4);
+            __syncthreads();
+            S2rValSidxLoadOp_v.template f<3>(
+                G2sValSidxLoadOp_v.template output<0, 3>()
+            );
+            G2sCooAtomicFormatLoadValOp_v.template f<3>(
+                val_coo_valOp_v.template output<0>(),
+                G2rCooAtomicFormatLoadOffOp_v.template output<0, 3>()(0),
+                G2rCooAtomicFormatLoadOffOp_v.template output<1, 3>()(0)
+            );
+            __pipeline_commit();
+            G2rCooAtomicFormatLoadIdxOp_v.template f<3>(
+                val_coo_idxOp_v.template output<0>(),
+                G2rCooAtomicFormatLoadOffOp_v.template output<0, 3>()(0),
+                G2rCooAtomicFormatLoadOffOp_v.template output<1, 3>()(0)
+            );
+            G2rBValLoadOp_v.template f<0>(
+                B_valOp_v.template output<0>(),
+                S2rValSidxLoadOp_v.template output<0, 0>()
+            );
+            __pipeline_wait_prior(6);
+            __syncthreads();
+            S2sCooAtomicValRestoreOp_v.template f<0>(
+                G2sCooAtomicFormatLoadValOp_v.template output<0, 0>(),
+                G2rCooAtomicFormatLoadIdxOp_v.template output<0, 0>(),
+                G2rCooAtomicFormatLoadIdxOp_v.template output<1, 0>()(0)
+            );
+            __pipeline_commit();
+            __pipeline_wait_prior(0);
+            __syncthreads();
+            S2rAValLoadOp_v.template f<0>(
+                S2sCooAtomicValRestoreOp_v.template output<0, 0>()
+            );
+            
+            
+            // i = 6
+            G2sValSidxLoadOp_v.template f<2>(
+                val_sidxOp_v.template output<0>(),
+                l + 6
+            );
+            __pipeline_commit();
+            G2rCooAtomicFormatLoadOffOp_v.template f<2>(
+                val_coo_offOp_v.template output<0>(),
+                l + 6
+            );
+            __pipeline_wait_prior(5);
+            __syncthreads();
+            S2rValSidxLoadOp_v.template f<0>(
+                G2sValSidxLoadOp_v.template output<0, 0>()
+            );
+            G2sCooAtomicFormatLoadValOp_v.template f<0>(
+                val_coo_valOp_v.template output<0>(),
+                G2rCooAtomicFormatLoadOffOp_v.template output<0, 0>()(0),
+                G2rCooAtomicFormatLoadOffOp_v.template output<1, 0>()(0)
+            );
+            __pipeline_commit();
+            G2rCooAtomicFormatLoadIdxOp_v.template f<0>(
+                val_coo_idxOp_v.template output<0>(),
+                G2rCooAtomicFormatLoadOffOp_v.template output<0, 0>()(0),
+                G2rCooAtomicFormatLoadOffOp_v.template output<1, 0>()(0)
+            );
+            G2rBValLoadOp_v.template f<1>(
+                B_valOp_v.template output<0>(),
+                S2rValSidxLoadOp_v.template output<0, 1>()
+            );
+            __pipeline_wait_prior(7);
+            __syncthreads();
+            S2sCooAtomicValRestoreOp_v.template f<1>(
+                G2sCooAtomicFormatLoadValOp_v.template output<0, 1>(),
+                G2rCooAtomicFormatLoadIdxOp_v.template output<0, 1>(),
+                G2rCooAtomicFormatLoadIdxOp_v.template output<1, 1>()(0)
+            );
+            __pipeline_commit();
+            __pipeline_wait_prior(0);
+            __syncthreads();
+            S2rAValLoadOp_v.template f<1>(
+                S2sCooAtomicValRestoreOp_v.template output<0, 1>()
+            );
+            
+            
+            // i = 7
+            G2sValSidxLoadOp_v.template f<3>(
+                val_sidxOp_v.template output<0>(),
+                l + 7
+            );
+            __pipeline_commit();
+            G2rCooAtomicFormatLoadOffOp_v.template f<3>(
+                val_coo_offOp_v.template output<0>(),
+                l + 7
+            );
+            __pipeline_wait_prior(6);
+            __syncthreads();
+            S2rValSidxLoadOp_v.template f<1>(
+                G2sValSidxLoadOp_v.template output<0, 1>()
+            );
+            G2sCooAtomicFormatLoadValOp_v.template f<1>(
+                val_coo_valOp_v.template output<0>(),
+                G2rCooAtomicFormatLoadOffOp_v.template output<0, 1>()(0),
+                G2rCooAtomicFormatLoadOffOp_v.template output<1, 1>()(0)
+            );
+            __pipeline_commit();
+            G2rCooAtomicFormatLoadIdxOp_v.template f<1>(
+                val_coo_idxOp_v.template output<0>(),
+                G2rCooAtomicFormatLoadOffOp_v.template output<0, 1>()(0),
+                G2rCooAtomicFormatLoadOffOp_v.template output<1, 1>()(0)
+            );
+            G2rBValLoadOp_v.template f<2>(
+                B_valOp_v.template output<0>(),
+                S2rValSidxLoadOp_v.template output<0, 2>()
+            );
+            __pipeline_wait_prior(8);
+            __syncthreads();
+            S2sCooAtomicValRestoreOp_v.template f<2>(
+                G2sCooAtomicFormatLoadValOp_v.template output<0, 2>(),
+                G2rCooAtomicFormatLoadIdxOp_v.template output<0, 2>(),
+                G2rCooAtomicFormatLoadIdxOp_v.template output<1, 2>()(0)
+            );
+            __pipeline_commit();
+            __pipeline_wait_prior(0);
+            __syncthreads();
+            S2rAValLoadOp_v.template f<2>(
+                S2sCooAtomicValRestoreOp_v.template output<0, 2>()
+            );
+            MmaOp_v.template f<0>(
+                S2rAValLoadOp_v.template output<0, 0>(),
+                G2rBValLoadOp_v.template output<0, 0>()
+            );
+            
+            
+            // i = 8
+            __pipeline_wait_prior(5);
+            __syncthreads();
+            S2rValSidxLoadOp_v.template f<2>(
+                G2sValSidxLoadOp_v.template output<0, 2>()
+            );
+            G2sCooAtomicFormatLoadValOp_v.template f<2>(
+                val_coo_valOp_v.template output<0>(),
+                G2rCooAtomicFormatLoadOffOp_v.template output<0, 2>()(0),
+                G2rCooAtomicFormatLoadOffOp_v.template output<1, 2>()(0)
+            );
+            __pipeline_commit();
+            G2rCooAtomicFormatLoadIdxOp_v.template f<2>(
+                val_coo_idxOp_v.template output<0>(),
+                G2rCooAtomicFormatLoadOffOp_v.template output<0, 2>()(0),
+                G2rCooAtomicFormatLoadOffOp_v.template output<1, 2>()(0)
+            );
+            G2rBValLoadOp_v.template f<3>(
+                B_valOp_v.template output<0>(),
+                S2rValSidxLoadOp_v.template output<0, 3>()
+            );
+            __pipeline_wait_prior(8);
+            __syncthreads();
+            S2sCooAtomicValRestoreOp_v.template f<3>(
+                G2sCooAtomicFormatLoadValOp_v.template output<0, 3>(),
+                G2rCooAtomicFormatLoadIdxOp_v.template output<0, 3>(),
+                G2rCooAtomicFormatLoadIdxOp_v.template output<1, 3>()(0)
+            );
+            __pipeline_commit();
+            __pipeline_wait_prior(0);
+            __syncthreads();
+            S2rAValLoadOp_v.template f<3>(
+                S2sCooAtomicValRestoreOp_v.template output<0, 3>()
+            );
+            MmaOp_v.template f<1>(
+                S2rAValLoadOp_v.template output<0, 1>(),
+                G2rBValLoadOp_v.template output<0, 1>()
+            );
+            
+            
+            // i = 9
+            __pipeline_wait_prior(4);
+            __syncthreads();
+            S2rValSidxLoadOp_v.template f<3>(
+                G2sValSidxLoadOp_v.template output<0, 3>()
+            );
+            G2sCooAtomicFormatLoadValOp_v.template f<3>(
+                val_coo_valOp_v.template output<0>(),
+                G2rCooAtomicFormatLoadOffOp_v.template output<0, 3>()(0),
+                G2rCooAtomicFormatLoadOffOp_v.template output<1, 3>()(0)
+            );
+            __pipeline_commit();
+            G2rCooAtomicFormatLoadIdxOp_v.template f<3>(
+                val_coo_idxOp_v.template output<0>(),
+                G2rCooAtomicFormatLoadOffOp_v.template output<0, 3>()(0),
+                G2rCooAtomicFormatLoadOffOp_v.template output<1, 3>()(0)
+            );
+            G2rBValLoadOp_v.template f<0>(
+                B_valOp_v.template output<0>(),
+                S2rValSidxLoadOp_v.template output<0, 0>()
+            );
+            __pipeline_wait_prior(7);
+            __syncthreads();
+            S2sCooAtomicValRestoreOp_v.template f<0>(
+                G2sCooAtomicFormatLoadValOp_v.template output<0, 0>(),
+                G2rCooAtomicFormatLoadIdxOp_v.template output<0, 0>(),
+                G2rCooAtomicFormatLoadIdxOp_v.template output<1, 0>()(0)
+            );
+            __pipeline_commit();
+            __pipeline_wait_prior(0);
+            __syncthreads();
+            S2rAValLoadOp_v.template f<0>(
+                S2sCooAtomicValRestoreOp_v.template output<0, 0>()
+            );
+            MmaOp_v.template f<2>(
+                S2rAValLoadOp_v.template output<0, 2>(),
+                G2rBValLoadOp_v.template output<0, 2>()
+            );
+            
+            
+            // i = 10
+            G2rBValLoadOp_v.template f<1>(
+                B_valOp_v.template output<0>(),
+                S2rValSidxLoadOp_v.template output<0, 1>()
+            );
+            __pipeline_wait_prior(5);
+            __syncthreads();
+            S2sCooAtomicValRestoreOp_v.template f<1>(
+                G2sCooAtomicFormatLoadValOp_v.template output<0, 1>(),
+                G2rCooAtomicFormatLoadIdxOp_v.template output<0, 1>(),
+                G2rCooAtomicFormatLoadIdxOp_v.template output<1, 1>()(0)
+            );
+            __pipeline_commit();
+            __pipeline_wait_prior(0);
+            __syncthreads();
+            S2rAValLoadOp_v.template f<1>(
+                S2sCooAtomicValRestoreOp_v.template output<0, 1>()
+            );
+            MmaOp_v.template f<3>(
+                S2rAValLoadOp_v.template output<0, 3>(),
+                G2rBValLoadOp_v.template output<0, 3>()
+            );
+            
+            
+            // i = 11
+            G2rBValLoadOp_v.template f<2>(
+                B_valOp_v.template output<0>(),
+                S2rValSidxLoadOp_v.template output<0, 2>()
+            );
+            __pipeline_wait_prior(4);
+            __syncthreads();
+            S2sCooAtomicValRestoreOp_v.template f<2>(
+                G2sCooAtomicFormatLoadValOp_v.template output<0, 2>(),
+                G2rCooAtomicFormatLoadIdxOp_v.template output<0, 2>(),
+                G2rCooAtomicFormatLoadIdxOp_v.template output<1, 2>()(0)
+            );
+            __pipeline_commit();
+            __pipeline_wait_prior(0);
+            __syncthreads();
+            S2rAValLoadOp_v.template f<2>(
+                S2sCooAtomicValRestoreOp_v.template output<0, 2>()
+            );
+            MmaOp_v.template f<0>(
+                S2rAValLoadOp_v.template output<0, 0>(),
+                G2rBValLoadOp_v.template output<0, 0>()
+            );
+            
+            
+            // i = 12
+            G2rBValLoadOp_v.template f<3>(
+                B_valOp_v.template output<0>(),
+                S2rValSidxLoadOp_v.template output<0, 3>()
+            );
+            __pipeline_wait_prior(3);
+            __syncthreads();
+            S2sCooAtomicValRestoreOp_v.template f<3>(
+                G2sCooAtomicFormatLoadValOp_v.template output<0, 3>(),
+                G2rCooAtomicFormatLoadIdxOp_v.template output<0, 3>(),
+                G2rCooAtomicFormatLoadIdxOp_v.template output<1, 3>()(0)
+            );
+            __pipeline_commit();
+            __pipeline_wait_prior(0);
+            __syncthreads();
+            S2rAValLoadOp_v.template f<3>(
+                S2sCooAtomicValRestoreOp_v.template output<0, 3>()
+            );
+            MmaOp_v.template f<1>(
+                S2rAValLoadOp_v.template output<0, 1>(),
+                G2rBValLoadOp_v.template output<0, 1>()
+            );
+            
+            
+            // i = 13
+            MmaOp_v.template f<2>(
+                S2rAValLoadOp_v.template output<0, 2>(),
+                G2rBValLoadOp_v.template output<0, 2>()
+            );
+            
+            
+            // i = 14
+            MmaOp_v.template f<3>(
+                S2rAValLoadOp_v.template output<0, 3>(),
+                G2rBValLoadOp_v.template output<0, 3>()
+            );
+            
+        }
+        else if (k == 9) {
+            // i = 0
+            G2sValSidxLoadOp_v.template f<0>(
+                val_sidxOp_v.template output<0>(),
+                l + 0
+            );
+            __pipeline_commit();
+            G2rCooAtomicFormatLoadOffOp_v.template f<0>(
+                val_coo_offOp_v.template output<0>(),
+                l + 0
+            );
+            
+            
+            // i = 1
+            G2sValSidxLoadOp_v.template f<1>(
+                val_sidxOp_v.template output<0>(),
+                l + 1
+            );
+            __pipeline_commit();
+            G2rCooAtomicFormatLoadOffOp_v.template f<1>(
+                val_coo_offOp_v.template output<0>(),
+                l + 1
+            );
+            
+            
+            // i = 2
+            G2sValSidxLoadOp_v.template f<2>(
+                val_sidxOp_v.template output<0>(),
+                l + 2
+            );
+            __pipeline_commit();
+            G2rCooAtomicFormatLoadOffOp_v.template f<2>(
+                val_coo_offOp_v.template output<0>(),
+                l + 2
+            );
+            __pipeline_wait_prior(2);
+            __syncthreads();
+            S2rValSidxLoadOp_v.template f<0>(
+                G2sValSidxLoadOp_v.template output<0, 0>()
+            );
+            G2sCooAtomicFormatLoadValOp_v.template f<0>(
+                val_coo_valOp_v.template output<0>(),
+                G2rCooAtomicFormatLoadOffOp_v.template output<0, 0>()(0),
+                G2rCooAtomicFormatLoadOffOp_v.template output<1, 0>()(0)
+            );
+            __pipeline_commit();
+            G2rCooAtomicFormatLoadIdxOp_v.template f<0>(
+                val_coo_idxOp_v.template output<0>(),
+                G2rCooAtomicFormatLoadOffOp_v.template output<0, 0>()(0),
+                G2rCooAtomicFormatLoadOffOp_v.template output<1, 0>()(0)
+            );
+            
+            
+            // i = 3
+            G2sValSidxLoadOp_v.template f<3>(
+                val_sidxOp_v.template output<0>(),
+                l + 3
+            );
+            __pipeline_commit();
+            G2rCooAtomicFormatLoadOffOp_v.template f<3>(
+                val_coo_offOp_v.template output<0>(),
+                l + 3
+            );
+            __pipeline_wait_prior(3);
+            __syncthreads();
+            S2rValSidxLoadOp_v.template f<1>(
+                G2sValSidxLoadOp_v.template output<0, 1>()
+            );
+            G2sCooAtomicFormatLoadValOp_v.template f<1>(
+                val_coo_valOp_v.template output<0>(),
+                G2rCooAtomicFormatLoadOffOp_v.template output<0, 1>()(0),
+                G2rCooAtomicFormatLoadOffOp_v.template output<1, 1>()(0)
+            );
+            __pipeline_commit();
+            G2rCooAtomicFormatLoadIdxOp_v.template f<1>(
+                val_coo_idxOp_v.template output<0>(),
+                G2rCooAtomicFormatLoadOffOp_v.template output<0, 1>()(0),
+                G2rCooAtomicFormatLoadOffOp_v.template output<1, 1>()(0)
+            );
+            
+            
+            // i = 4
+            G2sValSidxLoadOp_v.template f<0>(
+                val_sidxOp_v.template output<0>(),
+                l + 4
+            );
+            __pipeline_commit();
+            G2rCooAtomicFormatLoadOffOp_v.template f<0>(
+                val_coo_offOp_v.template output<0>(),
+                l + 4
+            );
+            __pipeline_wait_prior(4);
+            __syncthreads();
+            S2rValSidxLoadOp_v.template f<2>(
+                G2sValSidxLoadOp_v.template output<0, 2>()
+            );
+            G2sCooAtomicFormatLoadValOp_v.template f<2>(
+                val_coo_valOp_v.template output<0>(),
+                G2rCooAtomicFormatLoadOffOp_v.template output<0, 2>()(0),
+                G2rCooAtomicFormatLoadOffOp_v.template output<1, 2>()(0)
+            );
+            __pipeline_commit();
+            G2rCooAtomicFormatLoadIdxOp_v.template f<2>(
+                val_coo_idxOp_v.template output<0>(),
+                G2rCooAtomicFormatLoadOffOp_v.template output<0, 2>()(0),
+                G2rCooAtomicFormatLoadOffOp_v.template output<1, 2>()(0)
+            );
+            
+            
+            // i = 5
+            G2sValSidxLoadOp_v.template f<1>(
+                val_sidxOp_v.template output<0>(),
+                l + 5
+            );
+            __pipeline_commit();
+            G2rCooAtomicFormatLoadOffOp_v.template f<1>(
+                val_coo_offOp_v.template output<0>(),
+                l + 5
+            );
+            __pipeline_wait_prior(4);
+            __syncthreads();
+            S2rValSidxLoadOp_v.template f<3>(
+                G2sValSidxLoadOp_v.template output<0, 3>()
+            );
+            G2sCooAtomicFormatLoadValOp_v.template f<3>(
+                val_coo_valOp_v.template output<0>(),
+                G2rCooAtomicFormatLoadOffOp_v.template output<0, 3>()(0),
+                G2rCooAtomicFormatLoadOffOp_v.template output<1, 3>()(0)
+            );
+            __pipeline_commit();
+            G2rCooAtomicFormatLoadIdxOp_v.template f<3>(
+                val_coo_idxOp_v.template output<0>(),
+                G2rCooAtomicFormatLoadOffOp_v.template output<0, 3>()(0),
+                G2rCooAtomicFormatLoadOffOp_v.template output<1, 3>()(0)
+            );
+            G2rBValLoadOp_v.template f<0>(
+                B_valOp_v.template output<0>(),
+                S2rValSidxLoadOp_v.template output<0, 0>()
+            );
+            __pipeline_wait_prior(6);
+            __syncthreads();
+            S2sCooAtomicValRestoreOp_v.template f<0>(
+                G2sCooAtomicFormatLoadValOp_v.template output<0, 0>(),
+                G2rCooAtomicFormatLoadIdxOp_v.template output<0, 0>(),
+                G2rCooAtomicFormatLoadIdxOp_v.template output<1, 0>()(0)
+            );
+            __pipeline_commit();
+            __pipeline_wait_prior(0);
+            __syncthreads();
+            S2rAValLoadOp_v.template f<0>(
+                S2sCooAtomicValRestoreOp_v.template output<0, 0>()
+            );
+            
+            
+            // i = 6
+            G2sValSidxLoadOp_v.template f<2>(
+                val_sidxOp_v.template output<0>(),
+                l + 6
+            );
+            __pipeline_commit();
+            G2rCooAtomicFormatLoadOffOp_v.template f<2>(
+                val_coo_offOp_v.template output<0>(),
+                l + 6
+            );
+            __pipeline_wait_prior(5);
+            __syncthreads();
+            S2rValSidxLoadOp_v.template f<0>(
+                G2sValSidxLoadOp_v.template output<0, 0>()
+            );
+            G2sCooAtomicFormatLoadValOp_v.template f<0>(
+                val_coo_valOp_v.template output<0>(),
+                G2rCooAtomicFormatLoadOffOp_v.template output<0, 0>()(0),
+                G2rCooAtomicFormatLoadOffOp_v.template output<1, 0>()(0)
+            );
+            __pipeline_commit();
+            G2rCooAtomicFormatLoadIdxOp_v.template f<0>(
+                val_coo_idxOp_v.template output<0>(),
+                G2rCooAtomicFormatLoadOffOp_v.template output<0, 0>()(0),
+                G2rCooAtomicFormatLoadOffOp_v.template output<1, 0>()(0)
+            );
+            G2rBValLoadOp_v.template f<1>(
+                B_valOp_v.template output<0>(),
+                S2rValSidxLoadOp_v.template output<0, 1>()
+            );
+            __pipeline_wait_prior(7);
+            __syncthreads();
+            S2sCooAtomicValRestoreOp_v.template f<1>(
+                G2sCooAtomicFormatLoadValOp_v.template output<0, 1>(),
+                G2rCooAtomicFormatLoadIdxOp_v.template output<0, 1>(),
+                G2rCooAtomicFormatLoadIdxOp_v.template output<1, 1>()(0)
+            );
+            __pipeline_commit();
+            __pipeline_wait_prior(0);
+            __syncthreads();
+            S2rAValLoadOp_v.template f<1>(
+                S2sCooAtomicValRestoreOp_v.template output<0, 1>()
+            );
+            
+            
+            // i = 7
+            G2sValSidxLoadOp_v.template f<3>(
+                val_sidxOp_v.template output<0>(),
+                l + 7
+            );
+            __pipeline_commit();
+            G2rCooAtomicFormatLoadOffOp_v.template f<3>(
+                val_coo_offOp_v.template output<0>(),
+                l + 7
+            );
+            __pipeline_wait_prior(6);
+            __syncthreads();
+            S2rValSidxLoadOp_v.template f<1>(
+                G2sValSidxLoadOp_v.template output<0, 1>()
+            );
+            G2sCooAtomicFormatLoadValOp_v.template f<1>(
+                val_coo_valOp_v.template output<0>(),
+                G2rCooAtomicFormatLoadOffOp_v.template output<0, 1>()(0),
+                G2rCooAtomicFormatLoadOffOp_v.template output<1, 1>()(0)
+            );
+            __pipeline_commit();
+            G2rCooAtomicFormatLoadIdxOp_v.template f<1>(
+                val_coo_idxOp_v.template output<0>(),
+                G2rCooAtomicFormatLoadOffOp_v.template output<0, 1>()(0),
+                G2rCooAtomicFormatLoadOffOp_v.template output<1, 1>()(0)
+            );
+            G2rBValLoadOp_v.template f<2>(
+                B_valOp_v.template output<0>(),
+                S2rValSidxLoadOp_v.template output<0, 2>()
+            );
+            __pipeline_wait_prior(8);
+            __syncthreads();
+            S2sCooAtomicValRestoreOp_v.template f<2>(
+                G2sCooAtomicFormatLoadValOp_v.template output<0, 2>(),
+                G2rCooAtomicFormatLoadIdxOp_v.template output<0, 2>(),
+                G2rCooAtomicFormatLoadIdxOp_v.template output<1, 2>()(0)
+            );
+            __pipeline_commit();
+            __pipeline_wait_prior(0);
+            __syncthreads();
+            S2rAValLoadOp_v.template f<2>(
+                S2sCooAtomicValRestoreOp_v.template output<0, 2>()
+            );
+            MmaOp_v.template f<0>(
+                S2rAValLoadOp_v.template output<0, 0>(),
+                G2rBValLoadOp_v.template output<0, 0>()
+            );
+            
+            
+            // i = 8
+            G2sValSidxLoadOp_v.template f<0>(
+                val_sidxOp_v.template output<0>(),
+                l + 8
+            );
+            __pipeline_commit();
+            G2rCooAtomicFormatLoadOffOp_v.template f<0>(
+                val_coo_offOp_v.template output<0>(),
+                l + 8
+            );
+            __pipeline_wait_prior(6);
+            __syncthreads();
+            S2rValSidxLoadOp_v.template f<2>(
+                G2sValSidxLoadOp_v.template output<0, 2>()
+            );
+            G2sCooAtomicFormatLoadValOp_v.template f<2>(
+                val_coo_valOp_v.template output<0>(),
+                G2rCooAtomicFormatLoadOffOp_v.template output<0, 2>()(0),
+                G2rCooAtomicFormatLoadOffOp_v.template output<1, 2>()(0)
+            );
+            __pipeline_commit();
+            G2rCooAtomicFormatLoadIdxOp_v.template f<2>(
+                val_coo_idxOp_v.template output<0>(),
+                G2rCooAtomicFormatLoadOffOp_v.template output<0, 2>()(0),
+                G2rCooAtomicFormatLoadOffOp_v.template output<1, 2>()(0)
+            );
+            G2rBValLoadOp_v.template f<3>(
+                B_valOp_v.template output<0>(),
+                S2rValSidxLoadOp_v.template output<0, 3>()
+            );
+            __pipeline_wait_prior(9);
+            __syncthreads();
+            S2sCooAtomicValRestoreOp_v.template f<3>(
+                G2sCooAtomicFormatLoadValOp_v.template output<0, 3>(),
+                G2rCooAtomicFormatLoadIdxOp_v.template output<0, 3>(),
+                G2rCooAtomicFormatLoadIdxOp_v.template output<1, 3>()(0)
+            );
+            __pipeline_commit();
+            __pipeline_wait_prior(0);
+            __syncthreads();
+            S2rAValLoadOp_v.template f<3>(
+                S2sCooAtomicValRestoreOp_v.template output<0, 3>()
+            );
+            MmaOp_v.template f<1>(
+                S2rAValLoadOp_v.template output<0, 1>(),
+                G2rBValLoadOp_v.template output<0, 1>()
+            );
+            
+            
+            // i = 9
+            __pipeline_wait_prior(5);
+            __syncthreads();
+            S2rValSidxLoadOp_v.template f<3>(
+                G2sValSidxLoadOp_v.template output<0, 3>()
+            );
+            G2sCooAtomicFormatLoadValOp_v.template f<3>(
+                val_coo_valOp_v.template output<0>(),
+                G2rCooAtomicFormatLoadOffOp_v.template output<0, 3>()(0),
+                G2rCooAtomicFormatLoadOffOp_v.template output<1, 3>()(0)
+            );
+            __pipeline_commit();
+            G2rCooAtomicFormatLoadIdxOp_v.template f<3>(
+                val_coo_idxOp_v.template output<0>(),
+                G2rCooAtomicFormatLoadOffOp_v.template output<0, 3>()(0),
+                G2rCooAtomicFormatLoadOffOp_v.template output<1, 3>()(0)
+            );
+            G2rBValLoadOp_v.template f<0>(
+                B_valOp_v.template output<0>(),
+                S2rValSidxLoadOp_v.template output<0, 0>()
+            );
+            __pipeline_wait_prior(8);
+            __syncthreads();
+            S2sCooAtomicValRestoreOp_v.template f<0>(
+                G2sCooAtomicFormatLoadValOp_v.template output<0, 0>(),
+                G2rCooAtomicFormatLoadIdxOp_v.template output<0, 0>(),
+                G2rCooAtomicFormatLoadIdxOp_v.template output<1, 0>()(0)
+            );
+            __pipeline_commit();
+            __pipeline_wait_prior(0);
+            __syncthreads();
+            S2rAValLoadOp_v.template f<0>(
+                S2sCooAtomicValRestoreOp_v.template output<0, 0>()
+            );
+            MmaOp_v.template f<2>(
+                S2rAValLoadOp_v.template output<0, 2>(),
+                G2rBValLoadOp_v.template output<0, 2>()
+            );
+            
+            
+            // i = 10
+            __pipeline_wait_prior(4);
+            __syncthreads();
+            S2rValSidxLoadOp_v.template f<0>(
+                G2sValSidxLoadOp_v.template output<0, 0>()
+            );
+            G2sCooAtomicFormatLoadValOp_v.template f<0>(
+                val_coo_valOp_v.template output<0>(),
+                G2rCooAtomicFormatLoadOffOp_v.template output<0, 0>()(0),
+                G2rCooAtomicFormatLoadOffOp_v.template output<1, 0>()(0)
+            );
+            __pipeline_commit();
+            G2rCooAtomicFormatLoadIdxOp_v.template f<0>(
+                val_coo_idxOp_v.template output<0>(),
+                G2rCooAtomicFormatLoadOffOp_v.template output<0, 0>()(0),
+                G2rCooAtomicFormatLoadOffOp_v.template output<1, 0>()(0)
+            );
+            G2rBValLoadOp_v.template f<1>(
+                B_valOp_v.template output<0>(),
+                S2rValSidxLoadOp_v.template output<0, 1>()
+            );
+            __pipeline_wait_prior(7);
+            __syncthreads();
+            S2sCooAtomicValRestoreOp_v.template f<1>(
+                G2sCooAtomicFormatLoadValOp_v.template output<0, 1>(),
+                G2rCooAtomicFormatLoadIdxOp_v.template output<0, 1>(),
+                G2rCooAtomicFormatLoadIdxOp_v.template output<1, 1>()(0)
+            );
+            __pipeline_commit();
+            __pipeline_wait_prior(0);
+            __syncthreads();
+            S2rAValLoadOp_v.template f<1>(
+                S2sCooAtomicValRestoreOp_v.template output<0, 1>()
+            );
+            MmaOp_v.template f<3>(
+                S2rAValLoadOp_v.template output<0, 3>(),
+                G2rBValLoadOp_v.template output<0, 3>()
+            );
+            
+            
+            // i = 11
+            G2rBValLoadOp_v.template f<2>(
+                B_valOp_v.template output<0>(),
+                S2rValSidxLoadOp_v.template output<0, 2>()
+            );
+            __pipeline_wait_prior(5);
+            __syncthreads();
+            S2sCooAtomicValRestoreOp_v.template f<2>(
+                G2sCooAtomicFormatLoadValOp_v.template output<0, 2>(),
+                G2rCooAtomicFormatLoadIdxOp_v.template output<0, 2>(),
+                G2rCooAtomicFormatLoadIdxOp_v.template output<1, 2>()(0)
+            );
+            __pipeline_commit();
+            __pipeline_wait_prior(0);
+            __syncthreads();
+            S2rAValLoadOp_v.template f<2>(
+                S2sCooAtomicValRestoreOp_v.template output<0, 2>()
+            );
+            MmaOp_v.template f<0>(
+                S2rAValLoadOp_v.template output<0, 0>(),
+                G2rBValLoadOp_v.template output<0, 0>()
+            );
+            
+            
+            // i = 12
+            G2rBValLoadOp_v.template f<3>(
+                B_valOp_v.template output<0>(),
+                S2rValSidxLoadOp_v.template output<0, 3>()
+            );
+            __pipeline_wait_prior(4);
+            __syncthreads();
+            S2sCooAtomicValRestoreOp_v.template f<3>(
+                G2sCooAtomicFormatLoadValOp_v.template output<0, 3>(),
+                G2rCooAtomicFormatLoadIdxOp_v.template output<0, 3>(),
+                G2rCooAtomicFormatLoadIdxOp_v.template output<1, 3>()(0)
+            );
+            __pipeline_commit();
+            __pipeline_wait_prior(0);
+            __syncthreads();
+            S2rAValLoadOp_v.template f<3>(
+                S2sCooAtomicValRestoreOp_v.template output<0, 3>()
+            );
+            MmaOp_v.template f<1>(
+                S2rAValLoadOp_v.template output<0, 1>(),
+                G2rBValLoadOp_v.template output<0, 1>()
+            );
+            
+            
+            // i = 13
+            G2rBValLoadOp_v.template f<0>(
+                B_valOp_v.template output<0>(),
+                S2rValSidxLoadOp_v.template output<0, 0>()
+            );
+            __pipeline_wait_prior(3);
+            __syncthreads();
+            S2sCooAtomicValRestoreOp_v.template f<0>(
+                G2sCooAtomicFormatLoadValOp_v.template output<0, 0>(),
+                G2rCooAtomicFormatLoadIdxOp_v.template output<0, 0>(),
+                G2rCooAtomicFormatLoadIdxOp_v.template output<1, 0>()(0)
+            );
+            __pipeline_commit();
+            __pipeline_wait_prior(0);
+            __syncthreads();
+            S2rAValLoadOp_v.template f<0>(
+                S2sCooAtomicValRestoreOp_v.template output<0, 0>()
+            );
+            MmaOp_v.template f<2>(
+                S2rAValLoadOp_v.template output<0, 2>(),
+                G2rBValLoadOp_v.template output<0, 2>()
+            );
+            
+            
+            // i = 14
+            MmaOp_v.template f<3>(
+                S2rAValLoadOp_v.template output<0, 3>(),
+                G2rBValLoadOp_v.template output<0, 3>()
+            );
+            
+            
+            // i = 15
+            MmaOp_v.template f<0>(
+                S2rAValLoadOp_v.template output<0, 0>(),
+                G2rBValLoadOp_v.template output<0, 0>()
+            );
+            
+        }
+        else if (k == 10) {
+            // i = 0
+            G2sValSidxLoadOp_v.template f<0>(
+                val_sidxOp_v.template output<0>(),
+                l + 0
+            );
+            __pipeline_commit();
+            G2rCooAtomicFormatLoadOffOp_v.template f<0>(
+                val_coo_offOp_v.template output<0>(),
+                l + 0
+            );
+            
+            
+            // i = 1
+            G2sValSidxLoadOp_v.template f<1>(
+                val_sidxOp_v.template output<0>(),
+                l + 1
+            );
+            __pipeline_commit();
+            G2rCooAtomicFormatLoadOffOp_v.template f<1>(
+                val_coo_offOp_v.template output<0>(),
+                l + 1
+            );
+            
+            
+            // i = 2
+            G2sValSidxLoadOp_v.template f<2>(
+                val_sidxOp_v.template output<0>(),
+                l + 2
+            );
+            __pipeline_commit();
+            G2rCooAtomicFormatLoadOffOp_v.template f<2>(
+                val_coo_offOp_v.template output<0>(),
+                l + 2
+            );
+            __pipeline_wait_prior(2);
+            __syncthreads();
+            S2rValSidxLoadOp_v.template f<0>(
+                G2sValSidxLoadOp_v.template output<0, 0>()
+            );
+            G2sCooAtomicFormatLoadValOp_v.template f<0>(
+                val_coo_valOp_v.template output<0>(),
+                G2rCooAtomicFormatLoadOffOp_v.template output<0, 0>()(0),
+                G2rCooAtomicFormatLoadOffOp_v.template output<1, 0>()(0)
+            );
+            __pipeline_commit();
+            G2rCooAtomicFormatLoadIdxOp_v.template f<0>(
+                val_coo_idxOp_v.template output<0>(),
+                G2rCooAtomicFormatLoadOffOp_v.template output<0, 0>()(0),
+                G2rCooAtomicFormatLoadOffOp_v.template output<1, 0>()(0)
+            );
+            
+            
+            // i = 3
+            G2sValSidxLoadOp_v.template f<3>(
+                val_sidxOp_v.template output<0>(),
+                l + 3
+            );
+            __pipeline_commit();
+            G2rCooAtomicFormatLoadOffOp_v.template f<3>(
+                val_coo_offOp_v.template output<0>(),
+                l + 3
+            );
+            __pipeline_wait_prior(3);
+            __syncthreads();
+            S2rValSidxLoadOp_v.template f<1>(
+                G2sValSidxLoadOp_v.template output<0, 1>()
+            );
+            G2sCooAtomicFormatLoadValOp_v.template f<1>(
+                val_coo_valOp_v.template output<0>(),
+                G2rCooAtomicFormatLoadOffOp_v.template output<0, 1>()(0),
+                G2rCooAtomicFormatLoadOffOp_v.template output<1, 1>()(0)
+            );
+            __pipeline_commit();
+            G2rCooAtomicFormatLoadIdxOp_v.template f<1>(
+                val_coo_idxOp_v.template output<0>(),
+                G2rCooAtomicFormatLoadOffOp_v.template output<0, 1>()(0),
+                G2rCooAtomicFormatLoadOffOp_v.template output<1, 1>()(0)
+            );
+            
+            
+            // i = 4
+            G2sValSidxLoadOp_v.template f<0>(
+                val_sidxOp_v.template output<0>(),
+                l + 4
+            );
+            __pipeline_commit();
+            G2rCooAtomicFormatLoadOffOp_v.template f<0>(
+                val_coo_offOp_v.template output<0>(),
+                l + 4
+            );
+            __pipeline_wait_prior(4);
+            __syncthreads();
+            S2rValSidxLoadOp_v.template f<2>(
+                G2sValSidxLoadOp_v.template output<0, 2>()
+            );
+            G2sCooAtomicFormatLoadValOp_v.template f<2>(
+                val_coo_valOp_v.template output<0>(),
+                G2rCooAtomicFormatLoadOffOp_v.template output<0, 2>()(0),
+                G2rCooAtomicFormatLoadOffOp_v.template output<1, 2>()(0)
+            );
+            __pipeline_commit();
+            G2rCooAtomicFormatLoadIdxOp_v.template f<2>(
+                val_coo_idxOp_v.template output<0>(),
+                G2rCooAtomicFormatLoadOffOp_v.template output<0, 2>()(0),
+                G2rCooAtomicFormatLoadOffOp_v.template output<1, 2>()(0)
+            );
+            
+            
+            // i = 5
+            G2sValSidxLoadOp_v.template f<1>(
+                val_sidxOp_v.template output<0>(),
+                l + 5
+            );
+            __pipeline_commit();
+            G2rCooAtomicFormatLoadOffOp_v.template f<1>(
+                val_coo_offOp_v.template output<0>(),
+                l + 5
+            );
+            __pipeline_wait_prior(4);
+            __syncthreads();
+            S2rValSidxLoadOp_v.template f<3>(
+                G2sValSidxLoadOp_v.template output<0, 3>()
+            );
+            G2sCooAtomicFormatLoadValOp_v.template f<3>(
+                val_coo_valOp_v.template output<0>(),
+                G2rCooAtomicFormatLoadOffOp_v.template output<0, 3>()(0),
+                G2rCooAtomicFormatLoadOffOp_v.template output<1, 3>()(0)
+            );
+            __pipeline_commit();
+            G2rCooAtomicFormatLoadIdxOp_v.template f<3>(
+                val_coo_idxOp_v.template output<0>(),
+                G2rCooAtomicFormatLoadOffOp_v.template output<0, 3>()(0),
+                G2rCooAtomicFormatLoadOffOp_v.template output<1, 3>()(0)
+            );
+            G2rBValLoadOp_v.template f<0>(
+                B_valOp_v.template output<0>(),
+                S2rValSidxLoadOp_v.template output<0, 0>()
+            );
+            __pipeline_wait_prior(6);
+            __syncthreads();
+            S2sCooAtomicValRestoreOp_v.template f<0>(
+                G2sCooAtomicFormatLoadValOp_v.template output<0, 0>(),
+                G2rCooAtomicFormatLoadIdxOp_v.template output<0, 0>(),
+                G2rCooAtomicFormatLoadIdxOp_v.template output<1, 0>()(0)
+            );
+            __pipeline_commit();
+            __pipeline_wait_prior(0);
+            __syncthreads();
+            S2rAValLoadOp_v.template f<0>(
+                S2sCooAtomicValRestoreOp_v.template output<0, 0>()
+            );
+            
+            
+            // i = 6
+            G2sValSidxLoadOp_v.template f<2>(
+                val_sidxOp_v.template output<0>(),
+                l + 6
+            );
+            __pipeline_commit();
+            G2rCooAtomicFormatLoadOffOp_v.template f<2>(
+                val_coo_offOp_v.template output<0>(),
+                l + 6
+            );
+            __pipeline_wait_prior(5);
+            __syncthreads();
+            S2rValSidxLoadOp_v.template f<0>(
+                G2sValSidxLoadOp_v.template output<0, 0>()
+            );
+            G2sCooAtomicFormatLoadValOp_v.template f<0>(
+                val_coo_valOp_v.template output<0>(),
+                G2rCooAtomicFormatLoadOffOp_v.template output<0, 0>()(0),
+                G2rCooAtomicFormatLoadOffOp_v.template output<1, 0>()(0)
+            );
+            __pipeline_commit();
+            G2rCooAtomicFormatLoadIdxOp_v.template f<0>(
+                val_coo_idxOp_v.template output<0>(),
+                G2rCooAtomicFormatLoadOffOp_v.template output<0, 0>()(0),
+                G2rCooAtomicFormatLoadOffOp_v.template output<1, 0>()(0)
+            );
+            G2rBValLoadOp_v.template f<1>(
+                B_valOp_v.template output<0>(),
+                S2rValSidxLoadOp_v.template output<0, 1>()
+            );
+            __pipeline_wait_prior(7);
+            __syncthreads();
+            S2sCooAtomicValRestoreOp_v.template f<1>(
+                G2sCooAtomicFormatLoadValOp_v.template output<0, 1>(),
+                G2rCooAtomicFormatLoadIdxOp_v.template output<0, 1>(),
+                G2rCooAtomicFormatLoadIdxOp_v.template output<1, 1>()(0)
+            );
+            __pipeline_commit();
+            __pipeline_wait_prior(0);
+            __syncthreads();
+            S2rAValLoadOp_v.template f<1>(
+                S2sCooAtomicValRestoreOp_v.template output<0, 1>()
+            );
+            
+            
+            // i = 7
+            G2sValSidxLoadOp_v.template f<3>(
+                val_sidxOp_v.template output<0>(),
+                l + 7
+            );
+            __pipeline_commit();
+            G2rCooAtomicFormatLoadOffOp_v.template f<3>(
+                val_coo_offOp_v.template output<0>(),
+                l + 7
+            );
+            __pipeline_wait_prior(6);
+            __syncthreads();
+            S2rValSidxLoadOp_v.template f<1>(
+                G2sValSidxLoadOp_v.template output<0, 1>()
+            );
+            G2sCooAtomicFormatLoadValOp_v.template f<1>(
+                val_coo_valOp_v.template output<0>(),
+                G2rCooAtomicFormatLoadOffOp_v.template output<0, 1>()(0),
+                G2rCooAtomicFormatLoadOffOp_v.template output<1, 1>()(0)
+            );
+            __pipeline_commit();
+            G2rCooAtomicFormatLoadIdxOp_v.template f<1>(
+                val_coo_idxOp_v.template output<0>(),
+                G2rCooAtomicFormatLoadOffOp_v.template output<0, 1>()(0),
+                G2rCooAtomicFormatLoadOffOp_v.template output<1, 1>()(0)
+            );
+            G2rBValLoadOp_v.template f<2>(
+                B_valOp_v.template output<0>(),
+                S2rValSidxLoadOp_v.template output<0, 2>()
+            );
+            __pipeline_wait_prior(8);
+            __syncthreads();
+            S2sCooAtomicValRestoreOp_v.template f<2>(
+                G2sCooAtomicFormatLoadValOp_v.template output<0, 2>(),
+                G2rCooAtomicFormatLoadIdxOp_v.template output<0, 2>(),
+                G2rCooAtomicFormatLoadIdxOp_v.template output<1, 2>()(0)
+            );
+            __pipeline_commit();
+            __pipeline_wait_prior(0);
+            __syncthreads();
+            S2rAValLoadOp_v.template f<2>(
+                S2sCooAtomicValRestoreOp_v.template output<0, 2>()
+            );
+            MmaOp_v.template f<0>(
+                S2rAValLoadOp_v.template output<0, 0>(),
+                G2rBValLoadOp_v.template output<0, 0>()
+            );
+            
+            
+            // i = 8
+            G2sValSidxLoadOp_v.template f<0>(
+                val_sidxOp_v.template output<0>(),
+                l + 8
+            );
+            __pipeline_commit();
+            G2rCooAtomicFormatLoadOffOp_v.template f<0>(
+                val_coo_offOp_v.template output<0>(),
+                l + 8
+            );
+            __pipeline_wait_prior(6);
+            __syncthreads();
+            S2rValSidxLoadOp_v.template f<2>(
+                G2sValSidxLoadOp_v.template output<0, 2>()
+            );
+            G2sCooAtomicFormatLoadValOp_v.template f<2>(
+                val_coo_valOp_v.template output<0>(),
+                G2rCooAtomicFormatLoadOffOp_v.template output<0, 2>()(0),
+                G2rCooAtomicFormatLoadOffOp_v.template output<1, 2>()(0)
+            );
+            __pipeline_commit();
+            G2rCooAtomicFormatLoadIdxOp_v.template f<2>(
+                val_coo_idxOp_v.template output<0>(),
+                G2rCooAtomicFormatLoadOffOp_v.template output<0, 2>()(0),
+                G2rCooAtomicFormatLoadOffOp_v.template output<1, 2>()(0)
+            );
+            G2rBValLoadOp_v.template f<3>(
+                B_valOp_v.template output<0>(),
+                S2rValSidxLoadOp_v.template output<0, 3>()
+            );
+            __pipeline_wait_prior(9);
+            __syncthreads();
+            S2sCooAtomicValRestoreOp_v.template f<3>(
+                G2sCooAtomicFormatLoadValOp_v.template output<0, 3>(),
+                G2rCooAtomicFormatLoadIdxOp_v.template output<0, 3>(),
+                G2rCooAtomicFormatLoadIdxOp_v.template output<1, 3>()(0)
+            );
+            __pipeline_commit();
+            __pipeline_wait_prior(0);
+            __syncthreads();
+            S2rAValLoadOp_v.template f<3>(
+                S2sCooAtomicValRestoreOp_v.template output<0, 3>()
+            );
+            MmaOp_v.template f<1>(
+                S2rAValLoadOp_v.template output<0, 1>(),
+                G2rBValLoadOp_v.template output<0, 1>()
+            );
+            
+            
+            // i = 9
+            G2sValSidxLoadOp_v.template f<1>(
+                val_sidxOp_v.template output<0>(),
+                l + 9
+            );
+            __pipeline_commit();
+            G2rCooAtomicFormatLoadOffOp_v.template f<1>(
+                val_coo_offOp_v.template output<0>(),
+                l + 9
+            );
+            __pipeline_wait_prior(6);
+            __syncthreads();
+            S2rValSidxLoadOp_v.template f<3>(
+                G2sValSidxLoadOp_v.template output<0, 3>()
+            );
+            G2sCooAtomicFormatLoadValOp_v.template f<3>(
+                val_coo_valOp_v.template output<0>(),
+                G2rCooAtomicFormatLoadOffOp_v.template output<0, 3>()(0),
+                G2rCooAtomicFormatLoadOffOp_v.template output<1, 3>()(0)
+            );
+            __pipeline_commit();
+            G2rCooAtomicFormatLoadIdxOp_v.template f<3>(
+                val_coo_idxOp_v.template output<0>(),
+                G2rCooAtomicFormatLoadOffOp_v.template output<0, 3>()(0),
+                G2rCooAtomicFormatLoadOffOp_v.template output<1, 3>()(0)
+            );
+            G2rBValLoadOp_v.template f<0>(
+                B_valOp_v.template output<0>(),
+                S2rValSidxLoadOp_v.template output<0, 0>()
+            );
+            __pipeline_wait_prior(9);
+            __syncthreads();
+            S2sCooAtomicValRestoreOp_v.template f<0>(
+                G2sCooAtomicFormatLoadValOp_v.template output<0, 0>(),
+                G2rCooAtomicFormatLoadIdxOp_v.template output<0, 0>(),
+                G2rCooAtomicFormatLoadIdxOp_v.template output<1, 0>()(0)
+            );
+            __pipeline_commit();
+            __pipeline_wait_prior(0);
+            __syncthreads();
+            S2rAValLoadOp_v.template f<0>(
+                S2sCooAtomicValRestoreOp_v.template output<0, 0>()
+            );
+            MmaOp_v.template f<2>(
+                S2rAValLoadOp_v.template output<0, 2>(),
+                G2rBValLoadOp_v.template output<0, 2>()
+            );
+            
+            
+            // i = 10
+            __pipeline_wait_prior(5);
+            __syncthreads();
+            S2rValSidxLoadOp_v.template f<0>(
+                G2sValSidxLoadOp_v.template output<0, 0>()
+            );
+            G2sCooAtomicFormatLoadValOp_v.template f<0>(
+                val_coo_valOp_v.template output<0>(),
+                G2rCooAtomicFormatLoadOffOp_v.template output<0, 0>()(0),
+                G2rCooAtomicFormatLoadOffOp_v.template output<1, 0>()(0)
+            );
+            __pipeline_commit();
+            G2rCooAtomicFormatLoadIdxOp_v.template f<0>(
+                val_coo_idxOp_v.template output<0>(),
+                G2rCooAtomicFormatLoadOffOp_v.template output<0, 0>()(0),
+                G2rCooAtomicFormatLoadOffOp_v.template output<1, 0>()(0)
+            );
+            G2rBValLoadOp_v.template f<1>(
+                B_valOp_v.template output<0>(),
+                S2rValSidxLoadOp_v.template output<0, 1>()
+            );
+            __pipeline_wait_prior(8);
+            __syncthreads();
+            S2sCooAtomicValRestoreOp_v.template f<1>(
+                G2sCooAtomicFormatLoadValOp_v.template output<0, 1>(),
+                G2rCooAtomicFormatLoadIdxOp_v.template output<0, 1>(),
+                G2rCooAtomicFormatLoadIdxOp_v.template output<1, 1>()(0)
+            );
+            __pipeline_commit();
+            __pipeline_wait_prior(0);
+            __syncthreads();
+            S2rAValLoadOp_v.template f<1>(
+                S2sCooAtomicValRestoreOp_v.template output<0, 1>()
+            );
+            MmaOp_v.template f<3>(
+                S2rAValLoadOp_v.template output<0, 3>(),
+                G2rBValLoadOp_v.template output<0, 3>()
+            );
+            
+            
+            // i = 11
+            __pipeline_wait_prior(4);
+            __syncthreads();
+            S2rValSidxLoadOp_v.template f<1>(
+                G2sValSidxLoadOp_v.template output<0, 1>()
+            );
+            G2sCooAtomicFormatLoadValOp_v.template f<1>(
+                val_coo_valOp_v.template output<0>(),
+                G2rCooAtomicFormatLoadOffOp_v.template output<0, 1>()(0),
+                G2rCooAtomicFormatLoadOffOp_v.template output<1, 1>()(0)
+            );
+            __pipeline_commit();
+            G2rCooAtomicFormatLoadIdxOp_v.template f<1>(
+                val_coo_idxOp_v.template output<0>(),
+                G2rCooAtomicFormatLoadOffOp_v.template output<0, 1>()(0),
+                G2rCooAtomicFormatLoadOffOp_v.template output<1, 1>()(0)
+            );
+            G2rBValLoadOp_v.template f<2>(
+                B_valOp_v.template output<0>(),
+                S2rValSidxLoadOp_v.template output<0, 2>()
+            );
+            __pipeline_wait_prior(7);
+            __syncthreads();
+            S2sCooAtomicValRestoreOp_v.template f<2>(
+                G2sCooAtomicFormatLoadValOp_v.template output<0, 2>(),
+                G2rCooAtomicFormatLoadIdxOp_v.template output<0, 2>(),
+                G2rCooAtomicFormatLoadIdxOp_v.template output<1, 2>()(0)
+            );
+            __pipeline_commit();
+            __pipeline_wait_prior(0);
+            __syncthreads();
+            S2rAValLoadOp_v.template f<2>(
+                S2sCooAtomicValRestoreOp_v.template output<0, 2>()
+            );
+            MmaOp_v.template f<0>(
+                S2rAValLoadOp_v.template output<0, 0>(),
+                G2rBValLoadOp_v.template output<0, 0>()
+            );
+            
+            
+            // i = 12
+            G2rBValLoadOp_v.template f<3>(
+                B_valOp_v.template output<0>(),
+                S2rValSidxLoadOp_v.template output<0, 3>()
+            );
+            __pipeline_wait_prior(5);
+            __syncthreads();
+            S2sCooAtomicValRestoreOp_v.template f<3>(
+                G2sCooAtomicFormatLoadValOp_v.template output<0, 3>(),
+                G2rCooAtomicFormatLoadIdxOp_v.template output<0, 3>(),
+                G2rCooAtomicFormatLoadIdxOp_v.template output<1, 3>()(0)
+            );
+            __pipeline_commit();
+            __pipeline_wait_prior(0);
+            __syncthreads();
+            S2rAValLoadOp_v.template f<3>(
+                S2sCooAtomicValRestoreOp_v.template output<0, 3>()
+            );
+            MmaOp_v.template f<1>(
+                S2rAValLoadOp_v.template output<0, 1>(),
+                G2rBValLoadOp_v.template output<0, 1>()
+            );
+            
+            
+            // i = 13
+            G2rBValLoadOp_v.template f<0>(
+                B_valOp_v.template output<0>(),
+                S2rValSidxLoadOp_v.template output<0, 0>()
+            );
+            __pipeline_wait_prior(4);
+            __syncthreads();
+            S2sCooAtomicValRestoreOp_v.template f<0>(
+                G2sCooAtomicFormatLoadValOp_v.template output<0, 0>(),
+                G2rCooAtomicFormatLoadIdxOp_v.template output<0, 0>(),
+                G2rCooAtomicFormatLoadIdxOp_v.template output<1, 0>()(0)
+            );
+            __pipeline_commit();
+            __pipeline_wait_prior(0);
+            __syncthreads();
+            S2rAValLoadOp_v.template f<0>(
+                S2sCooAtomicValRestoreOp_v.template output<0, 0>()
+            );
+            MmaOp_v.template f<2>(
+                S2rAValLoadOp_v.template output<0, 2>(),
+                G2rBValLoadOp_v.template output<0, 2>()
+            );
+            
+            
+            // i = 14
+            G2rBValLoadOp_v.template f<1>(
+                B_valOp_v.template output<0>(),
+                S2rValSidxLoadOp_v.template output<0, 1>()
+            );
+            __pipeline_wait_prior(3);
+            __syncthreads();
+            S2sCooAtomicValRestoreOp_v.template f<1>(
+                G2sCooAtomicFormatLoadValOp_v.template output<0, 1>(),
+                G2rCooAtomicFormatLoadIdxOp_v.template output<0, 1>(),
+                G2rCooAtomicFormatLoadIdxOp_v.template output<1, 1>()(0)
+            );
+            __pipeline_commit();
+            __pipeline_wait_prior(0);
+            __syncthreads();
+            S2rAValLoadOp_v.template f<1>(
+                S2sCooAtomicValRestoreOp_v.template output<0, 1>()
+            );
+            MmaOp_v.template f<3>(
+                S2rAValLoadOp_v.template output<0, 3>(),
+                G2rBValLoadOp_v.template output<0, 3>()
+            );
+            
+            
+            // i = 15
+            MmaOp_v.template f<0>(
+                S2rAValLoadOp_v.template output<0, 0>(),
+                G2rBValLoadOp_v.template output<0, 0>()
+            );
+            
+            
+            // i = 16
+            MmaOp_v.template f<1>(
+                S2rAValLoadOp_v.template output<0, 1>(),
+                G2rBValLoadOp_v.template output<0, 1>()
             );
             
         }
@@ -1331,219 +3977,914 @@ public:
     // fill
     CUTE_DEVICE void fill(int l, int r) {
         // stage 0..0
+        // op_call |buf_idx=0| 0 G2sValSidxLoadOp 
         G2sValSidxLoadOp_v.template f<0>(
             val_sidxOp_v.template output<0>(),
             l + 0
         );
         __pipeline_commit();
+        // op_call |buf_idx=0| 0 G2rCooAtomicFormatLoadOffOp 
         G2rCooAtomicFormatLoadOffOp_v.template f<0>(
             val_coo_offOp_v.template output<0>(),
             l + 0
         );
-        // stage 0..1
+        // op_call |buf_idx=1| 1 G2sValSidxLoadOp 
         G2sValSidxLoadOp_v.template f<1>(
             val_sidxOp_v.template output<0>(),
             l + 1
         );
+        __pipeline_commit();
+        // op_call |buf_idx=1| 1 G2rCooAtomicFormatLoadOffOp 
+        G2rCooAtomicFormatLoadOffOp_v.template f<1>(
+            val_coo_offOp_v.template output<0>(),
+            l + 1
+        );
+        // stage 0..1
+        // op_call |buf_idx=2| 2 G2sValSidxLoadOp 
+        G2sValSidxLoadOp_v.template f<2>(
+            val_sidxOp_v.template output<0>(),
+            l + 2
+        );
+        __pipeline_commit();
+        // op_call |buf_idx=2| 2 G2rCooAtomicFormatLoadOffOp 
+        G2rCooAtomicFormatLoadOffOp_v.template f<2>(
+            val_coo_offOp_v.template output<0>(),
+            l + 2
+        );
+        __pipeline_wait_prior(2);
+        __syncthreads();
+        // op_call |buf_idx=0| 0 S2rValSidxLoadOp 
+        S2rValSidxLoadOp_v.template f<0>(
+            G2sValSidxLoadOp_v.template output<0, 0>()
+        );
+        // op_call |buf_idx=0| 0 G2sCooAtomicFormatLoadValOp 
         G2sCooAtomicFormatLoadValOp_v.template f<0>(
             val_coo_valOp_v.template output<0>(),
             G2rCooAtomicFormatLoadOffOp_v.template output<0, 0>()(0),
             G2rCooAtomicFormatLoadOffOp_v.template output<1, 0>()(0)
         );
         __pipeline_commit();
-        G2rCooAtomicFormatLoadOffOp_v.template f<1>(
-            val_coo_offOp_v.template output<0>(),
-            l + 1
-        );
-        __pipeline_wait_prior(1);
-        __syncthreads();
-        S2rValSidxLoadOp_v.template f<0>(
-            G2sValSidxLoadOp_v.template output<0, 0>()
-        );
+        // op_call |buf_idx=0| 0 G2rCooAtomicFormatLoadIdxOp 
         G2rCooAtomicFormatLoadIdxOp_v.template f<0>(
             val_coo_idxOp_v.template output<0>(),
             G2rCooAtomicFormatLoadOffOp_v.template output<0, 0>()(0),
             G2rCooAtomicFormatLoadOffOp_v.template output<1, 0>()(0)
         );
-        // stage 0..2
-        G2sValSidxLoadOp_v.template f<0>(
+        // op_call |buf_idx=3| 3 G2sValSidxLoadOp 
+        G2sValSidxLoadOp_v.template f<3>(
             val_sidxOp_v.template output<0>(),
-            l + 2
+            l + 3
         );
+        __pipeline_commit();
+        // op_call |buf_idx=3| 3 G2rCooAtomicFormatLoadOffOp 
+        G2rCooAtomicFormatLoadOffOp_v.template f<3>(
+            val_coo_offOp_v.template output<0>(),
+            l + 3
+        );
+        __pipeline_wait_prior(3);
+        __syncthreads();
+        // op_call |buf_idx=1| 1 S2rValSidxLoadOp 
+        S2rValSidxLoadOp_v.template f<1>(
+            G2sValSidxLoadOp_v.template output<0, 1>()
+        );
+        // op_call |buf_idx=1| 1 G2sCooAtomicFormatLoadValOp 
         G2sCooAtomicFormatLoadValOp_v.template f<1>(
             val_coo_valOp_v.template output<0>(),
             G2rCooAtomicFormatLoadOffOp_v.template output<0, 1>()(0),
             G2rCooAtomicFormatLoadOffOp_v.template output<1, 1>()(0)
         );
         __pipeline_commit();
-        G2rCooAtomicFormatLoadOffOp_v.template f<0>(
-            val_coo_offOp_v.template output<0>(),
-            l + 2
-        );
-        __pipeline_wait_prior(1);
-        __syncthreads();
-        S2rValSidxLoadOp_v.template f<1>(
-            G2sValSidxLoadOp_v.template output<0, 1>()
-        );
+        // op_call |buf_idx=1| 1 G2rCooAtomicFormatLoadIdxOp 
         G2rCooAtomicFormatLoadIdxOp_v.template f<1>(
             val_coo_idxOp_v.template output<0>(),
             G2rCooAtomicFormatLoadOffOp_v.template output<0, 1>()(0),
             G2rCooAtomicFormatLoadOffOp_v.template output<1, 1>()(0)
         );
+        // op_call |buf_idx=0| 4 G2sValSidxLoadOp 
+        G2sValSidxLoadOp_v.template f<0>(
+            val_sidxOp_v.template output<0>(),
+            l + 4
+        );
+        __pipeline_commit();
+        // op_call |buf_idx=0| 4 G2rCooAtomicFormatLoadOffOp 
+        G2rCooAtomicFormatLoadOffOp_v.template f<0>(
+            val_coo_offOp_v.template output<0>(),
+            l + 4
+        );
+        __pipeline_wait_prior(4);
+        __syncthreads();
+        // op_call |buf_idx=2| 2 S2rValSidxLoadOp 
+        S2rValSidxLoadOp_v.template f<2>(
+            G2sValSidxLoadOp_v.template output<0, 2>()
+        );
+        // op_call |buf_idx=2| 2 G2sCooAtomicFormatLoadValOp 
+        G2sCooAtomicFormatLoadValOp_v.template f<2>(
+            val_coo_valOp_v.template output<0>(),
+            G2rCooAtomicFormatLoadOffOp_v.template output<0, 2>()(0),
+            G2rCooAtomicFormatLoadOffOp_v.template output<1, 2>()(0)
+        );
+        __pipeline_commit();
+        // op_call |buf_idx=2| 2 G2rCooAtomicFormatLoadIdxOp 
+        G2rCooAtomicFormatLoadIdxOp_v.template f<2>(
+            val_coo_idxOp_v.template output<0>(),
+            G2rCooAtomicFormatLoadOffOp_v.template output<0, 2>()(0),
+            G2rCooAtomicFormatLoadOffOp_v.template output<1, 2>()(0)
+        );
+        // stage 0..2
+        // op_call |buf_idx=1| 5 G2sValSidxLoadOp 
+        G2sValSidxLoadOp_v.template f<1>(
+            val_sidxOp_v.template output<0>(),
+            l + 5
+        );
+        __pipeline_commit();
+        // op_call |buf_idx=1| 5 G2rCooAtomicFormatLoadOffOp 
+        G2rCooAtomicFormatLoadOffOp_v.template f<1>(
+            val_coo_offOp_v.template output<0>(),
+            l + 5
+        );
+        __pipeline_wait_prior(4);
+        __syncthreads();
+        // op_call |buf_idx=3| 3 S2rValSidxLoadOp 
+        S2rValSidxLoadOp_v.template f<3>(
+            G2sValSidxLoadOp_v.template output<0, 3>()
+        );
+        // op_call |buf_idx=3| 3 G2sCooAtomicFormatLoadValOp 
+        G2sCooAtomicFormatLoadValOp_v.template f<3>(
+            val_coo_valOp_v.template output<0>(),
+            G2rCooAtomicFormatLoadOffOp_v.template output<0, 3>()(0),
+            G2rCooAtomicFormatLoadOffOp_v.template output<1, 3>()(0)
+        );
+        __pipeline_commit();
+        // op_call |buf_idx=3| 3 G2rCooAtomicFormatLoadIdxOp 
+        G2rCooAtomicFormatLoadIdxOp_v.template f<3>(
+            val_coo_idxOp_v.template output<0>(),
+            G2rCooAtomicFormatLoadOffOp_v.template output<0, 3>()(0),
+            G2rCooAtomicFormatLoadOffOp_v.template output<1, 3>()(0)
+        );
+        // op_call |buf_idx=0| 0 G2rBValLoadOp 
         G2rBValLoadOp_v.template f<0>(
             B_valOp_v.template output<0>(),
             S2rValSidxLoadOp_v.template output<0, 0>()
         );
-        __pipeline_wait_prior(1);
+        __pipeline_wait_prior(6);
         __syncthreads();
+        // op_call |buf_idx=0| 0 S2sCooAtomicValRestoreOp 
         S2sCooAtomicValRestoreOp_v.template f<0>(
             G2sCooAtomicFormatLoadValOp_v.template output<0, 0>(),
             G2rCooAtomicFormatLoadIdxOp_v.template output<0, 0>(),
             G2rCooAtomicFormatLoadIdxOp_v.template output<1, 0>()(0)
         );
-        __syncthreads();
+        // op_call |buf_idx=0| 0 S2rAValLoadOp 
         S2rAValLoadOp_v.template f<0>(
             S2sCooAtomicValRestoreOp_v.template output<0, 0>()
+        );
+        // op_call |buf_idx=2| 6 G2sValSidxLoadOp 
+        G2sValSidxLoadOp_v.template f<2>(
+            val_sidxOp_v.template output<0>(),
+            l + 6
+        );
+        __pipeline_commit();
+        // op_call |buf_idx=2| 6 G2rCooAtomicFormatLoadOffOp 
+        G2rCooAtomicFormatLoadOffOp_v.template f<2>(
+            val_coo_offOp_v.template output<0>(),
+            l + 6
+        );
+        __pipeline_wait_prior(4);
+        __syncthreads();
+        // op_call |buf_idx=0| 4 S2rValSidxLoadOp 
+        S2rValSidxLoadOp_v.template f<0>(
+            G2sValSidxLoadOp_v.template output<0, 0>()
+        );
+        // op_call |buf_idx=0| 4 G2sCooAtomicFormatLoadValOp 
+        G2sCooAtomicFormatLoadValOp_v.template f<0>(
+            val_coo_valOp_v.template output<0>(),
+            G2rCooAtomicFormatLoadOffOp_v.template output<0, 0>()(0),
+            G2rCooAtomicFormatLoadOffOp_v.template output<1, 0>()(0)
+        );
+        __pipeline_commit();
+        // op_call |buf_idx=0| 4 G2rCooAtomicFormatLoadIdxOp 
+        G2rCooAtomicFormatLoadIdxOp_v.template f<0>(
+            val_coo_idxOp_v.template output<0>(),
+            G2rCooAtomicFormatLoadOffOp_v.template output<0, 0>()(0),
+            G2rCooAtomicFormatLoadOffOp_v.template output<1, 0>()(0)
+        );
+        // op_call |buf_idx=1| 1 G2rBValLoadOp 
+        G2rBValLoadOp_v.template f<1>(
+            B_valOp_v.template output<0>(),
+            S2rValSidxLoadOp_v.template output<0, 1>()
+        );
+        __pipeline_wait_prior(6);
+        __syncthreads();
+        // op_call |buf_idx=1| 1 S2sCooAtomicValRestoreOp 
+        S2sCooAtomicValRestoreOp_v.template f<1>(
+            G2sCooAtomicFormatLoadValOp_v.template output<0, 1>(),
+            G2rCooAtomicFormatLoadIdxOp_v.template output<0, 1>(),
+            G2rCooAtomicFormatLoadIdxOp_v.template output<1, 1>()(0)
+        );
+        // op_call |buf_idx=1| 1 S2rAValLoadOp 
+        S2rAValLoadOp_v.template f<1>(
+            S2sCooAtomicValRestoreOp_v.template output<0, 1>()
+        );
+        // stage 0..3
+        // op_call |buf_idx=3| 7 G2sValSidxLoadOp 
+        G2sValSidxLoadOp_v.template f<3>(
+            val_sidxOp_v.template output<0>(),
+            l + 7
+        );
+        __pipeline_commit();
+        // op_call |buf_idx=3| 7 G2rCooAtomicFormatLoadOffOp 
+        G2rCooAtomicFormatLoadOffOp_v.template f<3>(
+            val_coo_offOp_v.template output<0>(),
+            l + 7
+        );
+        __pipeline_wait_prior(4);
+        __syncthreads();
+        // op_call |buf_idx=1| 5 S2rValSidxLoadOp 
+        S2rValSidxLoadOp_v.template f<1>(
+            G2sValSidxLoadOp_v.template output<0, 1>()
+        );
+        // op_call |buf_idx=1| 5 G2sCooAtomicFormatLoadValOp 
+        G2sCooAtomicFormatLoadValOp_v.template f<1>(
+            val_coo_valOp_v.template output<0>(),
+            G2rCooAtomicFormatLoadOffOp_v.template output<0, 1>()(0),
+            G2rCooAtomicFormatLoadOffOp_v.template output<1, 1>()(0)
+        );
+        __pipeline_commit();
+        // op_call |buf_idx=1| 5 G2rCooAtomicFormatLoadIdxOp 
+        G2rCooAtomicFormatLoadIdxOp_v.template f<1>(
+            val_coo_idxOp_v.template output<0>(),
+            G2rCooAtomicFormatLoadOffOp_v.template output<0, 1>()(0),
+            G2rCooAtomicFormatLoadOffOp_v.template output<1, 1>()(0)
+        );
+        // op_call |buf_idx=2| 2 G2rBValLoadOp 
+        G2rBValLoadOp_v.template f<2>(
+            B_valOp_v.template output<0>(),
+            S2rValSidxLoadOp_v.template output<0, 2>()
+        );
+        __pipeline_wait_prior(6);
+        __syncthreads();
+        // op_call |buf_idx=2| 2 S2sCooAtomicValRestoreOp 
+        S2sCooAtomicValRestoreOp_v.template f<2>(
+            G2sCooAtomicFormatLoadValOp_v.template output<0, 2>(),
+            G2rCooAtomicFormatLoadIdxOp_v.template output<0, 2>(),
+            G2rCooAtomicFormatLoadIdxOp_v.template output<1, 2>()(0)
+        );
+        // op_call |buf_idx=2| 2 S2rAValLoadOp 
+        S2rAValLoadOp_v.template f<2>(
+            S2sCooAtomicValRestoreOp_v.template output<0, 2>()
+        );
+        // op_call |buf_idx=0| 0 MmaOp 
+        MmaOp_v.template f<0>(
+            S2rAValLoadOp_v.template output<0, 0>(),
+            G2rBValLoadOp_v.template output<0, 0>()
+        );
+        // op_call |buf_idx=0| 8 G2sValSidxLoadOp 
+        G2sValSidxLoadOp_v.template f<0>(
+            val_sidxOp_v.template output<0>(),
+            l + 8
+        );
+        __pipeline_commit();
+        // op_call |buf_idx=0| 8 G2rCooAtomicFormatLoadOffOp 
+        G2rCooAtomicFormatLoadOffOp_v.template f<0>(
+            val_coo_offOp_v.template output<0>(),
+            l + 8
+        );
+        __pipeline_wait_prior(4);
+        __syncthreads();
+        // op_call |buf_idx=2| 6 S2rValSidxLoadOp 
+        S2rValSidxLoadOp_v.template f<2>(
+            G2sValSidxLoadOp_v.template output<0, 2>()
+        );
+        // op_call |buf_idx=2| 6 G2sCooAtomicFormatLoadValOp 
+        G2sCooAtomicFormatLoadValOp_v.template f<2>(
+            val_coo_valOp_v.template output<0>(),
+            G2rCooAtomicFormatLoadOffOp_v.template output<0, 2>()(0),
+            G2rCooAtomicFormatLoadOffOp_v.template output<1, 2>()(0)
+        );
+        __pipeline_commit();
+        // op_call |buf_idx=2| 6 G2rCooAtomicFormatLoadIdxOp 
+        G2rCooAtomicFormatLoadIdxOp_v.template f<2>(
+            val_coo_idxOp_v.template output<0>(),
+            G2rCooAtomicFormatLoadOffOp_v.template output<0, 2>()(0),
+            G2rCooAtomicFormatLoadOffOp_v.template output<1, 2>()(0)
+        );
+        // op_call |buf_idx=3| 3 G2rBValLoadOp 
+        G2rBValLoadOp_v.template f<3>(
+            B_valOp_v.template output<0>(),
+            S2rValSidxLoadOp_v.template output<0, 3>()
+        );
+        __pipeline_wait_prior(6);
+        __syncthreads();
+        // op_call |buf_idx=3| 3 S2sCooAtomicValRestoreOp 
+        S2sCooAtomicValRestoreOp_v.template f<3>(
+            G2sCooAtomicFormatLoadValOp_v.template output<0, 3>(),
+            G2rCooAtomicFormatLoadIdxOp_v.template output<0, 3>(),
+            G2rCooAtomicFormatLoadIdxOp_v.template output<1, 3>()(0)
+        );
+        // op_call |buf_idx=3| 3 S2rAValLoadOp 
+        S2rAValLoadOp_v.template f<3>(
+            S2sCooAtomicValRestoreOp_v.template output<0, 3>()
+        );
+        // op_call |buf_idx=1| 1 MmaOp 
+        MmaOp_v.template f<1>(
+            S2rAValLoadOp_v.template output<0, 1>(),
+            G2rBValLoadOp_v.template output<0, 1>()
+        );
+        // op_call |buf_idx=1| 9 G2sValSidxLoadOp 
+        G2sValSidxLoadOp_v.template f<1>(
+            val_sidxOp_v.template output<0>(),
+            l + 9
+        );
+        __pipeline_commit();
+        // op_call |buf_idx=1| 9 G2rCooAtomicFormatLoadOffOp 
+        G2rCooAtomicFormatLoadOffOp_v.template f<1>(
+            val_coo_offOp_v.template output<0>(),
+            l + 9
+        );
+        __pipeline_wait_prior(4);
+        __syncthreads();
+        // op_call |buf_idx=3| 7 S2rValSidxLoadOp 
+        S2rValSidxLoadOp_v.template f<3>(
+            G2sValSidxLoadOp_v.template output<0, 3>()
+        );
+        // op_call |buf_idx=3| 7 G2sCooAtomicFormatLoadValOp 
+        G2sCooAtomicFormatLoadValOp_v.template f<3>(
+            val_coo_valOp_v.template output<0>(),
+            G2rCooAtomicFormatLoadOffOp_v.template output<0, 3>()(0),
+            G2rCooAtomicFormatLoadOffOp_v.template output<1, 3>()(0)
+        );
+        __pipeline_commit();
+        // op_call |buf_idx=3| 7 G2rCooAtomicFormatLoadIdxOp 
+        G2rCooAtomicFormatLoadIdxOp_v.template f<3>(
+            val_coo_idxOp_v.template output<0>(),
+            G2rCooAtomicFormatLoadOffOp_v.template output<0, 3>()(0),
+            G2rCooAtomicFormatLoadOffOp_v.template output<1, 3>()(0)
+        );
+        // op_call |buf_idx=0| 4 G2rBValLoadOp 
+        G2rBValLoadOp_v.template f<0>(
+            B_valOp_v.template output<0>(),
+            S2rValSidxLoadOp_v.template output<0, 0>()
+        );
+        __pipeline_wait_prior(6);
+        __syncthreads();
+        // op_call |buf_idx=0| 4 S2sCooAtomicValRestoreOp 
+        S2sCooAtomicValRestoreOp_v.template f<0>(
+            G2sCooAtomicFormatLoadValOp_v.template output<0, 0>(),
+            G2rCooAtomicFormatLoadIdxOp_v.template output<0, 0>(),
+            G2rCooAtomicFormatLoadIdxOp_v.template output<1, 0>()(0)
+        );
+        // op_call |buf_idx=0| 4 S2rAValLoadOp 
+        S2rAValLoadOp_v.template f<0>(
+            S2sCooAtomicValRestoreOp_v.template output<0, 0>()
+        );
+        // op_call |buf_idx=2| 2 MmaOp 
+        MmaOp_v.template f<2>(
+            S2rAValLoadOp_v.template output<0, 2>(),
+            G2rBValLoadOp_v.template output<0, 2>()
         );
     }
     
     // loop_step
     CUTE_DEVICE void loop_step(int i, int l, int r) {
         // step 0
-        G2sValSidxLoadOp_v.template f<1>(
+        // op_call |buf_idx=2| i + (0) G2sValSidxLoadOp 
+        G2sValSidxLoadOp_v.template f<2>(
             val_sidxOp_v.template output<0>(),
             l + i + (0)
         );
+        __pipeline_commit();
+        // op_call |buf_idx=2| i + (0) G2rCooAtomicFormatLoadOffOp 
+        G2rCooAtomicFormatLoadOffOp_v.template f<2>(
+            val_coo_offOp_v.template output<0>(),
+            l + i + (0)
+        );
+        __pipeline_wait_prior(4);
+        __syncthreads();
+        // op_call |buf_idx=0| i + (-2) S2rValSidxLoadOp 
+        S2rValSidxLoadOp_v.template f<0>(
+            G2sValSidxLoadOp_v.template output<0, 0>()
+        );
+        // op_call |buf_idx=0| i + (-2) G2sCooAtomicFormatLoadValOp 
         G2sCooAtomicFormatLoadValOp_v.template f<0>(
             val_coo_valOp_v.template output<0>(),
             G2rCooAtomicFormatLoadOffOp_v.template output<0, 0>()(0),
             G2rCooAtomicFormatLoadOffOp_v.template output<1, 0>()(0)
         );
         __pipeline_commit();
-        G2rCooAtomicFormatLoadOffOp_v.template f<1>(
-            val_coo_offOp_v.template output<0>(),
-            l + i + (0)
-        );
-        __pipeline_wait_prior(1);
-        __syncthreads();
-        S2rValSidxLoadOp_v.template f<0>(
-            G2sValSidxLoadOp_v.template output<0, 0>()
-        );
+        // op_call |buf_idx=0| i + (-2) G2rCooAtomicFormatLoadIdxOp 
         G2rCooAtomicFormatLoadIdxOp_v.template f<0>(
             val_coo_idxOp_v.template output<0>(),
             G2rCooAtomicFormatLoadOffOp_v.template output<0, 0>()(0),
             G2rCooAtomicFormatLoadOffOp_v.template output<1, 0>()(0)
         );
+        // op_call |buf_idx=1| i + (-5) G2rBValLoadOp 
         G2rBValLoadOp_v.template f<1>(
             B_valOp_v.template output<0>(),
             S2rValSidxLoadOp_v.template output<0, 1>()
         );
-        __pipeline_wait_prior(1);
+        __pipeline_wait_prior(6);
         __syncthreads();
+        // op_call |buf_idx=1| i + (-5) S2sCooAtomicValRestoreOp 
         S2sCooAtomicValRestoreOp_v.template f<1>(
             G2sCooAtomicFormatLoadValOp_v.template output<0, 1>(),
             G2rCooAtomicFormatLoadIdxOp_v.template output<0, 1>(),
             G2rCooAtomicFormatLoadIdxOp_v.template output<1, 1>()(0)
         );
-        __syncthreads();
+        // op_call |buf_idx=1| i + (-5) S2rAValLoadOp 
         S2rAValLoadOp_v.template f<1>(
             S2sCooAtomicValRestoreOp_v.template output<0, 1>()
         );
-        MmaOp_v.template f<0>(
-            S2rAValLoadOp_v.template output<0, 0>(),
-            G2rBValLoadOp_v.template output<0, 0>()
+        // op_call |buf_idx=3| i + (-7) MmaOp 
+        MmaOp_v.template f<3>(
+            S2rAValLoadOp_v.template output<0, 3>(),
+            G2rBValLoadOp_v.template output<0, 3>()
         );
         // step 1
-        G2sValSidxLoadOp_v.template f<0>(
+        // op_call |buf_idx=3| i + (1) G2sValSidxLoadOp 
+        G2sValSidxLoadOp_v.template f<3>(
             val_sidxOp_v.template output<0>(),
             l + i + (1)
         );
+        __pipeline_commit();
+        // op_call |buf_idx=3| i + (1) G2rCooAtomicFormatLoadOffOp 
+        G2rCooAtomicFormatLoadOffOp_v.template f<3>(
+            val_coo_offOp_v.template output<0>(),
+            l + i + (1)
+        );
+        __pipeline_wait_prior(4);
+        __syncthreads();
+        // op_call |buf_idx=1| i + (-1) S2rValSidxLoadOp 
+        S2rValSidxLoadOp_v.template f<1>(
+            G2sValSidxLoadOp_v.template output<0, 1>()
+        );
+        // op_call |buf_idx=1| i + (-1) G2sCooAtomicFormatLoadValOp 
         G2sCooAtomicFormatLoadValOp_v.template f<1>(
             val_coo_valOp_v.template output<0>(),
             G2rCooAtomicFormatLoadOffOp_v.template output<0, 1>()(0),
             G2rCooAtomicFormatLoadOffOp_v.template output<1, 1>()(0)
         );
         __pipeline_commit();
-        G2rCooAtomicFormatLoadOffOp_v.template f<0>(
-            val_coo_offOp_v.template output<0>(),
-            l + i + (1)
-        );
-        __pipeline_wait_prior(1);
-        __syncthreads();
-        S2rValSidxLoadOp_v.template f<1>(
-            G2sValSidxLoadOp_v.template output<0, 1>()
-        );
+        // op_call |buf_idx=1| i + (-1) G2rCooAtomicFormatLoadIdxOp 
         G2rCooAtomicFormatLoadIdxOp_v.template f<1>(
             val_coo_idxOp_v.template output<0>(),
             G2rCooAtomicFormatLoadOffOp_v.template output<0, 1>()(0),
             G2rCooAtomicFormatLoadOffOp_v.template output<1, 1>()(0)
         );
+        // op_call |buf_idx=2| i + (-4) G2rBValLoadOp 
+        G2rBValLoadOp_v.template f<2>(
+            B_valOp_v.template output<0>(),
+            S2rValSidxLoadOp_v.template output<0, 2>()
+        );
+        __pipeline_wait_prior(6);
+        __syncthreads();
+        // op_call |buf_idx=2| i + (-4) S2sCooAtomicValRestoreOp 
+        S2sCooAtomicValRestoreOp_v.template f<2>(
+            G2sCooAtomicFormatLoadValOp_v.template output<0, 2>(),
+            G2rCooAtomicFormatLoadIdxOp_v.template output<0, 2>(),
+            G2rCooAtomicFormatLoadIdxOp_v.template output<1, 2>()(0)
+        );
+        // op_call |buf_idx=2| i + (-4) S2rAValLoadOp 
+        S2rAValLoadOp_v.template f<2>(
+            S2sCooAtomicValRestoreOp_v.template output<0, 2>()
+        );
+        // op_call |buf_idx=0| i + (-6) MmaOp 
+        MmaOp_v.template f<0>(
+            S2rAValLoadOp_v.template output<0, 0>(),
+            G2rBValLoadOp_v.template output<0, 0>()
+        );
+        // step 2
+        // op_call |buf_idx=0| i + (2) G2sValSidxLoadOp 
+        G2sValSidxLoadOp_v.template f<0>(
+            val_sidxOp_v.template output<0>(),
+            l + i + (2)
+        );
+        __pipeline_commit();
+        // op_call |buf_idx=0| i + (2) G2rCooAtomicFormatLoadOffOp 
+        G2rCooAtomicFormatLoadOffOp_v.template f<0>(
+            val_coo_offOp_v.template output<0>(),
+            l + i + (2)
+        );
+        __pipeline_wait_prior(4);
+        __syncthreads();
+        // op_call |buf_idx=2| i + (0) S2rValSidxLoadOp 
+        S2rValSidxLoadOp_v.template f<2>(
+            G2sValSidxLoadOp_v.template output<0, 2>()
+        );
+        // op_call |buf_idx=2| i + (0) G2sCooAtomicFormatLoadValOp 
+        G2sCooAtomicFormatLoadValOp_v.template f<2>(
+            val_coo_valOp_v.template output<0>(),
+            G2rCooAtomicFormatLoadOffOp_v.template output<0, 2>()(0),
+            G2rCooAtomicFormatLoadOffOp_v.template output<1, 2>()(0)
+        );
+        __pipeline_commit();
+        // op_call |buf_idx=2| i + (0) G2rCooAtomicFormatLoadIdxOp 
+        G2rCooAtomicFormatLoadIdxOp_v.template f<2>(
+            val_coo_idxOp_v.template output<0>(),
+            G2rCooAtomicFormatLoadOffOp_v.template output<0, 2>()(0),
+            G2rCooAtomicFormatLoadOffOp_v.template output<1, 2>()(0)
+        );
+        // op_call |buf_idx=3| i + (-3) G2rBValLoadOp 
+        G2rBValLoadOp_v.template f<3>(
+            B_valOp_v.template output<0>(),
+            S2rValSidxLoadOp_v.template output<0, 3>()
+        );
+        __pipeline_wait_prior(6);
+        __syncthreads();
+        // op_call |buf_idx=3| i + (-3) S2sCooAtomicValRestoreOp 
+        S2sCooAtomicValRestoreOp_v.template f<3>(
+            G2sCooAtomicFormatLoadValOp_v.template output<0, 3>(),
+            G2rCooAtomicFormatLoadIdxOp_v.template output<0, 3>(),
+            G2rCooAtomicFormatLoadIdxOp_v.template output<1, 3>()(0)
+        );
+        // op_call |buf_idx=3| i + (-3) S2rAValLoadOp 
+        S2rAValLoadOp_v.template f<3>(
+            S2sCooAtomicValRestoreOp_v.template output<0, 3>()
+        );
+        // op_call |buf_idx=1| i + (-5) MmaOp 
+        MmaOp_v.template f<1>(
+            S2rAValLoadOp_v.template output<0, 1>(),
+            G2rBValLoadOp_v.template output<0, 1>()
+        );
+        // step 3
+        // op_call |buf_idx=1| i + (3) G2sValSidxLoadOp 
+        G2sValSidxLoadOp_v.template f<1>(
+            val_sidxOp_v.template output<0>(),
+            l + i + (3)
+        );
+        __pipeline_commit();
+        // op_call |buf_idx=1| i + (3) G2rCooAtomicFormatLoadOffOp 
+        G2rCooAtomicFormatLoadOffOp_v.template f<1>(
+            val_coo_offOp_v.template output<0>(),
+            l + i + (3)
+        );
+        __pipeline_wait_prior(4);
+        __syncthreads();
+        // op_call |buf_idx=3| i + (1) S2rValSidxLoadOp 
+        S2rValSidxLoadOp_v.template f<3>(
+            G2sValSidxLoadOp_v.template output<0, 3>()
+        );
+        // op_call |buf_idx=3| i + (1) G2sCooAtomicFormatLoadValOp 
+        G2sCooAtomicFormatLoadValOp_v.template f<3>(
+            val_coo_valOp_v.template output<0>(),
+            G2rCooAtomicFormatLoadOffOp_v.template output<0, 3>()(0),
+            G2rCooAtomicFormatLoadOffOp_v.template output<1, 3>()(0)
+        );
+        __pipeline_commit();
+        // op_call |buf_idx=3| i + (1) G2rCooAtomicFormatLoadIdxOp 
+        G2rCooAtomicFormatLoadIdxOp_v.template f<3>(
+            val_coo_idxOp_v.template output<0>(),
+            G2rCooAtomicFormatLoadOffOp_v.template output<0, 3>()(0),
+            G2rCooAtomicFormatLoadOffOp_v.template output<1, 3>()(0)
+        );
+        // op_call |buf_idx=0| i + (-2) G2rBValLoadOp 
         G2rBValLoadOp_v.template f<0>(
             B_valOp_v.template output<0>(),
             S2rValSidxLoadOp_v.template output<0, 0>()
         );
-        __pipeline_wait_prior(1);
+        __pipeline_wait_prior(6);
         __syncthreads();
+        // op_call |buf_idx=0| i + (-2) S2sCooAtomicValRestoreOp 
         S2sCooAtomicValRestoreOp_v.template f<0>(
             G2sCooAtomicFormatLoadValOp_v.template output<0, 0>(),
             G2rCooAtomicFormatLoadIdxOp_v.template output<0, 0>(),
             G2rCooAtomicFormatLoadIdxOp_v.template output<1, 0>()(0)
         );
-        __syncthreads();
+        // op_call |buf_idx=0| i + (-2) S2rAValLoadOp 
         S2rAValLoadOp_v.template f<0>(
             S2sCooAtomicValRestoreOp_v.template output<0, 0>()
         );
-        MmaOp_v.template f<1>(
-            S2rAValLoadOp_v.template output<0, 1>(),
-            G2rBValLoadOp_v.template output<0, 1>()
+        // op_call |buf_idx=2| i + (-4) MmaOp 
+        MmaOp_v.template f<2>(
+            S2rAValLoadOp_v.template output<0, 2>(),
+            G2rBValLoadOp_v.template output<0, 2>()
         );
     }
     
     // remainder
     CUTE_DEVICE void remains_1(int i, int l, int r) {
         // total remains 1, current 0
-        G2sValSidxLoadOp_v.template f<1>(
+        // op_call |buf_idx=2| i + (0) G2sValSidxLoadOp 
+        G2sValSidxLoadOp_v.template f<2>(
             val_sidxOp_v.template output<0>(),
             l + i + (0)
         );
+        __pipeline_commit();
+        // op_call |buf_idx=2| i + (0) G2rCooAtomicFormatLoadOffOp 
+        G2rCooAtomicFormatLoadOffOp_v.template f<2>(
+            val_coo_offOp_v.template output<0>(),
+            l + i + (0)
+        );
+        __pipeline_wait_prior(4);
+        __syncthreads();
+        // op_call |buf_idx=0| i + (-2) S2rValSidxLoadOp 
+        S2rValSidxLoadOp_v.template f<0>(
+            G2sValSidxLoadOp_v.template output<0, 0>()
+        );
+        // op_call |buf_idx=0| i + (-2) G2sCooAtomicFormatLoadValOp 
         G2sCooAtomicFormatLoadValOp_v.template f<0>(
             val_coo_valOp_v.template output<0>(),
             G2rCooAtomicFormatLoadOffOp_v.template output<0, 0>()(0),
             G2rCooAtomicFormatLoadOffOp_v.template output<1, 0>()(0)
         );
         __pipeline_commit();
-        G2rCooAtomicFormatLoadOffOp_v.template f<1>(
-            val_coo_offOp_v.template output<0>(),
-            l + i + (0)
-        );
-        __pipeline_wait_prior(1);
-        __syncthreads();
-        S2rValSidxLoadOp_v.template f<0>(
-            G2sValSidxLoadOp_v.template output<0, 0>()
-        );
+        // op_call |buf_idx=0| i + (-2) G2rCooAtomicFormatLoadIdxOp 
         G2rCooAtomicFormatLoadIdxOp_v.template f<0>(
             val_coo_idxOp_v.template output<0>(),
             G2rCooAtomicFormatLoadOffOp_v.template output<0, 0>()(0),
             G2rCooAtomicFormatLoadOffOp_v.template output<1, 0>()(0)
         );
+        // op_call |buf_idx=1| i + (-5) G2rBValLoadOp 
         G2rBValLoadOp_v.template f<1>(
             B_valOp_v.template output<0>(),
             S2rValSidxLoadOp_v.template output<0, 1>()
         );
-        __pipeline_wait_prior(1);
+        __pipeline_wait_prior(6);
         __syncthreads();
+        // op_call |buf_idx=1| i + (-5) S2sCooAtomicValRestoreOp 
         S2sCooAtomicValRestoreOp_v.template f<1>(
             G2sCooAtomicFormatLoadValOp_v.template output<0, 1>(),
             G2rCooAtomicFormatLoadIdxOp_v.template output<0, 1>(),
             G2rCooAtomicFormatLoadIdxOp_v.template output<1, 1>()(0)
         );
-        __syncthreads();
+        // op_call |buf_idx=1| i + (-5) S2rAValLoadOp 
         S2rAValLoadOp_v.template f<1>(
             S2sCooAtomicValRestoreOp_v.template output<0, 1>()
         );
+        // op_call |buf_idx=3| i + (-7) MmaOp 
+        MmaOp_v.template f<3>(
+            S2rAValLoadOp_v.template output<0, 3>(),
+            G2rBValLoadOp_v.template output<0, 3>()
+        );
+    }
+    
+    CUTE_DEVICE void remains_2(int i, int l, int r) {
+        // total remains 2, current 0
+        // op_call |buf_idx=2| i + (0) G2sValSidxLoadOp 
+        G2sValSidxLoadOp_v.template f<2>(
+            val_sidxOp_v.template output<0>(),
+            l + i + (0)
+        );
+        __pipeline_commit();
+        // op_call |buf_idx=2| i + (0) G2rCooAtomicFormatLoadOffOp 
+        G2rCooAtomicFormatLoadOffOp_v.template f<2>(
+            val_coo_offOp_v.template output<0>(),
+            l + i + (0)
+        );
+        __pipeline_wait_prior(4);
+        __syncthreads();
+        // op_call |buf_idx=0| i + (-2) S2rValSidxLoadOp 
+        S2rValSidxLoadOp_v.template f<0>(
+            G2sValSidxLoadOp_v.template output<0, 0>()
+        );
+        // op_call |buf_idx=0| i + (-2) G2sCooAtomicFormatLoadValOp 
+        G2sCooAtomicFormatLoadValOp_v.template f<0>(
+            val_coo_valOp_v.template output<0>(),
+            G2rCooAtomicFormatLoadOffOp_v.template output<0, 0>()(0),
+            G2rCooAtomicFormatLoadOffOp_v.template output<1, 0>()(0)
+        );
+        __pipeline_commit();
+        // op_call |buf_idx=0| i + (-2) G2rCooAtomicFormatLoadIdxOp 
+        G2rCooAtomicFormatLoadIdxOp_v.template f<0>(
+            val_coo_idxOp_v.template output<0>(),
+            G2rCooAtomicFormatLoadOffOp_v.template output<0, 0>()(0),
+            G2rCooAtomicFormatLoadOffOp_v.template output<1, 0>()(0)
+        );
+        // op_call |buf_idx=1| i + (-5) G2rBValLoadOp 
+        G2rBValLoadOp_v.template f<1>(
+            B_valOp_v.template output<0>(),
+            S2rValSidxLoadOp_v.template output<0, 1>()
+        );
+        __pipeline_wait_prior(6);
+        __syncthreads();
+        // op_call |buf_idx=1| i + (-5) S2sCooAtomicValRestoreOp 
+        S2sCooAtomicValRestoreOp_v.template f<1>(
+            G2sCooAtomicFormatLoadValOp_v.template output<0, 1>(),
+            G2rCooAtomicFormatLoadIdxOp_v.template output<0, 1>(),
+            G2rCooAtomicFormatLoadIdxOp_v.template output<1, 1>()(0)
+        );
+        // op_call |buf_idx=1| i + (-5) S2rAValLoadOp 
+        S2rAValLoadOp_v.template f<1>(
+            S2sCooAtomicValRestoreOp_v.template output<0, 1>()
+        );
+        // op_call |buf_idx=3| i + (-7) MmaOp 
+        MmaOp_v.template f<3>(
+            S2rAValLoadOp_v.template output<0, 3>(),
+            G2rBValLoadOp_v.template output<0, 3>()
+        );
+        // total remains 2, current 1
+        // op_call |buf_idx=3| i + (1) G2sValSidxLoadOp 
+        G2sValSidxLoadOp_v.template f<3>(
+            val_sidxOp_v.template output<0>(),
+            l + i + (1)
+        );
+        __pipeline_commit();
+        // op_call |buf_idx=3| i + (1) G2rCooAtomicFormatLoadOffOp 
+        G2rCooAtomicFormatLoadOffOp_v.template f<3>(
+            val_coo_offOp_v.template output<0>(),
+            l + i + (1)
+        );
+        __pipeline_wait_prior(4);
+        __syncthreads();
+        // op_call |buf_idx=1| i + (-1) S2rValSidxLoadOp 
+        S2rValSidxLoadOp_v.template f<1>(
+            G2sValSidxLoadOp_v.template output<0, 1>()
+        );
+        // op_call |buf_idx=1| i + (-1) G2sCooAtomicFormatLoadValOp 
+        G2sCooAtomicFormatLoadValOp_v.template f<1>(
+            val_coo_valOp_v.template output<0>(),
+            G2rCooAtomicFormatLoadOffOp_v.template output<0, 1>()(0),
+            G2rCooAtomicFormatLoadOffOp_v.template output<1, 1>()(0)
+        );
+        __pipeline_commit();
+        // op_call |buf_idx=1| i + (-1) G2rCooAtomicFormatLoadIdxOp 
+        G2rCooAtomicFormatLoadIdxOp_v.template f<1>(
+            val_coo_idxOp_v.template output<0>(),
+            G2rCooAtomicFormatLoadOffOp_v.template output<0, 1>()(0),
+            G2rCooAtomicFormatLoadOffOp_v.template output<1, 1>()(0)
+        );
+        // op_call |buf_idx=2| i + (-4) G2rBValLoadOp 
+        G2rBValLoadOp_v.template f<2>(
+            B_valOp_v.template output<0>(),
+            S2rValSidxLoadOp_v.template output<0, 2>()
+        );
+        __pipeline_wait_prior(6);
+        __syncthreads();
+        // op_call |buf_idx=2| i + (-4) S2sCooAtomicValRestoreOp 
+        S2sCooAtomicValRestoreOp_v.template f<2>(
+            G2sCooAtomicFormatLoadValOp_v.template output<0, 2>(),
+            G2rCooAtomicFormatLoadIdxOp_v.template output<0, 2>(),
+            G2rCooAtomicFormatLoadIdxOp_v.template output<1, 2>()(0)
+        );
+        // op_call |buf_idx=2| i + (-4) S2rAValLoadOp 
+        S2rAValLoadOp_v.template f<2>(
+            S2sCooAtomicValRestoreOp_v.template output<0, 2>()
+        );
+        // op_call |buf_idx=0| i + (-6) MmaOp 
         MmaOp_v.template f<0>(
             S2rAValLoadOp_v.template output<0, 0>(),
             G2rBValLoadOp_v.template output<0, 0>()
+        );
+    }
+    
+    CUTE_DEVICE void remains_3(int i, int l, int r) {
+        // total remains 3, current 0
+        // op_call |buf_idx=2| i + (0) G2sValSidxLoadOp 
+        G2sValSidxLoadOp_v.template f<2>(
+            val_sidxOp_v.template output<0>(),
+            l + i + (0)
+        );
+        __pipeline_commit();
+        // op_call |buf_idx=2| i + (0) G2rCooAtomicFormatLoadOffOp 
+        G2rCooAtomicFormatLoadOffOp_v.template f<2>(
+            val_coo_offOp_v.template output<0>(),
+            l + i + (0)
+        );
+        __pipeline_wait_prior(4);
+        __syncthreads();
+        // op_call |buf_idx=0| i + (-2) S2rValSidxLoadOp 
+        S2rValSidxLoadOp_v.template f<0>(
+            G2sValSidxLoadOp_v.template output<0, 0>()
+        );
+        // op_call |buf_idx=0| i + (-2) G2sCooAtomicFormatLoadValOp 
+        G2sCooAtomicFormatLoadValOp_v.template f<0>(
+            val_coo_valOp_v.template output<0>(),
+            G2rCooAtomicFormatLoadOffOp_v.template output<0, 0>()(0),
+            G2rCooAtomicFormatLoadOffOp_v.template output<1, 0>()(0)
+        );
+        __pipeline_commit();
+        // op_call |buf_idx=0| i + (-2) G2rCooAtomicFormatLoadIdxOp 
+        G2rCooAtomicFormatLoadIdxOp_v.template f<0>(
+            val_coo_idxOp_v.template output<0>(),
+            G2rCooAtomicFormatLoadOffOp_v.template output<0, 0>()(0),
+            G2rCooAtomicFormatLoadOffOp_v.template output<1, 0>()(0)
+        );
+        // op_call |buf_idx=1| i + (-5) G2rBValLoadOp 
+        G2rBValLoadOp_v.template f<1>(
+            B_valOp_v.template output<0>(),
+            S2rValSidxLoadOp_v.template output<0, 1>()
+        );
+        __pipeline_wait_prior(6);
+        __syncthreads();
+        // op_call |buf_idx=1| i + (-5) S2sCooAtomicValRestoreOp 
+        S2sCooAtomicValRestoreOp_v.template f<1>(
+            G2sCooAtomicFormatLoadValOp_v.template output<0, 1>(),
+            G2rCooAtomicFormatLoadIdxOp_v.template output<0, 1>(),
+            G2rCooAtomicFormatLoadIdxOp_v.template output<1, 1>()(0)
+        );
+        // op_call |buf_idx=1| i + (-5) S2rAValLoadOp 
+        S2rAValLoadOp_v.template f<1>(
+            S2sCooAtomicValRestoreOp_v.template output<0, 1>()
+        );
+        // op_call |buf_idx=3| i + (-7) MmaOp 
+        MmaOp_v.template f<3>(
+            S2rAValLoadOp_v.template output<0, 3>(),
+            G2rBValLoadOp_v.template output<0, 3>()
+        );
+        // total remains 3, current 1
+        // op_call |buf_idx=3| i + (1) G2sValSidxLoadOp 
+        G2sValSidxLoadOp_v.template f<3>(
+            val_sidxOp_v.template output<0>(),
+            l + i + (1)
+        );
+        __pipeline_commit();
+        // op_call |buf_idx=3| i + (1) G2rCooAtomicFormatLoadOffOp 
+        G2rCooAtomicFormatLoadOffOp_v.template f<3>(
+            val_coo_offOp_v.template output<0>(),
+            l + i + (1)
+        );
+        __pipeline_wait_prior(4);
+        __syncthreads();
+        // op_call |buf_idx=1| i + (-1) S2rValSidxLoadOp 
+        S2rValSidxLoadOp_v.template f<1>(
+            G2sValSidxLoadOp_v.template output<0, 1>()
+        );
+        // op_call |buf_idx=1| i + (-1) G2sCooAtomicFormatLoadValOp 
+        G2sCooAtomicFormatLoadValOp_v.template f<1>(
+            val_coo_valOp_v.template output<0>(),
+            G2rCooAtomicFormatLoadOffOp_v.template output<0, 1>()(0),
+            G2rCooAtomicFormatLoadOffOp_v.template output<1, 1>()(0)
+        );
+        __pipeline_commit();
+        // op_call |buf_idx=1| i + (-1) G2rCooAtomicFormatLoadIdxOp 
+        G2rCooAtomicFormatLoadIdxOp_v.template f<1>(
+            val_coo_idxOp_v.template output<0>(),
+            G2rCooAtomicFormatLoadOffOp_v.template output<0, 1>()(0),
+            G2rCooAtomicFormatLoadOffOp_v.template output<1, 1>()(0)
+        );
+        // op_call |buf_idx=2| i + (-4) G2rBValLoadOp 
+        G2rBValLoadOp_v.template f<2>(
+            B_valOp_v.template output<0>(),
+            S2rValSidxLoadOp_v.template output<0, 2>()
+        );
+        __pipeline_wait_prior(6);
+        __syncthreads();
+        // op_call |buf_idx=2| i + (-4) S2sCooAtomicValRestoreOp 
+        S2sCooAtomicValRestoreOp_v.template f<2>(
+            G2sCooAtomicFormatLoadValOp_v.template output<0, 2>(),
+            G2rCooAtomicFormatLoadIdxOp_v.template output<0, 2>(),
+            G2rCooAtomicFormatLoadIdxOp_v.template output<1, 2>()(0)
+        );
+        // op_call |buf_idx=2| i + (-4) S2rAValLoadOp 
+        S2rAValLoadOp_v.template f<2>(
+            S2sCooAtomicValRestoreOp_v.template output<0, 2>()
+        );
+        // op_call |buf_idx=0| i + (-6) MmaOp 
+        MmaOp_v.template f<0>(
+            S2rAValLoadOp_v.template output<0, 0>(),
+            G2rBValLoadOp_v.template output<0, 0>()
+        );
+        // total remains 3, current 2
+        // op_call |buf_idx=0| i + (2) G2sValSidxLoadOp 
+        G2sValSidxLoadOp_v.template f<0>(
+            val_sidxOp_v.template output<0>(),
+            l + i + (2)
+        );
+        __pipeline_commit();
+        // op_call |buf_idx=0| i + (2) G2rCooAtomicFormatLoadOffOp 
+        G2rCooAtomicFormatLoadOffOp_v.template f<0>(
+            val_coo_offOp_v.template output<0>(),
+            l + i + (2)
+        );
+        __pipeline_wait_prior(4);
+        __syncthreads();
+        // op_call |buf_idx=2| i + (0) S2rValSidxLoadOp 
+        S2rValSidxLoadOp_v.template f<2>(
+            G2sValSidxLoadOp_v.template output<0, 2>()
+        );
+        // op_call |buf_idx=2| i + (0) G2sCooAtomicFormatLoadValOp 
+        G2sCooAtomicFormatLoadValOp_v.template f<2>(
+            val_coo_valOp_v.template output<0>(),
+            G2rCooAtomicFormatLoadOffOp_v.template output<0, 2>()(0),
+            G2rCooAtomicFormatLoadOffOp_v.template output<1, 2>()(0)
+        );
+        __pipeline_commit();
+        // op_call |buf_idx=2| i + (0) G2rCooAtomicFormatLoadIdxOp 
+        G2rCooAtomicFormatLoadIdxOp_v.template f<2>(
+            val_coo_idxOp_v.template output<0>(),
+            G2rCooAtomicFormatLoadOffOp_v.template output<0, 2>()(0),
+            G2rCooAtomicFormatLoadOffOp_v.template output<1, 2>()(0)
+        );
+        // op_call |buf_idx=3| i + (-3) G2rBValLoadOp 
+        G2rBValLoadOp_v.template f<3>(
+            B_valOp_v.template output<0>(),
+            S2rValSidxLoadOp_v.template output<0, 3>()
+        );
+        __pipeline_wait_prior(6);
+        __syncthreads();
+        // op_call |buf_idx=3| i + (-3) S2sCooAtomicValRestoreOp 
+        S2sCooAtomicValRestoreOp_v.template f<3>(
+            G2sCooAtomicFormatLoadValOp_v.template output<0, 3>(),
+            G2rCooAtomicFormatLoadIdxOp_v.template output<0, 3>(),
+            G2rCooAtomicFormatLoadIdxOp_v.template output<1, 3>()(0)
+        );
+        // op_call |buf_idx=3| i + (-3) S2rAValLoadOp 
+        S2rAValLoadOp_v.template f<3>(
+            S2sCooAtomicValRestoreOp_v.template output<0, 3>()
+        );
+        // op_call |buf_idx=1| i + (-5) MmaOp 
+        MmaOp_v.template f<1>(
+            S2rAValLoadOp_v.template output<0, 1>(),
+            G2rBValLoadOp_v.template output<0, 1>()
         );
     }
     
@@ -1551,131 +4892,665 @@ public:
         if (r - l - i == 1) {
             remains_1(i, l, r);
         }
+        else if (r - l - i == 2) {
+            remains_2(i, l, r);
+        }
+        else if (r - l - i == 3) {
+            remains_3(i, l, r);
+        }
     }
     
     // empties
-    CUTE_DEVICE void empty_0(int i, int l, int r) {
+    CUTE_DEVICE void empty_after_remain_0(int i, int l, int r) {
         // stage 1..3
-        G2sCooAtomicFormatLoadValOp_v.template f<1>(
-            val_coo_valOp_v.template output<0>(),
-            G2rCooAtomicFormatLoadOffOp_v.template output<0, 1>()(0),
-            G2rCooAtomicFormatLoadOffOp_v.template output<1, 1>()(0)
-        );
-        __pipeline_commit();
-        __pipeline_wait_prior(1);
+        __pipeline_wait_prior(3);
         __syncthreads();
-        S2rValSidxLoadOp_v.template f<1>(
-            G2sValSidxLoadOp_v.template output<0, 1>()
+        // op_call |buf_idx=0| i + (-2) S2rValSidxLoadOp 
+        S2rValSidxLoadOp_v.template f<0>(
+            G2sValSidxLoadOp_v.template output<0, 0>()
         );
-        G2rCooAtomicFormatLoadIdxOp_v.template f<1>(
-            val_coo_idxOp_v.template output<0>(),
-            G2rCooAtomicFormatLoadOffOp_v.template output<0, 1>()(0),
-            G2rCooAtomicFormatLoadOffOp_v.template output<1, 1>()(0)
-        );
-        G2rBValLoadOp_v.template f<0>(
-            B_valOp_v.template output<0>(),
-            S2rValSidxLoadOp_v.template output<0, 0>()
-        );
-        __pipeline_wait_prior(1);
-        __syncthreads();
-        S2sCooAtomicValRestoreOp_v.template f<0>(
-            G2sCooAtomicFormatLoadValOp_v.template output<0, 0>(),
-            G2rCooAtomicFormatLoadIdxOp_v.template output<0, 0>(),
-            G2rCooAtomicFormatLoadIdxOp_v.template output<1, 0>()(0)
-        );
-        __syncthreads();
-        S2rAValLoadOp_v.template f<0>(
-            S2sCooAtomicValRestoreOp_v.template output<0, 0>()
-        );
-        MmaOp_v.template f<1>(
-            S2rAValLoadOp_v.template output<0, 1>(),
-            G2rBValLoadOp_v.template output<0, 1>()
-        );
-        // stage 2..3
-        G2rBValLoadOp_v.template f<1>(
-            B_valOp_v.template output<0>(),
-            S2rValSidxLoadOp_v.template output<0, 1>()
-        );
-        __pipeline_wait_prior(0);
-        __syncthreads();
-        S2sCooAtomicValRestoreOp_v.template f<1>(
-            G2sCooAtomicFormatLoadValOp_v.template output<0, 1>(),
-            G2rCooAtomicFormatLoadIdxOp_v.template output<0, 1>(),
-            G2rCooAtomicFormatLoadIdxOp_v.template output<1, 1>()(0)
-        );
-        __syncthreads();
-        S2rAValLoadOp_v.template f<1>(
-            S2sCooAtomicValRestoreOp_v.template output<0, 1>()
-        );
-        MmaOp_v.template f<0>(
-            S2rAValLoadOp_v.template output<0, 0>(),
-            G2rBValLoadOp_v.template output<0, 0>()
-        );
-        // stage 3..3
-        MmaOp_v.template f<1>(
-            S2rAValLoadOp_v.template output<0, 1>(),
-            G2rBValLoadOp_v.template output<0, 1>()
-        );
-    }
-    
-    CUTE_DEVICE void empty_1(int i, int l, int r) {
-        // stage 1..3
+        // op_call |buf_idx=0| i + (-2) G2sCooAtomicFormatLoadValOp 
         G2sCooAtomicFormatLoadValOp_v.template f<0>(
             val_coo_valOp_v.template output<0>(),
             G2rCooAtomicFormatLoadOffOp_v.template output<0, 0>()(0),
             G2rCooAtomicFormatLoadOffOp_v.template output<1, 0>()(0)
         );
         __pipeline_commit();
-        __pipeline_wait_prior(1);
-        __syncthreads();
-        S2rValSidxLoadOp_v.template f<0>(
-            G2sValSidxLoadOp_v.template output<0, 0>()
-        );
+        // op_call |buf_idx=0| i + (-2) G2rCooAtomicFormatLoadIdxOp 
         G2rCooAtomicFormatLoadIdxOp_v.template f<0>(
             val_coo_idxOp_v.template output<0>(),
             G2rCooAtomicFormatLoadOffOp_v.template output<0, 0>()(0),
             G2rCooAtomicFormatLoadOffOp_v.template output<1, 0>()(0)
         );
+        // op_call |buf_idx=1| i + (-5) G2rBValLoadOp 
+        G2rBValLoadOp_v.template f<1>(
+            B_valOp_v.template output<0>(),
+            S2rValSidxLoadOp_v.template output<0, 1>()
+        );
+        __pipeline_wait_prior(5);
+        __syncthreads();
+        // op_call |buf_idx=1| i + (-5) S2sCooAtomicValRestoreOp 
+        S2sCooAtomicValRestoreOp_v.template f<1>(
+            G2sCooAtomicFormatLoadValOp_v.template output<0, 1>(),
+            G2rCooAtomicFormatLoadIdxOp_v.template output<0, 1>(),
+            G2rCooAtomicFormatLoadIdxOp_v.template output<1, 1>()(0)
+        );
+        // op_call |buf_idx=1| i + (-5) S2rAValLoadOp 
+        S2rAValLoadOp_v.template f<1>(
+            S2sCooAtomicValRestoreOp_v.template output<0, 1>()
+        );
+        // op_call |buf_idx=3| i + (-7) MmaOp 
+        MmaOp_v.template f<3>(
+            S2rAValLoadOp_v.template output<0, 3>(),
+            G2rBValLoadOp_v.template output<0, 3>()
+        );
+        __pipeline_wait_prior(2);
+        __syncthreads();
+        // op_call |buf_idx=1| i + (-1) S2rValSidxLoadOp 
+        S2rValSidxLoadOp_v.template f<1>(
+            G2sValSidxLoadOp_v.template output<0, 1>()
+        );
+        // op_call |buf_idx=1| i + (-1) G2sCooAtomicFormatLoadValOp 
+        G2sCooAtomicFormatLoadValOp_v.template f<1>(
+            val_coo_valOp_v.template output<0>(),
+            G2rCooAtomicFormatLoadOffOp_v.template output<0, 1>()(0),
+            G2rCooAtomicFormatLoadOffOp_v.template output<1, 1>()(0)
+        );
+        __pipeline_commit();
+        // op_call |buf_idx=1| i + (-1) G2rCooAtomicFormatLoadIdxOp 
+        G2rCooAtomicFormatLoadIdxOp_v.template f<1>(
+            val_coo_idxOp_v.template output<0>(),
+            G2rCooAtomicFormatLoadOffOp_v.template output<0, 1>()(0),
+            G2rCooAtomicFormatLoadOffOp_v.template output<1, 1>()(0)
+        );
+        // op_call |buf_idx=2| i + (-4) G2rBValLoadOp 
+        G2rBValLoadOp_v.template f<2>(
+            B_valOp_v.template output<0>(),
+            S2rValSidxLoadOp_v.template output<0, 2>()
+        );
+        __pipeline_wait_prior(4);
+        __syncthreads();
+        // op_call |buf_idx=2| i + (-4) S2sCooAtomicValRestoreOp 
+        S2sCooAtomicValRestoreOp_v.template f<2>(
+            G2sCooAtomicFormatLoadValOp_v.template output<0, 2>(),
+            G2rCooAtomicFormatLoadIdxOp_v.template output<0, 2>(),
+            G2rCooAtomicFormatLoadIdxOp_v.template output<1, 2>()(0)
+        );
+        // op_call |buf_idx=2| i + (-4) S2rAValLoadOp 
+        S2rAValLoadOp_v.template f<2>(
+            S2sCooAtomicValRestoreOp_v.template output<0, 2>()
+        );
+        // op_call |buf_idx=0| i + (-6) MmaOp 
+        MmaOp_v.template f<0>(
+            S2rAValLoadOp_v.template output<0, 0>(),
+            G2rBValLoadOp_v.template output<0, 0>()
+        );
+        // stage 2..3
+        // op_call |buf_idx=3| i + (-3) G2rBValLoadOp 
+        G2rBValLoadOp_v.template f<3>(
+            B_valOp_v.template output<0>(),
+            S2rValSidxLoadOp_v.template output<0, 3>()
+        );
+        __pipeline_wait_prior(2);
+        __syncthreads();
+        // op_call |buf_idx=3| i + (-3) S2sCooAtomicValRestoreOp 
+        S2sCooAtomicValRestoreOp_v.template f<3>(
+            G2sCooAtomicFormatLoadValOp_v.template output<0, 3>(),
+            G2rCooAtomicFormatLoadIdxOp_v.template output<0, 3>(),
+            G2rCooAtomicFormatLoadIdxOp_v.template output<1, 3>()(0)
+        );
+        // op_call |buf_idx=3| i + (-3) S2rAValLoadOp 
+        S2rAValLoadOp_v.template f<3>(
+            S2sCooAtomicValRestoreOp_v.template output<0, 3>()
+        );
+        // op_call |buf_idx=1| i + (-5) MmaOp 
+        MmaOp_v.template f<1>(
+            S2rAValLoadOp_v.template output<0, 1>(),
+            G2rBValLoadOp_v.template output<0, 1>()
+        );
+        // op_call |buf_idx=0| i + (-2) G2rBValLoadOp 
+        G2rBValLoadOp_v.template f<0>(
+            B_valOp_v.template output<0>(),
+            S2rValSidxLoadOp_v.template output<0, 0>()
+        );
+        __pipeline_wait_prior(1);
+        __syncthreads();
+        // op_call |buf_idx=0| i + (-2) S2sCooAtomicValRestoreOp 
+        S2sCooAtomicValRestoreOp_v.template f<0>(
+            G2sCooAtomicFormatLoadValOp_v.template output<0, 0>(),
+            G2rCooAtomicFormatLoadIdxOp_v.template output<0, 0>(),
+            G2rCooAtomicFormatLoadIdxOp_v.template output<1, 0>()(0)
+        );
+        // op_call |buf_idx=0| i + (-2) S2rAValLoadOp 
+        S2rAValLoadOp_v.template f<0>(
+            S2sCooAtomicValRestoreOp_v.template output<0, 0>()
+        );
+        // op_call |buf_idx=2| i + (-4) MmaOp 
+        MmaOp_v.template f<2>(
+            S2rAValLoadOp_v.template output<0, 2>(),
+            G2rBValLoadOp_v.template output<0, 2>()
+        );
+        // op_call |buf_idx=1| i + (-1) G2rBValLoadOp 
+        G2rBValLoadOp_v.template f<1>(
+            B_valOp_v.template output<0>(),
+            S2rValSidxLoadOp_v.template output<0, 1>()
+        );
+        __pipeline_wait_prior(0);
+        __syncthreads();
+        // op_call |buf_idx=1| i + (-1) S2sCooAtomicValRestoreOp 
+        S2sCooAtomicValRestoreOp_v.template f<1>(
+            G2sCooAtomicFormatLoadValOp_v.template output<0, 1>(),
+            G2rCooAtomicFormatLoadIdxOp_v.template output<0, 1>(),
+            G2rCooAtomicFormatLoadIdxOp_v.template output<1, 1>()(0)
+        );
+        // op_call |buf_idx=1| i + (-1) S2rAValLoadOp 
+        S2rAValLoadOp_v.template f<1>(
+            S2sCooAtomicValRestoreOp_v.template output<0, 1>()
+        );
+        // op_call |buf_idx=3| i + (-3) MmaOp 
+        MmaOp_v.template f<3>(
+            S2rAValLoadOp_v.template output<0, 3>(),
+            G2rBValLoadOp_v.template output<0, 3>()
+        );
+        // stage 3..3
+        // op_call |buf_idx=0| i + (-2) MmaOp 
+        MmaOp_v.template f<0>(
+            S2rAValLoadOp_v.template output<0, 0>(),
+            G2rBValLoadOp_v.template output<0, 0>()
+        );
+        // op_call |buf_idx=1| i + (-1) MmaOp 
+        MmaOp_v.template f<1>(
+            S2rAValLoadOp_v.template output<0, 1>(),
+            G2rBValLoadOp_v.template output<0, 1>()
+        );
+    }
+    
+    CUTE_DEVICE void empty_after_remain_1(int i, int l, int r) {
+        // stage 1..3
+        __pipeline_wait_prior(3);
+        __syncthreads();
+        // op_call |buf_idx=1| i + (-1) S2rValSidxLoadOp 
+        S2rValSidxLoadOp_v.template f<1>(
+            G2sValSidxLoadOp_v.template output<0, 1>()
+        );
+        // op_call |buf_idx=1| i + (-1) G2sCooAtomicFormatLoadValOp 
+        G2sCooAtomicFormatLoadValOp_v.template f<1>(
+            val_coo_valOp_v.template output<0>(),
+            G2rCooAtomicFormatLoadOffOp_v.template output<0, 1>()(0),
+            G2rCooAtomicFormatLoadOffOp_v.template output<1, 1>()(0)
+        );
+        __pipeline_commit();
+        // op_call |buf_idx=1| i + (-1) G2rCooAtomicFormatLoadIdxOp 
+        G2rCooAtomicFormatLoadIdxOp_v.template f<1>(
+            val_coo_idxOp_v.template output<0>(),
+            G2rCooAtomicFormatLoadOffOp_v.template output<0, 1>()(0),
+            G2rCooAtomicFormatLoadOffOp_v.template output<1, 1>()(0)
+        );
+        // op_call |buf_idx=2| i + (-4) G2rBValLoadOp 
+        G2rBValLoadOp_v.template f<2>(
+            B_valOp_v.template output<0>(),
+            S2rValSidxLoadOp_v.template output<0, 2>()
+        );
+        __pipeline_wait_prior(5);
+        __syncthreads();
+        // op_call |buf_idx=2| i + (-4) S2sCooAtomicValRestoreOp 
+        S2sCooAtomicValRestoreOp_v.template f<2>(
+            G2sCooAtomicFormatLoadValOp_v.template output<0, 2>(),
+            G2rCooAtomicFormatLoadIdxOp_v.template output<0, 2>(),
+            G2rCooAtomicFormatLoadIdxOp_v.template output<1, 2>()(0)
+        );
+        // op_call |buf_idx=2| i + (-4) S2rAValLoadOp 
+        S2rAValLoadOp_v.template f<2>(
+            S2sCooAtomicValRestoreOp_v.template output<0, 2>()
+        );
+        // op_call |buf_idx=0| i + (-6) MmaOp 
+        MmaOp_v.template f<0>(
+            S2rAValLoadOp_v.template output<0, 0>(),
+            G2rBValLoadOp_v.template output<0, 0>()
+        );
+        __pipeline_wait_prior(2);
+        __syncthreads();
+        // op_call |buf_idx=2| i + (0) S2rValSidxLoadOp 
+        S2rValSidxLoadOp_v.template f<2>(
+            G2sValSidxLoadOp_v.template output<0, 2>()
+        );
+        // op_call |buf_idx=2| i + (0) G2sCooAtomicFormatLoadValOp 
+        G2sCooAtomicFormatLoadValOp_v.template f<2>(
+            val_coo_valOp_v.template output<0>(),
+            G2rCooAtomicFormatLoadOffOp_v.template output<0, 2>()(0),
+            G2rCooAtomicFormatLoadOffOp_v.template output<1, 2>()(0)
+        );
+        __pipeline_commit();
+        // op_call |buf_idx=2| i + (0) G2rCooAtomicFormatLoadIdxOp 
+        G2rCooAtomicFormatLoadIdxOp_v.template f<2>(
+            val_coo_idxOp_v.template output<0>(),
+            G2rCooAtomicFormatLoadOffOp_v.template output<0, 2>()(0),
+            G2rCooAtomicFormatLoadOffOp_v.template output<1, 2>()(0)
+        );
+        // op_call |buf_idx=3| i + (-3) G2rBValLoadOp 
+        G2rBValLoadOp_v.template f<3>(
+            B_valOp_v.template output<0>(),
+            S2rValSidxLoadOp_v.template output<0, 3>()
+        );
+        __pipeline_wait_prior(4);
+        __syncthreads();
+        // op_call |buf_idx=3| i + (-3) S2sCooAtomicValRestoreOp 
+        S2sCooAtomicValRestoreOp_v.template f<3>(
+            G2sCooAtomicFormatLoadValOp_v.template output<0, 3>(),
+            G2rCooAtomicFormatLoadIdxOp_v.template output<0, 3>(),
+            G2rCooAtomicFormatLoadIdxOp_v.template output<1, 3>()(0)
+        );
+        // op_call |buf_idx=3| i + (-3) S2rAValLoadOp 
+        S2rAValLoadOp_v.template f<3>(
+            S2sCooAtomicValRestoreOp_v.template output<0, 3>()
+        );
+        // op_call |buf_idx=1| i + (-5) MmaOp 
+        MmaOp_v.template f<1>(
+            S2rAValLoadOp_v.template output<0, 1>(),
+            G2rBValLoadOp_v.template output<0, 1>()
+        );
+        // stage 2..3
+        // op_call |buf_idx=0| i + (-2) G2rBValLoadOp 
+        G2rBValLoadOp_v.template f<0>(
+            B_valOp_v.template output<0>(),
+            S2rValSidxLoadOp_v.template output<0, 0>()
+        );
+        __pipeline_wait_prior(2);
+        __syncthreads();
+        // op_call |buf_idx=0| i + (-2) S2sCooAtomicValRestoreOp 
+        S2sCooAtomicValRestoreOp_v.template f<0>(
+            G2sCooAtomicFormatLoadValOp_v.template output<0, 0>(),
+            G2rCooAtomicFormatLoadIdxOp_v.template output<0, 0>(),
+            G2rCooAtomicFormatLoadIdxOp_v.template output<1, 0>()(0)
+        );
+        // op_call |buf_idx=0| i + (-2) S2rAValLoadOp 
+        S2rAValLoadOp_v.template f<0>(
+            S2sCooAtomicValRestoreOp_v.template output<0, 0>()
+        );
+        // op_call |buf_idx=2| i + (-4) MmaOp 
+        MmaOp_v.template f<2>(
+            S2rAValLoadOp_v.template output<0, 2>(),
+            G2rBValLoadOp_v.template output<0, 2>()
+        );
+        // op_call |buf_idx=1| i + (-1) G2rBValLoadOp 
         G2rBValLoadOp_v.template f<1>(
             B_valOp_v.template output<0>(),
             S2rValSidxLoadOp_v.template output<0, 1>()
         );
         __pipeline_wait_prior(1);
         __syncthreads();
+        // op_call |buf_idx=1| i + (-1) S2sCooAtomicValRestoreOp 
         S2sCooAtomicValRestoreOp_v.template f<1>(
             G2sCooAtomicFormatLoadValOp_v.template output<0, 1>(),
             G2rCooAtomicFormatLoadIdxOp_v.template output<0, 1>(),
             G2rCooAtomicFormatLoadIdxOp_v.template output<1, 1>()(0)
         );
-        __syncthreads();
+        // op_call |buf_idx=1| i + (-1) S2rAValLoadOp 
         S2rAValLoadOp_v.template f<1>(
             S2sCooAtomicValRestoreOp_v.template output<0, 1>()
         );
+        // op_call |buf_idx=3| i + (-3) MmaOp 
+        MmaOp_v.template f<3>(
+            S2rAValLoadOp_v.template output<0, 3>(),
+            G2rBValLoadOp_v.template output<0, 3>()
+        );
+        // op_call |buf_idx=2| i + (0) G2rBValLoadOp 
+        G2rBValLoadOp_v.template f<2>(
+            B_valOp_v.template output<0>(),
+            S2rValSidxLoadOp_v.template output<0, 2>()
+        );
+        __pipeline_wait_prior(0);
+        __syncthreads();
+        // op_call |buf_idx=2| i + (0) S2sCooAtomicValRestoreOp 
+        S2sCooAtomicValRestoreOp_v.template f<2>(
+            G2sCooAtomicFormatLoadValOp_v.template output<0, 2>(),
+            G2rCooAtomicFormatLoadIdxOp_v.template output<0, 2>(),
+            G2rCooAtomicFormatLoadIdxOp_v.template output<1, 2>()(0)
+        );
+        // op_call |buf_idx=2| i + (0) S2rAValLoadOp 
+        S2rAValLoadOp_v.template f<2>(
+            S2sCooAtomicValRestoreOp_v.template output<0, 2>()
+        );
+        // op_call |buf_idx=0| i + (-2) MmaOp 
         MmaOp_v.template f<0>(
             S2rAValLoadOp_v.template output<0, 0>(),
             G2rBValLoadOp_v.template output<0, 0>()
         );
+        // stage 3..3
+        // op_call |buf_idx=1| i + (-1) MmaOp 
+        MmaOp_v.template f<1>(
+            S2rAValLoadOp_v.template output<0, 1>(),
+            G2rBValLoadOp_v.template output<0, 1>()
+        );
+        // op_call |buf_idx=2| i + (0) MmaOp 
+        MmaOp_v.template f<2>(
+            S2rAValLoadOp_v.template output<0, 2>(),
+            G2rBValLoadOp_v.template output<0, 2>()
+        );
+    }
+    
+    CUTE_DEVICE void empty_after_remain_2(int i, int l, int r) {
+        // stage 1..3
+        __pipeline_wait_prior(3);
+        __syncthreads();
+        // op_call |buf_idx=2| i + (0) S2rValSidxLoadOp 
+        S2rValSidxLoadOp_v.template f<2>(
+            G2sValSidxLoadOp_v.template output<0, 2>()
+        );
+        // op_call |buf_idx=2| i + (0) G2sCooAtomicFormatLoadValOp 
+        G2sCooAtomicFormatLoadValOp_v.template f<2>(
+            val_coo_valOp_v.template output<0>(),
+            G2rCooAtomicFormatLoadOffOp_v.template output<0, 2>()(0),
+            G2rCooAtomicFormatLoadOffOp_v.template output<1, 2>()(0)
+        );
+        __pipeline_commit();
+        // op_call |buf_idx=2| i + (0) G2rCooAtomicFormatLoadIdxOp 
+        G2rCooAtomicFormatLoadIdxOp_v.template f<2>(
+            val_coo_idxOp_v.template output<0>(),
+            G2rCooAtomicFormatLoadOffOp_v.template output<0, 2>()(0),
+            G2rCooAtomicFormatLoadOffOp_v.template output<1, 2>()(0)
+        );
+        // op_call |buf_idx=3| i + (-3) G2rBValLoadOp 
+        G2rBValLoadOp_v.template f<3>(
+            B_valOp_v.template output<0>(),
+            S2rValSidxLoadOp_v.template output<0, 3>()
+        );
+        __pipeline_wait_prior(5);
+        __syncthreads();
+        // op_call |buf_idx=3| i + (-3) S2sCooAtomicValRestoreOp 
+        S2sCooAtomicValRestoreOp_v.template f<3>(
+            G2sCooAtomicFormatLoadValOp_v.template output<0, 3>(),
+            G2rCooAtomicFormatLoadIdxOp_v.template output<0, 3>(),
+            G2rCooAtomicFormatLoadIdxOp_v.template output<1, 3>()(0)
+        );
+        // op_call |buf_idx=3| i + (-3) S2rAValLoadOp 
+        S2rAValLoadOp_v.template f<3>(
+            S2sCooAtomicValRestoreOp_v.template output<0, 3>()
+        );
+        // op_call |buf_idx=1| i + (-5) MmaOp 
+        MmaOp_v.template f<1>(
+            S2rAValLoadOp_v.template output<0, 1>(),
+            G2rBValLoadOp_v.template output<0, 1>()
+        );
+        __pipeline_wait_prior(2);
+        __syncthreads();
+        // op_call |buf_idx=3| i + (1) S2rValSidxLoadOp 
+        S2rValSidxLoadOp_v.template f<3>(
+            G2sValSidxLoadOp_v.template output<0, 3>()
+        );
+        // op_call |buf_idx=3| i + (1) G2sCooAtomicFormatLoadValOp 
+        G2sCooAtomicFormatLoadValOp_v.template f<3>(
+            val_coo_valOp_v.template output<0>(),
+            G2rCooAtomicFormatLoadOffOp_v.template output<0, 3>()(0),
+            G2rCooAtomicFormatLoadOffOp_v.template output<1, 3>()(0)
+        );
+        __pipeline_commit();
+        // op_call |buf_idx=3| i + (1) G2rCooAtomicFormatLoadIdxOp 
+        G2rCooAtomicFormatLoadIdxOp_v.template f<3>(
+            val_coo_idxOp_v.template output<0>(),
+            G2rCooAtomicFormatLoadOffOp_v.template output<0, 3>()(0),
+            G2rCooAtomicFormatLoadOffOp_v.template output<1, 3>()(0)
+        );
+        // op_call |buf_idx=0| i + (-2) G2rBValLoadOp 
+        G2rBValLoadOp_v.template f<0>(
+            B_valOp_v.template output<0>(),
+            S2rValSidxLoadOp_v.template output<0, 0>()
+        );
+        __pipeline_wait_prior(4);
+        __syncthreads();
+        // op_call |buf_idx=0| i + (-2) S2sCooAtomicValRestoreOp 
+        S2sCooAtomicValRestoreOp_v.template f<0>(
+            G2sCooAtomicFormatLoadValOp_v.template output<0, 0>(),
+            G2rCooAtomicFormatLoadIdxOp_v.template output<0, 0>(),
+            G2rCooAtomicFormatLoadIdxOp_v.template output<1, 0>()(0)
+        );
+        // op_call |buf_idx=0| i + (-2) S2rAValLoadOp 
+        S2rAValLoadOp_v.template f<0>(
+            S2sCooAtomicValRestoreOp_v.template output<0, 0>()
+        );
+        // op_call |buf_idx=2| i + (-4) MmaOp 
+        MmaOp_v.template f<2>(
+            S2rAValLoadOp_v.template output<0, 2>(),
+            G2rBValLoadOp_v.template output<0, 2>()
+        );
         // stage 2..3
+        // op_call |buf_idx=1| i + (-1) G2rBValLoadOp 
+        G2rBValLoadOp_v.template f<1>(
+            B_valOp_v.template output<0>(),
+            S2rValSidxLoadOp_v.template output<0, 1>()
+        );
+        __pipeline_wait_prior(2);
+        __syncthreads();
+        // op_call |buf_idx=1| i + (-1) S2sCooAtomicValRestoreOp 
+        S2sCooAtomicValRestoreOp_v.template f<1>(
+            G2sCooAtomicFormatLoadValOp_v.template output<0, 1>(),
+            G2rCooAtomicFormatLoadIdxOp_v.template output<0, 1>(),
+            G2rCooAtomicFormatLoadIdxOp_v.template output<1, 1>()(0)
+        );
+        // op_call |buf_idx=1| i + (-1) S2rAValLoadOp 
+        S2rAValLoadOp_v.template f<1>(
+            S2sCooAtomicValRestoreOp_v.template output<0, 1>()
+        );
+        // op_call |buf_idx=3| i + (-3) MmaOp 
+        MmaOp_v.template f<3>(
+            S2rAValLoadOp_v.template output<0, 3>(),
+            G2rBValLoadOp_v.template output<0, 3>()
+        );
+        // op_call |buf_idx=2| i + (0) G2rBValLoadOp 
+        G2rBValLoadOp_v.template f<2>(
+            B_valOp_v.template output<0>(),
+            S2rValSidxLoadOp_v.template output<0, 2>()
+        );
+        __pipeline_wait_prior(1);
+        __syncthreads();
+        // op_call |buf_idx=2| i + (0) S2sCooAtomicValRestoreOp 
+        S2sCooAtomicValRestoreOp_v.template f<2>(
+            G2sCooAtomicFormatLoadValOp_v.template output<0, 2>(),
+            G2rCooAtomicFormatLoadIdxOp_v.template output<0, 2>(),
+            G2rCooAtomicFormatLoadIdxOp_v.template output<1, 2>()(0)
+        );
+        // op_call |buf_idx=2| i + (0) S2rAValLoadOp 
+        S2rAValLoadOp_v.template f<2>(
+            S2sCooAtomicValRestoreOp_v.template output<0, 2>()
+        );
+        // op_call |buf_idx=0| i + (-2) MmaOp 
+        MmaOp_v.template f<0>(
+            S2rAValLoadOp_v.template output<0, 0>(),
+            G2rBValLoadOp_v.template output<0, 0>()
+        );
+        // op_call |buf_idx=3| i + (1) G2rBValLoadOp 
+        G2rBValLoadOp_v.template f<3>(
+            B_valOp_v.template output<0>(),
+            S2rValSidxLoadOp_v.template output<0, 3>()
+        );
+        __pipeline_wait_prior(0);
+        __syncthreads();
+        // op_call |buf_idx=3| i + (1) S2sCooAtomicValRestoreOp 
+        S2sCooAtomicValRestoreOp_v.template f<3>(
+            G2sCooAtomicFormatLoadValOp_v.template output<0, 3>(),
+            G2rCooAtomicFormatLoadIdxOp_v.template output<0, 3>(),
+            G2rCooAtomicFormatLoadIdxOp_v.template output<1, 3>()(0)
+        );
+        // op_call |buf_idx=3| i + (1) S2rAValLoadOp 
+        S2rAValLoadOp_v.template f<3>(
+            S2sCooAtomicValRestoreOp_v.template output<0, 3>()
+        );
+        // op_call |buf_idx=1| i + (-1) MmaOp 
+        MmaOp_v.template f<1>(
+            S2rAValLoadOp_v.template output<0, 1>(),
+            G2rBValLoadOp_v.template output<0, 1>()
+        );
+        // stage 3..3
+        // op_call |buf_idx=2| i + (0) MmaOp 
+        MmaOp_v.template f<2>(
+            S2rAValLoadOp_v.template output<0, 2>(),
+            G2rBValLoadOp_v.template output<0, 2>()
+        );
+        // op_call |buf_idx=3| i + (1) MmaOp 
+        MmaOp_v.template f<3>(
+            S2rAValLoadOp_v.template output<0, 3>(),
+            G2rBValLoadOp_v.template output<0, 3>()
+        );
+    }
+    
+    CUTE_DEVICE void empty_after_remain_3(int i, int l, int r) {
+        // stage 1..3
+        __pipeline_wait_prior(3);
+        __syncthreads();
+        // op_call |buf_idx=3| i + (1) S2rValSidxLoadOp 
+        S2rValSidxLoadOp_v.template f<3>(
+            G2sValSidxLoadOp_v.template output<0, 3>()
+        );
+        // op_call |buf_idx=3| i + (1) G2sCooAtomicFormatLoadValOp 
+        G2sCooAtomicFormatLoadValOp_v.template f<3>(
+            val_coo_valOp_v.template output<0>(),
+            G2rCooAtomicFormatLoadOffOp_v.template output<0, 3>()(0),
+            G2rCooAtomicFormatLoadOffOp_v.template output<1, 3>()(0)
+        );
+        __pipeline_commit();
+        // op_call |buf_idx=3| i + (1) G2rCooAtomicFormatLoadIdxOp 
+        G2rCooAtomicFormatLoadIdxOp_v.template f<3>(
+            val_coo_idxOp_v.template output<0>(),
+            G2rCooAtomicFormatLoadOffOp_v.template output<0, 3>()(0),
+            G2rCooAtomicFormatLoadOffOp_v.template output<1, 3>()(0)
+        );
+        // op_call |buf_idx=0| i + (-2) G2rBValLoadOp 
+        G2rBValLoadOp_v.template f<0>(
+            B_valOp_v.template output<0>(),
+            S2rValSidxLoadOp_v.template output<0, 0>()
+        );
+        __pipeline_wait_prior(5);
+        __syncthreads();
+        // op_call |buf_idx=0| i + (-2) S2sCooAtomicValRestoreOp 
+        S2sCooAtomicValRestoreOp_v.template f<0>(
+            G2sCooAtomicFormatLoadValOp_v.template output<0, 0>(),
+            G2rCooAtomicFormatLoadIdxOp_v.template output<0, 0>(),
+            G2rCooAtomicFormatLoadIdxOp_v.template output<1, 0>()(0)
+        );
+        // op_call |buf_idx=0| i + (-2) S2rAValLoadOp 
+        S2rAValLoadOp_v.template f<0>(
+            S2sCooAtomicValRestoreOp_v.template output<0, 0>()
+        );
+        // op_call |buf_idx=2| i + (-4) MmaOp 
+        MmaOp_v.template f<2>(
+            S2rAValLoadOp_v.template output<0, 2>(),
+            G2rBValLoadOp_v.template output<0, 2>()
+        );
+        __pipeline_wait_prior(2);
+        __syncthreads();
+        // op_call |buf_idx=0| i + (2) S2rValSidxLoadOp 
+        S2rValSidxLoadOp_v.template f<0>(
+            G2sValSidxLoadOp_v.template output<0, 0>()
+        );
+        // op_call |buf_idx=0| i + (2) G2sCooAtomicFormatLoadValOp 
+        G2sCooAtomicFormatLoadValOp_v.template f<0>(
+            val_coo_valOp_v.template output<0>(),
+            G2rCooAtomicFormatLoadOffOp_v.template output<0, 0>()(0),
+            G2rCooAtomicFormatLoadOffOp_v.template output<1, 0>()(0)
+        );
+        __pipeline_commit();
+        // op_call |buf_idx=0| i + (2) G2rCooAtomicFormatLoadIdxOp 
+        G2rCooAtomicFormatLoadIdxOp_v.template f<0>(
+            val_coo_idxOp_v.template output<0>(),
+            G2rCooAtomicFormatLoadOffOp_v.template output<0, 0>()(0),
+            G2rCooAtomicFormatLoadOffOp_v.template output<1, 0>()(0)
+        );
+        // op_call |buf_idx=1| i + (-1) G2rBValLoadOp 
+        G2rBValLoadOp_v.template f<1>(
+            B_valOp_v.template output<0>(),
+            S2rValSidxLoadOp_v.template output<0, 1>()
+        );
+        __pipeline_wait_prior(4);
+        __syncthreads();
+        // op_call |buf_idx=1| i + (-1) S2sCooAtomicValRestoreOp 
+        S2sCooAtomicValRestoreOp_v.template f<1>(
+            G2sCooAtomicFormatLoadValOp_v.template output<0, 1>(),
+            G2rCooAtomicFormatLoadIdxOp_v.template output<0, 1>(),
+            G2rCooAtomicFormatLoadIdxOp_v.template output<1, 1>()(0)
+        );
+        // op_call |buf_idx=1| i + (-1) S2rAValLoadOp 
+        S2rAValLoadOp_v.template f<1>(
+            S2sCooAtomicValRestoreOp_v.template output<0, 1>()
+        );
+        // op_call |buf_idx=3| i + (-3) MmaOp 
+        MmaOp_v.template f<3>(
+            S2rAValLoadOp_v.template output<0, 3>(),
+            G2rBValLoadOp_v.template output<0, 3>()
+        );
+        // stage 2..3
+        // op_call |buf_idx=2| i + (0) G2rBValLoadOp 
+        G2rBValLoadOp_v.template f<2>(
+            B_valOp_v.template output<0>(),
+            S2rValSidxLoadOp_v.template output<0, 2>()
+        );
+        __pipeline_wait_prior(2);
+        __syncthreads();
+        // op_call |buf_idx=2| i + (0) S2sCooAtomicValRestoreOp 
+        S2sCooAtomicValRestoreOp_v.template f<2>(
+            G2sCooAtomicFormatLoadValOp_v.template output<0, 2>(),
+            G2rCooAtomicFormatLoadIdxOp_v.template output<0, 2>(),
+            G2rCooAtomicFormatLoadIdxOp_v.template output<1, 2>()(0)
+        );
+        // op_call |buf_idx=2| i + (0) S2rAValLoadOp 
+        S2rAValLoadOp_v.template f<2>(
+            S2sCooAtomicValRestoreOp_v.template output<0, 2>()
+        );
+        // op_call |buf_idx=0| i + (-2) MmaOp 
+        MmaOp_v.template f<0>(
+            S2rAValLoadOp_v.template output<0, 0>(),
+            G2rBValLoadOp_v.template output<0, 0>()
+        );
+        // op_call |buf_idx=3| i + (1) G2rBValLoadOp 
+        G2rBValLoadOp_v.template f<3>(
+            B_valOp_v.template output<0>(),
+            S2rValSidxLoadOp_v.template output<0, 3>()
+        );
+        __pipeline_wait_prior(1);
+        __syncthreads();
+        // op_call |buf_idx=3| i + (1) S2sCooAtomicValRestoreOp 
+        S2sCooAtomicValRestoreOp_v.template f<3>(
+            G2sCooAtomicFormatLoadValOp_v.template output<0, 3>(),
+            G2rCooAtomicFormatLoadIdxOp_v.template output<0, 3>(),
+            G2rCooAtomicFormatLoadIdxOp_v.template output<1, 3>()(0)
+        );
+        // op_call |buf_idx=3| i + (1) S2rAValLoadOp 
+        S2rAValLoadOp_v.template f<3>(
+            S2sCooAtomicValRestoreOp_v.template output<0, 3>()
+        );
+        // op_call |buf_idx=1| i + (-1) MmaOp 
+        MmaOp_v.template f<1>(
+            S2rAValLoadOp_v.template output<0, 1>(),
+            G2rBValLoadOp_v.template output<0, 1>()
+        );
+        // op_call |buf_idx=0| i + (2) G2rBValLoadOp 
         G2rBValLoadOp_v.template f<0>(
             B_valOp_v.template output<0>(),
             S2rValSidxLoadOp_v.template output<0, 0>()
         );
         __pipeline_wait_prior(0);
         __syncthreads();
+        // op_call |buf_idx=0| i + (2) S2sCooAtomicValRestoreOp 
         S2sCooAtomicValRestoreOp_v.template f<0>(
             G2sCooAtomicFormatLoadValOp_v.template output<0, 0>(),
             G2rCooAtomicFormatLoadIdxOp_v.template output<0, 0>(),
             G2rCooAtomicFormatLoadIdxOp_v.template output<1, 0>()(0)
         );
-        __syncthreads();
+        // op_call |buf_idx=0| i + (2) S2rAValLoadOp 
         S2rAValLoadOp_v.template f<0>(
             S2sCooAtomicValRestoreOp_v.template output<0, 0>()
         );
-        MmaOp_v.template f<1>(
-            S2rAValLoadOp_v.template output<0, 1>(),
-            G2rBValLoadOp_v.template output<0, 1>()
+        // op_call |buf_idx=2| i + (0) MmaOp 
+        MmaOp_v.template f<2>(
+            S2rAValLoadOp_v.template output<0, 2>(),
+            G2rBValLoadOp_v.template output<0, 2>()
         );
         // stage 3..3
+        // op_call |buf_idx=3| i + (1) MmaOp 
+        MmaOp_v.template f<3>(
+            S2rAValLoadOp_v.template output<0, 3>(),
+            G2rBValLoadOp_v.template output<0, 3>()
+        );
+        // op_call |buf_idx=0| i + (2) MmaOp 
         MmaOp_v.template f<0>(
             S2rAValLoadOp_v.template output<0, 0>(),
             G2rBValLoadOp_v.template output<0, 0>()
@@ -1683,11 +5558,17 @@ public:
     }
     
     CUTE_DEVICE void empty(int i, int l, int r) {
-        if ((r - l - i + (3)) % 2 == 0) {
-            empty_0(i, l, r);
+        if (r - l - i == 0) {
+            empty_after_remain_0(i, l, r);
         }
-        else if ((r - l - i + (3)) % 2 == 1) {
-            empty_1(i, l, r);
+        else if (r - l - i == 1) {
+            empty_after_remain_1(i, l, r);
+        }
+        else if (r - l - i == 2) {
+            empty_after_remain_2(i, l, r);
+        }
+        else if (r - l - i == 3) {
+            empty_after_remain_3(i, l, r);
         }
     }
     
@@ -1696,12 +5577,12 @@ public:
         int l = this->_l;
         int r = this->_r;
         int k = r - l;
-        if (k <= 3) {
+        if (k <= 10) {
             short_pipe(k, l, r);
         } else {
             fill(l, r);
             int i;
-            for (i = 3; i + 2 <= k; i += 2) {
+            for (i = 10; i + 4 <= k; i += 4) {
                 loop_step(i, l, r);
             }
             remainder(i, l, r);
@@ -1924,7 +5805,7 @@ __global__ void dtc_spmm_kernel_sstage_rstage(
     using ZerosOp_layout_o0 = typename ZerosOp_t::Layout_o0;
     float ZerosOp_tensor_o0[cosize_v<ZerosOp_layout_o0>];
     ZerosOp_t ZerosOp_v{tid, lid, wid, ZerosOp_tensor_o0};
-    using G2sValSidxLoadOp_t = G2sValSidxLoadOp<Int<2>, BLK_MNK, MMA_MNK, BLK_MMA_MNK>;
+    using G2sValSidxLoadOp_t = G2sValSidxLoadOp<Int<4>, BLK_MNK, MMA_MNK, BLK_MMA_MNK>;
     using G2sValSidxLoadOp_layout_o0 = typename G2sValSidxLoadOp_t::Layout_o0;
     __shared__ int G2sValSidxLoadOp_tensor_o0[cosize_v<G2sValSidxLoadOp_layout_o0>];
     G2sValSidxLoadOp_t G2sValSidxLoadOp_v{
@@ -1932,7 +5813,7 @@ __global__ void dtc_spmm_kernel_sstage_rstage(
         G2sValSidxLoadOp_tensor_o0, 
         nnz_block,
     };
-    using G2rCooAtomicFormatLoadOffOp_t = G2rCooAtomicFormatLoadOffOp<Int<2>, BLK_MNK, MMA_MNK, BLK_MMA_MNK>;
+    using G2rCooAtomicFormatLoadOffOp_t = G2rCooAtomicFormatLoadOffOp<Int<4>, BLK_MNK, MMA_MNK, BLK_MMA_MNK>;
     using G2rCooAtomicFormatLoadOffOp_layout_o0 = typename G2rCooAtomicFormatLoadOffOp_t::Layout_o0;
     using G2rCooAtomicFormatLoadOffOp_layout_o1 = typename G2rCooAtomicFormatLoadOffOp_t::Layout_o1;
     int G2rCooAtomicFormatLoadOffOp_tensor_o0[cosize_v<G2rCooAtomicFormatLoadOffOp_layout_o0>];
@@ -1942,14 +5823,14 @@ __global__ void dtc_spmm_kernel_sstage_rstage(
         G2rCooAtomicFormatLoadOffOp_tensor_o0, G2rCooAtomicFormatLoadOffOp_tensor_o1, 
         nnz_block,
     };
-    using S2rValSidxLoadOp_t = S2rValSidxLoadOp<Int<2>, BLK_MNK, MMA_MNK, BLK_MMA_MNK>;
+    using S2rValSidxLoadOp_t = S2rValSidxLoadOp<Int<4>, BLK_MNK, MMA_MNK, BLK_MMA_MNK>;
     using S2rValSidxLoadOp_layout_o0 = typename S2rValSidxLoadOp_t::Layout_o0;
     int S2rValSidxLoadOp_tensor_o0[cosize_v<S2rValSidxLoadOp_layout_o0>];
     S2rValSidxLoadOp_t S2rValSidxLoadOp_v{
         tid, lid, wid, 
         S2rValSidxLoadOp_tensor_o0,
     };
-    using G2sCooAtomicFormatLoadValOp_t = G2sCooAtomicFormatLoadValOp<Int<2>, BLK_MNK, MMA_MNK, BLK_MMA_MNK>;
+    using G2sCooAtomicFormatLoadValOp_t = G2sCooAtomicFormatLoadValOp<Int<4>, BLK_MNK, MMA_MNK, BLK_MMA_MNK>;
     using G2sCooAtomicFormatLoadValOp_layout_o0 = typename G2sCooAtomicFormatLoadValOp_t::Layout_o0;
     __shared__ half G2sCooAtomicFormatLoadValOp_tensor_o0[cosize_v<G2sCooAtomicFormatLoadValOp_layout_o0>];
     G2sCooAtomicFormatLoadValOp_t G2sCooAtomicFormatLoadValOp_v{
@@ -1957,7 +5838,7 @@ __global__ void dtc_spmm_kernel_sstage_rstage(
         G2sCooAtomicFormatLoadValOp_tensor_o0, 
         nnz,
     };
-    using G2rCooAtomicFormatLoadIdxOp_t = G2rCooAtomicFormatLoadIdxOp<Int<2>, BLK_MNK, MMA_MNK, BLK_MMA_MNK>;
+    using G2rCooAtomicFormatLoadIdxOp_t = G2rCooAtomicFormatLoadIdxOp<Int<4>, BLK_MNK, MMA_MNK, BLK_MMA_MNK>;
     using G2rCooAtomicFormatLoadIdxOp_layout_o0 = typename G2rCooAtomicFormatLoadIdxOp_t::Layout_o0;
     using G2rCooAtomicFormatLoadIdxOp_layout_o1 = typename G2rCooAtomicFormatLoadIdxOp_t::Layout_o1;
     int G2rCooAtomicFormatLoadIdxOp_tensor_o0[cosize_v<G2rCooAtomicFormatLoadIdxOp_layout_o0>];
@@ -1967,7 +5848,7 @@ __global__ void dtc_spmm_kernel_sstage_rstage(
         G2rCooAtomicFormatLoadIdxOp_tensor_o0, G2rCooAtomicFormatLoadIdxOp_tensor_o1, 
         nnz,
     };
-    using G2rBValLoadOp_t = G2rBValLoadOp<Int<2>, BLK_MNK, MMA_MNK, BLK_MMA_MNK>;
+    using G2rBValLoadOp_t = G2rBValLoadOp<Int<4>, BLK_MNK, MMA_MNK, BLK_MMA_MNK>;
     using G2rBValLoadOp_layout_o0 = typename G2rBValLoadOp_t::Layout_o0;
     half G2rBValLoadOp_tensor_o0[cosize_v<G2rBValLoadOp_layout_o0>];
     G2rBValLoadOp_t G2rBValLoadOp_v{
@@ -1975,21 +5856,21 @@ __global__ void dtc_spmm_kernel_sstage_rstage(
         G2rBValLoadOp_tensor_o0, 
         K,
     };
-    using S2sCooAtomicValRestoreOp_t = S2sCooAtomicValRestoreOp<Int<2>, BLK_MNK, MMA_MNK, BLK_MMA_MNK>;
+    using S2sCooAtomicValRestoreOp_t = S2sCooAtomicValRestoreOp<Int<4>, BLK_MNK, MMA_MNK, BLK_MMA_MNK>;
     using S2sCooAtomicValRestoreOp_layout_o0 = typename S2sCooAtomicValRestoreOp_t::Layout_o0;
     __shared__ half S2sCooAtomicValRestoreOp_tensor_o0[cosize_v<S2sCooAtomicValRestoreOp_layout_o0>];
     S2sCooAtomicValRestoreOp_t S2sCooAtomicValRestoreOp_v{
         tid, lid, wid, 
         S2sCooAtomicValRestoreOp_tensor_o0,
     };
-    using S2rAValLoadOp_t = S2rAValLoadOp<Int<2>, BLK_MNK, MMA_MNK, BLK_MMA_MNK>;
+    using S2rAValLoadOp_t = S2rAValLoadOp<Int<4>, BLK_MNK, MMA_MNK, BLK_MMA_MNK>;
     using S2rAValLoadOp_layout_o0 = typename S2rAValLoadOp_t::Layout_o0;
     half S2rAValLoadOp_tensor_o0[cosize_v<S2rAValLoadOp_layout_o0>];
     S2rAValLoadOp_t S2rAValLoadOp_v{
         tid, lid, wid, 
         S2rAValLoadOp_tensor_o0,
     };
-    using MmaOp_t = MmaOp<Int<2>, BLK_MNK, MMA_MNK, BLK_MMA_MNK, std::decay_t<decltype(ZerosOp_v.template output<0>())>>;
+    using MmaOp_t = MmaOp<Int<4>, BLK_MNK, MMA_MNK, BLK_MMA_MNK, std::decay_t<decltype(ZerosOp_v.template output<0>())>>;
     MmaOp_t MmaOp_v{
         tid, lid, wid, 
         ZerosOp_v.template output<0>(),

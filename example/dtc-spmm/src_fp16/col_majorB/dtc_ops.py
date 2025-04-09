@@ -632,6 +632,7 @@ if (lid * 8 < rr - ll) {
                     mem="smem",
                     dtype="half",
                 ),
+                cp_async=False,
             ),
         ],
         impl=NvOpImpl(
@@ -862,7 +863,7 @@ if __name__ == "__main__":
 
     apply_pipeline(
         dtc_main_loop_op,
-        PipelinePlan([s0, s1, s2, s3], [2, 2, 2]),
+        PipelinePlan([s0, s1, s2, s3], [2, 3, 2]),
     )
 
     script_dir = os.path.dirname(__file__)
