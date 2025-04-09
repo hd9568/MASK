@@ -844,19 +844,19 @@ if __name__ == "__main__":
         mma_op,
     )
 
-    plans = enumerate_pipeline_plans(dtc_main_loop_op)
-    for plan in plans:
-        new_loop, new_dtc_program = dtc()
-        apply_pipeline(new_loop, plan)
-        print(NvIrCodeGenerator().dump_nvop_program(new_dtc_program))
+    # plans = enumerate_pipeline_plans(dtc_main_loop_op)
+    # for plan in plans:
+    #     new_loop, new_dtc_program = dtc()
+    #     apply_pipeline(new_loop, plan)
+    #     print(NvIrCodeGenerator().dump_nvop_program(new_dtc_program))
 
 # bit-bsr
 # flash-llm
 #### acc-spmm (dtc-spmm + 修改restore A val)
 
-    # apply_pipeline(
-    #     dtc_main_loop_op,
-    #     PipelinePlan([s0, s1, s2, s3], [1, 1, 1]),
-    # )
+    apply_pipeline(
+        dtc_main_loop_op,
+        PipelinePlan([s0, s1, s2, s3], [2, 3, 2]),
+    )
 
     print(NvIrCodeGenerator().dump_nvop_program(dtc_program))

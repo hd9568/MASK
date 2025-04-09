@@ -535,11 +535,18 @@ class NvIrCodeGenerator:
             + "\n);"
         )
 
+    # TODO: 调整commit和wait num的发射逻辑：所有以SMEM为输出的Op都添加commit；wait num每个op判断wait num
+    # TODO: short pipe 延长到sum shifts + max shift(现在是sum shifts)
+    # TODO: 依赖的种类
+        # 输入是SMEM
+        # 输出是SMEM,但是这个SMEM的owner是其他op(origin带来的依赖)
+        # depends_on(op1, op2) -> bool:
     def dump_short_parallel(self, pipeline: NvOpPipeline) -> str:
         stages = pipeline.stages
         shifts = pipeline.shifts
 
-        def get_wait_num(
+        #! deprecated
+        def get_wait_num_old(
             op: NvOp, i: int, pipeline_records: List[List[Tuple[NvOp, int]]]
         ) -> int:
             wait_num = 0
@@ -567,6 +574,33 @@ class NvIrCodeGenerator:
             if not find_flag:
                 return -1
 
+        
+        def depends_on(current_op: NvOp, depend_op: NvOp) -> bool:
+            for inp in current_op.inputs:
+                if not isinstance(inp.tensor.source, NvOpOutput):
+                    continue
+                assert isinstance(inp.tensor.source.op, NvOp)
+                # print("debug inp tensor source = ", inp.tensor.source)
+                if inp.tensor.source.op.name == depend_op.name:
+                    return True
+            return False
+
+        def get_wait_num(current_op: NvOp, i: int, pipeline_records: List[Tuple[NvOp, int]]) -> int:
+            wait_num = 0
+            for item in reversed(pipeline_records):
+                if i == item[1] and depends_on(current_op, item[0]):
+                    return wait_num
+                else: 
+                    wait_num += 1
+            return -1
+
+        def launch_commit(current_op: NvOp) -> bool:
+            # 输出是否有SMEM的东西
+            for opt in current_op.outputs:
+                if opt.tensor.mem == "smem":
+                    return True
+            return False
+
         def dump_short_parallel_i(i, K_total, pipeline_records) -> str:
             output_str = f"// i = {i}\n"
             op_list: List[Tuple[NvOp, int]] = []  # {op, "i"}
@@ -584,50 +618,66 @@ class NvIrCodeGenerator:
                         op_list.append((op, i - shift_val))
             # for item in op_list:
             #     print(f"{{{item[0].name}, {item[1]}}}, ")
-            # > 2. op list 排序，g2s的op在前
-            # return output_str
-            op_list_g2s: List[Tuple[NvOp, int]] = []
-            op_list_other: List[Tuple[NvOp, int]] = []
+            # > 顺序发射op list。每个op: 1. 判断依赖关系，决定是否发射wait; 2. 发射op; 3. 判断是否需要发射commit
             for item in op_list:
-                if item[0].mem_type == ("g", "s"):
-                    op_list_g2s.append(item)
-                else:
-                    op_list_other.append(item)
-            logger.debug("op_list_g2s:")
-            for item in op_list_g2s:
-                logger.debug(f"\t{{{item[0].name}, {item[1]}}}, ")
-            logger.debug("op_list_other:")
-            for item in op_list_other:
-                logger.debug(f"\t{{{item[0].name}, {item[1]}}}, ")
-            # return output_str
-
-            # > 生成g2s操作
-            for item in op_list_g2s:
+                #> i. 判断依赖关系，决定是否发射wait
+                wait_num = get_wait_num(item[0], item[1], pipeline_records)
+                if wait_num != -1:
+                    output_str += (f"__pipeline_wait_prior({wait_num});\n__syncthreads();\n")
+                #> ii. 发射op
                 buf_idx_str = str(item[1] % nbuf_num)
                 shift_constant = str(i)
-                output_str += (
-                    self.dump_f_method_call(item[0], buf_idx_str, shift_constant) + "\n"
-                )
+                output_str += (self.dump_f_method_call(item[0], buf_idx_str, shift_constant) + "\n")
+                #> iii. 判断是否发射commit
+                if launch_commit(item[0]):
+                    output_str += "__pipeline_commit();\n"
+                    pipeline_records.append(item)
 
-            # > 3. 所有g2s操作做完之后整体添加一个commit
-            if len(op_list_g2s) != 0:
-                output_str += "__pipeline_commit();\n"
-                pipeline_records.append(op_list_g2s)
-            # return output_str
-            # > 4. 生成所有其他op
-            for item in op_list_other:
-                # > 如果是从SMEM到其他位置的op，需要插入一条wait prior指令
-                if item[0].mem_type[0] == "s":
-                    wait_num = get_wait_num(item[0], item[1], pipeline_records)
-                    if wait_num != -1:
-                        output_str += (
-                            f"__pipeline_wait_prior({wait_num});\n__syncthreads();\n"
-                        )
-                buf_idx_str = str(item[1] % nbuf_num)
-                shift_constant = str(i)
-                output_str += (
-                    self.dump_f_method_call(item[0], buf_idx_str, shift_constant) + "\n"
-                )
+
+            # # > 2. op list 排序，g2s的op在前
+            # # return output_str
+            # op_list_g2s: List[Tuple[NvOp, int]] = []
+            # op_list_other: List[Tuple[NvOp, int]] = []
+            # for item in op_list:
+            #     if item[0].mem_type == ("g", "s"):
+            #         op_list_g2s.append(item)
+            #     else:
+            #         op_list_other.append(item)
+            # logger.debug("op_list_g2s:")
+            # for item in op_list_g2s:
+            #     logger.debug(f"\t{{{item[0].name}, {item[1]}}}, ")
+            # logger.debug("op_list_other:")
+            # for item in op_list_other:
+            #     logger.debug(f"\t{{{item[0].name}, {item[1]}}}, ")
+            # # return output_str
+
+            # # > 生成g2s操作
+            # for item in op_list_g2s:
+            #     buf_idx_str = str(item[1] % nbuf_num)
+            #     shift_constant = str(i)
+            #     output_str += (
+            #         self.dump_f_method_call(item[0], buf_idx_str, shift_constant) + "\n"
+            #     )
+
+            # # > 3. 所有g2s操作做完之后整体添加一个commit
+            # if len(op_list_g2s) != 0:
+            #     output_str += "__pipeline_commit();\n"
+            #     pipeline_records.append(op_list_g2s)
+            # # return output_str
+            # # > 4. 生成所有其他op
+            # for item in op_list_other:
+            #     # > 如果是从SMEM到其他位置的op，需要插入一条wait prior指令
+            #     if item[0].mem_type[0] == "s":
+            #         wait_num = get_wait_num(item[0], item[1], pipeline_records)
+            #         if wait_num != -1:
+            #             output_str += (
+            #                 f"__pipeline_wait_prior({wait_num});\n__syncthreads();\n"
+            #             )
+            #     buf_idx_str = str(item[1] % nbuf_num)
+            #     shift_constant = str(i)
+            #     output_str += (
+            #         self.dump_f_method_call(item[0], buf_idx_str, shift_constant) + "\n"
+            #     )
 
             return output_str
 
@@ -638,7 +688,7 @@ class NvIrCodeGenerator:
                 output_strs.append(dump_short_parallel_i(i, K_total, pipeline_records))
             return "\n\n".join(output_strs)
 
-        total_stages = sum(shifts)
+        total_stages = sum(shifts) + max(shifts)
 
         output_str = ""  #! 函数头参数似乎时固定的？(pipeline_switch + pipeline)
         for K_total in range(total_stages + 1):
