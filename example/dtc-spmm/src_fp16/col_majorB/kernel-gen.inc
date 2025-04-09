@@ -1109,9 +1109,6 @@ public:
                 G2rCooAtomicFormatLoadIdxOp_v.template output<0, 0>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<1, 0>()(0)
             );
-            __pipeline_commit();
-            __pipeline_wait_prior(0);
-            __syncthreads();
             S2rAValLoadOp_v.template f<0>(
                 S2sCooAtomicValRestoreOp_v.template output<0, 0>()
             );
@@ -1205,9 +1202,6 @@ public:
                 G2rCooAtomicFormatLoadIdxOp_v.template output<0, 0>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<1, 0>()(0)
             );
-            __pipeline_commit();
-            __pipeline_wait_prior(0);
-            __syncthreads();
             S2rAValLoadOp_v.template f<0>(
                 S2sCooAtomicValRestoreOp_v.template output<0, 0>()
             );
@@ -1218,16 +1212,13 @@ public:
                 B_valOp_v.template output<0>(),
                 S2rValSidxLoadOp_v.template output<0, 1>()
             );
-            __pipeline_wait_prior(1);
+            __pipeline_wait_prior(0);
             __syncthreads();
             S2sCooAtomicValRestoreOp_v.template f<1>(
                 G2sCooAtomicFormatLoadValOp_v.template output<0, 1>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<0, 1>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<1, 1>()(0)
             );
-            __pipeline_commit();
-            __pipeline_wait_prior(0);
-            __syncthreads();
             S2rAValLoadOp_v.template f<1>(
                 S2sCooAtomicValRestoreOp_v.template output<0, 1>()
             );
@@ -1350,9 +1341,6 @@ public:
                 G2rCooAtomicFormatLoadIdxOp_v.template output<0, 0>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<1, 0>()(0)
             );
-            __pipeline_commit();
-            __pipeline_wait_prior(0);
-            __syncthreads();
             S2rAValLoadOp_v.template f<0>(
                 S2sCooAtomicValRestoreOp_v.template output<0, 0>()
             );
@@ -1363,16 +1351,13 @@ public:
                 B_valOp_v.template output<0>(),
                 S2rValSidxLoadOp_v.template output<0, 1>()
             );
-            __pipeline_wait_prior(2);
+            __pipeline_wait_prior(1);
             __syncthreads();
             S2sCooAtomicValRestoreOp_v.template f<1>(
                 G2sCooAtomicFormatLoadValOp_v.template output<0, 1>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<0, 1>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<1, 1>()(0)
             );
-            __pipeline_commit();
-            __pipeline_wait_prior(0);
-            __syncthreads();
             S2rAValLoadOp_v.template f<1>(
                 S2sCooAtomicValRestoreOp_v.template output<0, 1>()
             );
@@ -1383,16 +1368,13 @@ public:
                 B_valOp_v.template output<0>(),
                 S2rValSidxLoadOp_v.template output<0, 2>()
             );
-            __pipeline_wait_prior(2);
+            __pipeline_wait_prior(0);
             __syncthreads();
             S2sCooAtomicValRestoreOp_v.template f<2>(
                 G2sCooAtomicFormatLoadValOp_v.template output<0, 2>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<0, 2>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<1, 2>()(0)
             );
-            __pipeline_commit();
-            __pipeline_wait_prior(0);
-            __syncthreads();
             S2rAValLoadOp_v.template f<2>(
                 S2sCooAtomicValRestoreOp_v.template output<0, 2>()
             );
@@ -1544,9 +1526,6 @@ public:
                 G2rCooAtomicFormatLoadIdxOp_v.template output<0, 0>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<1, 0>()(0)
             );
-            __pipeline_commit();
-            __pipeline_wait_prior(0);
-            __syncthreads();
             S2rAValLoadOp_v.template f<0>(
                 S2sCooAtomicValRestoreOp_v.template output<0, 0>()
             );
@@ -1557,16 +1536,13 @@ public:
                 B_valOp_v.template output<0>(),
                 S2rValSidxLoadOp_v.template output<0, 1>()
             );
-            __pipeline_wait_prior(3);
+            __pipeline_wait_prior(2);
             __syncthreads();
             S2sCooAtomicValRestoreOp_v.template f<1>(
                 G2sCooAtomicFormatLoadValOp_v.template output<0, 1>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<0, 1>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<1, 1>()(0)
             );
-            __pipeline_commit();
-            __pipeline_wait_prior(0);
-            __syncthreads();
             S2rAValLoadOp_v.template f<1>(
                 S2sCooAtomicValRestoreOp_v.template output<0, 1>()
             );
@@ -1577,16 +1553,13 @@ public:
                 B_valOp_v.template output<0>(),
                 S2rValSidxLoadOp_v.template output<0, 2>()
             );
-            __pipeline_wait_prior(3);
+            __pipeline_wait_prior(1);
             __syncthreads();
             S2sCooAtomicValRestoreOp_v.template f<2>(
                 G2sCooAtomicFormatLoadValOp_v.template output<0, 2>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<0, 2>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<1, 2>()(0)
             );
-            __pipeline_commit();
-            __pipeline_wait_prior(0);
-            __syncthreads();
             S2rAValLoadOp_v.template f<2>(
                 S2sCooAtomicValRestoreOp_v.template output<0, 2>()
             );
@@ -1601,16 +1574,13 @@ public:
                 B_valOp_v.template output<0>(),
                 S2rValSidxLoadOp_v.template output<0, 3>()
             );
-            __pipeline_wait_prior(3);
+            __pipeline_wait_prior(0);
             __syncthreads();
             S2sCooAtomicValRestoreOp_v.template f<3>(
                 G2sCooAtomicFormatLoadValOp_v.template output<0, 3>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<0, 3>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<1, 3>()(0)
             );
-            __pipeline_commit();
-            __pipeline_wait_prior(0);
-            __syncthreads();
             S2rAValLoadOp_v.template f<3>(
                 S2sCooAtomicValRestoreOp_v.template output<0, 3>()
             );
@@ -1771,16 +1741,13 @@ public:
                 G2rCooAtomicFormatLoadIdxOp_v.template output<0, 0>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<1, 0>()(0)
             );
-            __pipeline_commit();
-            __pipeline_wait_prior(0);
-            __syncthreads();
             S2rAValLoadOp_v.template f<0>(
                 S2sCooAtomicValRestoreOp_v.template output<0, 0>()
             );
             
             
             // i = 6
-            __pipeline_wait_prior(3);
+            __pipeline_wait_prior(2);
             __syncthreads();
             S2rValSidxLoadOp_v.template f<0>(
                 G2sValSidxLoadOp_v.template output<0, 0>()
@@ -1800,16 +1767,13 @@ public:
                 B_valOp_v.template output<0>(),
                 S2rValSidxLoadOp_v.template output<0, 1>()
             );
-            __pipeline_wait_prior(5);
+            __pipeline_wait_prior(4);
             __syncthreads();
             S2sCooAtomicValRestoreOp_v.template f<1>(
                 G2sCooAtomicFormatLoadValOp_v.template output<0, 1>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<0, 1>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<1, 1>()(0)
             );
-            __pipeline_commit();
-            __pipeline_wait_prior(0);
-            __syncthreads();
             S2rAValLoadOp_v.template f<1>(
                 S2sCooAtomicValRestoreOp_v.template output<0, 1>()
             );
@@ -1820,16 +1784,13 @@ public:
                 B_valOp_v.template output<0>(),
                 S2rValSidxLoadOp_v.template output<0, 2>()
             );
-            __pipeline_wait_prior(4);
+            __pipeline_wait_prior(2);
             __syncthreads();
             S2sCooAtomicValRestoreOp_v.template f<2>(
                 G2sCooAtomicFormatLoadValOp_v.template output<0, 2>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<0, 2>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<1, 2>()(0)
             );
-            __pipeline_commit();
-            __pipeline_wait_prior(0);
-            __syncthreads();
             S2rAValLoadOp_v.template f<2>(
                 S2sCooAtomicValRestoreOp_v.template output<0, 2>()
             );
@@ -1844,16 +1805,13 @@ public:
                 B_valOp_v.template output<0>(),
                 S2rValSidxLoadOp_v.template output<0, 3>()
             );
-            __pipeline_wait_prior(4);
+            __pipeline_wait_prior(1);
             __syncthreads();
             S2sCooAtomicValRestoreOp_v.template f<3>(
                 G2sCooAtomicFormatLoadValOp_v.template output<0, 3>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<0, 3>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<1, 3>()(0)
             );
-            __pipeline_commit();
-            __pipeline_wait_prior(0);
-            __syncthreads();
             S2rAValLoadOp_v.template f<3>(
                 S2sCooAtomicValRestoreOp_v.template output<0, 3>()
             );
@@ -1868,16 +1826,13 @@ public:
                 B_valOp_v.template output<0>(),
                 S2rValSidxLoadOp_v.template output<0, 0>()
             );
-            __pipeline_wait_prior(3);
+            __pipeline_wait_prior(0);
             __syncthreads();
             S2sCooAtomicValRestoreOp_v.template f<0>(
                 G2sCooAtomicFormatLoadValOp_v.template output<0, 0>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<0, 0>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<1, 0>()(0)
             );
-            __pipeline_commit();
-            __pipeline_wait_prior(0);
-            __syncthreads();
             S2rAValLoadOp_v.template f<0>(
                 S2sCooAtomicValRestoreOp_v.template output<0, 0>()
             );
@@ -2047,16 +2002,13 @@ public:
                 G2rCooAtomicFormatLoadIdxOp_v.template output<0, 0>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<1, 0>()(0)
             );
-            __pipeline_commit();
-            __pipeline_wait_prior(0);
-            __syncthreads();
             S2rAValLoadOp_v.template f<0>(
                 S2sCooAtomicValRestoreOp_v.template output<0, 0>()
             );
             
             
             // i = 6
-            __pipeline_wait_prior(4);
+            __pipeline_wait_prior(3);
             __syncthreads();
             S2rValSidxLoadOp_v.template f<0>(
                 G2sValSidxLoadOp_v.template output<0, 0>()
@@ -2076,23 +2028,20 @@ public:
                 B_valOp_v.template output<0>(),
                 S2rValSidxLoadOp_v.template output<0, 1>()
             );
-            __pipeline_wait_prior(6);
+            __pipeline_wait_prior(5);
             __syncthreads();
             S2sCooAtomicValRestoreOp_v.template f<1>(
                 G2sCooAtomicFormatLoadValOp_v.template output<0, 1>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<0, 1>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<1, 1>()(0)
             );
-            __pipeline_commit();
-            __pipeline_wait_prior(0);
-            __syncthreads();
             S2rAValLoadOp_v.template f<1>(
                 S2sCooAtomicValRestoreOp_v.template output<0, 1>()
             );
             
             
             // i = 7
-            __pipeline_wait_prior(4);
+            __pipeline_wait_prior(2);
             __syncthreads();
             S2rValSidxLoadOp_v.template f<1>(
                 G2sValSidxLoadOp_v.template output<0, 1>()
@@ -2112,16 +2061,13 @@ public:
                 B_valOp_v.template output<0>(),
                 S2rValSidxLoadOp_v.template output<0, 2>()
             );
-            __pipeline_wait_prior(6);
+            __pipeline_wait_prior(4);
             __syncthreads();
             S2sCooAtomicValRestoreOp_v.template f<2>(
                 G2sCooAtomicFormatLoadValOp_v.template output<0, 2>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<0, 2>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<1, 2>()(0)
             );
-            __pipeline_commit();
-            __pipeline_wait_prior(0);
-            __syncthreads();
             S2rAValLoadOp_v.template f<2>(
                 S2sCooAtomicValRestoreOp_v.template output<0, 2>()
             );
@@ -2136,16 +2082,13 @@ public:
                 B_valOp_v.template output<0>(),
                 S2rValSidxLoadOp_v.template output<0, 3>()
             );
-            __pipeline_wait_prior(5);
+            __pipeline_wait_prior(2);
             __syncthreads();
             S2sCooAtomicValRestoreOp_v.template f<3>(
                 G2sCooAtomicFormatLoadValOp_v.template output<0, 3>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<0, 3>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<1, 3>()(0)
             );
-            __pipeline_commit();
-            __pipeline_wait_prior(0);
-            __syncthreads();
             S2rAValLoadOp_v.template f<3>(
                 S2sCooAtomicValRestoreOp_v.template output<0, 3>()
             );
@@ -2160,16 +2103,13 @@ public:
                 B_valOp_v.template output<0>(),
                 S2rValSidxLoadOp_v.template output<0, 0>()
             );
-            __pipeline_wait_prior(4);
+            __pipeline_wait_prior(1);
             __syncthreads();
             S2sCooAtomicValRestoreOp_v.template f<0>(
                 G2sCooAtomicFormatLoadValOp_v.template output<0, 0>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<0, 0>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<1, 0>()(0)
             );
-            __pipeline_commit();
-            __pipeline_wait_prior(0);
-            __syncthreads();
             S2rAValLoadOp_v.template f<0>(
                 S2sCooAtomicValRestoreOp_v.template output<0, 0>()
             );
@@ -2184,16 +2124,13 @@ public:
                 B_valOp_v.template output<0>(),
                 S2rValSidxLoadOp_v.template output<0, 1>()
             );
-            __pipeline_wait_prior(3);
+            __pipeline_wait_prior(0);
             __syncthreads();
             S2sCooAtomicValRestoreOp_v.template f<1>(
                 G2sCooAtomicFormatLoadValOp_v.template output<0, 1>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<0, 1>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<1, 1>()(0)
             );
-            __pipeline_commit();
-            __pipeline_wait_prior(0);
-            __syncthreads();
             S2rAValLoadOp_v.template f<1>(
                 S2sCooAtomicValRestoreOp_v.template output<0, 1>()
             );
@@ -2363,9 +2300,6 @@ public:
                 G2rCooAtomicFormatLoadIdxOp_v.template output<0, 0>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<1, 0>()(0)
             );
-            __pipeline_commit();
-            __pipeline_wait_prior(0);
-            __syncthreads();
             S2rAValLoadOp_v.template f<0>(
                 S2sCooAtomicValRestoreOp_v.template output<0, 0>()
             );
@@ -2381,7 +2315,7 @@ public:
                 val_coo_offOp_v.template output<0>(),
                 l + 6
             );
-            __pipeline_wait_prior(5);
+            __pipeline_wait_prior(4);
             __syncthreads();
             S2rValSidxLoadOp_v.template f<0>(
                 G2sValSidxLoadOp_v.template output<0, 0>()
@@ -2401,23 +2335,20 @@ public:
                 B_valOp_v.template output<0>(),
                 S2rValSidxLoadOp_v.template output<0, 1>()
             );
-            __pipeline_wait_prior(7);
+            __pipeline_wait_prior(6);
             __syncthreads();
             S2sCooAtomicValRestoreOp_v.template f<1>(
                 G2sCooAtomicFormatLoadValOp_v.template output<0, 1>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<0, 1>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<1, 1>()(0)
             );
-            __pipeline_commit();
-            __pipeline_wait_prior(0);
-            __syncthreads();
             S2rAValLoadOp_v.template f<1>(
                 S2sCooAtomicValRestoreOp_v.template output<0, 1>()
             );
             
             
             // i = 7
-            __pipeline_wait_prior(5);
+            __pipeline_wait_prior(3);
             __syncthreads();
             S2rValSidxLoadOp_v.template f<1>(
                 G2sValSidxLoadOp_v.template output<0, 1>()
@@ -2437,16 +2368,13 @@ public:
                 B_valOp_v.template output<0>(),
                 S2rValSidxLoadOp_v.template output<0, 2>()
             );
-            __pipeline_wait_prior(7);
+            __pipeline_wait_prior(5);
             __syncthreads();
             S2sCooAtomicValRestoreOp_v.template f<2>(
                 G2sCooAtomicFormatLoadValOp_v.template output<0, 2>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<0, 2>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<1, 2>()(0)
             );
-            __pipeline_commit();
-            __pipeline_wait_prior(0);
-            __syncthreads();
             S2rAValLoadOp_v.template f<2>(
                 S2sCooAtomicValRestoreOp_v.template output<0, 2>()
             );
@@ -2457,7 +2385,7 @@ public:
             
             
             // i = 8
-            __pipeline_wait_prior(4);
+            __pipeline_wait_prior(2);
             __syncthreads();
             S2rValSidxLoadOp_v.template f<2>(
                 G2sValSidxLoadOp_v.template output<0, 2>()
@@ -2477,16 +2405,13 @@ public:
                 B_valOp_v.template output<0>(),
                 S2rValSidxLoadOp_v.template output<0, 3>()
             );
-            __pipeline_wait_prior(7);
+            __pipeline_wait_prior(4);
             __syncthreads();
             S2sCooAtomicValRestoreOp_v.template f<3>(
                 G2sCooAtomicFormatLoadValOp_v.template output<0, 3>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<0, 3>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<1, 3>()(0)
             );
-            __pipeline_commit();
-            __pipeline_wait_prior(0);
-            __syncthreads();
             S2rAValLoadOp_v.template f<3>(
                 S2sCooAtomicValRestoreOp_v.template output<0, 3>()
             );
@@ -2501,16 +2426,13 @@ public:
                 B_valOp_v.template output<0>(),
                 S2rValSidxLoadOp_v.template output<0, 0>()
             );
-            __pipeline_wait_prior(5);
+            __pipeline_wait_prior(2);
             __syncthreads();
             S2sCooAtomicValRestoreOp_v.template f<0>(
                 G2sCooAtomicFormatLoadValOp_v.template output<0, 0>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<0, 0>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<1, 0>()(0)
             );
-            __pipeline_commit();
-            __pipeline_wait_prior(0);
-            __syncthreads();
             S2rAValLoadOp_v.template f<0>(
                 S2sCooAtomicValRestoreOp_v.template output<0, 0>()
             );
@@ -2525,16 +2447,13 @@ public:
                 B_valOp_v.template output<0>(),
                 S2rValSidxLoadOp_v.template output<0, 1>()
             );
-            __pipeline_wait_prior(4);
+            __pipeline_wait_prior(1);
             __syncthreads();
             S2sCooAtomicValRestoreOp_v.template f<1>(
                 G2sCooAtomicFormatLoadValOp_v.template output<0, 1>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<0, 1>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<1, 1>()(0)
             );
-            __pipeline_commit();
-            __pipeline_wait_prior(0);
-            __syncthreads();
             S2rAValLoadOp_v.template f<1>(
                 S2sCooAtomicValRestoreOp_v.template output<0, 1>()
             );
@@ -2549,16 +2468,13 @@ public:
                 B_valOp_v.template output<0>(),
                 S2rValSidxLoadOp_v.template output<0, 2>()
             );
-            __pipeline_wait_prior(3);
+            __pipeline_wait_prior(0);
             __syncthreads();
             S2sCooAtomicValRestoreOp_v.template f<2>(
                 G2sCooAtomicFormatLoadValOp_v.template output<0, 2>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<0, 2>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<1, 2>()(0)
             );
-            __pipeline_commit();
-            __pipeline_wait_prior(0);
-            __syncthreads();
             S2rAValLoadOp_v.template f<2>(
                 S2sCooAtomicValRestoreOp_v.template output<0, 2>()
             );
@@ -2728,9 +2644,6 @@ public:
                 G2rCooAtomicFormatLoadIdxOp_v.template output<0, 0>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<1, 0>()(0)
             );
-            __pipeline_commit();
-            __pipeline_wait_prior(0);
-            __syncthreads();
             S2rAValLoadOp_v.template f<0>(
                 S2sCooAtomicValRestoreOp_v.template output<0, 0>()
             );
@@ -2746,7 +2659,7 @@ public:
                 val_coo_offOp_v.template output<0>(),
                 l + 6
             );
-            __pipeline_wait_prior(5);
+            __pipeline_wait_prior(4);
             __syncthreads();
             S2rValSidxLoadOp_v.template f<0>(
                 G2sValSidxLoadOp_v.template output<0, 0>()
@@ -2766,16 +2679,13 @@ public:
                 B_valOp_v.template output<0>(),
                 S2rValSidxLoadOp_v.template output<0, 1>()
             );
-            __pipeline_wait_prior(7);
+            __pipeline_wait_prior(6);
             __syncthreads();
             S2sCooAtomicValRestoreOp_v.template f<1>(
                 G2sCooAtomicFormatLoadValOp_v.template output<0, 1>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<0, 1>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<1, 1>()(0)
             );
-            __pipeline_commit();
-            __pipeline_wait_prior(0);
-            __syncthreads();
             S2rAValLoadOp_v.template f<1>(
                 S2sCooAtomicValRestoreOp_v.template output<0, 1>()
             );
@@ -2791,7 +2701,7 @@ public:
                 val_coo_offOp_v.template output<0>(),
                 l + 7
             );
-            __pipeline_wait_prior(6);
+            __pipeline_wait_prior(4);
             __syncthreads();
             S2rValSidxLoadOp_v.template f<1>(
                 G2sValSidxLoadOp_v.template output<0, 1>()
@@ -2811,16 +2721,13 @@ public:
                 B_valOp_v.template output<0>(),
                 S2rValSidxLoadOp_v.template output<0, 2>()
             );
-            __pipeline_wait_prior(8);
+            __pipeline_wait_prior(6);
             __syncthreads();
             S2sCooAtomicValRestoreOp_v.template f<2>(
                 G2sCooAtomicFormatLoadValOp_v.template output<0, 2>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<0, 2>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<1, 2>()(0)
             );
-            __pipeline_commit();
-            __pipeline_wait_prior(0);
-            __syncthreads();
             S2rAValLoadOp_v.template f<2>(
                 S2sCooAtomicValRestoreOp_v.template output<0, 2>()
             );
@@ -2831,7 +2738,7 @@ public:
             
             
             // i = 8
-            __pipeline_wait_prior(5);
+            __pipeline_wait_prior(3);
             __syncthreads();
             S2rValSidxLoadOp_v.template f<2>(
                 G2sValSidxLoadOp_v.template output<0, 2>()
@@ -2851,16 +2758,13 @@ public:
                 B_valOp_v.template output<0>(),
                 S2rValSidxLoadOp_v.template output<0, 3>()
             );
-            __pipeline_wait_prior(8);
+            __pipeline_wait_prior(5);
             __syncthreads();
             S2sCooAtomicValRestoreOp_v.template f<3>(
                 G2sCooAtomicFormatLoadValOp_v.template output<0, 3>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<0, 3>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<1, 3>()(0)
             );
-            __pipeline_commit();
-            __pipeline_wait_prior(0);
-            __syncthreads();
             S2rAValLoadOp_v.template f<3>(
                 S2sCooAtomicValRestoreOp_v.template output<0, 3>()
             );
@@ -2871,7 +2775,7 @@ public:
             
             
             // i = 9
-            __pipeline_wait_prior(4);
+            __pipeline_wait_prior(2);
             __syncthreads();
             S2rValSidxLoadOp_v.template f<3>(
                 G2sValSidxLoadOp_v.template output<0, 3>()
@@ -2891,16 +2795,13 @@ public:
                 B_valOp_v.template output<0>(),
                 S2rValSidxLoadOp_v.template output<0, 0>()
             );
-            __pipeline_wait_prior(7);
+            __pipeline_wait_prior(4);
             __syncthreads();
             S2sCooAtomicValRestoreOp_v.template f<0>(
                 G2sCooAtomicFormatLoadValOp_v.template output<0, 0>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<0, 0>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<1, 0>()(0)
             );
-            __pipeline_commit();
-            __pipeline_wait_prior(0);
-            __syncthreads();
             S2rAValLoadOp_v.template f<0>(
                 S2sCooAtomicValRestoreOp_v.template output<0, 0>()
             );
@@ -2915,16 +2816,13 @@ public:
                 B_valOp_v.template output<0>(),
                 S2rValSidxLoadOp_v.template output<0, 1>()
             );
-            __pipeline_wait_prior(5);
+            __pipeline_wait_prior(2);
             __syncthreads();
             S2sCooAtomicValRestoreOp_v.template f<1>(
                 G2sCooAtomicFormatLoadValOp_v.template output<0, 1>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<0, 1>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<1, 1>()(0)
             );
-            __pipeline_commit();
-            __pipeline_wait_prior(0);
-            __syncthreads();
             S2rAValLoadOp_v.template f<1>(
                 S2sCooAtomicValRestoreOp_v.template output<0, 1>()
             );
@@ -2939,16 +2837,13 @@ public:
                 B_valOp_v.template output<0>(),
                 S2rValSidxLoadOp_v.template output<0, 2>()
             );
-            __pipeline_wait_prior(4);
+            __pipeline_wait_prior(1);
             __syncthreads();
             S2sCooAtomicValRestoreOp_v.template f<2>(
                 G2sCooAtomicFormatLoadValOp_v.template output<0, 2>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<0, 2>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<1, 2>()(0)
             );
-            __pipeline_commit();
-            __pipeline_wait_prior(0);
-            __syncthreads();
             S2rAValLoadOp_v.template f<2>(
                 S2sCooAtomicValRestoreOp_v.template output<0, 2>()
             );
@@ -2963,16 +2858,13 @@ public:
                 B_valOp_v.template output<0>(),
                 S2rValSidxLoadOp_v.template output<0, 3>()
             );
-            __pipeline_wait_prior(3);
+            __pipeline_wait_prior(0);
             __syncthreads();
             S2sCooAtomicValRestoreOp_v.template f<3>(
                 G2sCooAtomicFormatLoadValOp_v.template output<0, 3>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<0, 3>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<1, 3>()(0)
             );
-            __pipeline_commit();
-            __pipeline_wait_prior(0);
-            __syncthreads();
             S2rAValLoadOp_v.template f<3>(
                 S2sCooAtomicValRestoreOp_v.template output<0, 3>()
             );
@@ -3142,9 +3034,6 @@ public:
                 G2rCooAtomicFormatLoadIdxOp_v.template output<0, 0>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<1, 0>()(0)
             );
-            __pipeline_commit();
-            __pipeline_wait_prior(0);
-            __syncthreads();
             S2rAValLoadOp_v.template f<0>(
                 S2sCooAtomicValRestoreOp_v.template output<0, 0>()
             );
@@ -3160,7 +3049,7 @@ public:
                 val_coo_offOp_v.template output<0>(),
                 l + 6
             );
-            __pipeline_wait_prior(5);
+            __pipeline_wait_prior(4);
             __syncthreads();
             S2rValSidxLoadOp_v.template f<0>(
                 G2sValSidxLoadOp_v.template output<0, 0>()
@@ -3180,16 +3069,13 @@ public:
                 B_valOp_v.template output<0>(),
                 S2rValSidxLoadOp_v.template output<0, 1>()
             );
-            __pipeline_wait_prior(7);
+            __pipeline_wait_prior(6);
             __syncthreads();
             S2sCooAtomicValRestoreOp_v.template f<1>(
                 G2sCooAtomicFormatLoadValOp_v.template output<0, 1>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<0, 1>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<1, 1>()(0)
             );
-            __pipeline_commit();
-            __pipeline_wait_prior(0);
-            __syncthreads();
             S2rAValLoadOp_v.template f<1>(
                 S2sCooAtomicValRestoreOp_v.template output<0, 1>()
             );
@@ -3205,7 +3091,7 @@ public:
                 val_coo_offOp_v.template output<0>(),
                 l + 7
             );
-            __pipeline_wait_prior(6);
+            __pipeline_wait_prior(4);
             __syncthreads();
             S2rValSidxLoadOp_v.template f<1>(
                 G2sValSidxLoadOp_v.template output<0, 1>()
@@ -3225,16 +3111,13 @@ public:
                 B_valOp_v.template output<0>(),
                 S2rValSidxLoadOp_v.template output<0, 2>()
             );
-            __pipeline_wait_prior(8);
+            __pipeline_wait_prior(6);
             __syncthreads();
             S2sCooAtomicValRestoreOp_v.template f<2>(
                 G2sCooAtomicFormatLoadValOp_v.template output<0, 2>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<0, 2>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<1, 2>()(0)
             );
-            __pipeline_commit();
-            __pipeline_wait_prior(0);
-            __syncthreads();
             S2rAValLoadOp_v.template f<2>(
                 S2sCooAtomicValRestoreOp_v.template output<0, 2>()
             );
@@ -3254,7 +3137,7 @@ public:
                 val_coo_offOp_v.template output<0>(),
                 l + 8
             );
-            __pipeline_wait_prior(6);
+            __pipeline_wait_prior(4);
             __syncthreads();
             S2rValSidxLoadOp_v.template f<2>(
                 G2sValSidxLoadOp_v.template output<0, 2>()
@@ -3274,16 +3157,13 @@ public:
                 B_valOp_v.template output<0>(),
                 S2rValSidxLoadOp_v.template output<0, 3>()
             );
-            __pipeline_wait_prior(9);
+            __pipeline_wait_prior(6);
             __syncthreads();
             S2sCooAtomicValRestoreOp_v.template f<3>(
                 G2sCooAtomicFormatLoadValOp_v.template output<0, 3>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<0, 3>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<1, 3>()(0)
             );
-            __pipeline_commit();
-            __pipeline_wait_prior(0);
-            __syncthreads();
             S2rAValLoadOp_v.template f<3>(
                 S2sCooAtomicValRestoreOp_v.template output<0, 3>()
             );
@@ -3294,7 +3174,7 @@ public:
             
             
             // i = 9
-            __pipeline_wait_prior(5);
+            __pipeline_wait_prior(3);
             __syncthreads();
             S2rValSidxLoadOp_v.template f<3>(
                 G2sValSidxLoadOp_v.template output<0, 3>()
@@ -3314,16 +3194,13 @@ public:
                 B_valOp_v.template output<0>(),
                 S2rValSidxLoadOp_v.template output<0, 0>()
             );
-            __pipeline_wait_prior(8);
+            __pipeline_wait_prior(5);
             __syncthreads();
             S2sCooAtomicValRestoreOp_v.template f<0>(
                 G2sCooAtomicFormatLoadValOp_v.template output<0, 0>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<0, 0>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<1, 0>()(0)
             );
-            __pipeline_commit();
-            __pipeline_wait_prior(0);
-            __syncthreads();
             S2rAValLoadOp_v.template f<0>(
                 S2sCooAtomicValRestoreOp_v.template output<0, 0>()
             );
@@ -3334,7 +3211,7 @@ public:
             
             
             // i = 10
-            __pipeline_wait_prior(4);
+            __pipeline_wait_prior(2);
             __syncthreads();
             S2rValSidxLoadOp_v.template f<0>(
                 G2sValSidxLoadOp_v.template output<0, 0>()
@@ -3354,16 +3231,13 @@ public:
                 B_valOp_v.template output<0>(),
                 S2rValSidxLoadOp_v.template output<0, 1>()
             );
-            __pipeline_wait_prior(7);
+            __pipeline_wait_prior(4);
             __syncthreads();
             S2sCooAtomicValRestoreOp_v.template f<1>(
                 G2sCooAtomicFormatLoadValOp_v.template output<0, 1>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<0, 1>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<1, 1>()(0)
             );
-            __pipeline_commit();
-            __pipeline_wait_prior(0);
-            __syncthreads();
             S2rAValLoadOp_v.template f<1>(
                 S2sCooAtomicValRestoreOp_v.template output<0, 1>()
             );
@@ -3378,16 +3252,13 @@ public:
                 B_valOp_v.template output<0>(),
                 S2rValSidxLoadOp_v.template output<0, 2>()
             );
-            __pipeline_wait_prior(5);
+            __pipeline_wait_prior(2);
             __syncthreads();
             S2sCooAtomicValRestoreOp_v.template f<2>(
                 G2sCooAtomicFormatLoadValOp_v.template output<0, 2>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<0, 2>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<1, 2>()(0)
             );
-            __pipeline_commit();
-            __pipeline_wait_prior(0);
-            __syncthreads();
             S2rAValLoadOp_v.template f<2>(
                 S2sCooAtomicValRestoreOp_v.template output<0, 2>()
             );
@@ -3402,16 +3273,13 @@ public:
                 B_valOp_v.template output<0>(),
                 S2rValSidxLoadOp_v.template output<0, 3>()
             );
-            __pipeline_wait_prior(4);
+            __pipeline_wait_prior(1);
             __syncthreads();
             S2sCooAtomicValRestoreOp_v.template f<3>(
                 G2sCooAtomicFormatLoadValOp_v.template output<0, 3>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<0, 3>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<1, 3>()(0)
             );
-            __pipeline_commit();
-            __pipeline_wait_prior(0);
-            __syncthreads();
             S2rAValLoadOp_v.template f<3>(
                 S2sCooAtomicValRestoreOp_v.template output<0, 3>()
             );
@@ -3426,16 +3294,13 @@ public:
                 B_valOp_v.template output<0>(),
                 S2rValSidxLoadOp_v.template output<0, 0>()
             );
-            __pipeline_wait_prior(3);
+            __pipeline_wait_prior(0);
             __syncthreads();
             S2sCooAtomicValRestoreOp_v.template f<0>(
                 G2sCooAtomicFormatLoadValOp_v.template output<0, 0>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<0, 0>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<1, 0>()(0)
             );
-            __pipeline_commit();
-            __pipeline_wait_prior(0);
-            __syncthreads();
             S2rAValLoadOp_v.template f<0>(
                 S2sCooAtomicValRestoreOp_v.template output<0, 0>()
             );
@@ -3605,9 +3470,6 @@ public:
                 G2rCooAtomicFormatLoadIdxOp_v.template output<0, 0>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<1, 0>()(0)
             );
-            __pipeline_commit();
-            __pipeline_wait_prior(0);
-            __syncthreads();
             S2rAValLoadOp_v.template f<0>(
                 S2sCooAtomicValRestoreOp_v.template output<0, 0>()
             );
@@ -3623,7 +3485,7 @@ public:
                 val_coo_offOp_v.template output<0>(),
                 l + 6
             );
-            __pipeline_wait_prior(5);
+            __pipeline_wait_prior(4);
             __syncthreads();
             S2rValSidxLoadOp_v.template f<0>(
                 G2sValSidxLoadOp_v.template output<0, 0>()
@@ -3643,16 +3505,13 @@ public:
                 B_valOp_v.template output<0>(),
                 S2rValSidxLoadOp_v.template output<0, 1>()
             );
-            __pipeline_wait_prior(7);
+            __pipeline_wait_prior(6);
             __syncthreads();
             S2sCooAtomicValRestoreOp_v.template f<1>(
                 G2sCooAtomicFormatLoadValOp_v.template output<0, 1>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<0, 1>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<1, 1>()(0)
             );
-            __pipeline_commit();
-            __pipeline_wait_prior(0);
-            __syncthreads();
             S2rAValLoadOp_v.template f<1>(
                 S2sCooAtomicValRestoreOp_v.template output<0, 1>()
             );
@@ -3668,7 +3527,7 @@ public:
                 val_coo_offOp_v.template output<0>(),
                 l + 7
             );
-            __pipeline_wait_prior(6);
+            __pipeline_wait_prior(4);
             __syncthreads();
             S2rValSidxLoadOp_v.template f<1>(
                 G2sValSidxLoadOp_v.template output<0, 1>()
@@ -3688,16 +3547,13 @@ public:
                 B_valOp_v.template output<0>(),
                 S2rValSidxLoadOp_v.template output<0, 2>()
             );
-            __pipeline_wait_prior(8);
+            __pipeline_wait_prior(6);
             __syncthreads();
             S2sCooAtomicValRestoreOp_v.template f<2>(
                 G2sCooAtomicFormatLoadValOp_v.template output<0, 2>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<0, 2>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<1, 2>()(0)
             );
-            __pipeline_commit();
-            __pipeline_wait_prior(0);
-            __syncthreads();
             S2rAValLoadOp_v.template f<2>(
                 S2sCooAtomicValRestoreOp_v.template output<0, 2>()
             );
@@ -3717,7 +3573,7 @@ public:
                 val_coo_offOp_v.template output<0>(),
                 l + 8
             );
-            __pipeline_wait_prior(6);
+            __pipeline_wait_prior(4);
             __syncthreads();
             S2rValSidxLoadOp_v.template f<2>(
                 G2sValSidxLoadOp_v.template output<0, 2>()
@@ -3737,16 +3593,13 @@ public:
                 B_valOp_v.template output<0>(),
                 S2rValSidxLoadOp_v.template output<0, 3>()
             );
-            __pipeline_wait_prior(9);
+            __pipeline_wait_prior(6);
             __syncthreads();
             S2sCooAtomicValRestoreOp_v.template f<3>(
                 G2sCooAtomicFormatLoadValOp_v.template output<0, 3>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<0, 3>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<1, 3>()(0)
             );
-            __pipeline_commit();
-            __pipeline_wait_prior(0);
-            __syncthreads();
             S2rAValLoadOp_v.template f<3>(
                 S2sCooAtomicValRestoreOp_v.template output<0, 3>()
             );
@@ -3766,7 +3619,7 @@ public:
                 val_coo_offOp_v.template output<0>(),
                 l + 9
             );
-            __pipeline_wait_prior(6);
+            __pipeline_wait_prior(4);
             __syncthreads();
             S2rValSidxLoadOp_v.template f<3>(
                 G2sValSidxLoadOp_v.template output<0, 3>()
@@ -3786,16 +3639,13 @@ public:
                 B_valOp_v.template output<0>(),
                 S2rValSidxLoadOp_v.template output<0, 0>()
             );
-            __pipeline_wait_prior(9);
+            __pipeline_wait_prior(6);
             __syncthreads();
             S2sCooAtomicValRestoreOp_v.template f<0>(
                 G2sCooAtomicFormatLoadValOp_v.template output<0, 0>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<0, 0>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<1, 0>()(0)
             );
-            __pipeline_commit();
-            __pipeline_wait_prior(0);
-            __syncthreads();
             S2rAValLoadOp_v.template f<0>(
                 S2sCooAtomicValRestoreOp_v.template output<0, 0>()
             );
@@ -3806,7 +3656,7 @@ public:
             
             
             // i = 10
-            __pipeline_wait_prior(5);
+            __pipeline_wait_prior(3);
             __syncthreads();
             S2rValSidxLoadOp_v.template f<0>(
                 G2sValSidxLoadOp_v.template output<0, 0>()
@@ -3826,16 +3676,13 @@ public:
                 B_valOp_v.template output<0>(),
                 S2rValSidxLoadOp_v.template output<0, 1>()
             );
-            __pipeline_wait_prior(8);
+            __pipeline_wait_prior(5);
             __syncthreads();
             S2sCooAtomicValRestoreOp_v.template f<1>(
                 G2sCooAtomicFormatLoadValOp_v.template output<0, 1>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<0, 1>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<1, 1>()(0)
             );
-            __pipeline_commit();
-            __pipeline_wait_prior(0);
-            __syncthreads();
             S2rAValLoadOp_v.template f<1>(
                 S2sCooAtomicValRestoreOp_v.template output<0, 1>()
             );
@@ -3846,7 +3693,7 @@ public:
             
             
             // i = 11
-            __pipeline_wait_prior(4);
+            __pipeline_wait_prior(2);
             __syncthreads();
             S2rValSidxLoadOp_v.template f<1>(
                 G2sValSidxLoadOp_v.template output<0, 1>()
@@ -3866,16 +3713,13 @@ public:
                 B_valOp_v.template output<0>(),
                 S2rValSidxLoadOp_v.template output<0, 2>()
             );
-            __pipeline_wait_prior(7);
+            __pipeline_wait_prior(4);
             __syncthreads();
             S2sCooAtomicValRestoreOp_v.template f<2>(
                 G2sCooAtomicFormatLoadValOp_v.template output<0, 2>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<0, 2>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<1, 2>()(0)
             );
-            __pipeline_commit();
-            __pipeline_wait_prior(0);
-            __syncthreads();
             S2rAValLoadOp_v.template f<2>(
                 S2sCooAtomicValRestoreOp_v.template output<0, 2>()
             );
@@ -3890,16 +3734,13 @@ public:
                 B_valOp_v.template output<0>(),
                 S2rValSidxLoadOp_v.template output<0, 3>()
             );
-            __pipeline_wait_prior(5);
+            __pipeline_wait_prior(2);
             __syncthreads();
             S2sCooAtomicValRestoreOp_v.template f<3>(
                 G2sCooAtomicFormatLoadValOp_v.template output<0, 3>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<0, 3>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<1, 3>()(0)
             );
-            __pipeline_commit();
-            __pipeline_wait_prior(0);
-            __syncthreads();
             S2rAValLoadOp_v.template f<3>(
                 S2sCooAtomicValRestoreOp_v.template output<0, 3>()
             );
@@ -3914,16 +3755,13 @@ public:
                 B_valOp_v.template output<0>(),
                 S2rValSidxLoadOp_v.template output<0, 0>()
             );
-            __pipeline_wait_prior(4);
+            __pipeline_wait_prior(1);
             __syncthreads();
             S2sCooAtomicValRestoreOp_v.template f<0>(
                 G2sCooAtomicFormatLoadValOp_v.template output<0, 0>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<0, 0>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<1, 0>()(0)
             );
-            __pipeline_commit();
-            __pipeline_wait_prior(0);
-            __syncthreads();
             S2rAValLoadOp_v.template f<0>(
                 S2sCooAtomicValRestoreOp_v.template output<0, 0>()
             );
@@ -3938,16 +3776,13 @@ public:
                 B_valOp_v.template output<0>(),
                 S2rValSidxLoadOp_v.template output<0, 1>()
             );
-            __pipeline_wait_prior(3);
+            __pipeline_wait_prior(0);
             __syncthreads();
             S2sCooAtomicValRestoreOp_v.template f<1>(
                 G2sCooAtomicFormatLoadValOp_v.template output<0, 1>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<0, 1>(),
                 G2rCooAtomicFormatLoadIdxOp_v.template output<1, 1>()(0)
             );
-            __pipeline_commit();
-            __pipeline_wait_prior(0);
-            __syncthreads();
             S2rAValLoadOp_v.template f<1>(
                 S2sCooAtomicValRestoreOp_v.template output<0, 1>()
             );

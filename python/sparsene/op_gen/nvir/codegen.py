@@ -591,10 +591,18 @@ class NvIrCodeGenerator:
                     return True
             return False
 
+        def has_cp_async_smem_input(current_op: NvOp) -> bool:
+            for inp in current_op.inputs:
+                if inp.tensor.mem == "smem" and inp.tensor.source.op.attrs.get("cp_async", True):
+                    return True
+            return False
+
         def get_wait_num(
             current_op: NvOp, i: int, pipeline_records: List[Tuple[NvOp, int]]
         ) -> int:
             wait_num = 0
+            if not has_cp_async_smem_input(current_op):
+                return -1
             for item in reversed(pipeline_records):
                 if i == item[1] and depends_on(current_op, item[0]):
                     return wait_num
@@ -605,7 +613,7 @@ class NvIrCodeGenerator:
         def launch_commit(current_op: NvOp) -> bool:
             # 输出是否有SMEM的东西
             for opt in current_op.outputs:
-                if opt.tensor.mem == "smem":
+                if opt.tensor.mem == "smem" and opt.attrs.get("cp_async", True):
                     return True
             return False
 
