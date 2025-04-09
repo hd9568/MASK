@@ -18,6 +18,8 @@ set(CUDA_NVCC_FLAGS
         -O3
         -m64
         -Xcompiler -fopenmp-simd
+        --expt-relaxed-constexpr
+        --ptxas-options=-v
 )
 
 # Link libraries

@@ -9,16 +9,6 @@ DTC_HELPER_FUNCTIONS = """__device__ __forceinline__ void ldmatrix_m8n8k8_x4(uin
     );
 }
 
-__device__ __forceinline__ void mma_m16n8k16_fp32(float* acc, uint32_t* A, half* half_B) {
-    uint32_t* B = reinterpret_cast<uint32_t*>(half_B);
-    asm volatile(
-        "mma.sync.aligned.m16n8k16.row.col.f32.f16.f16.f32 "
-        "{%0, %1, %2, %3}, {%4, %5, %6, %7}, {%8, %9}, {%0, %1, %2, %3};"
-        : "+f"(acc[0]), "+f"(acc[1]), "+f"(acc[2]), "+f"(acc[3])
-        : "r"(A[0]), "r"(A[1]), "r"(A[2]), "r"(A[3]), "r"(B[0]), "r"(B[1])
-    );
-}
-
 __device__ __forceinline__ void ldmatrix_m8n8k8_x2_trans(uint32_t* fragment, void* ptr) {
     uint32_t values_tile_int_ptr = static_cast<uint32_t>(__cvta_generic_to_shared(ptr));
     asm volatile(
