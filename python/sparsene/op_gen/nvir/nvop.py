@@ -148,6 +148,13 @@ class Shape(ShapeEle):
 
 
 @dataclass
+class SwizzleLayout:
+    b: int
+    m: int
+    s: int
+
+
+@dataclass
 class NvOpTensor:
     shape: Shape
     mem: IoMemType
@@ -160,12 +167,15 @@ class NvOpTensor:
         | ForLoopCurrentIter
         | str
     ]
+    row_major: bool
+    swizzle: Optional[SwizzleLayout]
 
     def __init__(
         self,
         shape: Shape,
         mem: IoMemType,
         dtype: str,
+        *,
         source: Optional[
             NvOpOutput
             | ForLoopStart
@@ -174,11 +184,15 @@ class NvOpTensor:
             | ForLoopCurrentIter
             | str
         ] = None,
+        row_major: bool = False,
+        swizzle: Optional[SwizzleLayout] = None,
     ):
         self.shape = shape
         self.mem = mem
         self.dtype = dtype
         self.source = source
+        self.row_major = row_major
+        self.swizzle = swizzle
 
 
 class NvOpInput:

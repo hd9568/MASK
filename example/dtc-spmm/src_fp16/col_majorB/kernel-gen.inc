@@ -50,8 +50,19 @@ __device__ __forceinline__ void ldmatrix_m8n8k8_x4(uint32_t* fragment, void* ptr
 __device__ __forceinline__ void ldmatrix_m8n8k8_x2_trans(uint32_t* fragment, void* ptr) {
     uint32_t values_tile_int_ptr = static_cast<uint32_t>(__cvta_generic_to_shared(ptr));
     asm volatile(
-        "ldmatrix.sync.aligned.m8n8.x2.trans.shared.b16 	"
-        " { %0, %1 }, 	"
+        "ldmatrix.sync.aligned.m8n8.x2.trans.shared.b16 \t"
+        " { %0, %1 }, \t"
+        " [%2];"
+        : "=r"(fragment[0]), "=r"(fragment[1])
+        : "r"(values_tile_int_ptr)
+    );
+}
+
+__device__ __forceinline__ void ldmatrix_m8n8k8_x2(uint32_t* fragment, void* ptr) {
+    uint32_t values_tile_int_ptr = static_cast<uint32_t>(__cvta_generic_to_shared(ptr));
+    asm volatile(
+        "ldmatrix.sync.aligned.m8n8.x2.shared.b16 \t"
+        " { %0, %1 }, \t"
         " [%2];"
         : "=r"(fragment[0]), "=r"(fragment[1])
         : "r"(values_tile_int_ptr)
@@ -65,6 +76,15 @@ __device__ __forceinline__ void mma_m16n8k16_fp32(float* acc, uint32_t* A, half*
         "{%0, %1, %2, %3}, {%4, %5, %6, %7}, {%8, %9}, {%0, %1, %2, %3};"
         : "+f"(acc[0]), "+f"(acc[1]), "+f"(acc[2]), "+f"(acc[3])
         : "r"(A[0]), "r"(A[1]), "r"(A[2]), "r"(A[3]), "r"(B[0]), "r"(B[1])
+    );
+}
+
+__device__ __forceinline__ void mma_m16n8k8_fp32_tf32_tf32_fp32(float* acc, uint32_t* frag_A, uint32_t* frag_B) {
+    asm volatile(
+        "mma.sync.aligned.m16n8k8.row.col.f32.tf32.tf32.f32 {%0,%1,%2,%3}, {%4,%5, %6, %7}, {%8,%9}, {%0,%1,%2,%3};\n"
+        : "+f"(acc[0]), "+f"(acc[1]), "+f"(acc[2]), "+f"(acc[3])
+        : "r"(frag_A[0]), "r"(frag_A[1]), "r"(frag_A[2]), "r"(frag_A[3]), 
+            "r"(frag_B[0]), "r"(frag_B[1])
     );
 }
 
@@ -290,14 +310,15 @@ template <class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class TO0 = int>
 class BlkYLoopZeroOp {
 public:
     // No Inputs
+
     // Outputs
     using Shape_o0 = decltype(make_shape(_1{}));
-    using Layout_o0 = decltype(make_layout(Shape_o0{}));
+    using Stride_o0 = decltype(make_stride(_0{}));
+    using Layout_o0 = decltype(make_layout(Shape_o0{}, Stride_o0{}));
     using Tensor_o0 = decltype(make_tensor(make_rmem_ptr((TO0*)nullptr), Layout_o0{}));
     Shape_o0 shape_o0;
     Layout_o0 layout_o0;
     Tensor_o0 BlkYLoopZeroOp_out;
-
     // Hardware parameters
     int tid, lid, wid;
 
@@ -324,14 +345,15 @@ template <class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class TO0 = int>
 class BlockDimYOp {
 public:
     // No Inputs
+
     // Outputs
     using Shape_o0 = decltype(make_shape(_1{}));
-    using Layout_o0 = decltype(make_layout(Shape_o0{}));
+    using Stride_o0 = decltype(make_stride(_0{}));
+    using Layout_o0 = decltype(make_layout(Shape_o0{}, Stride_o0{}));
     using Tensor_o0 = decltype(make_tensor(make_rmem_ptr((TO0*)nullptr), Layout_o0{}));
     Shape_o0 shape_o0;
     Layout_o0 layout_o0;
     Tensor_o0 BlockDimYOp_out;
-
     // Hardware parameters
     int tid, lid, wid;
 
@@ -358,14 +380,15 @@ template <class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class TO0 = int>
 class BlkXLoopZeroOp {
 public:
     // No Inputs
+
     // Outputs
     using Shape_o0 = decltype(make_shape(_1{}));
-    using Layout_o0 = decltype(make_layout(Shape_o0{}));
+    using Stride_o0 = decltype(make_stride(_0{}));
+    using Layout_o0 = decltype(make_layout(Shape_o0{}, Stride_o0{}));
     using Tensor_o0 = decltype(make_tensor(make_rmem_ptr((TO0*)nullptr), Layout_o0{}));
     Shape_o0 shape_o0;
     Layout_o0 layout_o0;
     Tensor_o0 BlkXLoopZeroOp_out;
-
     // Hardware parameters
     int tid, lid, wid;
 
@@ -392,14 +415,15 @@ template <class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class TO0 = int>
 class BlockDimXOp {
 public:
     // No Inputs
+
     // Outputs
     using Shape_o0 = decltype(make_shape(_1{}));
-    using Layout_o0 = decltype(make_layout(Shape_o0{}));
+    using Stride_o0 = decltype(make_stride(_0{}));
+    using Layout_o0 = decltype(make_layout(Shape_o0{}, Stride_o0{}));
     using Tensor_o0 = decltype(make_tensor(make_rmem_ptr((TO0*)nullptr), Layout_o0{}));
     Shape_o0 shape_o0;
     Layout_o0 layout_o0;
     Tensor_o0 BlockDimXOp_out;
-
     // Hardware parameters
     int tid, lid, wid;
 
@@ -433,13 +457,15 @@ public:
 
     // Outputs
     using Shape_o0 = decltype(make_shape(_1{}));
-    using Layout_o0 = decltype(make_layout(Shape_o0{}));
+    using Stride_o0 = decltype(make_stride(_0{}));
+    using Layout_o0 = decltype(make_layout(Shape_o0{}, Stride_o0{}));
     using Tensor_o0 = decltype(make_tensor(make_rmem_ptr((TO0*)nullptr), Layout_o0{}));
     Shape_o0 shape_o0;
     Layout_o0 layout_o0;
     Tensor_o0 l;
     using Shape_o1 = decltype(make_shape(_1{}));
-    using Layout_o1 = decltype(make_layout(Shape_o1{}));
+    using Stride_o1 = decltype(make_stride(_0{}));
+    using Layout_o1 = decltype(make_layout(Shape_o1{}, Stride_o1{}));
     using Tensor_o1 = decltype(make_tensor(make_rmem_ptr((TO1*)nullptr), Layout_o1{}));
     Shape_o1 shape_o1;
     Layout_o1 layout_o1;
@@ -455,8 +481,7 @@ public:
     CUTE_DEVICE auto output() {
         if constexpr (output_idx == 0) {
             return l;
-        }
-        if constexpr (output_idx == 1) {
+        } else if constexpr (output_idx == 1) {
             return r;
         }
     }
@@ -472,14 +497,15 @@ template <class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class TO0 = float>
 class ZerosOp {
 public:
     // No Inputs
+
     // Outputs
     using Shape_o0 = decltype(make_shape(Int<4>{}, make_shape(get<0>(BLK_MMA_MNK{}), get<1>(BLK_MMA_MNK{}))));
-    using Layout_o0 = decltype(make_layout(Shape_o0{}));
+    using Stride_o0 = decltype(make_stride(_1{}, make_stride(Int<4>{}, Int<4>{} * get<0>(BLK_MMA_MNK{}))));
+    using Layout_o0 = decltype(make_layout(Shape_o0{}, Stride_o0{}));
     using Tensor_o0 = decltype(make_tensor(make_rmem_ptr((TO0*)nullptr), Layout_o0{}));
     Shape_o0 shape_o0;
     Layout_o0 layout_o0;
     Tensor_o0 ZerosOp_out;
-
     // Hardware parameters
     int tid, lid, wid;
 
@@ -513,7 +539,8 @@ public:
 
     // Outputs
     using Shape_o0 = decltype(make_shape(tile_sidx_size{}, NBUF{}));
-    using Layout_o0 = decltype(make_layout(Shape_o0{}));
+    using Stride_o0 = decltype(make_stride(_1{}, tile_sidx_size{}));
+    using Layout_o0 = decltype(make_layout(Shape_o0{}, Stride_o0{}));
     using Tensor_o0 = decltype(make_tensor(make_smem_ptr((TO0*)nullptr), Layout_o0{}));
     Shape_o0 shape_o0;
     Layout_o0 layout_o0;
@@ -563,13 +590,15 @@ public:
 
     // Outputs
     using Shape_o0 = decltype(make_shape(_1{}, NBUF{}));
-    using Layout_o0 = decltype(make_layout(Shape_o0{}));
+    using Stride_o0 = decltype(make_stride(_0{}, _1{}));
+    using Layout_o0 = decltype(make_layout(Shape_o0{}, Stride_o0{}));
     using Tensor_o0 = decltype(make_tensor(make_rmem_ptr((TO0*)nullptr), Layout_o0{}));
     Shape_o0 shape_o0;
     Layout_o0 layout_o0;
     Tensor_o0 l;
     using Shape_o1 = decltype(make_shape(_1{}, NBUF{}));
-    using Layout_o1 = decltype(make_layout(Shape_o1{}));
+    using Stride_o1 = decltype(make_stride(_0{}, _1{}));
+    using Layout_o1 = decltype(make_layout(Shape_o1{}, Stride_o1{}));
     using Tensor_o1 = decltype(make_tensor(make_rmem_ptr((TO1*)nullptr), Layout_o1{}));
     Shape_o1 shape_o1;
     Layout_o1 layout_o1;
@@ -585,8 +614,7 @@ public:
     CUTE_DEVICE auto output() {
         if constexpr (output_idx == 0) {
             return l(_, buf_idx);
-        }
-        if constexpr (output_idx == 1) {
+        } else if constexpr (output_idx == 1) {
             return r(_, buf_idx);
         }
     }
@@ -595,8 +623,7 @@ public:
     CUTE_DEVICE auto output() {
         if constexpr (output_idx == 0) {
             return l;
-        }
-        if constexpr (output_idx == 1) {
+        } else if constexpr (output_idx == 1) {
             return r;
         }
     }
@@ -619,7 +646,8 @@ public:
 
     // Outputs
     using Shape_o0 = decltype(make_shape(tile_sidx_size{}, NBUF{}));
-    using Layout_o0 = decltype(make_layout(Shape_o0{}));
+    using Stride_o0 = decltype(make_stride(_1{}, tile_sidx_size{}));
+    using Layout_o0 = decltype(make_layout(Shape_o0{}, Stride_o0{}));
     using Tensor_o0 = decltype(make_tensor(make_rmem_ptr((TO0*)nullptr), Layout_o0{}));
     Shape_o0 shape_o0;
     Layout_o0 layout_o0;
@@ -666,7 +694,8 @@ public:
 
     // Outputs
     using Shape_o0 = decltype(make_shape(tile_coo_val_size{}, NBUF{}));
-    using Layout_o0 = decltype(make_layout(Shape_o0{}));
+    using Stride_o0 = decltype(make_stride(_1{}, tile_coo_val_size{}));
+    using Layout_o0 = decltype(make_layout(Shape_o0{}, Stride_o0{}));
     using Tensor_o0 = decltype(make_tensor(make_smem_ptr((TO0*)nullptr), Layout_o0{}));
     Shape_o0 shape_o0;
     Layout_o0 layout_o0;
@@ -719,13 +748,15 @@ public:
 
     // Outputs
     using Shape_o0 = decltype(make_shape(Int<8>{}, NBUF{}));
-    using Layout_o0 = decltype(make_layout(Shape_o0{}));
+    using Stride_o0 = decltype(make_stride(_1{}, Int<8>{}));
+    using Layout_o0 = decltype(make_layout(Shape_o0{}, Stride_o0{}));
     using Tensor_o0 = decltype(make_tensor(make_rmem_ptr((TO0*)nullptr), Layout_o0{}));
     Shape_o0 shape_o0;
     Layout_o0 layout_o0;
     Tensor_o0 coo_idx_reg;
     using Shape_o1 = decltype(make_shape(_1{}, NBUF{}));
-    using Layout_o1 = decltype(make_layout(Shape_o1{}));
+    using Stride_o1 = decltype(make_stride(_0{}, _1{}));
+    using Layout_o1 = decltype(make_layout(Shape_o1{}, Stride_o1{}));
     using Tensor_o1 = decltype(make_tensor(make_rmem_ptr((TO1*)nullptr), Layout_o1{}));
     Shape_o1 shape_o1;
     Layout_o1 layout_o1;
@@ -741,8 +772,7 @@ public:
     CUTE_DEVICE auto output() {
         if constexpr (output_idx == 0) {
             return coo_idx_reg(_, buf_idx);
-        }
-        if constexpr (output_idx == 1) {
+        } else if constexpr (output_idx == 1) {
             return coo_range_reg(_, buf_idx);
         }
     }
@@ -751,8 +781,7 @@ public:
     CUTE_DEVICE auto output() {
         if constexpr (output_idx == 0) {
             return coo_idx_reg;
-        }
-        if constexpr (output_idx == 1) {
+        } else if constexpr (output_idx == 1) {
             return coo_range_reg;
         }
     }
@@ -784,7 +813,8 @@ public:
 
     // Outputs
     using Shape_o0 = decltype(make_shape(Int<4>{}, get<1>(BLK_MMA_MNK{}), NBUF{}));
-    using Layout_o0 = decltype(make_layout(Shape_o0{}));
+    using Stride_o0 = decltype(make_stride(_1{}, Int<4>{}, Int<4>{} * get<1>(BLK_MMA_MNK{})));
+    using Layout_o0 = decltype(make_layout(Shape_o0{}, Stride_o0{}));
     using Tensor_o0 = decltype(make_tensor(make_rmem_ptr((TO0*)nullptr), Layout_o0{}));
     Shape_o0 shape_o0;
     Layout_o0 layout_o0;
@@ -839,7 +869,8 @@ public:
 
     // Outputs
     using Shape_o0 = decltype(make_shape(get<2>(BLK_MNK{}), get<0>(BLK_MNK{}), NBUF{}));
-    using Layout_o0 = decltype(make_layout(Shape_o0{}));
+    using Stride_o0 = decltype(make_stride(_1{}, get<2>(BLK_MNK{}), get<2>(BLK_MNK{}) * get<0>(BLK_MNK{})));
+    using Layout_o0 = decltype(make_layout(Shape_o0{}, Stride_o0{}));
     using Tensor_o0 = decltype(make_tensor(make_smem_ptr((TO0*)nullptr), Layout_o0{}));
     Shape_o0 shape_o0;
     Layout_o0 layout_o0;
@@ -893,7 +924,8 @@ public:
 
     // Outputs
     using Shape_o0 = decltype(make_shape(Int<8>{}, get<0>(BLK_MMA_MNK{}), NBUF{}));
-    using Layout_o0 = decltype(make_layout(Shape_o0{}));
+    using Stride_o0 = decltype(make_stride(_1{}, Int<8>{}, Int<8>{} * get<0>(BLK_MMA_MNK{})));
+    using Layout_o0 = decltype(make_layout(Shape_o0{}, Stride_o0{}));
     using Tensor_o0 = decltype(make_tensor(make_rmem_ptr((TO0*)nullptr), Layout_o0{}));
     Shape_o0 shape_o0;
     Layout_o0 layout_o0;

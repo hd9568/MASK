@@ -24,19 +24,30 @@ include_directories(${CUTLASS_INCLUDE_DIR} ${CUTLASS_COMMON_DIR} ${CUTLASS_UTIL_
 
 # 编译 dtc-spmm-gen.cu 和 dtc-spmm.cu 为对象文件
 add_library(dtc_fp32_spmm_row_majorB_vs_bind_reorder_obj OBJECT dtc-spmm-naive-vs-bind-reorder-gen.cu kernel-gen.inc)
+add_library(dtc_fp32_spmm_row_majorB_vs_bind_reorder_demo_obj OBJECT dtc-spmm-naive-vs-bind-reorder-demo.cu kernel-demo.inc)
 target_compile_options(dtc_fp32_spmm_row_majorB_vs_bind_reorder_obj PRIVATE ${CUDA_NVCC_FLAGS})
-
+target_compile_options(dtc_fp32_spmm_row_majorB_vs_bind_reorder_demo_obj PRIVATE ${CUDA_NVCC_FLAGS})
 
 # 生成可执行文件
 file(GLOB_RECURSE SRC_CUDA_FILES ${SRCDIR}/*.cu)
 add_executable(dtc_float_row_majorB_vs_bind_reorder main-row-majorB-vs-bind-reorder.cu ${SRC_CUDA_FILES}
     $<TARGET_OBJECTS:dtc_fp32_spmm_row_majorB_vs_bind_reorder_obj>
 )
+add_executable(dtc_float_row_majorB_vs_bind_reorder_demo main-row-majorB-vs-bind-reorder.cu ${SRC_CUDA_FILES}
+    $<TARGET_OBJECTS:dtc_fp32_spmm_row_majorB_vs_bind_reorder_demo_obj>
+)
 
 target_compile_options(dtc_float_row_majorB_vs_bind_reorder PRIVATE ${CUDA_NVCC_FLAGS} -I${SRCDIR} -I${CMAKE_CURRENT_SOURCE_DIR})
+target_compile_options(dtc_float_row_majorB_vs_bind_reorder_demo PRIVATE ${CUDA_NVCC_FLAGS} -I${SRCDIR} -I${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(dtc_float_row_majorB_vs_bind_reorder PRIVATE -lcusparse -lcublas)
+target_link_libraries(dtc_float_row_majorB_vs_bind_reorder_demo PRIVATE -lcusparse -lcublas)
 target_compile_definitions(dtc_float_row_majorB_vs_bind_reorder PRIVATE f32)
+target_compile_definitions(dtc_float_row_majorB_vs_bind_reorder_demo PRIVATE f32)
 target_include_directories(dtc_float_row_majorB_vs_bind_reorder PRIVATE  ${CUTLASS_INCLUDE_DIR}
+${CUTLASS_COMMON_DIR}
+${CUTLASS_UTIL_DIR}
+${SRCDIR})
+target_include_directories(dtc_float_row_majorB_vs_bind_reorder_demo PRIVATE  ${CUTLASS_INCLUDE_DIR}
 ${CUTLASS_COMMON_DIR}
 ${CUTLASS_UTIL_DIR}
 ${SRCDIR})

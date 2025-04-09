@@ -242,9 +242,15 @@ class NvIrCodeGenerator:
         io_dtypes_str = ", ".join(chain(in_dtypes_strs, out_dtypes_strs))
         io_dtypes_str = ", " + io_dtypes_str if io_dtypes_str else ""
         op_name_str = op.name
+
+        outputs_str = f"// Outputs\n" + "\n".join(
+            map(lambda out: self.dump_output_decl(out), op.outputs)
+        )
+
         make_shape_str = self.dump_decl_make_shape(
             op.outputs[0].tensor.shape, nbuf=False
         )
+
         mem_type_str = op.outputs[0].tensor.mem
         tensor_name = op.outputs[0].name
         if op.value == 0:
@@ -259,6 +265,7 @@ class NvIrCodeGenerator:
             parameter_types=parameter_types_str,
             io_dtypes=io_dtypes_str,
             op_name=op_name_str,
+            outputs=self._indent_lines(outputs_str),
             make_shape_str=make_shape_str,
             mem_type_str=mem_type_str,
             tensor_name=tensor_name,
@@ -737,13 +744,15 @@ class NvIrCodeGenerator:
         output_with_buf_idx_str = (
             "template<size_t output_idx, size_t buf_idx>\n"
             + "CUTE_DEVICE auto output() {\n"
-            + "\n".join(
-                (
-                    self._indent_lines(dump_output_with_buf_idx_switch(idx))
-                    if not op.outputs[idx].unique
-                    else self._indent_lines(dump_output_without_buf_idx_switch(idx))
+            + self._indent_lines(
+                " else ".join(
+                    (
+                        dump_output_with_buf_idx_switch(idx)
+                        if not op.outputs[idx].unique
+                        else dump_output_without_buf_idx_switch(idx)
+                    )
+                    for idx in range(len(op.outputs))
                 )
-                for idx in range(len(op.outputs))
             )
             + "\n"
             + "}"
@@ -752,9 +761,11 @@ class NvIrCodeGenerator:
         output_without_buf_idx_str = (
             "template<size_t output_idx>\n"
             + "CUTE_DEVICE auto output() {\n"
-            + "\n".join(
-                self._indent_lines(dump_output_without_buf_idx_switch(idx))
-                for idx in range(len(op.outputs))
+            + self._indent_lines(
+                " else ".join(
+                    dump_output_without_buf_idx_switch(idx)
+                    for idx in range(len(op.outputs))
+                )
             )
             + "\n"
             + "}"
@@ -789,6 +800,59 @@ class NvIrCodeGenerator:
         comma_seperated_shapes = ", ".join(shape_strs)
         return f"make_shape({comma_seperated_shapes})"
 
+    def dump_decl_make_stride(
+        self, shape: Shape, *, row_major: bool = False, nbuf: bool
+    ) -> str:
+        def get_product(shape: ShapeEle) -> str:
+            if isinstance(shape, IntShape):
+                return f"Int<{shape.value}>{{}}"
+            elif isinstance(shape, ParamShape):
+                return f"{shape.param}{{}}"
+            elif isinstance(shape, VarlenShape):
+                return "VARLEN"
+            elif isinstance(shape, MnkShape):
+                return f"get<{0 if shape.mnk == 'm' else 1 if shape.mnk == 'n' else 2}>({shape.param}{{}})"
+            elif isinstance(shape, Shape):
+                product = "_1{}"
+                for s in shape:
+                    product = f"{product} * {get_product(s)}"
+                return product
+            else:
+                raise ValueError(f"Unknown shape type: {type(shape)}")
+
+        def get_make_stride_strs(shape: Shape, products: Sequence[str], row_major: bool = False) -> List[str]:
+            products = list(products)
+            stride_strs = []
+            if not row_major:
+                for s in shape:
+                    if isinstance(s, IntShape) and s.value == 1:
+                        stride_strs.append("_0{}")
+                        continue
+                    if not isinstance(s, Shape):
+                        stride_strs.append(" * ".join(products) if products else "_1{}")
+                    else: # Shape (list)
+                        stride_strs.append(f"make_stride({', '.join(get_make_stride_strs(s, products, row_major))})")
+                    products.append(get_product(s))
+            else:
+                for s in reversed(shape):
+                    if isinstance(s, IntShape) and s.value == 1:
+                        stride_strs.insert(0, "_0{}")
+                        continue
+                    if not isinstance(s, Shape):
+                        stride_strs.insert(0, " * ".join(products) if products else "_1{}")
+                    else: # Shape (list)
+                        stride_strs.insert(0, f"make_stride({', '.join(get_make_stride_strs(s, products, row_major))})")
+                    products.append(get_product(s))
+            return stride_strs
+
+        stride_strs = get_make_stride_strs(shape, [], row_major)
+        if len(stride_strs) == 0:
+            stride_strs.append("_0{}")
+        if nbuf:
+            stride_strs.append(" * ".join(get_product(s) for s in shape) if shape else "_1{}")
+        return f"make_stride({', '.join(stride_strs)})"
+                          
+
     def dump_input_decl(self, inp: NvOpInput) -> str:
         def dump_decl_input_shape_type() -> str:
             make_shape_str = self.dump_decl_make_shape(inp.tensor.shape, nbuf=False)
@@ -801,10 +865,6 @@ class NvIrCodeGenerator:
         def dump_decl_input_tensor() -> str:
             return f"// Tensor_i{inp.idx} {inp.name};"
 
-        # shape_type_str = dump_decl_input_shape_type()
-        # shape_str = dump_decl_input_shape()
-        # tensor_str = dump_decl_input_tensor()
-        # return f"{shape_type_str}\n{shape_str}\n{tensor_str}"
         if len(inp.tensor.shape) > 0:
             shape_type_str = dump_decl_input_shape_type()
             shape_str = dump_decl_input_shape()
@@ -824,17 +884,29 @@ class NvIrCodeGenerator:
             return f"using Shape_o{out.idx} = {decl_shape_str};"
 
         def dump_decl_output_layout_type() -> str:
-            row_major = out.attrs.get("row_major", False)
-            if (swizzle := out.attrs.get("swizzle", None)) is not None:
-                return (
-                    f"using Layout_o{out.idx} = decltype(composition(Swizzle<{', '.join(str(s) for s in swizzle)}>{{}}, "
-                    f"make_layout(Shape_o{out.idx}{{}}{', LayoutRight{}' if row_major else ''})));"
+            assert out.op is not None
+            if not out.op.pipelined or out.unique:
+                make_stride_str = self.dump_decl_make_stride(
+                    out.tensor.shape, row_major=out.tensor.row_major, nbuf=False
                 )
             else:
-                return (
-                    f"using Layout_o{out.idx} = decltype(make_layout(Shape_o{out.idx}{{}}"
-                    f"{', LayoutRight{}' if row_major else ''}));"
+                make_stride_str = self.dump_decl_make_stride(
+                    out.tensor.shape, row_major=out.tensor.row_major, nbuf=True
                 )
+
+            using_stride_str = f"using Stride_o{out.idx} = decltype({make_stride_str});"
+            make_layout_str = (
+                f"make_layout(Shape_o{out.idx}{{}}, Stride_o{out.idx}{{}})"
+            )
+
+            if (swizzle := out.tensor.swizzle) is not None:
+                using_layout_str = f"using Layout_o{out.idx} = decltype(composition(Swizzle<{swizzle.b}, {swizzle.m}, {swizzle.s}>{{}}, {make_layout_str}));"
+            else:
+                using_layout_str = (
+                    f"using Layout_o{out.idx} = decltype({make_layout_str});"
+                )
+
+            return f"{using_stride_str}\n{using_layout_str}"
 
         def dump_decl_output_tensor_type() -> str:
             match out.tensor.mem:
@@ -844,9 +916,6 @@ class NvIrCodeGenerator:
                     decl_tensor_str = f"decltype(make_tensor(make_smem_ptr((TO{out.idx}*)nullptr), Layout_o{out.idx}{{}}))"
                 case "rmem":
                     decl_tensor_str = f"decltype(make_tensor(make_rmem_ptr((TO{out.idx}*)nullptr), Layout_o{out.idx}{{}}))"
-                    # decl_tensor_str = (
-                    #     f"decltype(make_tensor<TO{out.idx}>(Layout_o{out.idx}{{}}))"
-                    # )
             return f"using Tensor_o{out.idx} = {decl_tensor_str};"
 
         def dump_decl_output_shape() -> str:
@@ -1204,7 +1273,9 @@ class NvIrCodeGenerator:
 
         def has_cp_async_smem_input(current_op: NvOp) -> bool:
             for inp in current_op.inputs:
-                if inp.tensor.mem == "smem" and inp.tensor.source.op.attrs.get("cp_async", True):
+                if inp.tensor.mem == "smem" and inp.tensor.source.op.attrs.get(
+                    "cp_async", True
+                ):
                     return True
             return False
 
@@ -1222,7 +1293,6 @@ class NvIrCodeGenerator:
                         instructions.append(PipelineWait(wait_num=wait_num))
                         instructions.append(SyncThreads())
 
-                
                 instructions.append(
                     Comment(
                         f"op_call |buf_idx={op_call.buf_idx}| {op_call.shift_constant} {op_call.op.name} "
@@ -1431,7 +1501,8 @@ class NvIrCodeGenerator:
                     ]
 
                     stage_idx_offsets = [
-                        r - sum(pipeline.shifts[:i]) for i in range(len(pipeline.stages))
+                        r - sum(pipeline.shifts[:i])
+                        for i in range(len(pipeline.stages))
                     ]
 
                     pipeline_history = get_full_pipeline_history(r)

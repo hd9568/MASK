@@ -24,6 +24,9 @@
 using namespace cute;
 using namespace std;
 
+#define ROW_WINDOW_M 16
+#define TC_BLOCK_K 8
+#define TC_BLOCK_M 16
 
 //! mma.sync.aligned.m16n8k8.row.col.f32.tf32.tf32.f32
 template <int TILE_B>
@@ -57,16 +60,17 @@ void ncu_test_all(
     using tile_coo_val_size_no_pad = Int<TC_BLOCK_M * TC_BLOCK_K>;
 
 
-    constexpr int shift1 = 1;
-    constexpr int shift2 = 1;
-    constexpr int maxshift1_2 = (shift1 > shift2 ? shift1 : shift2);
-    constexpr int nbuf = maxshift1_2 + 1;
+    // constexpr int shift1 = 1;
+    // constexpr int shift2 = 1;
+    // constexpr int maxshift1_2 = (shift1 > shift2 ? shift1 : shift2);
+    // constexpr int nbuf = maxshift1_2 + 1;
 
     //! (shift1 = 1, shift2 = 1)
     dtc_spmm_kernel_fp32_val_idx_bind_stage2<
         BLK_MNK, MMA_MNK, BLK_MMA_MNK, 
-        tile_coo_val_size, tile_sidx_size
-    ><<<grid, block>>>(dB_val, dC, dval_sidx, dval_soff, dval_coo_idx, dval_coo_off, dval_coo_val, K, M, Mo, N, nnz, nnz_block);
+        tile_coo_val_size, tile_coo_val_size_no_pad, tile_sidx_size
+    ><<<grid, block>>>(dB_val, dC, dval_coo_idx, dval_coo_off, dval_coo_val, dval_sidx, dval_soff, 
+                       K, M, Mo, N, nnz, nnz_block);
 }
 
 #define DIVUP(a, b) (((a) - 1) / (b) + 1)
@@ -96,7 +100,7 @@ void dtc_spmm_test_val_sidx_bind_reorder(
     float* dC;
 
     int row_window_num = (M + ROW_WINDOW_M - 1) / ROW_WINDOW_M;
-    int pad_K = (K + 8 - 1) / 8 * 8;
+    // int pad_K = (K + 8 - 1) / 8 * 8;
     assert(N % TILE_B == 0);
 
     CHECK_CUDA2(cudaMalloc(&dval_sidx, sizeof(int) * TCBlock_num * TC_BLOCK_K));
