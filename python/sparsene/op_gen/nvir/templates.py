@@ -1,8 +1,8 @@
-DTC_HELPER_FUNCTIONS = """__device__ __forceinline__ void ldmatrix_m8n8k8_x4(uint32_t* fragment, void* ptr) {
+DTC_HELPER_FUNCTIONS = r"""__device__ __forceinline__ void ldmatrix_m8n8k8_x4(uint32_t* fragment, void* ptr) {
     uint32_t values_tile_int_ptr = static_cast<uint32_t>(__cvta_generic_to_shared(ptr));
     asm volatile(
-        "ldmatrix.sync.aligned.m8n8.x4.shared.b16 \\t"
-        " { %0, %1, %2, %3 }, \\t"
+        "ldmatrix.sync.aligned.m8n8.x4.shared.b16 \t"
+        " { %0, %1, %2, %3 }, \t"
         " [%4];"
         : "=r"(fragment[0]), "=r"(fragment[1]), "=r"(fragment[2]), "=r"(fragment[3])
         : "r"(values_tile_int_ptr)
@@ -20,6 +20,17 @@ __device__ __forceinline__ void ldmatrix_m8n8k8_x2_trans(uint32_t* fragment, voi
     );
 }
 
+__device__ __forceinline__ void ldmatrix_m8n8k8_x2(uint32_t* fragment, void* ptr) {
+    uint32_t values_tile_int_ptr = static_cast<uint32_t>(__cvta_generic_to_shared(ptr));
+    asm volatile(
+        "ldmatrix.sync.aligned.m8n8.x2.shared.b16 \t"
+        " { %0, %1 }, \t"
+        " [%2];"
+        : "=r"(fragment[0]), "=r"(fragment[1])
+        : "r"(values_tile_int_ptr)
+    );
+}
+
 __device__ __forceinline__ void mma_m16n8k16_fp32(float* acc, uint32_t* A, half* half_B) {
     uint32_t* B = reinterpret_cast<uint32_t*>(half_B);
     asm volatile(
@@ -27,6 +38,15 @@ __device__ __forceinline__ void mma_m16n8k16_fp32(float* acc, uint32_t* A, half*
         "{%0, %1, %2, %3}, {%4, %5, %6, %7}, {%8, %9}, {%0, %1, %2, %3};"
         : "+f"(acc[0]), "+f"(acc[1]), "+f"(acc[2]), "+f"(acc[3])
         : "r"(A[0]), "r"(A[1]), "r"(A[2]), "r"(A[3]), "r"(B[0]), "r"(B[1])
+    );
+}
+
+__device__ __forceinline__ void mma_m16n8k8_fp32_tf32_tf32_fp32(float* acc, uint32_t* frag_A, uint32_t* frag_B) {
+    asm volatile(
+        "mma.sync.aligned.m16n8k8.row.col.f32.tf32.tf32.f32 {%0,%1,%2,%3}, {%4,%5, %6, %7}, {%8,%9}, {%0,%1,%2,%3};\n"
+        : "+f"(acc[0]), "+f"(acc[1]), "+f"(acc[2]), "+f"(acc[3])
+        : "r"(frag_A[0]), "r"(frag_A[1]), "r"(frag_A[2]), "r"(frag_A[3]), 
+            "r"(frag_B[0]), "r"(frag_B[1])
     );
 }
 
@@ -186,42 +206,12 @@ public:
     }}
 }};"""
 
-NVOP_CLASS_DEF_SKELETON = """template <{nbuf}class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK{non_owning_tensor_type_template_params}{io_dtypes}{parameter_types}>
-class {op_name} {{
-public:
-{inputs_defs}
-
-{output_defs}
-
-    // Hardware parameters
-    int tid, lid, wid;
-
-    // Constructor
-    CUTE_DEVICE {op_name}(int tid, int lid, int wid{non_owning_tensor_refs_as_params})
-    : tid(tid), lid(lid), wid(wid){non_owning_tensor_refs_inits} {{}}
-
-    // output
-{get_output_method}
-
-    // f
-    template<{f_template_params}>
-    CUTE_DEVICE void f({f_params}) {{
-{f_body}
-    }}
-}};"""
-
 CONSTANT_NVOP_CLASS_DEF_SKELETON = """template <{nbuf_type}class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK{parameter_types}{io_dtypes}>
 class {op_name} {{
 public:
     // No Inputs
-    // Outputs
-    using Shape_o0 = decltype({make_shape_str});
-    using Layout_o0 = decltype(make_layout(Shape_o0{{}}));
-    using Tensor_o0 = decltype(make_tensor(make_{mem_type_str}_ptr((TO0*)nullptr), Layout_o0{{}}));
-    Shape_o0 shape_o0;
-    Layout_o0 layout_o0;
-    Tensor_o0 {tensor_name};
 
+{outputs}
     // Hardware parameters
     int tid, lid, wid;
 
