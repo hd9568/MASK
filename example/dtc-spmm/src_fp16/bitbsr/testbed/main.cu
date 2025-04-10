@@ -75,6 +75,38 @@ void initVector(float* vec, int length, float sparsity) {
     }
 }
 
+void convertToBitBSR(
+    int M, int N, int K, 
+    int nnz, int* csrPtrA, int* csrColIdxA, half* csrValA,
+    half* B, float* C
+) {
+    using dtypeA = half;
+    using dtypeB = half;
+    using dtypeC = float;
+    using dtypeMask = uint64_t;
+
+    // 1. Create arrays
+    dtypeB *B_val;
+    dtypeC *C_val;
+    int *val_sidx;
+    int *val_soff;
+    int *val_mco_off;
+    dtypeMask *val_mco_mask;
+    int *val_mco_val;
+
+    B_val = B;
+    C_val = C;
+
+    
+    // 2. Convert TODO
+
+    // 3. Call the kernel
+    bitbsr_spmm_test<dtypeA, dtypeB, dtypeC, dtypeMask, 16, 64, 16, 16, 8, 16>(
+        M, N, K, 
+        B_val, C_val, val_sidx, val_soff, val_mco_off, val_mco_mask, val_mco_val
+    );
+}
+
 void convertToMETCF(
     int M, int N, int K, 
     int nnz, int* csrPtrA, int* csrColIdxA, float* csrValA,
