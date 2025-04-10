@@ -496,7 +496,7 @@ public:
     }
 };
 
-template<class NBUF, class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class nmask_per_tile = Int<2>, class TI0 = int, class TI1 = int, class TO0 = int>
+template<class NBUF, class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class nmask_per_tile = Int<16>, class TI0 = int, class TI1 = int, class TO0 = int, class TO1 = int>
 class G2sSparseMcoOffLoadOp {
 public:
     // Inputs
@@ -513,17 +513,26 @@ public:
     Shape_o0 shape_o0;
     Layout_o0 layout_o0;
     Tensor_o0 tile_mco_off;
+    using Shape_o1 = decltype(make_shape(Int<2>{}, NBUF{}));
+    using Stride_o1 = decltype(make_stride(_1{}, Int<2>{}));
+    using Layout_o1 = decltype(make_layout(Shape_o1{}, Stride_o1{}));
+    using Tensor_o1 = decltype(make_tensor(make_rmem_ptr((TO1*)nullptr), Layout_o1{}));
+    Shape_o1 shape_o1;
+    Layout_o1 layout_o1;
+    Tensor_o1 mco_off_range;
 
     // Hardware parameters
     int tid, lid, wid;
 
-    CUTE_DEVICE G2sSparseMcoOffLoadOp(int tid, int lid, int wid, TO0 *tile_mco_off, int mode_i0_0)
-    : tid(tid), lid(lid), wid(wid), shape_i0(make_shape(nmask_per_tile{}, mode_i0_0)), tile_mco_off(make_tensor(make_smem_ptr(tile_mco_off), Layout_o0{})) {}
+    CUTE_DEVICE G2sSparseMcoOffLoadOp(int tid, int lid, int wid, TO0 *tile_mco_off, TO1 *mco_off_range, int mode_i0_0)
+    : tid(tid), lid(lid), wid(wid), shape_i0(make_shape(nmask_per_tile{}, mode_i0_0)), tile_mco_off(make_tensor(make_smem_ptr(tile_mco_off), Layout_o0{})), mco_off_range(make_tensor(make_rmem_ptr(mco_off_range), Layout_o1{})) {}
 
     template<size_t output_idx, size_t buf_idx>
     CUTE_DEVICE auto output() {
         if constexpr (output_idx == 0) {
             return tile_mco_off(_, buf_idx);
+        } else if constexpr (output_idx == 1) {
+            return mco_off_range(_, buf_idx);
         }
     }
     
@@ -531,28 +540,30 @@ public:
     CUTE_DEVICE auto output() {
         if constexpr (output_idx == 0) {
             return tile_mco_off;
+        } else if constexpr (output_idx == 1) {
+            return mco_off_range;
         }
     }
 
     template<size_t buf_idx, class Tensor_i0, typename = void>
     CUTE_DEVICE void f(Tensor_i0 val_mco_off, TI1 i) {
         CUTE_STATIC_ASSERT_V((get<0>(shape_i0) == size<0>(shape(val_mco_off))));
-        int ll = val_coo_off(0, i);
-        int rr = val_coo_off(1, i);
-        coo_range_reg(buf_idx) = rr - ll;
+        mco_off_range(0, buf_idx) = val_mco_off(0, i);
+        mco_off_range(1, buf_idx) = val_mco_off(0, i + 1);
         
         auto thr_tiler = make_shape(_4{});
-        auto input = make_tensor(val_coo_idx.data() + ll, tile_coo_val_size_no_pad{});
-        for (int i_load = lid; i_load * 4 + ll < rr; i_load += 32) {
+        auto input = val_mco_off(_, i);
+        #pragma unroll
+        for (int i_load = lid; i_load * 4 < nmask_per_tile{}; i_load += 32) {
             auto thr_coord = make_coord(i_load);
             auto src = local_tile(input, thr_tiler, thr_coord);
-            auto dst = local_tile(tileA_coo_idx(_, buf_idx), thr_tiler, thr_coord);
+            auto dst = local_tile(tile_mco_off(_, buf_idx), thr_tiler, thr_coord);
             copy(Copy_Atom<SM80_CP_ASYNC_CACHEGLOBAL<cute::uint128_t>, int>{}, src, dst);
         }
     }
 };
 
-template<class NBUF, class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class nmask_per_tile = Int<2>, class TI0 = uint64_t, class TI1 = int, class TO0 = uint64_t>
+template<class NBUF, class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class nmask_per_tile = Int<16>, class TI0 = uint64_t, class TI1 = int, class TO0 = uint64_t>
 class G2sSparseMcoMaskLoadOp {
 public:
     // Inputs
@@ -593,29 +604,29 @@ public:
     template<size_t buf_idx, class Tensor_i0, typename = void>
     CUTE_DEVICE void f(Tensor_i0 val_mco_mask, TI1 i) {
         CUTE_STATIC_ASSERT_V((get<0>(shape_i0) == size<0>(shape(val_mco_mask))));
-        int ll = val_coo_off(0, i);
-        int rr = val_coo_off(1, i);
-        coo_range_reg(buf_idx) = rr - ll;
-        
-        auto thr_tiler = make_shape(_4{});
-        auto input = make_tensor(val_coo_idx.data() + ll, tile_coo_val_size_no_pad{});
-        for (int i_load = lid; i_load * 4 + ll < rr; i_load += 32) {
+        auto thr_tiler = make_shape(_2{});
+        auto input = val_mco_mask(_, i);
+        #pragma unroll
+        for (int i_load = lid; i_load * 2 < nmask_per_tile{}; i_load += 32) {
             auto thr_coord = make_coord(i_load);
             auto src = local_tile(input, thr_tiler, thr_coord);
-            auto dst = local_tile(tileA_coo_idx(_, buf_idx), thr_tiler, thr_coord);
-            copy(Copy_Atom<SM80_CP_ASYNC_CACHEGLOBAL<cute::uint128_t>, int>{}, src, dst);
+            auto dst = local_tile(tile_mco_mask(_, buf_idx), thr_tiler, thr_coord);
+            copy(Copy_Atom<SM80_CP_ASYNC_CACHEGLOBAL<cute::uint128_t>, uint64_t>{}, src, dst);
         }
     }
 };
 
-template<class NBUF, class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class tile_mco_val_size = Int<128>, class TI0 = half, class TI1 = int, class TO0 = half>
+template<class NBUF, class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class tile_mco_val_size = Int<1024>, class TI0 = half, class TI1 = int, class TI2 = int, class TO0 = half>
 class G2sSparseMcoValLoadOp {
 public:
     // Inputs
     using Shape_i0 = decltype(make_shape(VARLEN));
     Shape_i0 shape_i0;
     // Tensor_i0 val_mco_val;
-    // TI1 i;
+    using Shape_i1 = decltype(make_shape(Int<2>{}));
+    Shape_i1 shape_i1;
+    // Tensor_i1 mco_off_range;
+    // TI2 i;
 
     // Outputs
     using Shape_o0 = decltype(make_shape(tile_mco_val_size{}, NBUF{}));
@@ -646,18 +657,19 @@ public:
         }
     }
 
-    template<size_t buf_idx, class Tensor_i0, typename = void>
-    CUTE_DEVICE void f(Tensor_i0 val_mco_val, TI1 i) {
-        int ll = val_coo_off(0, i);
-        int rr = val_coo_off(1, i);
+    template<size_t buf_idx, class Tensor_i0, class Tensor_i1, typename = void>
+    CUTE_DEVICE void f(Tensor_i0 val_mco_val, Tensor_i1 mco_off_range, TI2 i) {
+        CUTE_STATIC_ASSERT_V((get<0>(shape_i1) == size<0>(shape(mco_off_range))));
+        int ll = mco_off_range(0, i);
+        int rr = mco_off_range(1, i);
         
-        auto thr_tiler = make_shape(_4{});
-        auto input = make_tensor(val_coo_val.data() + ll, tile_mco_val_size{});
-        for (int i_load = lid; i_load * 4 + ll < rr; i_load += 32) {
+        auto thr_tiler = make_shape(_8{});
+        auto input = make_tensor(val_mco_val.data() + ll, tile_mco_val_size{});
+        for (int i_load = lid; i_load * 8 + ll < rr; i_load += 32) {
             auto thr_coord = make_coord(i_load);
             auto src = local_tile(input, thr_tiler, thr_coord);
-            auto dst = local_tile(tileA_coo_val(_, buf_idx), thr_tiler, thr_coord);
-            copy(Copy_Atom<SM80_CP_ASYNC_CACHEGLOBAL<cute::uint128_t>, float>{}, src, dst);
+            auto dst = local_tile(tile_mco_val(_, buf_idx), thr_tiler, thr_coord);
+            copy(Copy_Atom<SM80_CP_ASYNC_CACHEGLOBAL<cute::uint128_t>, half>{}, src, dst);
         }
     }
 };
@@ -702,21 +714,21 @@ public:
 
     template<size_t buf_idx, class Tensor_i0, typename = void>
     CUTE_DEVICE void f(Tensor_i0 B_val, TI1 tile_sidx) {
-        // auto thr_tiler = make_shape(_4{});
-        // auto thr_coord = make_coord(lid);
-        __syncthreads();
-        auto load_tile_n = _4{};
-        for (int iter_i = lid; iter_i < get<2>(BLK_MNK{}) * get<1>(BLK_MNK{}) / load_tile_n; iter_i += 32) {
-            int row = iter_i / (get<1>(BLK_MNK{}) / load_tile_n);
-            int col = iter_i % (get<1>(BLK_MNK{}) / load_tile_n);
+        // TODO: 有没有支持任意TILEB的函数模板？目前定死在TILEB=64上了
+        auto thr_tiler = make_shape(_8{});
+        auto thr_coord = make_coord(lid);
+        for (int tileK_iter_inner = 0; tileK_iter_inner < 4; tileK_iter_inner++) {
+            int row = tileK_iter_inner * 4 + lid / 8;
+            int col = lid % 8;
+            int gmem_col = blockIdx.y * get<1>(BLK_MNK{}) / 8 + col;
             int sidx = tile_sidx_block(row);
-            auto thr_tiler_gmem = make_shape(_1{}, _4{});
-            auto thr_coord_gmem = make_coord(sidx, col);
-            auto B_val_thr = local_tile(B_val, thr_tiler_gmem, thr_coord_gmem);
-            auto thr_tiler_smem = make_shape(_1{}, _4{});
+            auto thr_tiler_gmem = make_shape(_1{}, _8{});
+            auto thr_coord_gmem = make_coord(sidx, gmem_col);
+            auto B_val_thr = local_tile(dB_val, thr_tiler_gmem, thr_coord_gmem);
+            auto thr_tiler_smem = make_shape(_1{}, _8{});
             auto thr_coord_smem = make_coord(row, col);
             auto dst = local_tile(tileB_block(_, _, buf_idx), thr_tiler_smem, thr_coord_smem);
-            copy(Copy_Atom<SM80_CP_ASYNC_CACHEGLOBAL<cute::uint128_t>, float>{}, B_val_thr(0, _), dst(0, _));   
+            copy(Copy_Atom<SM80_CP_ASYNC_CACHEGLOBAL<cute::uint128_t>, half>{}, B_val_thr(0, _), dst(0, _));
         }
     }
 };
@@ -825,12 +837,11 @@ public:
         CUTE_STATIC_ASSERT_V((get<0>(shape_i0) == size<0>(shape(tile_coo_restore_val_block))));
         CUTE_STATIC_ASSERT_V((get<1>(shape_i0) == size<1>(shape(tile_coo_restore_val_block))));
         __syncthreads();
-        //> m16n8k8
         int row = lid % 16;
         int col = lid / 16;
         ldmatrix_m8n8k8_x4(
             (uint32_t*)(REGA(_, _0{}, buf_idx).data()),
-            (void*)(&tile_coo_restore_val_block(row, col * 4))
+            (void*)(&tile_coo_restore_val_block(row, col * 8))
         );
     }
 };
@@ -877,25 +888,14 @@ public:
         CUTE_STATIC_ASSERT_V((get<0>(shape_i0) == size<0>(shape(tileB_block))));
         CUTE_STATIC_ASSERT_V((get<1>(shape_i0) == size<1>(shape(tileB_block))));
         __syncthreads();
-        //> row major B float - cannot use ldmatrix.trans
-        // way1: direct load
-        // for (int n_iter = 0; n_iter < get<1>(BLK_MMA_MNK{}); n_iter++) {
-        //     int row_b = lid % 4;
-        //     int col_b = lid / 4;
-        //     REGB(_0{}, n_iter, buf_idx) = tileB_block(row_b, col_b + n_iter * 8);
-        //     REGB(_1{}, n_iter, buf_idx) = tileB_block(row_b + 4, col_b + n_iter * 8);
-        // }
-        
-        // way2: ldmatrix + shuffle
         for (int n_iter = 0; n_iter < get<1>(BLK_MMA_MNK{}); n_iter++) {
-            int row_b = lid / 2;
-            int col_b = lid % 2;
-            ldmatrix_m8n8k8_x2(
+            int row_b = lid % 16;
+            int col_b = n_iter;
+            // Tensor tileB_tensor = local_tile(tileB_block, make_shape());
+            ldmatrix_m8n8k8_x2_trans(
                 (uint32_t*)(REGB(_, n_iter, buf_idx).data()),
-                (void*)(&tileB_block(row_b, col_b * 4 + n_iter * 8))
+                (void*)(&tileB_block(row_b, col_b * 8))
             );
-            REGB(_0{}, n_iter, buf_idx) = __shfl_sync(0xffffffff, REGB(_0{}, n_iter, buf_idx), lid / 4 + lid % 4 * 8);
-            REGB(_1{}, n_iter, buf_idx) = __shfl_sync(0xffffffff, REGB(_1{}, n_iter, buf_idx), lid / 4 + lid % 4 * 8);
         }
     }
 };
@@ -944,16 +944,11 @@ public:
         CUTE_STATIC_ASSERT_V((get<1>(shape_i1) == size<1>(shape(REGB))));
         for (int m_iter = 0; m_iter < get<0>(BLK_MMA_MNK{}); m_iter++) {
             for (int n_iter = 0; n_iter < get<1>(BLK_MMA_MNK{}); n_iter++) {
-                uint32_t frag_A[4];
-                uint32_t frag_B[2];
-                asm("cvt.rna.tf32.f32  %0, %1;\n" : "=r"(frag_A[0]) : "f"(REGA(0, m_iter)));
-                asm("cvt.rna.tf32.f32  %0, %1;\n" : "=r"(frag_A[1]) : "f"(REGA(1, m_iter)));
-                asm("cvt.rna.tf32.f32  %0, %1;\n" : "=r"(frag_A[2]) : "f"(REGA(2, m_iter)));
-                asm("cvt.rna.tf32.f32  %0, %1;\n" : "=r"(frag_A[3]) : "f"(REGA(3, m_iter)));
-                asm("cvt.rna.tf32.f32  %0, %1;\n" : "=r"(frag_B[0]) : "f"(REGB(0, n_iter)));
-                asm("cvt.rna.tf32.f32  %0, %1;\n" : "=r"(frag_B[1]) : "f"(REGB(1, n_iter)));
-        
-                mma_m16n8k8_fp32_tf32_tf32_fp32(REGC(_, make_coord(m_iter, n_iter)).data(), frag_A, frag_B);
+                mma_m16n8k16_fp32(
+                    REGC(_, make_coord(m_iter, n_iter)).data(), 
+                    (uint32_t*)(REGA(_, m_iter).data()), 
+                    REGB(_, n_iter).data()
+                );
             }
         }
     }
@@ -1025,6 +1020,7 @@ public:
             __pipeline_commit();
             G2sSparseMcoValLoadOp_v.template f<0>(
                 val_mco_valOp_v.template output<0>(),
+                G2sSparseMcoOffLoadOp_v.template output<1, 0>(),
                 l + 0
             );
             __pipeline_commit();
@@ -1077,6 +1073,7 @@ public:
             __pipeline_commit();
             G2sSparseMcoValLoadOp_v.template f<0>(
                 val_mco_valOp_v.template output<0>(),
+                G2sSparseMcoOffLoadOp_v.template output<1, 0>(),
                 l + 0
             );
             __pipeline_commit();
@@ -1095,6 +1092,7 @@ public:
             __pipeline_commit();
             G2sSparseMcoValLoadOp_v.template f<1>(
                 val_mco_valOp_v.template output<0>(),
+                G2sSparseMcoOffLoadOp_v.template output<1, 1>(),
                 l + 1
             );
             __pipeline_commit();
@@ -1174,6 +1172,7 @@ public:
             __pipeline_commit();
             G2sSparseMcoValLoadOp_v.template f<0>(
                 val_mco_valOp_v.template output<0>(),
+                G2sSparseMcoOffLoadOp_v.template output<1, 0>(),
                 l + 0
             );
             __pipeline_commit();
@@ -1192,6 +1191,7 @@ public:
             __pipeline_commit();
             G2sSparseMcoValLoadOp_v.template f<1>(
                 val_mco_valOp_v.template output<0>(),
+                G2sSparseMcoOffLoadOp_v.template output<1, 1>(),
                 l + 1
             );
             __pipeline_commit();
@@ -1223,6 +1223,7 @@ public:
             __pipeline_commit();
             G2sSparseMcoValLoadOp_v.template f<0>(
                 val_mco_valOp_v.template output<0>(),
+                G2sSparseMcoOffLoadOp_v.template output<1, 0>(),
                 l + 2
             );
             __pipeline_commit();
@@ -1323,6 +1324,7 @@ public:
         // op_call |buf_idx=0| 0 G2sSparseMcoValLoadOp 
         G2sSparseMcoValLoadOp_v.template f<0>(
             val_mco_valOp_v.template output<0>(),
+            G2sSparseMcoOffLoadOp_v.template output<1, 0>(),
             l + 0
         );
         __pipeline_commit();
@@ -1342,6 +1344,7 @@ public:
         // op_call |buf_idx=1| 1 G2sSparseMcoValLoadOp 
         G2sSparseMcoValLoadOp_v.template f<1>(
             val_mco_valOp_v.template output<0>(),
+            G2sSparseMcoOffLoadOp_v.template output<1, 1>(),
             l + 1
         );
         __pipeline_commit();
@@ -1376,6 +1379,7 @@ public:
         // op_call |buf_idx=0| 2 G2sSparseMcoValLoadOp 
         G2sSparseMcoValLoadOp_v.template f<0>(
             val_mco_valOp_v.template output<0>(),
+            G2sSparseMcoOffLoadOp_v.template output<1, 0>(),
             l + 2
         );
         __pipeline_commit();
@@ -1431,6 +1435,7 @@ public:
         // op_call |buf_idx=1| i + (0) G2sSparseMcoValLoadOp 
         G2sSparseMcoValLoadOp_v.template f<1>(
             val_mco_valOp_v.template output<0>(),
+            G2sSparseMcoOffLoadOp_v.template output<1, 1>(),
             l + i + (0)
         );
         __pipeline_commit();
@@ -1482,6 +1487,7 @@ public:
         // op_call |buf_idx=0| i + (1) G2sSparseMcoValLoadOp 
         G2sSparseMcoValLoadOp_v.template f<0>(
             val_mco_valOp_v.template output<0>(),
+            G2sSparseMcoOffLoadOp_v.template output<1, 0>(),
             l + i + (1)
         );
         __pipeline_commit();
@@ -1537,6 +1543,7 @@ public:
         // op_call |buf_idx=1| i + (0) G2sSparseMcoValLoadOp 
         G2sSparseMcoValLoadOp_v.template f<1>(
             val_mco_valOp_v.template output<0>(),
+            G2sSparseMcoOffLoadOp_v.template output<1, 1>(),
             l + i + (0)
         );
         __pipeline_commit();
@@ -1926,9 +1933,11 @@ __global__ void bitbsr_spmm_kernel_fp16fp16fp32(
     using G2sSparseMcoOffLoadOp_t = G2sSparseMcoOffLoadOp<Int<2>, BLK_MNK, MMA_MNK, BLK_MMA_MNK>;
     using G2sSparseMcoOffLoadOp_layout_o0 = typename G2sSparseMcoOffLoadOp_t::Layout_o0;
     __shared__ int G2sSparseMcoOffLoadOp_tensor_o0[cosize_v<G2sSparseMcoOffLoadOp_layout_o0>];
+    using G2sSparseMcoOffLoadOp_layout_o1 = typename G2sSparseMcoOffLoadOp_t::Layout_o1;
+    int G2sSparseMcoOffLoadOp_tensor_o1[cosize_v<G2sSparseMcoOffLoadOp_layout_o1>];
     G2sSparseMcoOffLoadOp_t G2sSparseMcoOffLoadOp_v{
         tid, lid, wid, 
-        G2sSparseMcoOffLoadOp_tensor_o0, 
+        G2sSparseMcoOffLoadOp_tensor_o0, G2sSparseMcoOffLoadOp_tensor_o1, 
         nnz_block,
     };
     using G2sSparseMcoMaskLoadOp_t = G2sSparseMcoMaskLoadOp<Int<2>, BLK_MNK, MMA_MNK, BLK_MMA_MNK>;

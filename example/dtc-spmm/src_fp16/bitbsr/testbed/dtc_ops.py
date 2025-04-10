@@ -28,7 +28,7 @@ NFRAG_A = 8
 NFRAG_B = 4
 NFRAG_C = 4
 
-BLK_MNK = (16, 8, 16)
+BLK_MNK = (16, 64, 16)
 MMA_MNK = (16, 8, 16)
 BLK_MMA_MNK = (BLK_MNK[0] // MMA_MNK[0], BLK_MNK[1] // MMA_MNK[1], BLK_MNK[2] // MMA_MNK[2])
 
@@ -314,21 +314,28 @@ r(0) = val_soff(i + 1);"""
                     dtype="int",
                 ),
             ),
+            NvOpOutput(
+                idx=1,
+                name="mco_off_range",
+                tensor=NvOpTensor(
+                    shape=Shape(IntShape(2)),
+                    mem="rmem",
+                    dtype="int",
+                ),
+            ),
         ],
-        impl=NvOpImpl( # TODO
-            r"""int ll = val_coo_off(0, i);
-int rr = val_coo_off(1, i);
-coo_range_reg(buf_idx) = rr - ll;
+        impl=NvOpImpl(r"""mco_off_range(0, buf_idx) = val_mco_off(0, i);
+mco_off_range(1, buf_idx) = val_mco_off(0, i + 1);
 
 auto thr_tiler = make_shape(_4{});
-auto input = make_tensor(val_coo_idx.data() + ll, tile_coo_val_size_no_pad{});
-for (int i_load = lid; i_load * 4 + ll < rr; i_load += 32) {
+auto input = val_mco_off(_, i);
+#pragma unroll
+for (int i_load = lid; i_load * 4 < nmask_per_tile{}; i_load += 32) {
     auto thr_coord = make_coord(i_load);
     auto src = local_tile(input, thr_tiler, thr_coord);
-    auto dst = local_tile(tileA_coo_idx(_, buf_idx), thr_tiler, thr_coord);
+    auto dst = local_tile(tile_mco_off(_, buf_idx), thr_tiler, thr_coord);
     copy(Copy_Atom<SM80_CP_ASYNC_CACHEGLOBAL<cute::uint128_t>, int>{}, src, dst);
-}"""
-        ),
+}"""),
         mem_type=("g", "s"),
         parameters={
             "nmask_per_tile": NMASK_PER_TILE,
@@ -371,20 +378,15 @@ for (int i_load = lid; i_load * 4 + ll < rr; i_load += 32) {
                 ),
             ),
         ],
-        impl=NvOpImpl( # TODO
-            r"""int ll = val_coo_off(0, i);
-int rr = val_coo_off(1, i);
-coo_range_reg(buf_idx) = rr - ll;
-
-auto thr_tiler = make_shape(_4{});
-auto input = make_tensor(val_coo_idx.data() + ll, tile_coo_val_size_no_pad{});
-for (int i_load = lid; i_load * 4 + ll < rr; i_load += 32) {
+        impl=NvOpImpl(r"""auto thr_tiler = make_shape(_2{});
+auto input = val_mco_mask(_, i);
+#pragma unroll
+for (int i_load = lid; i_load * 2 < nmask_per_tile{}; i_load += 32) {
     auto thr_coord = make_coord(i_load);
     auto src = local_tile(input, thr_tiler, thr_coord);
-    auto dst = local_tile(tileA_coo_idx(_, buf_idx), thr_tiler, thr_coord);
-    copy(Copy_Atom<SM80_CP_ASYNC_CACHEGLOBAL<cute::uint128_t>, int>{}, src, dst);
-}"""
-        ),
+    auto dst = local_tile(tile_mco_mask(_, buf_idx), thr_tiler, thr_coord);
+    copy(Copy_Atom<SM80_CP_ASYNC_CACHEGLOBAL<cute::uint128_t>, uint64_t>{}, src, dst);
+}"""),
         mem_type=("g", "s"),
         parameters={
             "nmask_per_tile": NMASK_PER_TILE,
@@ -407,6 +409,15 @@ for (int i_load = lid; i_load * 4 + ll < rr; i_load += 32) {
             ),
             NvOpInput(
                 idx=1,
+                name="mco_off_range",
+                tensor=NvOpTensor(
+                    shape=Shape(IntShape(2)),
+                    mem="rmem", dtype="int",
+                    source=G2sSparseMcoOffLoadOp.outputs[1],
+                ),
+            ),
+            NvOpInput(
+                idx=2,
                 name="i",
                 tensor=NvOpTensor(
                     shape=Shape(),
@@ -428,18 +439,17 @@ for (int i_load = lid; i_load * 4 + ll < rr; i_load += 32) {
             ),
         ],
         impl=NvOpImpl(
-            r"""int ll = val_coo_off(0, i);
-int rr = val_coo_off(1, i);
+            r"""int ll = mco_off_range(0, i);
+int rr = mco_off_range(1, i);
 
-auto thr_tiler = make_shape(_4{});
-auto input = make_tensor(val_coo_val.data() + ll, tile_mco_val_size{});
-for (int i_load = lid; i_load * 4 + ll < rr; i_load += 32) {
+auto thr_tiler = make_shape(_8{});
+auto input = make_tensor(val_mco_val.data() + ll, tile_mco_val_size{});
+for (int i_load = lid; i_load * 8 + ll < rr; i_load += 32) {
     auto thr_coord = make_coord(i_load);
     auto src = local_tile(input, thr_tiler, thr_coord);
-    auto dst = local_tile(tileA_coo_val(_, buf_idx), thr_tiler, thr_coord);
-    copy(Copy_Atom<SM80_CP_ASYNC_CACHEGLOBAL<cute::uint128_t>, float>{}, src, dst);
-}"""
-        ),
+    auto dst = local_tile(tile_mco_val(_, buf_idx), thr_tiler, thr_coord);
+    copy(Copy_Atom<SM80_CP_ASYNC_CACHEGLOBAL<cute::uint128_t>, half>{}, src, dst);
+}"""),
         mem_type=("g", "s"),
         parameters={
             "tile_mco_val_size": TILE_MCO_VAL_SIZE,
@@ -484,24 +494,22 @@ for (int i_load = lid; i_load * 4 + ll < rr; i_load += 32) {
                 ),
             ),
         ],
-        impl=NvOpImpl(
-            r"""// auto thr_tiler = make_shape(_4{});
-// auto thr_coord = make_coord(lid);
-__syncthreads();
-auto load_tile_n = _4{};
-for (int iter_i = lid; iter_i < get<2>(BLK_MNK{}) * get<1>(BLK_MNK{}) / load_tile_n; iter_i += 32) {
-    int row = iter_i / (get<1>(BLK_MNK{}) / load_tile_n);
-    int col = iter_i % (get<1>(BLK_MNK{}) / load_tile_n);
+        impl=NvOpImpl(r"""// TODO: 有没有支持任意TILEB的函数模板？目前定死在TILEB=64上了
+auto thr_tiler = make_shape(_8{});
+auto thr_coord = make_coord(lid);
+for (int tileK_iter_inner = 0; tileK_iter_inner < 4; tileK_iter_inner++) {
+    int row = tileK_iter_inner * 4 + lid / 8;
+    int col = lid % 8;
+    int gmem_col = blockIdx.y * get<1>(BLK_MNK{}) / 8 + col;
     int sidx = tile_sidx_block(row);
-    auto thr_tiler_gmem = make_shape(_1{}, _4{});
-    auto thr_coord_gmem = make_coord(sidx, col);
-    auto B_val_thr = local_tile(B_val, thr_tiler_gmem, thr_coord_gmem);
-    auto thr_tiler_smem = make_shape(_1{}, _4{});
+    auto thr_tiler_gmem = make_shape(_1{}, _8{});
+    auto thr_coord_gmem = make_coord(sidx, gmem_col);
+    auto B_val_thr = local_tile(dB_val, thr_tiler_gmem, thr_coord_gmem);
+    auto thr_tiler_smem = make_shape(_1{}, _8{});
     auto thr_coord_smem = make_coord(row, col);
     auto dst = local_tile(tileB_block(_, _, buf_idx), thr_tiler_smem, thr_coord_smem);
-    copy(Copy_Atom<SM80_CP_ASYNC_CACHEGLOBAL<cute::uint128_t>, float>{}, B_val_thr(0, _), dst(0, _));   
-}"""
-        ),
+    copy(Copy_Atom<SM80_CP_ASYNC_CACHEGLOBAL<cute::uint128_t>, half>{}, B_val_thr(0, _), dst(0, _));
+}"""),
         mem_type=("g", "s"),
     )
     bitbsr_main_loop_op.append(G2sMatrixBLoadOp)
@@ -605,16 +613,13 @@ for (int i_restore = lid; i_restore < nnz_num; i_restore += 32) {
                 ),
             ),
         ],
-        impl=NvOpImpl(
-            r"""__syncthreads();
-//> m16n8k8
+        impl=NvOpImpl(r"""__syncthreads();
 int row = lid % 16;
 int col = lid / 16;
 ldmatrix_m8n8k8_x4(
     (uint32_t*)(REGA(_, _0{}, buf_idx).data()),
-    (void*)(&tile_coo_restore_val_block(row, col * 4))
-);"""
-        ),
+    (void*)(&tile_coo_restore_val_block(row, col * 8))
+);"""),
         mem_type=("s", "r"),
     )
     bitbsr_main_loop_op.append(S2rAValLoadOp)
@@ -638,29 +643,16 @@ ldmatrix_m8n8k8_x4(
                     mem="rmem",
                     dtype=DTYPE_B)),
         ],
-        impl=NvOpImpl(
-            r"""__syncthreads();
-//> row major B float - cannot use ldmatrix.trans
-// way1: direct load
-// for (int n_iter = 0; n_iter < get<1>(BLK_MMA_MNK{}); n_iter++) {
-//     int row_b = lid % 4;
-//     int col_b = lid / 4;
-//     REGB(_0{}, n_iter, buf_idx) = tileB_block(row_b, col_b + n_iter * 8);
-//     REGB(_1{}, n_iter, buf_idx) = tileB_block(row_b + 4, col_b + n_iter * 8);
-// }
-
-// way2: ldmatrix + shuffle
+        impl=NvOpImpl(r"""__syncthreads();
 for (int n_iter = 0; n_iter < get<1>(BLK_MMA_MNK{}); n_iter++) {
-    int row_b = lid / 2;
-    int col_b = lid % 2;
-    ldmatrix_m8n8k8_x2(
+    int row_b = lid % 16;
+    int col_b = n_iter;
+    // Tensor tileB_tensor = local_tile(tileB_block, make_shape());
+    ldmatrix_m8n8k8_x2_trans(
         (uint32_t*)(REGB(_, n_iter, buf_idx).data()),
-        (void*)(&tileB_block(row_b, col_b * 4 + n_iter * 8))
+        (void*)(&tileB_block(row_b, col_b * 8))
     );
-    REGB(_0{}, n_iter, buf_idx) = __shfl_sync(0xffffffff, REGB(_0{}, n_iter, buf_idx), lid / 4 + lid % 4 * 8);
-    REGB(_1{}, n_iter, buf_idx) = __shfl_sync(0xffffffff, REGB(_1{}, n_iter, buf_idx), lid / 4 + lid % 4 * 8);
-}"""
-        ),
+}"""),
         mem_type=("s", "r"),
     )
     bitbsr_main_loop_op.append(S2rBValLoadOp)
@@ -696,22 +688,15 @@ for (int n_iter = 0; n_iter < get<1>(BLK_MMA_MNK{}); n_iter++) {
                 ),
                 origin=ZerosOp.outputs[0])
         ],
-        impl=NvOpImpl(
-            r"""for (int m_iter = 0; m_iter < get<0>(BLK_MMA_MNK{}); m_iter++) {
+        impl=NvOpImpl(r"""for (int m_iter = 0; m_iter < get<0>(BLK_MMA_MNK{}); m_iter++) {
     for (int n_iter = 0; n_iter < get<1>(BLK_MMA_MNK{}); n_iter++) {
-        uint32_t frag_A[4];
-        uint32_t frag_B[2];
-        asm("cvt.rna.tf32.f32  %0, %1;\n" : "=r"(frag_A[0]) : "f"(REGA(0, m_iter)));
-        asm("cvt.rna.tf32.f32  %0, %1;\n" : "=r"(frag_A[1]) : "f"(REGA(1, m_iter)));
-        asm("cvt.rna.tf32.f32  %0, %1;\n" : "=r"(frag_A[2]) : "f"(REGA(2, m_iter)));
-        asm("cvt.rna.tf32.f32  %0, %1;\n" : "=r"(frag_A[3]) : "f"(REGA(3, m_iter)));
-        asm("cvt.rna.tf32.f32  %0, %1;\n" : "=r"(frag_B[0]) : "f"(REGB(0, n_iter)));
-        asm("cvt.rna.tf32.f32  %0, %1;\n" : "=r"(frag_B[1]) : "f"(REGB(1, n_iter)));
-
-        mma_m16n8k8_fp32_tf32_tf32_fp32(REGC(_, make_coord(m_iter, n_iter)).data(), frag_A, frag_B);
+        mma_m16n8k16_fp32(
+            REGC(_, make_coord(m_iter, n_iter)).data(), 
+            (uint32_t*)(REGA(_, m_iter).data()), 
+            REGB(_, n_iter).data()
+        );
     }
-}"""
-        ),
+}"""),
         mem_type=("r", "r"),
     )
     bitbsr_main_loop_op.append(CalculateOp)
