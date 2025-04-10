@@ -115,6 +115,34 @@ void convertToBitBSR(
     using dtypeC = float;
     using dtypeMask = uint64_t;
 
+    // { //! debug
+    //     printf("A_compressed:\n");
+    //     for (int row = 0; row < M; row++) {
+    //         for (int x = csrPtrA[row]; x < csrPtrA[row + 1]; x++) {
+    //             int col = csrColIdxA[x];
+    //             float val = (float)csrValA[x];
+    //             printf("%4.1f(%2d) ", val, col);
+    //         }
+    //         printf("\n");
+    //     }
+
+    //     vector<float> A_restored(M * K);
+    //     for (int i = 0; i < M; i++) {
+    //         for (int x = csrPtrA[i]; x < csrPtrA[i + 1]; x++) {
+    //             int j = csrColIdxA[x];
+    //             A_restored[i * K + j] = (float)csrValA[x];
+    //         }
+    //     }
+    //     printf("M = %d, K = %d\n", M, K);
+    //     printf("A_restored (host):\n");
+    //     for (int i = 0; i < M; i++) {
+    //         for (int j = 0; j < K; j++) {
+    //             printf("%4.1f ", A_restored[i * K + j]);
+    //         }
+    //         printf("\n");
+    //     }
+    // }
+
     // 1. Create ptrs
     dtypeB* B_val;
     dtypeC* C_val;
@@ -145,8 +173,8 @@ void convertToBitBSR(
         int row_start = rw_idx * Blk_M;
         int row_end = min(row_start + Blk_M, M);
 
-        unordered_map<int, vector<dtypeA>> nz_blk_vals_in_window;
-        unordered_map<int, vector<pair<int, int>>> nz_blk_idxs_in_window;
+        map<int, vector<dtypeA>> nz_blk_vals_in_window;
+        map<int, vector<pair<int, int>>> nz_blk_idxs_in_window;
         for (int row = row_start; row < row_end; row++) {
             for (int j = csrPtrA[row]; j < csrPtrA[row + 1]; j++) {
                 int col = csrColIdxA[j];
@@ -157,6 +185,13 @@ void convertToBitBSR(
 
         for (auto& [blk_idx, vals] : nz_blk_vals_in_window) {
             nz_blk_indices[rw_idx].push_back(blk_idx);
+            // { //! debug
+            //     printf("Pushing ");
+            //     for (auto &val : vals) {
+            //         printf("%4.1f ", (float)val);
+            //     }
+            //     printf("into (%d, %d)\n", rw_idx, blk_idx);
+            // }
             vector<bool> bitmask(Blk_M * Blk_K, false);
             for (auto& [row, col] : nz_blk_idxs_in_window[blk_idx]) {
                 bitmask[row * Blk_K + col] = true;
@@ -170,11 +205,22 @@ void convertToBitBSR(
         }
     }
 
-    { //! debug
-        printf("nz_blk_mask.size(): %d\n", nz_blk_mask.size());
-        printf("nz_blk_val.size(): %d\n", nz_blk_val.size());
-        printf("nz_blk_indices.size(): %d\n", nz_blk_indices.size());
-    }
+    // { //! debug
+    //     printf("nz_blk_mask.size(): %d\n", nz_blk_mask.size());
+    //     printf("nz_blk_val.size(): %d\n", nz_blk_val.size());
+    //     printf("nz_blk_indices.size(): %d\n", nz_blk_indices.size());
+
+    //     for (int rw_idx = 0; rw_idx < num_row_windows; rw_idx++) {
+    //         printf("rw_idx = %d\n", rw_idx);
+    //         for (int blk_idx : nz_blk_indices[rw_idx]) {
+    //             printf("blk_idx = %d\n", blk_idx);
+    //             for (int i = 0; i < nz_blk_val[blk_idx].size(); i++) {
+    //                 printf("%4.1f ", (float)nz_blk_val[blk_idx][i]);
+    //             }
+    //             printf("\n");
+    //         }
+    //     }
+    // }
 
     // 3. Accumulate offsets and flatten values
     vector<int> vval_soff;
@@ -207,13 +253,13 @@ void convertToBitBSR(
     val_mco_mask = vval_mco_mask.data();
     val_mco_val = vval_mco_val.data();
 
-    { //! debug
-        printf("val_soff.size(): %d\n", vval_soff.size());
-        printf("val_sidx.size(): %d\n", vval_sidx.size());
-        printf("val_mco_off.size(): %d\n", vval_mco_off.size());
-        printf("val_mco_mask.size(): %d\n", vval_mco_mask.size());
-        printf("val_mco_val.size(): %d\n", vval_mco_val.size());
-    }
+    // { //! debug
+    //     printf("val_soff.size(): %d\n", vval_soff.size());
+    //     printf("val_sidx.size(): %d\n", vval_sidx.size());
+    //     printf("val_mco_off.size(): %d\n", vval_mco_off.size());
+    //     printf("val_mco_mask.size(): %d\n", vval_mco_mask.size());
+    //     printf("val_mco_val.size(): %d\n", vval_mco_val.size());
+    // }
 
     // 4. Call the kernel
     bitbsr_spmm_test<dtypeA, dtypeB, dtypeC, dtypeMask, 16, 64, 16, 16, 8, 16>(

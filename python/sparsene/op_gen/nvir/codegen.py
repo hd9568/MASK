@@ -1285,6 +1285,12 @@ class NvIrCodeGenerator:
                     return True
             return False
 
+        def has_smem_input(current_op: NvOp) -> bool:
+            for inp in current_op.inputs:
+                if inp.tensor.mem == "smem":
+                    return True
+            return False
+
         def has_cp_async_smem_input(current_op: NvOp) -> bool:
             for inp in current_op.inputs:
                 if inp.tensor.mem == "smem" and inp.tensor.source.op.attrs.get(
@@ -1305,7 +1311,8 @@ class NvIrCodeGenerator:
                     )
                     if wait_num != -1:
                         instructions.append(PipelineWait(wait_num=wait_num))
-                        instructions.append(SyncThreads())
+                if has_smem_input(op_call.op):
+                    instructions.append(SyncThreads())
 
                 instructions.append(
                     Comment(

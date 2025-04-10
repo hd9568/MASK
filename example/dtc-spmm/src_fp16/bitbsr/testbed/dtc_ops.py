@@ -33,7 +33,7 @@ MMA_MNK = (16, 8, 16)
 BLK_MMA_MNK = (BLK_MNK[0] // MMA_MNK[0], BLK_MNK[1] // MMA_MNK[1], BLK_MNK[2] // MMA_MNK[2])
 
 NBITS_PER_MASK = 64
-TILE_MCO_VAL_SIZE = BLK_MNK[0] * BLK_MNK[1]
+TILE_MCO_VAL_SIZE = BLK_MNK[0] * BLK_MNK[2]
 NMASK_PER_TILE = TILE_MCO_VAL_SIZE // NBITS_PER_MASK
 
 
@@ -539,11 +539,12 @@ for (int tileK_iter_inner = 0; tileK_iter_inner < 4; tileK_iter_inner++) {
         impl=NvOpImpl(r"""int off = 0;
 for (int i_mask = 0; i_mask < nmask_per_tile{}; i_mask++) {
     uint64_t mask = tile_mco_mask(i_mask);
-    for (int vid = tid; vid < 64; vid += 32 /* num threads */) {
+    for (int local_vid = tid; local_vid < 64; local_vid += 32 /* num threads */) {
         int local_idx = 0;
-        if (mask & (1ULL << vid)) {
-            local_idx = __popcll(mask << (63 - vid));
+        if (mask & (1ULL << local_vid)) {
+            local_idx = __popcll(mask << (63 - local_vid));
         }
+        int vid = i_mask * 64 + local_vid;
         int row = vid / get<2>(BLK_MNK{});
         int col = vid % get<2>(BLK_MNK{});
         if (local_idx == 0) {
@@ -559,6 +560,7 @@ for (int i_mask = 0; i_mask < nmask_per_tile{}; i_mask++) {
             "tile_mco_val_size": TILE_MCO_VAL_SIZE,
             "nmask_per_tile": NMASK_PER_TILE,
         },
+        cp_async=False,
     )
     bitbsr_main_loop_op.append(S2sRestoreMatrixAOp)
 
@@ -593,8 +595,7 @@ for (int i_mask = 0; i_mask < nmask_per_tile{}; i_mask++) {
                 ),
             ),
         ],
-        impl=NvOpImpl(r"""__syncthreads();
-int row = lid % 16;
+        impl=NvOpImpl(r"""int row = lid % 16;
 int col = lid / 16;
 ldmatrix_m8n8k8_x4(
     (uint32_t*)(REGA(_, _0{}, buf_idx).data()),
@@ -623,8 +624,7 @@ ldmatrix_m8n8k8_x4(
                     mem="rmem",
                     dtype=DTYPE_B)),
         ],
-        impl=NvOpImpl(r"""__syncthreads();
-for (int n_iter = 0; n_iter < get<1>(BLK_MMA_MNK{}); n_iter++) {
+        impl=NvOpImpl(r"""for (int n_iter = 0; n_iter < get<1>(BLK_MMA_MNK{}); n_iter++) {
     int row_b = lid % 16;
     int col_b = n_iter;
     // Tensor tileB_tensor = local_tile(tileB_block, make_shape());
