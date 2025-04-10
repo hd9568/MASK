@@ -1,3 +1,5 @@
+import os
+
 from sparsene.op_gen.nvir.nvop import (
     NvOp,
     NvOpInput,
@@ -18,7 +20,10 @@ from sparsene.op_gen.nvir.nvop import (
     ConstantNvOp,
     NvOpProgram,
 )
-from sparsene.op_gen.nvir.pipeliner import PipelinePlan, apply_pipeline, enumerate_pipeline_plans
+from sparsene.op_gen.nvir.plan import apply_pipeline, PipelinePlan
+from sparsene.op_gen.nvir.pipeline.pipeline_planner import (
+    enumerate_pipeline_plans,
+)
 
 #> flash llm code template
 # int l = 0;
@@ -47,11 +52,14 @@ def flash_llm():
         name="flash_llm_spmm_kernel_sstage_rstage",
         gmem_inouts={
             "tile_offsets": GmemInout( #! how to represent divide in this case
-                shape=Shape(VarlenShape("K / get<2>(BLK_MNK{})"), VarlenShape("M / get<0>(BLK_MNK{})")),
+                # shape=Shape(VarlenShape("K / get<2>(BLK_MNK{})"), VarlenShape("M / get<0>(BLK_MNK{})")),
+                shape=Shape(VarlenShape("NumOffsets")),
                 name="tile_offsets",
                 dtype="int",
-                tensor_str="logical_divide(make_tensor(make_gmem_ptr(dtile_offsets), make_shape(K / get<2>(BLK_MNK{}), M / get<0>(BLK_MNK{}))), make_shape(K / get<2>(BLK_MNK{}), _1{}))(_, blockIdx.x)",
-                tensor_type_str="decltype(logical_divide(make_tensor(make_gmem_ptr((TO0*)nullptr), make_shape(VARLEN, _1{})))(_, VARLEN))"
+                # tensor_str="logical_divide(make_tensor(make_gmem_ptr(dtile_offsets), make_shape(K / get<2>(BLK_MNK{}), M / get<0>(BLK_MNK{}))), make_shape(K / get<2>(BLK_MNK{}), _1{}))(_, blockIdx.x)",
+                # tensor_type_str="decltype(logical_divide(make_tensor(make_gmem_ptr((TO0*)nullptr), make_shape(VARLEN, _1{})))(_, VARLEN))"
+                tensor_str="make_tensor(make_gmem_ptr(dtile_offsets), make_shape(NumOffsets))",
+                tensor_type_str="decltype(make_tensor(make_gmem_ptr((TO0*)nullptr), make_shape(VARLEN)))",
             ),
             "compressed_A": GmemInout( #! load directly from GMEM to reg (no need to pad)
                 shape=Shape(VarlenShape("nnz")),
@@ -64,8 +72,15 @@ def flash_llm():
                 shape=Shape(VarlenShape("K"), VarlenShape("N")),
                 name="B_val",
                 dtype="half",
-                tensor_str="logical_divide(make_tensor(make_gmem_ptr(dB_val), make_shape(K, N)), make_shape(K, get<1>(BLK_MNK{})))(_, blockIdx.y)",
-                tensor_type_str="decltype(logical_divide(make_tensor(make_gmem_ptr((TO0*)nullptr), make_shape(VARLEN, VARLEN)), make_shape(VARLEN, get<1>(BLK_MNKP{})))(_, VARLEN))",
+                #! not correct
+                # tensor_str="logical_divide(make_tensor(make_gmem_ptr(dB_val), make_shape(K, N)), make_shape(K, get<1>(BLK_MNK{})))(_, blockIdx.y)",
+                # tensor_type_str="decltype(logical_divide(make_tensor(make_gmem_ptr((TO0*)nullptr), make_shape(VARLEN, VARLEN)), make_shape(VARLEN, get<1>(BLK_MNK{})))(_, VARLEN))",
+                #! still not correct
+                # tensor_str="coalesce(logical_divide(make_tensor(make_gmem_ptr(dB_val), make_shape(K, N)), make_shape(K, get<1>(BLK_MNK{})))(_, blockIdx.y))",
+                # tensor_type_str="decltype(coalesce(logical_divide(make_tensor(make_gmem_ptr((TO0*)nullptr), make_shape(VARLEN, VARLEN)), make_shape(VARLEN, get<1>(BLK_MNK{})))(_, VARLEN)))",
+                tensor_str="logical_divide(make_tensor(make_gmem_ptr(dB_val), make_layout(make_shape(K, N), make_stride(N, _1{}))), make_shape(_1{}, get<1>(BLK_MNK{})))(_, make_coord(_, blockIdx.y))",
+                tensor_type_str="decltype(logical_divide(make_tensor(make_gmem_ptr((TO0*)nullptr), make_layout(make_shape(VARLEN, VARLEN), make_stride(VARLEN, _1{}))), make_shape(_1{}, get<1>(BLK_MNK{})))(_, make_coord(_, VARLEN)))",
+
             ),
             "C_val": GmemInout(
                 shape=Shape(VarlenShape("N"), VarlenShape("M")),
@@ -76,6 +91,56 @@ def flash_llm():
             ),
         },
     )
+
+    # TODO: loop的左右两边范围有没有轻量级的写法？
+    flash_llm_loop_bound_zero_op = ConstantNvOp(
+        name="FlashLLMLoopBoundZeroOp",
+        shape=Shape(),
+        dtype="int",
+        value=0
+    )
+
+    # flash_llm_loop_bound_up_op = ConstantNvOp(
+    #     name="FlashLLMLoopBoundUpOp",
+    #     shape=Shape(),
+    #     dtype="int",
+    #     value="((K + get<2>(BLK_MNK{}) - 1) / get<2>(BLK_MNK{}))"
+    # )
+    flash_llm_loop_bound_up_op = NvOp(
+        name="FlashLLMLoopBoundUpOp",
+        inputs=[
+            NvOpInput(
+                idx=0,
+                name="ubi",
+                tensor=NvOpTensor(
+                    shape=(),
+                    mem="rmem",
+                    dtype="int",
+                    source="((K + get<2>(BLK_MNK{}) - 1) / get<2>(BLK_MNK{}))",
+                ),
+            ),
+        ],
+        outputs=[
+            NvOpOutput(
+                idx=0,
+                name="ubo",
+                tensor=NvOpTensor(
+                    shape=Shape(),
+                    mem="rmem",
+                    dtype="int",
+                ),
+            ),
+        ],
+        impl=NvOpImpl(
+            code_template="""
+ubo(0) = ubi;
+            """
+        )
+    )
+    flash_llm_program.append_op(flash_llm_loop_bound_zero_op)
+    flash_llm_program.append_op(flash_llm_loop_bound_up_op)
+    
+    #> 
 
     # flash-llm program body
     blk_y_loop_zero_op = ConstantNvOp(
@@ -167,23 +232,10 @@ def flash_llm():
     flash_llm_blk_y_loop_op.append(flash_llm_blk_x_loop_op)
 
     # blk_x_loop_op body
-    # TODO: loop的左右两边范围有没有轻量级的写法？
-    flash_llm_loop_bound_zero_op = ConstantNvOp(
-        name="FlashLLMLoopBoundZeroOp",
-        shape=Shape(),
-        dtype="int",
-        value=0
-    )
+    
 
-    flash_llm_loop_bound_up_op = ConstantNvOp(
-        name="FlashLLMLoopBoundUpOp",
-        shape=Shape(),
-        dtype="int",
-        value="((K + get<2>(BLK_MNK{}) - 1) / get<2>(BLK_MNK{}))"
-    )
-
-    flash_llm_blk_x_loop_op.append(flash_llm_loop_bound_zero_op)
-    flash_llm_blk_x_loop_op.append(flash_llm_loop_bound_up_op)
+    # flash_llm_blk_x_loop_op.append(flash_llm_loop_bound_zero_op)
+    # flash_llm_blk_x_loop_op.append(flash_llm_loop_bound_up_op)
 
     #> 这两个参数怎么写比较好？
     # in flash-llm compressed_A load op, every thread load uint4 a time
@@ -264,7 +316,8 @@ def flash_llm():
                 idx=0,
                 name="tile_offsets",
                 tensor=NvOpTensor(
-                    shape=Shape(VarlenShape("(K + get<2>(BLK_MNK{}) - 1) / get<2>(BLK_MNK{})"), IntShape(1)),
+                    # shape=Shape(VarlenShape("(K + get<2>(BLK_MNK{}) - 1) / get<2>(BLK_MNK{})"), IntShape(1)),
+                    shape=Shape(VarlenShape("NumOffsets")),
                     mem="gmem",
                     dtype="int",
                     source=flash_llm_program.gmem_tensor_ops["tile_offsets"].outputs[0],
@@ -278,6 +331,16 @@ def flash_llm():
                     mem="rmem",
                     dtype="int",
                     source="{c}",
+                ),
+            ),
+            NvOpInput(
+                idx=2,
+                name="num_tile_per_row_window",
+                tensor=NvOpTensor(
+                    shape=Shape(),
+                    mem="rmem",
+                    dtype="int",
+                    source=flash_llm_loop_bound_up_op.outputs[0],
                 ),
             ),
         ],
@@ -294,8 +357,8 @@ def flash_llm():
         ],
         impl=NvOpImpl(
             code_template="""
-tile_offsets_reg(0) = tile_offsets(i);
-tile_offsets_reg(1) = tile_offsets(i + 1);
+tile_offsets_reg(0, buf_idx) = tile_offsets(blockIdx.x * num_tile_per_row_window + i);
+tile_offsets_reg(1, buf_idx) = tile_offsets(blockIdx.x * num_tile_per_row_window + i + 1);
             """
         ),
         mem_type=("g", "r"),
@@ -336,7 +399,7 @@ tile_offsets_reg(1) = tile_offsets(i + 1);
                 name="compressed_A_reg",
                 tensor=NvOpTensor(
                     # reg number = vec len (4) * xxx
-                    shape=Shape(IntShape(4), ParamShape("compressed_A_reg_size / 4")),
+                    shape=Shape(IntShape(4), ParamShape("compressed_A_reg_set")),
                     mem="rmem",
                     dtype="uint32_t",
                 ),
@@ -345,38 +408,41 @@ tile_offsets_reg(1) = tile_offsets(i + 1);
         impl=NvOpImpl(
             code_template="""
 int max_nnz_vector_this_tile = tile_offsets_reg(1) - tile_offsets_reg(0);
-for (int i = 0; i < compressed_A_reg_size{} / 4; i++) {
+for (int i = 0; i < compressed_A_reg_set{}; i++) {
+    
     int index = lid + i * (32);
     if (index >= max_nnz_vector_this_tile) {
         break;
     }
-    auto dst = compressed_A_reg(_, i);
-    auto src = compressed_A(_, tile_offsets_reg(0) + index);
-    copy(Copy_Atom<UniversalCopy<uint128_t>, uint32_t>{}, src, dst);
+    // TODO: support SMEM load
+    // auto dst = compressed_A_reg(_, i, buf_idx).data();
+    // auto src = &(compressed_A( (tile_offsets_reg(0) + index) * 4));
+    // copy(Copy_Atom<UniversalCopy<uint128_t>, uint32_t>{}, src, dst);
+    
+    *((uint128_t*)(compressed_A_reg(_, i, buf_idx).data())) = *((uint128_t*)(&compressed_A( (tile_offsets_reg(0) + index) * 4)));
 }
             """
         ),
         mem_type=("g", "r"),
         # 这个parameters是[str, int]类型的？能否表示 BLK_M * BLK_K / 32
         parameters={
-            "compressed_A_reg_size": "(get<0>(BLK_MNK{}) * get<2>(BLK_MNK{}) + 32 - 1) / 32",
+            "compressed_A_reg_set": "(get<0>(BLK_MNK{}) * get<2>(BLK_MNK{}) + 32 - 1) / 32 / 4",
             "tile_val_idx_bind_size": "get<0>(BLK_MNK{}) * get<2>(BLK_MNK{})",
         },
     )
     flash_llm_main_loop_op.append(g2r_load_compressed_tile_A_op)
 
-    # TODO: input(i) is the iter_arg of main_loop_op, can we get the iter_arg
     #> g2s_load_tile_B_op: input(B_val), input(i)
     #> behavior: load a tileB, 
     #> outputs: tileB
     g2s_load_tile_B_op = NvOp(
-        name="c",
+        name="G2sLoadTileBOp",
         inputs=[
             NvOpInput(
                 idx=0,
                 name="B_val",
                 tensor=NvOpTensor(
-                    Shape=Shape(VarlenShape("K"), MnkShape("BLK_MNK", "n")),
+                    shape=Shape(VarlenShape("K"), MnkShape("BLK_MNK", "n")),
                     mem="smem",
                     dtype="half",
                     source=flash_llm_program.gmem_tensor_ops["B_val"].outputs[0],
@@ -389,19 +455,19 @@ for (int i = 0; i < compressed_A_reg_size{} / 4; i++) {
                     shape=Shape(),
                     mem="rmem",
                     dtype="int",
-                    source=None, # TODO : which source
+                    source="{c}", 
                 ),
             ),
         ],
-        # TODO: nbuf 自动添加吗？
         outputs=[
             NvOpOutput(
                 idx=0,
                 name="tileB_block",
                 tensor=NvOpTensor(
-                    shape=Shape(MnkShape("BLK_MNK", "k"), MnkShape("BLK_MNK", "n"), ParamShape("NBUF")),
+                    shape=Shape(MnkShape("BLK_MNK", "k"), MnkShape("BLK_MNK", "n")),
                     mem="smem",
-                    dtype="half"
+                    dtype="half",
+                    row_major=True,
                 ),
             ),
         ],
@@ -409,10 +475,10 @@ for (int i = 0; i < compressed_A_reg_size{} / 4; i++) {
             code_template="""
 __syncthreads();
 auto load_tile_n = _8{};
-for (int iter_i = 0; iter_i < get<2>(BLK_MNK{}) * get<1>(BLK_MNK{}) / load_tile_n; tile_i += 32) {
-    int row = tile_i / (get<1>(BLK_MNK{}) / load_tile_n);
-    int col = tile_i % (get<1>(BLK_MNK{}) / load_tile_n);
-    int gmem_row = tile_idx * get<1>(BLK_MNK{}) + row;
+for (int iter_i = lid; iter_i < get<2>(BLK_MNK{}) * get<1>(BLK_MNK{}) / load_tile_n; iter_i += 32) {
+    int row = iter_i / (get<1>(BLK_MNK{}) / load_tile_n);
+    int col = iter_i % (get<1>(BLK_MNK{}) / load_tile_n);
+    int gmem_row = tile_idx * get<2>(BLK_MNK{}) + row;
     auto thr_tiler_gmem = make_shape(_1{}, _8{});
     auto thr_coord_gmem = make_coord(gmem_row, col);
     auto B_val_thr = local_tile(B_val, thr_tiler_gmem, thr_coord_gmem);
@@ -437,10 +503,20 @@ for (int iter_i = 0; iter_i < get<2>(BLK_MNK{}) * get<1>(BLK_MNK{}) / load_tile_
                 idx=0,
                 name="compressed_A_reg",
                 tensor=NvOpTensor(
-                    shape=(IntShape(4), ParamShape("compressed_A_reg_size / 4")),
+                    shape=(IntShape(4), ParamShape("compressed_A_reg_set")),
                     mem="rmem",
                     dtype="uint32_t",
                     source=g2r_load_compressed_tile_A_op.outputs[0],
+                ),
+            ),
+            NvOpInput(
+                idx=1,
+                name="tile_offsets_reg",
+                tensor=NvOpTensor(
+                    shape=Shape(IntShape(2)),
+                    mem="rmem",
+                    dtype="int",
+                    source=g2r_tile_offsets_load_op.outputs[0],
                 ),
             ),
         ],
@@ -449,7 +525,7 @@ for (int iter_i = 0; iter_i < get<2>(BLK_MNK{}) * get<1>(BLK_MNK{}) / load_tile_
                 idx=0,
                 name="tileA_block",
                 tensor=NvOpTensor(
-                    shape=(MnkShape("BLK_MNK", "m"), MnkShape("BLK_MNK", "k")),
+                    shape=(MnkShape("BLK_MNK", "k"), MnkShape("BLK_MNK", "m")), # TODO: add swizzle change to row major
                     mem="smem",
                     dtype="half",
                 ),
@@ -457,30 +533,39 @@ for (int iter_i = 0; iter_i < get<2>(BLK_MNK{}) * get<1>(BLK_MNK{}) / load_tile_
         ],
         impl=NvOpImpl(
             code_template="""
-for (int i_o2s = lid; i_o2s < () / 2; i_o2s += 32) {
-    *((float*)(tileA_block(_, _, buf_idx).data().get() + i_o2s)) = 0;
+for (int i_o2s = lid; i_o2s < (get<0>(BLK_MNK{}) * get<2>(BLK_MNK{})) / 2; i_o2s += 32) {
+    *((float*)(tileA_block(_, _, buf_idx).data().get()) + i_o2s) = 0;
 }
 __syncthreads();
-for (int i = 0; i < compressed_A_reg_size{} / 4; i++) {
+int max_nnz_vector_this_tile = tile_offsets_reg(1) - tile_offsets_reg(0);
+for (int i = 0; i < compressed_A_reg_set{}; i++) {
     int index = lid + i * (32);
     if (index >= max_nnz_vector_this_tile) {
         break;
     }
     for (int reg_ptr = 0; reg_ptr < 4; reg_ptr++) {
         uint32_t val_idx_bind = compressed_A_reg(reg_ptr, i);
-        half value;
-        short idx;
-        unpack_half_short(val_idx_bind, value, idx);
+        // half value;
+        // short idx;
+        // unpack_half_short(val_idx_bind, value, idx);
+        half* half_ptr =
+                    reinterpret_cast<half*>(&val_idx_bind);
+        short* short_ptr  = reinterpret_cast<short*>(half_ptr + 1);
+        half   value      = *half_ptr;
+        short  idx      = *short_ptr;
         int row = idx / get<2>(BLK_MNK{});
         int col = idx % get<2>(BLK_MNK{});
-        tile_coo_restore_val_block(row, col, buf_idx) = value;
+        tileA_block(col, row, buf_idx) = value; // TODO: add swizzle change to row major
     }
 }
             """
         ),
         mem_type=("r", "s"),
+        parameters={
+            "compressed_A_reg_set": "(get<0>(BLK_MNK{}) * get<2>(BLK_MNK{}) + 32 - 1) / 32 / 4",
+        },
     )
-    flash_llm_main_loop_op.append(r2s_restore_tile_A)
+    flash_llm_main_loop_op.append(r2s_restore_tile_A_op)
 
     #> s2r_load_tile_A_op
     # inputs: tileA_block
@@ -519,9 +604,9 @@ for (int m_iter = 0; m_iter < get<0>(BLK_MMA_MNK{}); m_iter++) {
         int col = lid / 16 + k_iter * 2;
 
         ldmatrix_m8n8k8_x4(
-            (uint32_t*)(REGA(_, make_coord(m_iter, n_iter), buf_idx).data()),
-            (void*)&tileA_block(row, col * 8)
-        )
+            (uint32_t*)(REGA(_, make_coord(m_iter, k_iter), buf_idx).data()),
+            (void*)&tileA_block(col * 8, row)
+        );
     }
 }
             """
@@ -645,7 +730,7 @@ for (int m_iter = 0; m_iter < get<0>(BLK_MMA_MNK{}); m_iter++) {
                     shape=Shape(IntShape(4), Shape(MnkShape("BLK_MMA_MNK", "m"), MnkShape("BLK_MMA_MNK", "n"))),
                     mem="rmem",
                     dtype="float",
-                    source=dtc_main_loop_op.outputs[0],
+                    source=flash_llm_main_loop_op.outputs[0],
                 ),
             ),
         ],
@@ -693,17 +778,24 @@ if __name__ == "__main__":
     # TODO: next part
     g2r_tile_offsets_load_op = flash_llm_program.find_op_by_name("G2rTileOffsetsLoadOp")
     g2r_load_compressed_tile_A_op = flash_llm_program.find_op_by_name("G2rLoadCompressedTileAOp")
-    g2s_load_tile_B_op = flash_llm_program.find_op_by_name("G2rLoadTileBOp")
+    g2s_load_tile_B_op = flash_llm_program.find_op_by_name("G2sLoadTileBOp")
     r2s_restore_tile_A_op = flash_llm_program.find_op_by_name("R2sRestoreTileAOp")
     s2r_load_tile_A_op = flash_llm_program.find_op_by_name("S2rLoadTileAOp")
     s2r_load_tile_B_op = flash_llm_program.find_op_by_name("S2rLoadTileBOp")
-    mma_op = flash_llm_program.find_op_by_name("mma_op")
+    mma_op = flash_llm_program.find_op_by_name("MmaOp")
 
     s0 = NvOpSequence(
         g2r_tile_offsets_load_op,
+        
+    )
+
+    s1 = NvOpSequence(
         g2r_load_compressed_tile_A_op,
-        g2s_load_tile_B_op,
         r2s_restore_tile_A_op,
+        g2s_load_tile_B_op,
+    )
+
+    s2 = NvOpSequence(
         s2r_load_tile_A_op,
         s2r_load_tile_B_op,
         mma_op
@@ -711,7 +803,7 @@ if __name__ == "__main__":
 
     apply_pipeline(
         flash_llm_main_loop_op,
-        PipelinePlan([s0], [0]),
+        PipelinePlan([s0, s1, s2], [2, 1]),
     )
 
     print(NvIrCodeGenerator().dump_nvop_program(flash_llm_program))

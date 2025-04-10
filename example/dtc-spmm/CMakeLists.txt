@@ -68,6 +68,7 @@ add_subdirectory(${SRCDIR_FP16}/row_majorB_vs_bind_reorder/)
 # target_compile_options(dtc_half_row_majorB_vs_bind_reorder PRIVATE ${CUDA_NVCC_FLAGS} -I${SRCDIR})
 # target_link_libraries(dtc_half_row_majorB_vs_bind_reorder PRIVATE ${CUDA_LIBS})
 
+add_subdirectory(${SRCDIR_FP16}/flash_llm_vs_bind_reorder/)
 
 # SRC_FP32 directory
 set(SRCDIR_FP32 ${CMAKE_CURRENT_SOURCE_DIR}/src_fp32)
