@@ -480,12 +480,18 @@ class ForLoopNvOp(NvOp):
         name: str,
         loop_l: NvOpInput,
         loop_r: NvOpInput,
-        loop_result: Sequence[NvOpOutput],
-        iter_args: Dict[str, NvOpInput],
-        body: NvOpSequence,
+        loop_result: Optional[Sequence[NvOpOutput]] = None,
+        iter_args: Optional[Dict[str, NvOpInput]] = None,
+        body: Optional[NvOpSequence] = None,
         blk_idx_mapping: Optional[Literal["x", "y", "z"]] = None,
         **kwargs: Any,
     ):
+        if iter_args is None:
+            iter_args = {}
+        if body is None:
+            body = NvOpSequence()
+        if loop_result is None:
+            loop_result = []
         super().__init__(
             name=name,
             inputs=[loop_l, loop_r] + list(iter_args.values()),

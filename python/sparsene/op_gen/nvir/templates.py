@@ -307,6 +307,9 @@ using namespace cute;
 #define OFFSET_ROW(row, col, lda) ((row) * (lda) + (col))
 #define OFFSET_COL(row, col, lda) ((col) * (lda) + (row))
 
+#define DIVUP(a, b) (((a) - 1) / (b) + 1)
+#define ALIGN(a,b) (DIVUP(a,b)*(b))
+
 {device_helper_functions}
 
 {nvop_defs}
