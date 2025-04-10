@@ -786,12 +786,16 @@ if __name__ == "__main__":
 
     s0 = NvOpSequence(
         g2r_tile_offsets_load_op,
-        g2r_load_compressed_tile_A_op,
-        g2s_load_tile_B_op,
+        
     )
 
     s1 = NvOpSequence(
+        g2r_load_compressed_tile_A_op,
         r2s_restore_tile_A_op,
+        g2s_load_tile_B_op,
+    )
+
+    s2 = NvOpSequence(
         s2r_load_tile_A_op,
         s2r_load_tile_B_op,
         mma_op
@@ -799,7 +803,7 @@ if __name__ == "__main__":
 
     apply_pipeline(
         flash_llm_main_loop_op,
-        PipelinePlan([s0, s1], [1]),
+        PipelinePlan([s0, s1, s2], [2, 1]),
     )
 
     print(NvIrCodeGenerator().dump_nvop_program(flash_llm_program))

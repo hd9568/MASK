@@ -647,7 +647,7 @@ class NvIrCodeGenerator:
                     )
                 # > ii. 发射op
                 buf_idx_str = str(item[1] % nbuf_num)
-                shift_constant = str(i)
+                shift_constant = str(item[1])
                 output_str += (
                     self.dump_f_method_call(item[0], buf_idx_str, shift_constant) + "\n"
                 )
