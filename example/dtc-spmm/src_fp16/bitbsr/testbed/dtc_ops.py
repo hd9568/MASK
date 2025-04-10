@@ -75,6 +75,9 @@ def bitbsr():
                 dtype=DTYPE_MASK,
                 tensor_str="make_tensor(make_gmem_ptr(dval_mco_mask), make_shape(nmask_per_tile{}, nnz_block))",
                 tensor_type_str="decltype(make_tensor(make_gmem_ptr((TO0*)nullptr), make_shape(nmask_per_tile{}, VARLEN)))",
+                parameters={
+                    "nmask_per_tile": NMASK_PER_TILE,
+                },
             ),
             "val_mco_off": GmemInout(
                 shape=Shape(ParamShape("nmask_per_tile"), VarlenShape("nnz_block")),
@@ -82,6 +85,9 @@ def bitbsr():
                 dtype="int",
                 tensor_str="make_tensor(make_gmem_ptr(dval_mco_off), make_shape(nnz_block))",
                 tensor_type_str="decltype(make_tensor(make_gmem_ptr((TO0*)nullptr), make_shape(VARLEN)))",
+                parameters={
+                    "nmask_per_tile": NMASK_PER_TILE,
+                },
             ),
             "val_mco_val": GmemInout(
                 shape=Shape(VarlenShape("nnz")),
@@ -214,7 +220,7 @@ r(0) = val_soff(i + 1);"""
     bitbsr_blk_x_loop_op.append(ZerosOp)
 
     bitbsr_main_loop_op = ForLoopNvOp(
-        name="DtcMainLoopOp",
+        name="BitBsrMainLoopOp",
         loop_l=NvOpInput(
             idx=0, name="l",
             tensor=NvOpTensor(shape=Shape(),mem="rmem",dtype="int",
@@ -287,7 +293,7 @@ r(0) = val_soff(i + 1);"""
                 idx=0,
                 name="val_mco_off",
                 tensor=NvOpTensor(
-                    shape=Shape(ParamShape("nmask_per_tile"), VarlenShape("nnz_block")),
+                    shape=Shape(VarlenShape("nnz_block")),
                     mem="gmem",
                     dtype="int",
                     source=bitbsr_program.gmem_tensor_ops["val_mco_off"].outputs[0],
@@ -550,8 +556,8 @@ for (int i_mask = 0; i_mask < nmask_per_tile{}; i_mask++) {
 }"""),
         mem_type=("s", "s"),
         parameters={
-            "tile_mco_val_size": 16 * 8,
-            "nmask_per_tile": 16,
+            "tile_mco_val_size": TILE_MCO_VAL_SIZE,
+            "nmask_per_tile": NMASK_PER_TILE,
         },
     )
     bitbsr_main_loop_op.append(S2sRestoreMatrixAOp)
@@ -561,7 +567,7 @@ for (int i_mask = 0; i_mask < nmask_per_tile{}; i_mask++) {
         inputs=[
             NvOpInput(
                 idx=0,
-                name="tile_coo_restore_val_block",
+                name="tile_mco_restore_val_block",
                 tensor=NvOpTensor(
                     shape=Shape(
                         MnkShape("BLK_MNK", "m"),
@@ -592,7 +598,7 @@ int row = lid % 16;
 int col = lid / 16;
 ldmatrix_m8n8k8_x4(
     (uint32_t*)(REGA(_, _0{}, buf_idx).data()),
-    (void*)(&tile_coo_restore_val_block(row, col * 8))
+    (void*)(&tile_mco_restore_val_block(row, col * 8))
 );"""),
         mem_type=("s", "r"),
     )
@@ -734,41 +740,20 @@ if __name__ == "__main__":
 
     bitbsr_main_loop_op, bitbsr_program = bitbsr()
 
-    # Stage 0
-    # 1. G2rSparseMcoOffLoadOp
-    G2rSparseMcoOffLoadOp = bitbsr_program.find_op_by_name("G2rSparseMcoOffLoadOp")
-    # 2. G2sSparseMcoMaskLoadOp
-    G2sSparseMcoMaskLoadOp = bitbsr_program.find_op_by_name("G2sSparseMcoMaskLoadOp")
-    # 3. G2sSparseMcoValLoadOp
-    G2sSparseMcoValLoadOp = bitbsr_program.find_op_by_name("G2sSparseMcoValLoadOp")
-
-    # Stage 1
-    # 4. G2sMatrixBLoadOp
-    G2sMatrixBLoadOp = bitbsr_program.find_op_by_name("G2sMatrixBLoadOp")
-    # 5. S2sRestoreMatrixAOp
-    S2sRestoreMatrixAOp = bitbsr_program.find_op_by_name("S2sRestoreMatrixAOp")
-
-    # Stage 2
-    # 6. S2rAValLoadOp
-    S2rAValLoadOp = bitbsr_program.find_op_by_name("S2rAValLoadOp")
-    # 7. S2rBValLoadOp
-    S2rBValLoadOp = bitbsr_program.find_op_by_name("S2rBValLoadOp")
-    # 8. CalculateOp
-    CalculateOp = bitbsr_program.find_op_by_name("CalculateOp")
-
     s0 = NvOpSequence(
-        G2rSparseMcoOffLoadOp,
-        G2sSparseMcoMaskLoadOp,
-        G2sSparseMcoValLoadOp,
+        bitbsr_program.find_op_by_name("G2rSparseIndexLoadOp"),
+        bitbsr_program.find_op_by_name("G2rSparseMcoOffLoadOp"),
+        bitbsr_program.find_op_by_name("G2sSparseMcoMaskLoadOp"),
+        bitbsr_program.find_op_by_name("G2sSparseMcoValLoadOp"),
     )
     s1 = NvOpSequence(
-        G2sMatrixBLoadOp,
-        S2sRestoreMatrixAOp,
+        bitbsr_program.find_op_by_name("G2sMatrixBLoadOp"),
+        bitbsr_program.find_op_by_name("S2sRestoreMatrixAOp"),
     )
     s2 = NvOpSequence(
-        S2rAValLoadOp,
-        S2rBValLoadOp,
-        CalculateOp,
+        bitbsr_program.find_op_by_name("S2rAValLoadOp"),
+        bitbsr_program.find_op_by_name("S2rBValLoadOp"),
+        bitbsr_program.find_op_by_name("CalculateOp"),
     )
 
     apply_pipeline(

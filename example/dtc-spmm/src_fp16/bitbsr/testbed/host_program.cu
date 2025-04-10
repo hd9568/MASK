@@ -24,19 +24,16 @@
 using namespace cute;
 using namespace std;
 
-#define DIVUP(a, b) (((a) - 1) / (b) + 1)
-#define ALIGN(a, b) (DIVUP(a, b) * (b))
-
 template <class dtypeA,
           class dtypeB,
           class dtypeC,
           class dtypeMask,
-          int TILE_M,
-          int TILE_N,
-          int TILE_K,
-          int MMA_M,
-          int MMA_N,
-          int MMA_K>
+          int Tile_M,
+          int Tile_N,
+          int Tile_K,
+          int Mma_M,
+          int Mma_N,
+          int Mma_K>
 void ncu_test_all(int threadblock_num_x,
                   int threadblock_num_y,
                   int thread_num,
@@ -56,16 +53,16 @@ void ncu_test_all(int threadblock_num_x,
     dim3 grid(threadblock_num_x, threadblock_num_y);
     dim3 block(thread_num);
 
-    constexpr auto blk_mnk = make_shape(Int<TILE_M>{}, Int<TILE_N>{}, Int<TILE_K>{});
+    constexpr auto blk_mnk = make_shape(Int<Tile_M>{}, Int<Tile_N>{}, Int<Tile_K>{});
     using BLK_MNK = decltype(blk_mnk);
-    constexpr auto mma_mnk = make_shape(Int<MMA_M>{}, Int<MMA_N>{}, Int<MMA_K>{});
+    constexpr auto mma_mnk = make_shape(Int<Mma_M>{}, Int<Mma_N>{}, Int<Mma_K>{});
     using MMA_MNK = decltype(mma_mnk);
     constexpr auto blk_mma_mnk =
-      make_shape(Int<TILE_M / MMA_M>{}, Int<TILE_N / MMA_N>{}, Int<TILE_K / MMA_K>{});
+      make_shape(Int<Tile_M / Mma_M>{}, Int<Tile_N / Mma_N>{}, Int<Tile_K / Mma_K>{});
     using BLK_MMA_MNK = decltype(blk_mma_mnk);
 
-    using nmask_per_tile = Int<TILE_M * TILE_N / 64>;
-    using tile_mco_val_size = Int<TILE_M * TILE_N>;
+    using nmask_per_tile = Int<Tile_M * Tile_N / 64>;
+    using tile_mco_val_size = Int<Tile_M * Tile_N>;
 
     bitbsr_spmm_kernel_fp16fp16fp32<BLK_MNK, MMA_MNK, BLK_MMA_MNK, nmask_per_tile,
                                     tile_mco_val_size>
@@ -77,12 +74,12 @@ template <class dtypeA,
           class dtypeB,
           class dtypeC,
           class dtypeMask,
-          int TILE_M,
-          int TILE_N,
-          int TILE_K,
-          int MMA_M,
-          int MMA_N,
-          int MMA_K>
+          int Tile_M,
+          int Tile_N,
+          int Tile_K,
+          int Mma_M,
+          int Mma_N,
+          int Mma_K>
 void bitbsr_spmm_test(int M,
                       int N,
                       int K,
@@ -100,17 +97,17 @@ void bitbsr_spmm_test(int M,
     int* dval_soff;
     int* dval_mco_off;
     dtypeMask* dval_mco_mask;
-    int* dval_mco_val;
+    dtypeA* dval_mco_val;
 
-    assert(N % TILE_N == 0);
+    assert(N % Tile_N == 0);
 
-    int Mo = (M + TILE_M - 1) / TILE_M;
+    int Mo = (M + Tile_M - 1) / Tile_M;
     int nnz_block = val_soff[Mo];
-    int nnz_aligned = ALIGN(val_coo_off[nnz_block * 2 - 1], 8);
-    constexpr int nmask_per_tile = TILE_M * TILE_N / 64;
+    int nnz_aligned = ALIGN(val_mco_off[nnz_block], 8);
+    constexpr int nmask_per_tile = Tile_M * Tile_N / 64;
 
     CHECK_CUDA2(cudaMalloc(&dB_val, sizeof(dtypeB) * K * N));
-    CHECK_CUDA2(cudaMalloc(&dC_val, sizeof(dtypeC) * (Mo * TILE_M) * N)); // padded to TILE_M
+    CHECK_CUDA2(cudaMalloc(&dC_val, sizeof(dtypeC) * (Mo * Tile_M) * N)); // padded to Tile_M
     CHECK_CUDA2(cudaMalloc(&dval_soff, sizeof(int) * (Mo + 1)));
     CHECK_CUDA2(cudaMalloc(&dval_sidx, sizeof(int) * nnz_block));
     //! mco
@@ -119,7 +116,7 @@ void bitbsr_spmm_test(int M,
     CHECK_CUDA2(cudaMalloc(&dval_mco_val, sizeof(dtypeA) * nnz_aligned));
 
     CHECK_CUDA2(cudaMemcpy(dB_val, B_val, sizeof(dtypeB) * K * N, cudaMemcpyHostToDevice));
-    CHECK_CUDA2(cudaMemset(dC_val, 0, sizeof(dtypeC) * (Mo * TILE_M) * N));
+    CHECK_CUDA2(cudaMemset(dC_val, 0, sizeof(dtypeC) * (Mo * Tile_M) * N));
     CHECK_CUDA2(cudaMemcpy(dval_soff, val_soff, sizeof(int) * (Mo + 1), cudaMemcpyHostToDevice));
     CHECK_CUDA2(cudaMemcpy(dval_sidx, val_sidx, sizeof(int) * nnz_block, cudaMemcpyHostToDevice));
     //! coo
@@ -131,17 +128,17 @@ void bitbsr_spmm_test(int M,
       cudaMemcpy(dval_mco_val, val_mco_val, sizeof(dtypeA) * nnz_aligned, cudaMemcpyHostToDevice));
 
     int threadblock_num_x = Mo;
-    int threadblock_num_y = N / TILE_N;
+    int threadblock_num_y = N / Tile_N;
     int thread_num = 32;
 
-    ncu_test_all<dtypeA, dtypeB, dtypeC, dtypeMask, TILE_M, TILE_N, TILE_K, MMA_M, MMA_N, MMA_K>(
+    ncu_test_all<dtypeA, dtypeB, dtypeC, dtypeMask, Tile_M, Tile_N, Tile_K, Mma_M, Mma_N, Mma_K>(
       threadblock_num_x, threadblock_num_y, thread_num, M, N, K, Mo, nnz_aligned, nnz_block, dB_val,
       dC_val, dval_sidx, dval_soff, dval_mco_mask, dval_mco_off, dval_mco_val);
 
     CHECK_CUDA2(cudaDeviceSynchronize());
     CHECK_CUDA2(cudaGetLastError());
     CHECK_CUDA2(
-      cudaMemcpy(C_val, dC_val, sizeof(dtypeC) * (Mo * TILE_M) * N, cudaMemcpyDeviceToHost));
+      cudaMemcpy(C_val, dC_val, sizeof(dtypeC) * (Mo * Tile_M) * N, cudaMemcpyDeviceToHost));
 }
 
 template void

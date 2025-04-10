@@ -1,14 +1,14 @@
-#include <stdlib.h>
-#include <stdio.h>
-#include <math.h>
-#include <string.h>
-#include <time.h>
-#include <cuda_runtime_api.h>
+#include <bits/stdc++.h>
 #include <cuda.h>
 #include <cuda_fp16.h>
-#include <bits/stdc++.h>
-#include <sys/stat.h>
+#include <cuda_runtime_api.h>
 #include <cusparse.h>
+#include <math.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/stat.h>
+#include <time.h>
 
 #include "common.h"
 #include "utils.h"
@@ -18,36 +18,41 @@ using namespace std;
 #define OFFSET_ROW(row, col, lda) ((row) * (lda) + (col))
 #define OFFSET_COL(row, col, lda) ((col) * (lda) + (row))
 
-#define ROW_WINDOW_M 16
-#define TC_BLOCK_K 8
-#define TC_BLOCK_M 16
+#define DIVUP(a, b) (((a) - 1) / (b) + 1)
+#define ALIGN(a, b) (DIVUP(a, b) * (b))
 
-template <int TILE_B>
-extern void dtc_spmm_test_val_sidx_bind_reorder(
-    int M, int N, int K,
-    int TCBlock_num,
-    int nnz, 
-    int* val_sidx,
-    int* val_soff,
-    float* B_val,
-    int* val_coo_idx,
-    float* val_coo_val, 
-    int* val_coo_off,
-    float* C
-);
+template <class dtypeA,
+          class dtypeB,
+          class dtypeC,
+          class dtypeMask,
+          int Tile_M,
+          int Tile_N,
+          int Tile_K,
+          int Mma_M,
+          int Mma_N,
+          int Mma_K>
+extern void bitbsr_spmm_test(int M,
+                             int N,
+                             int K,
+                             dtypeB* B_val,
+                             dtypeC* C_val,
+                             int* val_sidx,
+                             int* val_soff,
+                             int* val_mco_off,
+                             dtypeMask* val_mco_mask,
+                             dtypeA* val_mco_val);
 
-extern template void dtc_spmm_test_val_sidx_bind_reorder<64>(
-    int M, int N, int K,
-    int TCBlock_num, 
-    int nnz,
-    int* val_sidx,
-    int* val_soff,
-    float* B_val,
-    int* val_coo_idx,
-    float* val_coo_val,
-    int* val_coo_off,
-    float* C
-);
+extern template void
+bitbsr_spmm_test<half, half, float, uint64_t, 16, 64, 16, 16, 8, 16>(int M,
+                                                                     int N,
+                                                                     int K,
+                                                                     half* B_val,
+                                                                     float* C_val,
+                                                                     int* val_sidx,
+                                                                     int* val_soff,
+                                                                     int* val_mco_off,
+                                                                     uint64_t* val_mco_mask,
+                                                                     half* val_mco_val);
 
 int binarySearch(int* arr, int l, int r, int target) {
     while (l <= r) {
@@ -59,7 +64,7 @@ int binarySearch(int* arr, int l, int r, int target) {
     return -1; // 未找到
 }
 
-void initVector(float* vec, int length, float sparsity) {
+void initVector(half* vec, int length, float sparsity) {
     if (sparsity < 0.0f || sparsity > 1.0f) return; 
     auto seed = std::time(nullptr);
     std::srand(1234); 
@@ -67,188 +72,152 @@ void initVector(float* vec, int length, float sparsity) {
     // std::srand(1);
     for (int i = 0; i < length; ++i) {
         if (static_cast<float>(rand()) / RAND_MAX < sparsity) {
-            vec[i] = float(0.0f); 
+            vec[i] = half(0.0f); 
         } else {
             // vec[i] = half(static_cast<float>(rand()) / RAND_MAX * 2.0f - 1.0f); 
-            vec[i] = float(rand() % 5 + 1);
+            vec[i] = half(rand() % 5 + 1);
         }
     }
 }
 
+vector<uint64_t> convertToUInt64Vector(const vector<bool>& bitset) {
+    vector<uint64_t> uint64Vector;
+    uint64_t current = 0; // Holds the current 64-bit chunk
+    int bitIndex = 0;     // Tracks the bit position in the current uint64_t
+
+    for (size_t i = 0; i < bitset.size(); ++i) {
+        // Set the corresponding bit in the current uint64_t
+        current |= (static_cast<uint64_t>(bitset[i]) << bitIndex);
+
+        // Move to the next bit in the uint64_t
+        ++bitIndex;
+
+        // If we've filled 64 bits, push the value to the result and reset
+        if (bitIndex == 64) {
+            uint64Vector.push_back(current);
+            current = 0;
+            bitIndex = 0;
+        }
+    }
+
+    // If there are remaining bits, push the last uint64_t
+    if (bitIndex > 0) {
+        uint64Vector.push_back(current);
+    }
+
+    return uint64Vector;
+}
+
 void convertToBitBSR(
-    int M, int N, int K, 
-    int nnz, int* csrPtrA, int* csrColIdxA, half* csrValA,
-    half* B, float* C
-) {
+  int M, int N, int K, int nnz, int* csrPtrA, int* csrColIdxA, half* csrValA, half* B, float* C) {
     using dtypeA = half;
     using dtypeB = half;
     using dtypeC = float;
     using dtypeMask = uint64_t;
 
-    // 1. Create arrays
-    dtypeB *B_val;
-    dtypeC *C_val;
-    int *val_sidx;
-    int *val_soff;
-    int *val_mco_off;
-    dtypeMask *val_mco_mask;
-    int *val_mco_val;
+    // 1. Create ptrs
+    dtypeB* B_val;
+    dtypeC* C_val;
+    int* val_sidx;
+    int* val_soff;
+    int* val_mco_off;
+    dtypeMask* val_mco_mask;
+    dtypeA* val_mco_val;
 
     B_val = B;
     C_val = C;
 
-    
-    // 2. Convert TODO
+    const int Blk_M = 16;
+    const int Blk_K = 16;
 
-    // 3. Call the kernel
+    // 2. Convert
+    int num_row_windows = DIVUP(M, Blk_M);
+
+    vector<vector<int>> nz_blk_indices(num_row_windows);
+    // [[0,2], [0,1,3]] two row windows, 2 nz blocks in rw 0, 3 nz blocks in rw 1
+    vector<vector<uint64_t>> nz_blk_mask;
+    // [[2b01, 2b11], [2b11,2b10], [2b00, 2b01], [2b11, 2b01], [2b00, 2b11]] 5 nz blocks in total,
+    // each nz block has a fixed number of masks
+    vector<vector<dtypeA>> nz_blk_val;
+    // [[x,x,x], [y,y,y], [z], [a,a,a], [b,b]] 5 nz blocks in total
+
+    for (int rw_idx = 0; rw_idx < num_row_windows; rw_idx++) {
+        int row_start = rw_idx * Blk_M;
+        int row_end = min(row_start + Blk_M, M);
+
+        unordered_map<int, vector<dtypeA>> nz_blk_vals_in_window;
+        unordered_map<int, vector<pair<int, int>>> nz_blk_idxs_in_window;
+        for (int row = row_start; row < row_end; row++) {
+            for (int j = csrPtrA[row]; j < csrPtrA[row + 1]; j++) {
+                int col = csrColIdxA[j];
+                nz_blk_vals_in_window[col / Blk_K].push_back(csrValA[j]);
+                nz_blk_idxs_in_window[col / Blk_K].push_back(make_pair(row % Blk_M, col % Blk_K));
+            }
+        }
+
+        for (auto& [blk_idx, vals] : nz_blk_vals_in_window) {
+            nz_blk_indices[rw_idx].push_back(blk_idx);
+            vector<bool> bitmask(Blk_M * Blk_K, false);
+            for (auto& [row, col] : nz_blk_idxs_in_window[blk_idx]) {
+                bitmask[row * Blk_K + col] = true;
+            }
+            nz_blk_mask.push_back(convertToUInt64Vector(bitmask));
+            while (vals.size() % 8 != 0) {
+                // padding with 0 to align with 8*fp16 (16 bytes)
+                vals.push_back(half(0.0f));
+            }
+            nz_blk_val.push_back(vals);
+        }
+    }
+
+    { //! debug
+        printf("nz_blk_mask.size(): %d\n", nz_blk_mask.size());
+        printf("nz_blk_val.size(): %d\n", nz_blk_val.size());
+        printf("nz_blk_indices.size(): %d\n", nz_blk_indices.size());
+    }
+
+    // 3. Accumulate offsets and flatten values
+    vector<int> vval_soff;
+    vector<int> vval_sidx;
+    vector<int> vval_mco_off;
+    vector<uint64_t> vval_mco_mask;
+    vector<dtypeA> vval_mco_val;
+
+    int soff_acc = 0;
+    int mco_off_acc = 0;
+    int blk_ptr = 0;
+    for (int rw_idx = 0; rw_idx < num_row_windows; rw_idx++) {
+        vval_soff.push_back(soff_acc);
+        vval_sidx.insert(vval_sidx.end(), nz_blk_indices[rw_idx].begin(),
+                         nz_blk_indices[rw_idx].end());
+        soff_acc += nz_blk_indices[rw_idx].size();
+        for (int blk_idx : nz_blk_indices[rw_idx]) {
+            vval_mco_off.push_back(mco_off_acc);
+            vval_mco_val.insert(vval_mco_val.end(), nz_blk_val[blk_ptr].begin(), nz_blk_val[blk_ptr].end());
+            mco_off_acc += nz_blk_val[blk_ptr].size();
+            vval_mco_mask.insert(vval_mco_mask.end(), nz_blk_mask[blk_ptr].begin(), nz_blk_mask[blk_ptr].end());
+            blk_ptr++;
+        }
+    }
+    vval_soff.push_back(soff_acc);
+    vval_mco_off.push_back(mco_off_acc);
+    val_soff = vval_soff.data();
+    val_sidx = vval_sidx.data();
+    val_mco_off = vval_mco_off.data();
+    val_mco_mask = vval_mco_mask.data();
+    val_mco_val = vval_mco_val.data();
+
+    { //! debug
+        printf("val_soff.size(): %d\n", vval_soff.size());
+        printf("val_sidx.size(): %d\n", vval_sidx.size());
+        printf("val_mco_off.size(): %d\n", vval_mco_off.size());
+        printf("val_mco_mask.size(): %d\n", vval_mco_mask.size());
+        printf("val_mco_val.size(): %d\n", vval_mco_val.size());
+    }
+
+    // 4. Call the kernel
     bitbsr_spmm_test<dtypeA, dtypeB, dtypeC, dtypeMask, 16, 64, 16, 16, 8, 16>(
-        M, N, K, 
-        B_val, C_val, val_sidx, val_soff, val_mco_off, val_mco_mask, val_mco_val
-    );
-}
-
-void convertToMETCF(
-    int M, int N, int K, 
-    int nnz, int* csrPtrA, int* csrColIdxA, float* csrValA,
-    float* B, float* C
-) {
-    // convert to ME-TCF
-    int row_window_num = (M + ROW_WINDOW_M - 1) / ROW_WINDOW_M;
-    int* val_soff = (int*)malloc(sizeof(int) * (row_window_num + 1));
-    memset(val_soff, 0, sizeof(int) * (row_window_num + 1));
-    int total_TCBlock_num = 0;
-    int* nnz_col = (int*)malloc(sizeof(int) * K);
-    vector<vector<int>> vec_nnz_per_tc_block(row_window_num);
-    int nnz_pad = 0;
-    for (int i_row_window = 0; i_row_window < row_window_num; i_row_window++) {
-        val_soff[i_row_window] = total_TCBlock_num;
-        memset(nnz_col, 0, sizeof(int) * K);
-        vector<int>& nnz_per_tc_block = vec_nnz_per_tc_block[i_row_window];
-        for (int i_row = 0; i_row < ROW_WINDOW_M; i_row++) {
-            int row = i_row_window * ROW_WINDOW_M + i_row;
-            if (row >= M) continue;
-            for (int j = csrPtrA[row]; j < csrPtrA[row + 1]; j++) {
-                nnz_col[csrColIdxA[j]] = 1;
-            }
-        }
-        int nnz_col_num = 0;
-        for (int i = 0, j = 0; i < K; i++) {
-            if (nnz_col[i] == 1) {
-                nnz_col[j] = i;
-                j++;
-                nnz_col_num++;
-            }
-        }
-        total_TCBlock_num += (nnz_col_num + TC_BLOCK_K - 1) / TC_BLOCK_K;
-        int TCBlock_num = (nnz_col_num + TC_BLOCK_K - 1) / TC_BLOCK_K;
-        nnz_per_tc_block.resize(TCBlock_num, 0);
-        for (int i_row = 0; i_row < ROW_WINDOW_M; i_row++) {
-            int row = i_row_window * ROW_WINDOW_M + i_row;
-            if (row >= M) continue;
-            for (int j = csrPtrA[row]; j < csrPtrA[row + 1]; j++) {
-                int col = csrColIdxA[j];
-                int condensed_col = binarySearch(nnz_col, 0, nnz_col_num - 1, col);
-                int tc_block_id = condensed_col / TC_BLOCK_K;
-                nnz_per_tc_block[tc_block_id]++;
-            }
-        }
-        //! coo val and idx load in 8 element group
-        for (int i_tc_block = 0; i_tc_block < TCBlock_num; i_tc_block++) {
-            int nnz_block = nnz_per_tc_block[i_tc_block];
-            nnz_pad += (nnz_block + 8 - 1) / 8 * 8;
-        }
-    }
-    val_soff[row_window_num] = total_TCBlock_num;
-    printf("total_TCBlock_num = %d, nnz = %d, nnz_pad=%d\n", total_TCBlock_num, nnz, nnz_pad);
-
-    //> val_sidx -> 每个 TC Block 中非零列对应的column index
-    int* val_sidx = (int*)malloc(sizeof(int) * total_TCBlock_num * TC_BLOCK_K);
-    memset(val_sidx, 0, sizeof(int) * total_TCBlock_num * TC_BLOCK_K);
-    //> val_coo_off -> TC Block 中非零元个数，每个block有两个范围（起始index，结束index），TC Block可能pad0
-    int* val_coo_off = (int*)malloc(sizeof(int) * (total_TCBlock_num * 2 + 1));
-    memset(val_coo_off, 0, sizeof(int) * (total_TCBlock_num * 2 + 1));
-
-    //> val_coo_sidx
-    int* val_coo_idx = (int*)malloc(sizeof(int) * nnz_pad);
-    memset(val_coo_idx, 0, sizeof(int) * nnz_pad);
-    float* val_coo_val = (float*)malloc(sizeof(float) * nnz_pad);
-    memset(val_coo_val, 0, sizeof(float) * nnz_pad);
-
-    //> prefix sum
-    int cur_pos = 0;
-    int i_tc_block_ptr = 0;
-    for (int i_row_window = 0; i_row_window < row_window_num; i_row_window++) {
-        vector<int>& nnz_per_tc_block = vec_nnz_per_tc_block[i_row_window];
-        for (int i_tc_block = 0; i_tc_block < nnz_per_tc_block.size(); i_tc_block++) {
-            int tmp = nnz_per_tc_block[i_tc_block];
-            nnz_per_tc_block[i_tc_block] = cur_pos;
-            val_coo_off[i_tc_block_ptr * 2] = cur_pos;
-            val_coo_off[i_tc_block_ptr * 2 + 1] = cur_pos + tmp;
-            i_tc_block_ptr++;
-            cur_pos += (tmp + 8 - 1) / 8 * 8;
-        }
-        nnz_per_tc_block.push_back(cur_pos);
-    }
-    val_coo_off[2 * total_TCBlock_num] = cur_pos;
-
-    int* tc_block_nnz_ptr = (int*)malloc(sizeof(int) * (K + TC_BLOCK_K - 1) / TC_BLOCK_K);
-    for (int i_row_window = 0; i_row_window < row_window_num; i_row_window++) {
-        int TC_block_offset = val_soff[i_row_window];
-        int* tmp_val_sidx = val_sidx + TC_block_offset * TC_BLOCK_K;
-        memset(nnz_col, 0, sizeof(int) * K);
-        vector<int>& nnz_per_tc_block = vec_nnz_per_tc_block[i_row_window];
-        for (int i_row = 0; i_row < ROW_WINDOW_M; i_row++) {
-            int row = i_row_window * ROW_WINDOW_M + i_row;
-            if (row >= M) continue;
-            for (int j = csrPtrA[row]; j < csrPtrA[row + 1]; j++) {
-                nnz_col[csrColIdxA[j]] = 1;
-            }
-        }
-        int nnz_col_num = 0;
-        for (int i = 0, j = 0; i < K; i++) {
-            if (nnz_col[i] == 1) {
-                nnz_col[j] = i;
-                j++;
-                nnz_col_num++;
-            }
-        }
-        int tc_block_num = (nnz_col_num + TC_BLOCK_K - 1) / TC_BLOCK_K;
-        for (int i_tc_block_col = 0; i_tc_block_col < nnz_col_num; i_tc_block_col++) {
-            tmp_val_sidx[i_tc_block_col] = nnz_col[i_tc_block_col];
-        }
-        memset(tc_block_nnz_ptr, 0, sizeof(int) * (K + TC_BLOCK_K - 1) / TC_BLOCK_K);
-        for (int i_tc_block = 0; i_tc_block < tc_block_num; i_tc_block++) {
-            tc_block_nnz_ptr[i_tc_block] = nnz_per_tc_block[i_tc_block];
-        }
-        for (int i_row = 0; i_row < ROW_WINDOW_M; i_row++) {
-            int row = i_row_window * ROW_WINDOW_M + i_row;
-            int col_start_pos = 0;
-            if (row >= M) continue;
-            for (int j = csrPtrA[row]; j < csrPtrA[row + 1]; j++) {
-                int col = csrColIdxA[j];
-                float value = (float)csrValA[j];
-                int condensed_pos = binarySearch(nnz_col, col_start_pos, nnz_col_num - 1, col);
-                col_start_pos = condensed_pos + 1;
-                int tc_block_id = condensed_pos / TC_BLOCK_K;
-                int coo_idx = i_row * TC_BLOCK_K + (condensed_pos % TC_BLOCK_K);
-                val_coo_val[tc_block_nnz_ptr[tc_block_id]] = value;
-                val_coo_idx[tc_block_nnz_ptr[tc_block_id]] = coo_idx;
-                tc_block_nnz_ptr[tc_block_id]++;
-            }
-        }
-    }
-
-    {//! check sidx
-        // printf("check sparse AtoB array: ");
-        // for (int i = 0; i < total_TCBlock_num * TC_BLOCK_K; i++) {
-        //     printf("%d ", val_sidx[i]);
-        // } printf("\n");
-    }
-
-    // TODO: need to change according to swizzle
-    //! reorder
-
-    dtc_spmm_test_val_sidx_bind_reorder<64>(M, N, K, total_TCBlock_num, nnz_pad, val_sidx, val_soff, B, val_coo_idx, val_coo_val, val_coo_off, C);
+      M, N, K, B_val, C_val, val_sidx, val_soff, val_mco_off, val_mco_mask, val_mco_val);
 }
 
 void verify_new(float* C_cpu, float* C_cuda, int M, int N) {
@@ -259,13 +228,15 @@ void verify_new(float* C_cpu, float* C_cuda, int M, int N) {
             if (fabs(cusparse_val - mykernel_val) > 0.01) {
                 printf("Error(%d, %d): cusp(%.1f) mykernel(%.1f)\n", i, j, cusparse_val, mykernel_val);
             }
+            // if (i == 0)
+            // printf("check(%d, %d): cusp(%.1f) mykernel(%.1f)\n", i, j, cusparse_val, mykernel_val);
         }
     }
 }
 
 void cusparse_spmm_all(
-    float* cu_ValA, int* cu_RowPtrA, int* cu_ColIdxA,
-    float* cu_B, float* cu_C, int M, int N, int K, int nnz
+    half* cu_ValA, int* cu_RowPtrA, int* cu_ColIdxA,
+    half* cu_B, float* cu_C, int M, int N, int K, int nnz
 ) {
     int A_num_rows = M;
     int A_num_cols = K;
@@ -282,19 +253,19 @@ void cusparse_spmm_all(
     // device memory management
     int* dA_rpt;
     int* dA_cid;
-    float* dA_val;
-    float* dB;
+    half* dA_val;
+    half* dB;
     float* dC;
     CHECK_CUDA(cudaMalloc(&dA_rpt, sizeof(int) * (M + 1)));
     CHECK_CUDA(cudaMalloc(&dA_cid, sizeof(int) * nnz));
-    CHECK_CUDA(cudaMalloc(&dA_val, sizeof(float) * nnz));
-    CHECK_CUDA(cudaMalloc(&dB, sizeof(float) * B_size));
+    CHECK_CUDA(cudaMalloc(&dA_val, sizeof(half) * nnz));
+    CHECK_CUDA(cudaMalloc(&dB, sizeof(half) * B_size));
     CHECK_CUDA(cudaMalloc(&dC, sizeof(float) * C_size));
 
     CHECK_CUDA(cudaMemcpy(dA_rpt, cu_RowPtrA, sizeof(int) * (M + 1), cudaMemcpyHostToDevice));
     CHECK_CUDA(cudaMemcpy(dA_cid, cu_ColIdxA, sizeof(int) * nnz, cudaMemcpyHostToDevice));
-    CHECK_CUDA(cudaMemcpy(dA_val, cu_ValA, sizeof(float) * nnz, cudaMemcpyHostToDevice));
-    CHECK_CUDA(cudaMemcpy(dB, cu_B, sizeof(float) * B_size, cudaMemcpyHostToDevice));
+    CHECK_CUDA(cudaMemcpy(dA_val, cu_ValA, sizeof(half) * nnz, cudaMemcpyHostToDevice));
+    CHECK_CUDA(cudaMemcpy(dB, cu_B, sizeof(half) * B_size, cudaMemcpyHostToDevice));
     CHECK_CUDA(cudaMemset(dC, 0, sizeof(float) * C_size));
 
     // cuSPARSE APIs
@@ -307,9 +278,9 @@ void cusparse_spmm_all(
     // Create sparse matrix A in CSR format
     CHECK_CUSPARSE(cusparseCreateCsr(&matA, A_num_rows, A_num_cols, nnz, 
                                     dA_rpt, dA_cid, dA_val, 
-                                    CUSPARSE_INDEX_32I, CUSPARSE_INDEX_32I, CUSPARSE_INDEX_BASE_ZERO, CUDA_R_32F));
+                                    CUSPARSE_INDEX_32I, CUSPARSE_INDEX_32I, CUSPARSE_INDEX_BASE_ZERO, CUDA_R_16F));
     CHECK_CUSPARSE(cusparseCreateDnMat(&matB, B_num_rows, B_num_cols, ldb, dB,
-                                    CUDA_R_32F, CUSPARSE_ORDER_ROW))
+                                    CUDA_R_16F, CUSPARSE_ORDER_ROW))
     CHECK_CUSPARSE(cusparseCreateDnMat(&matC, C_num_rows, C_num_cols, ldc, dC,
                                     CUDA_R_32F, CUSPARSE_ORDER_ROW));
     // allocate an external buffer if needed
@@ -370,15 +341,15 @@ int main(int argc, char** argv) {
     int isSymmetricA;
     int* csrPtrA;
     int* csrColIdxA;
-    float* csrValA;
-    float* A;
+    half* csrValA;
+    half* A;
     //! input from file
     if (mtx_flag == 1) {
         mmio_allinone(&rowA, &colA, &nnz, &isSymmetricA, &csrPtrA, &csrColIdxA, &csrValA, filename.c_str());
         M = rowA;
         K = colA;
     } else {//! sparse matrix init
-        A = (float*)malloc(sizeof(float) * M * K);
+        A = (half*)malloc(sizeof(half) * M * K);
         initVector(A, M * K, sparsity);
         //> convert to csr
         csrPtrA = (int*)malloc(sizeof(int) * (M + 1));
@@ -393,96 +364,40 @@ int main(int argc, char** argv) {
         }
         csrPtrA[M] = nnz;
         csrColIdxA = (int*)malloc(sizeof(int) * nnz);
-        csrValA = (float*)malloc(sizeof(float) * nnz);
+        csrValA = (half*)malloc(sizeof(half) * nnz);
         memset(csrColIdxA, 0, sizeof(int) * nnz);
-        memset(csrValA, 0, sizeof(float) * nnz);
+        memset(csrValA, 0, sizeof(half) * nnz);
         int ptr = 0;
         for (int i = 0; i < M; i++) {
             for (int k = 0; k < K; k++) {
-                float value = A[i * K + k];
+                float value = (float)A[i * K + k];
                 if (value != 0) {
                     csrColIdxA[ptr] = k;
-                    csrValA[ptr] = value;
+                    csrValA[ptr] = (half)value;
                     ptr++;
                 }
             }
         }
     }
 
-    printf("FLOAT: Sparse A[%d,%d] x B[%d,%d] = C[%d,%d]\n", M, K, K, N, M, N);
+    
+    printf("HALF: Sparse A[%d,%d] x B[%d,%d] = C[%d,%d]\n", M, K, K, N, M, N);
 
-    float* B = (float*)malloc(sizeof(float) * K * N);
+    half* B = (half*)malloc(sizeof(half) * K * N);
     // initVec(B, K * N);
     initVec(csrValA, nnz);
     initVector(B, K * N, 0);
 
-    {//! debug convert to dense
-        // float* restoreA = (float*)malloc(sizeof(float) * rowA * colA);
-        // memset(restoreA, 0, sizeof(float) * rowA * colA);
-        // for (int i_row = 0; i_row < rowA; i_row++) {
-        //     for (int j = csrPtrA[i_row]; j < csrPtrA[i_row + 1]; j++) {
-        //         int col = csrColIdxA[j];
-        //         float value = (float)csrValA[j];
-        //         restoreA[i_row * colA + col] = value;
-        //     }
-        // }
-
-        // for (int k_ptr = 0; k_ptr < colA / 8; k_ptr++) {
-        //     printf("host check tileA: i=%d\n", k_ptr);
-        //     for (int i = 0; i < 16; i++) {
-        //         for (int j = 0; j < 8; j++) {
-        //             printf("%.0f ", restoreA[OFFSET_ROW(i, k_ptr * 8 + j, colA)]);
-        //         } printf("\n");
-        //     }
-        // }
-    }
-
-    {//! debug tile B
-        // for (int k_ptr = 0; k_ptr < colA / 8; k_ptr++) {
-        //     printf("host check tile B: i = %d\n", k_ptr);
-        //     for (int i = 0; i < 8; i++) {
-        //         for (int j = 0; j < 8; j++) {
-        //             printf("%.0f ", B[OFFSET_ROW(i + k_ptr * 8, j, N)]);
-        //         } printf("\n");
-        //     }
-        // }
-    }
-    
     float* C_cuda = (float*)malloc(sizeof(float) * M * N);
-    convertToMETCF(M, N, K, nnz, csrPtrA, csrColIdxA, csrValA, B, C_cuda);
+    convertToBitBSR(M, N, K, nnz, csrPtrA, csrColIdxA, csrValA, B, C_cuda);
 
     // host check
     float* C_cpu = (float*)malloc(sizeof(float) * M * N);
-    memset(C_cpu, 0, sizeof(float) * M * N);
+    memset(C_cpu, 0, sizeof(half) * M * N);
     cusparse_spmm_all(csrValA, csrPtrA, csrColIdxA, B, C_cpu, M, N, K, nnz);
     verify_new(C_cpu, C_cuda, M, N);
 
-    {//! debug check cusparse
-        // float* restoreA = (float*)malloc(sizeof(float) * rowA * colA);
-        // memset(restoreA, 0, sizeof(float) * rowA * colA);
-        // for (int i_row = 0; i_row < rowA; i_row++) {
-        //     for (int j = csrPtrA[i_row]; j < csrPtrA[i_row + 1]; j++) {
-        //         int col = csrColIdxA[j];
-        //         float value = (float)csrValA[j];
-        //         restoreA[i_row * colA + col] = value;
-        //     }
-        // }
-        // float* c_hand = (float*)malloc(sizeof(float) * M * N);
-        // memset(c_hand, 0, sizeof(float) * M * N);
-        // for (int i = 0; i < M; i++) {
-        //     for (int j = 0; j < N; j++) {
-        //         for (int k = 0; k < K; k++) {
-        //             if (k % 8 == 0 && i == 0 && j == 0) {
-        //                 printf("k == %d, c_hand[0, 0] = %.0f\n", k, c_hand[OFFSET_ROW(i, j, N)]);   
-        //             }
-        //             c_hand[OFFSET_ROW(i, j, N)] += restoreA[OFFSET_ROW(i, k, K)] * B[OFFSET_ROW(k, j, N)];
-        //         }
-        //     }
-        // }
-        // printf("check hand\n");
-        // verify_new(C_cpu, c_hand, M, N);
-    }
-
     printf("check nan: cusp %.1f mykernel %.1f\n", C_cpu[0], C_cuda[0]);
     return 0;
+    
 }
