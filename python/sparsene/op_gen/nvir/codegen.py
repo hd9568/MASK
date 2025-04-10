@@ -463,7 +463,7 @@ class NvIrCodeGenerator:
 
         code_str = "\n".join([*static_assert_strs, op.impl.code_template])
         f_template_head_str = f"template<" + ", ".join(
-            (["size_t buf_idx"] if op.pipelined else [])
+            (["int buf_idx"] if op.pipelined else [])
             + [
                 f"class Tensor_i{inp.idx}"
                 for inp in op.inputs
@@ -746,7 +746,7 @@ class NvIrCodeGenerator:
             )
 
         output_with_buf_idx_str = (
-            "template<size_t output_idx, size_t buf_idx>\n"
+            "template<int output_idx, int buf_idx>\n"
             + "CUTE_DEVICE auto output() {\n"
             + self._indent_lines(
                 " else ".join(
@@ -763,7 +763,7 @@ class NvIrCodeGenerator:
         )
 
         output_without_buf_idx_str = (
-            "template<size_t output_idx>\n"
+            "template<int output_idx>\n"
             + "CUTE_DEVICE auto output() {\n"
             + self._indent_lines(
                 " else ".join(
