@@ -159,7 +159,7 @@ public:
     }
 };
 
-template <class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class nmask_per_tile = Int<16>, class TO0 = uint64_t>
+template <class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class nmask_per_tile = Int<4>, class TO0 = uint64_t>
 class val_mco_maskOp {
 public:
     // Outputs
@@ -189,7 +189,7 @@ public:
     }
 };
 
-template <class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class nmask_per_tile = Int<16>, class TO0 = int>
+template <class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class nmask_per_tile = Int<4>, class TO0 = int>
 class val_mco_offOp {
 public:
     // Outputs
@@ -540,7 +540,7 @@ public:
     }
 };
 
-template<class NBUF, class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class nmask_per_tile = Int<16>, class TI0 = int, class TI1 = int, class TO0 = int>
+template<class NBUF, class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class nmask_per_tile = Int<4>, class TI0 = int, class TI1 = int, class TO0 = int>
 class G2rSparseMcoOffLoadOp {
 public:
     // Inputs
@@ -585,7 +585,7 @@ public:
     }
 };
 
-template<class NBUF, class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class nmask_per_tile = Int<16>, class TI0 = uint64_t, class TI1 = int, class TO0 = uint64_t>
+template<class NBUF, class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class nmask_per_tile = Int<4>, class TI0 = uint64_t, class TI1 = int, class TO0 = uint64_t>
 class G2sSparseMcoMaskLoadOp {
 public:
     // Inputs
@@ -638,7 +638,7 @@ public:
     }
 };
 
-template<class NBUF, class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class tile_mco_val_size = Int<1024>, class TI0 = half, class TI1 = int, class TI2 = int, class TO0 = half>
+template<class NBUF, class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class tile_mco_val_size = Int<256>, class TI0 = half, class TI1 = int, class TI2 = int, class TO0 = half>
 class G2sSparseMcoValLoadOp {
 public:
     // Inputs
@@ -753,7 +753,7 @@ public:
     }
 };
 
-template<class NBUF, class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class tile_mco_val_size = Int<1024>, class nmask_per_tile = Int<16>, class TI0 = half, class TI1 = uint64_t, class TO0 = half>
+template<class NBUF, class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class tile_mco_val_size = Int<256>, class nmask_per_tile = Int<4>, class TI0 = half, class TI1 = uint64_t, class TO0 = half>
 class S2sRestoreMatrixAOp {
 public:
     // Inputs
@@ -800,11 +800,12 @@ public:
         int off = 0;
         for (int i_mask = 0; i_mask < nmask_per_tile{}; i_mask++) {
             uint64_t mask = tile_mco_mask(i_mask);
-            for (int vid = tid; vid < 64; vid += 32 /* num threads */) {
+            for (int local_vid = tid; local_vid < 64; local_vid += 32 /* num threads */) {
                 int local_idx = 0;
-                if (mask & (1ULL << vid)) {
-                    local_idx = __popcll(mask << (63 - vid));
+                if (mask & (1ULL << local_vid)) {
+                    local_idx = __popcll(mask << (63 - local_vid));
                 }
+                int vid = i_mask * 64 + local_vid;
                 int row = vid / get<2>(BLK_MNK{});
                 int col = vid % get<2>(BLK_MNK{});
                 if (local_idx == 0) {
@@ -859,7 +860,6 @@ public:
     CUTE_DEVICE void f(Tensor_i0 tile_mco_restore_val_block) {
         CUTE_STATIC_ASSERT_V((get<0>(shape_i0) == size<0>(shape(tile_mco_restore_val_block))));
         CUTE_STATIC_ASSERT_V((get<1>(shape_i0) == size<1>(shape(tile_mco_restore_val_block))));
-        __syncthreads();
         int row = lid % 16;
         int col = lid / 16;
         ldmatrix_m8n8k8_x4(
@@ -910,7 +910,6 @@ public:
     CUTE_DEVICE void f(Tensor_i0 tileB_block) {
         CUTE_STATIC_ASSERT_V((get<0>(shape_i0) == size<0>(shape(tileB_block))));
         CUTE_STATIC_ASSERT_V((get<1>(shape_i0) == size<1>(shape(tileB_block))));
-        __syncthreads();
         for (int n_iter = 0; n_iter < get<1>(BLK_MMA_MNK{}); n_iter++) {
             int row_b = lid % 16;
             int col_b = n_iter;
@@ -1069,7 +1068,6 @@ public:
             
             
             // i = 2
-            __pipeline_wait_prior(0);
             __syncthreads();
             S2rAValLoadOp_v.template f<0>(
                 S2sRestoreMatrixAOp_v.template output<0, 0>()
@@ -1155,7 +1153,6 @@ public:
                 G2sSparseMcoMaskLoadOp_v.template output<0, 1>()
             );
             __pipeline_commit();
-            __pipeline_wait_prior(2);
             __syncthreads();
             S2rAValLoadOp_v.template f<0>(
                 S2sRestoreMatrixAOp_v.template output<0, 0>()
@@ -1172,7 +1169,6 @@ public:
             
             
             // i = 3
-            __pipeline_wait_prior(0);
             __syncthreads();
             S2rAValLoadOp_v.template f<1>(
                 S2sRestoreMatrixAOp_v.template output<0, 1>()
@@ -1277,7 +1273,6 @@ public:
                 G2sSparseMcoMaskLoadOp_v.template output<0, 1>()
             );
             __pipeline_commit();
-            __pipeline_wait_prior(4);
             __syncthreads();
             S2rAValLoadOp_v.template f<0>(
                 S2sRestoreMatrixAOp_v.template output<0, 0>()
@@ -1306,7 +1301,6 @@ public:
                 G2sSparseMcoMaskLoadOp_v.template output<0, 0>()
             );
             __pipeline_commit();
-            __pipeline_wait_prior(2);
             __syncthreads();
             S2rAValLoadOp_v.template f<1>(
                 S2sRestoreMatrixAOp_v.template output<0, 1>()
@@ -1323,7 +1317,6 @@ public:
             
             
             // i = 4
-            __pipeline_wait_prior(0);
             __syncthreads();
             S2rAValLoadOp_v.template f<0>(
                 S2sRestoreMatrixAOp_v.template output<0, 0>()
@@ -1444,7 +1437,6 @@ public:
             G2sSparseMcoMaskLoadOp_v.template output<0, 1>()
         );
         __pipeline_commit();
-        __pipeline_wait_prior(4);
         __syncthreads();
         // op_call |buf_idx=0| 0 S2rAValLoadOp 
         S2rAValLoadOp_v.template f<0>(
@@ -1503,7 +1495,6 @@ public:
             G2sSparseMcoMaskLoadOp_v.template output<0, 0>()
         );
         __pipeline_commit();
-        __pipeline_wait_prior(4);
         __syncthreads();
         // op_call |buf_idx=1| i + (-2) S2rAValLoadOp 
         S2rAValLoadOp_v.template f<1>(
@@ -1558,7 +1549,6 @@ public:
             G2sSparseMcoMaskLoadOp_v.template output<0, 1>()
         );
         __pipeline_commit();
-        __pipeline_wait_prior(4);
         __syncthreads();
         // op_call |buf_idx=0| i + (-1) S2rAValLoadOp 
         S2rAValLoadOp_v.template f<0>(
@@ -1617,7 +1607,6 @@ public:
             G2sSparseMcoMaskLoadOp_v.template output<0, 0>()
         );
         __pipeline_commit();
-        __pipeline_wait_prior(4);
         __syncthreads();
         // op_call |buf_idx=1| i + (-2) S2rAValLoadOp 
         S2rAValLoadOp_v.template f<1>(
@@ -1659,7 +1648,6 @@ public:
             G2sSparseMcoMaskLoadOp_v.template output<0, 0>()
         );
         __pipeline_commit();
-        __pipeline_wait_prior(2);
         __syncthreads();
         // op_call |buf_idx=1| i + (-2) S2rAValLoadOp 
         S2rAValLoadOp_v.template f<1>(
@@ -1677,7 +1665,6 @@ public:
             S2rBValLoadOp_v.template output<0, 1>()
         );
         // stage 2..2
-        __pipeline_wait_prior(0);
         __syncthreads();
         // op_call |buf_idx=0| i + (-1) S2rAValLoadOp 
         S2rAValLoadOp_v.template f<0>(
@@ -1712,7 +1699,6 @@ public:
             G2sSparseMcoMaskLoadOp_v.template output<0, 1>()
         );
         __pipeline_commit();
-        __pipeline_wait_prior(2);
         __syncthreads();
         // op_call |buf_idx=0| i + (-1) S2rAValLoadOp 
         S2rAValLoadOp_v.template f<0>(
@@ -1730,7 +1716,6 @@ public:
             S2rBValLoadOp_v.template output<0, 0>()
         );
         // stage 2..2
-        __pipeline_wait_prior(0);
         __syncthreads();
         // op_call |buf_idx=1| i + (0) S2rAValLoadOp 
         S2rAValLoadOp_v.template f<1>(

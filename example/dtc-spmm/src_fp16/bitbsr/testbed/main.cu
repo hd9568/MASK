@@ -262,8 +262,14 @@ void convertToBitBSR(
     // }
 
     // 4. Call the kernel
+    // { //! debug
+    //     printf("Calling bitbsr_spmm_test\n");
+    // }
     bitbsr_spmm_test<dtypeA, dtypeB, dtypeC, dtypeMask, 16, 64, 16, 16, 8, 16>(
       M, N, K, B_val, C_val, val_sidx, val_soff, val_mco_off, val_mco_mask, val_mco_val);
+    // { //! debug
+    //     printf("bitbsr_spmm_test done\n");
+    // }
 }
 
 void verify_new(float* C_cpu, float* C_cuda, int M, int N) {

@@ -20,6 +20,7 @@ set(CUDA_NVCC_FLAGS
         -Xcompiler -fopenmp-simd
         --expt-relaxed-constexpr
         --ptxas-options=-v
+        -ftemplate-backtrace-limit=0
 )
 
 set(CUDA_LIBS -lcusparse -lcublas)

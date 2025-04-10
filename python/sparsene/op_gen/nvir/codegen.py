@@ -599,6 +599,12 @@ class NvIrCodeGenerator:
                 ):
                     return True
             return False
+        
+        def has_smem_input(current_op: NvOp) -> bool:
+            for inp in current_op.inputs:
+                if inp.tensor.mem == "smem":
+                    return True
+            return False
 
         def get_wait_num(
             current_op: NvOp, i: int, pipeline_records: List[Tuple[NvOp, int]]
@@ -643,8 +649,10 @@ class NvIrCodeGenerator:
                 wait_num = get_wait_num(item[0], item[1], pipeline_records)
                 if wait_num != -1:
                     output_str += (
-                        f"__pipeline_wait_prior({wait_num});\n__syncthreads();\n"
+                        f"__pipeline_wait_prior({wait_num});\n"
                     )
+                if has_smem_input(item[0]):
+                    output_str += "__syncthreads();\n"
                 # > ii. 发射op
                 buf_idx_str = str(item[1] % nbuf_num)
                 shift_constant = str(item[1])

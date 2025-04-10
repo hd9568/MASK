@@ -101,13 +101,19 @@ void bitbsr_spmm_test(int M,
 
     assert(N % Tile_N == 0);
 
-    int Mo = (M + Tile_M - 1) / Tile_M;
+    int Mo = DIVUP(M, Tile_M);
+    int M_ALIGNED = Mo * Tile_M;
     int nnz_block = val_soff[Mo];
     int nnz_aligned = ALIGN(val_mco_off[nnz_block], 8);
-    constexpr int nmask_per_tile = Tile_M * Tile_N / 64;
+    constexpr int nmask_per_tile = Tile_M * Tile_K / 64;
+
+    // { //! debug
+    //     printf("M: %d, Mo: %d, M_ALIGNED: %d, nnz_block: %d, nnz_aligned: %d\n", M, Mo, M_ALIGNED,
+    //            nnz_block, nnz_aligned);
+    // }
 
     CHECK_CUDA2(cudaMalloc(&dB_val, sizeof(dtypeB) * K * N));
-    CHECK_CUDA2(cudaMalloc(&dC_val, sizeof(dtypeC) * (Mo * Tile_M) * N)); // padded to Tile_M
+    CHECK_CUDA2(cudaMalloc(&dC_val, sizeof(dtypeC) * M_ALIGNED * N)); // padded to Tile_M
     CHECK_CUDA2(cudaMalloc(&dval_soff, sizeof(int) * (Mo + 1)));
     CHECK_CUDA2(cudaMalloc(&dval_sidx, sizeof(int) * nnz_block));
     //! mco
@@ -115,8 +121,12 @@ void bitbsr_spmm_test(int M,
     CHECK_CUDA2(cudaMalloc(&dval_mco_off, sizeof(int) * (nnz_block + 1)));
     CHECK_CUDA2(cudaMalloc(&dval_mco_val, sizeof(dtypeA) * nnz_aligned));
 
+    // { //! debug
+    //     printf("Malloc success. Copying/Setting values\n");
+    // }
+
     CHECK_CUDA2(cudaMemcpy(dB_val, B_val, sizeof(dtypeB) * K * N, cudaMemcpyHostToDevice));
-    CHECK_CUDA2(cudaMemset(dC_val, 0, sizeof(dtypeC) * (Mo * Tile_M) * N));
+    CHECK_CUDA2(cudaMemset(dC_val, 0, sizeof(dtypeC) * M_ALIGNED * N));
     CHECK_CUDA2(cudaMemcpy(dval_soff, val_soff, sizeof(int) * (Mo + 1), cudaMemcpyHostToDevice));
     CHECK_CUDA2(cudaMemcpy(dval_sidx, val_sidx, sizeof(int) * nnz_block, cudaMemcpyHostToDevice));
     //! coo
@@ -131,14 +141,16 @@ void bitbsr_spmm_test(int M,
     int threadblock_num_y = N / Tile_N;
     int thread_num = 32;
 
+    // { //! debug
+    //   printf("Launching kernel\n");
+    // }
     ncu_test_all<dtypeA, dtypeB, dtypeC, dtypeMask, Tile_M, Tile_N, Tile_K, Mma_M, Mma_N, Mma_K>(
       threadblock_num_x, threadblock_num_y, thread_num, M, N, K, Mo, nnz_aligned, nnz_block, dB_val,
       dC_val, dval_sidx, dval_soff, dval_mco_mask, dval_mco_off, dval_mco_val);
 
     CHECK_CUDA2(cudaDeviceSynchronize());
     CHECK_CUDA2(cudaGetLastError());
-    CHECK_CUDA2(
-      cudaMemcpy(C_val, dC_val, sizeof(dtypeC) * (Mo * Tile_M) * N, cudaMemcpyDeviceToHost));
+    CHECK_CUDA2(cudaMemcpy(C_val, dC_val, sizeof(dtypeC) * M_ALIGNED * N, cudaMemcpyDeviceToHost));
 }
 
 template void
