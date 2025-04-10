@@ -1,16 +1,9 @@
 from sparsene.op_gen.nvir.nvop import (
     NvOpPipeline,
-    NvOpProgram,
     NvOpSequence,
-    NvOpTensor,
-    NvOpInput,
-    NvOpOutput,
-    NvOp,
     ForLoopNvOp,
 )
 from typing import List, Sequence
-
-from sparsene.op_gen.nvir.opgraph.graph import OpGraph, construct_graph_from_op_sequence
 
 
 class PipelinePlan:
@@ -24,6 +17,13 @@ class PipelinePlan:
         ), "Number of stages must be one more than number of shifts"
         self.stages = list(stages)
         self.shifts = list(shifts)
+
+    def __str__(self) -> str:
+        stages = [
+            f"{', '.join([op.name for op in stage.ops])} {f'|({self.shifts[i]})>' if i < len(self.shifts) else ''}"
+            for i, stage in enumerate(self.stages)
+        ]
+        return " ".join(stages)
 
 
 def apply_pipeline(for_loop_op: ForLoopNvOp, pipeline_plan: PipelinePlan) -> None:

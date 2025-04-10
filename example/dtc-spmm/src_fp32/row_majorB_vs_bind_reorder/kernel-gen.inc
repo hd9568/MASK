@@ -486,7 +486,7 @@ public:
         }
     }
 
-    template<class Tensor_i0>
+    template<class Tensor_i0, typename = void>
     CUTE_DEVICE void f(Tensor_i0 val_soff, TI1 i) {
         l(0) = val_soff(i);
         r(0) = val_soff(i + 1);
@@ -566,7 +566,7 @@ public:
         }
     }
 
-    template<size_t buf_idx, class Tensor_i0>
+    template<size_t buf_idx, class Tensor_i0, typename = void>
     CUTE_DEVICE void f(Tensor_i0 val_sidx, TI1 i) {
         CUTE_STATIC_ASSERT_V((get<0>(shape_i0) == size<0>(shape(val_sidx))));
         if (lid < 2) {
@@ -631,7 +631,7 @@ public:
         }
     }
 
-    template<size_t buf_idx, class Tensor_i0, class Tensor_i1>
+    template<size_t buf_idx, class Tensor_i0, class Tensor_i1, typename = void>
     CUTE_DEVICE void f(Tensor_i0 val_coo_off, Tensor_i1 val_coo_idx, TI2 i) {
         CUTE_STATIC_ASSERT_V((get<0>(shape_i0) == size<0>(shape(val_coo_off))));
         int ll = val_coo_off(0, i);
@@ -690,7 +690,7 @@ public:
         }
     }
 
-    template<size_t buf_idx, class Tensor_i0, class Tensor_i1>
+    template<size_t buf_idx, class Tensor_i0, class Tensor_i1, typename = void>
     CUTE_DEVICE void f(Tensor_i0 val_coo_off, Tensor_i1 val_coo_val, TI2 i) {
         CUTE_STATIC_ASSERT_V((get<0>(shape_i0) == size<0>(shape(val_coo_off))));
         int ll = val_coo_off(0, i);
@@ -747,7 +747,7 @@ public:
         }
     }
 
-    template<size_t buf_idx, class Tensor_i0, class Tensor_i1>
+    template<size_t buf_idx, class Tensor_i0, class Tensor_i1, typename = void>
     CUTE_DEVICE void f(Tensor_i0 B_val, Tensor_i1 tile_sidx_block) {
         CUTE_STATIC_ASSERT_V((get<0>(shape_i1) == size<0>(shape(tile_sidx_block))));
         // auto thr_tiler = make_shape(_4{});
@@ -810,7 +810,7 @@ public:
         }
     }
 
-    template<size_t buf_idx, class Tensor_i0, class Tensor_i1>
+    template<size_t buf_idx, class Tensor_i0, class Tensor_i1, typename = void>
     CUTE_DEVICE void f(Tensor_i0 tileA_coo_idx, Tensor_i1 tileA_coo_val, TI2 nnz_num) {
         CUTE_STATIC_ASSERT_V((get<0>(shape_i0) == size<0>(shape(tileA_coo_idx))));
         CUTE_STATIC_ASSERT_V((get<0>(shape_i1) == size<0>(shape(tileA_coo_val))));
@@ -865,7 +865,7 @@ public:
         }
     }
 
-    template<size_t buf_idx, class Tensor_i0>
+    template<size_t buf_idx, class Tensor_i0, typename = void>
     CUTE_DEVICE void f(Tensor_i0 tile_coo_restore_val_block) {
         CUTE_STATIC_ASSERT_V((get<0>(shape_i0) == size<0>(shape(tile_coo_restore_val_block))));
         CUTE_STATIC_ASSERT_V((get<1>(shape_i0) == size<1>(shape(tile_coo_restore_val_block))));
@@ -917,7 +917,7 @@ public:
         }
     }
 
-    template<size_t buf_idx, class Tensor_i0>
+    template<size_t buf_idx, class Tensor_i0, typename = void>
     CUTE_DEVICE void f(Tensor_i0 tileB_block) {
         CUTE_STATIC_ASSERT_V((get<0>(shape_i0) == size<0>(shape(tileB_block))));
         CUTE_STATIC_ASSERT_V((get<1>(shape_i0) == size<1>(shape(tileB_block))));
@@ -981,7 +981,7 @@ public:
         }
     }
 
-    template<size_t buf_idx, class Tensor_i0, class Tensor_i1>
+    template<size_t buf_idx, class Tensor_i0, class Tensor_i1, typename = void>
     CUTE_DEVICE void f(Tensor_i0 REGA, Tensor_i1 REGB) {
         CUTE_STATIC_ASSERT_V((get<0>(shape_i0) == size<0>(shape(REGA))));
         CUTE_STATIC_ASSERT_V((get<1>(shape_i0) == size<1>(shape(REGA))));
@@ -1854,7 +1854,7 @@ public:
         }
     }
 
-    template<class Tensor_i0>
+    template<class Tensor_i0, typename = void>
     CUTE_DEVICE void f(Tensor_i0 REGC) {
         CUTE_STATIC_ASSERT_V((get<0>(shape_i0) == size<0>(shape(REGC))));
         CUTE_STATIC_ASSERT_V((get<0>(get<1>(shape_i0)) == size<0>(get<1>(shape(REGC)))));

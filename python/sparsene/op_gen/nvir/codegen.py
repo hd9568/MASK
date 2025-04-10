@@ -461,22 +461,16 @@ class NvIrCodeGenerator:
 
         dump_static_assert()
 
-        if op.pipelined:
-            nbuf_template_param_str = "size_t buf_idx, "
-        else:
-            nbuf_template_param_str = ""
-
         code_str = "\n".join([*static_assert_strs, op.impl.code_template])
-        f_template_head_str = (
-            f"template<{nbuf_template_param_str}"
-            # + (", size_t wait_num" if op.mem_type[0] == "s" else "")
-            + ", ".join(
+        f_template_head_str = f"template<" + ", ".join(
+            (["size_t buf_idx"] if op.pipelined else [])
+            + [
                 f"class Tensor_i{inp.idx}"
                 for inp in op.inputs
                 if len(inp.tensor.shape) > 0
-            )
-            + ", typename = void>"
-        )
+            ]
+            + ["typename = void"]
+        ) + ">"
         f_input_list = []
         for inp in op.inputs:
             # f_input_list.append(f"Tensor_i{inp.idx} {inp.name}")
@@ -600,7 +594,9 @@ class NvIrCodeGenerator:
 
         def has_cp_async_smem_input(current_op: NvOp) -> bool:
             for inp in current_op.inputs:
-                if inp.tensor.mem == "smem" and inp.tensor.source.op.attrs.get("cp_async", True):
+                if inp.tensor.mem == "smem" and inp.tensor.source.op.attrs.get(
+                    "cp_async", True
+                ):
                     return True
             return False
 
@@ -828,7 +824,9 @@ class NvIrCodeGenerator:
             else:
                 raise ValueError(f"Unknown shape type: {type(shape)}")
 
-        def get_make_stride_strs(shape: Shape, products: Sequence[str], row_major: bool = False) -> List[str]:
+        def get_make_stride_strs(
+            shape: Shape, products: Sequence[str], row_major: bool = False
+        ) -> List[str]:
             products = list(products)
             stride_strs = []
             if not row_major:
@@ -838,8 +836,10 @@ class NvIrCodeGenerator:
                         continue
                     if not isinstance(s, Shape):
                         stride_strs.append(" * ".join(products) if products else "_1{}")
-                    else: # Shape (list)
-                        stride_strs.append(f"make_stride({', '.join(get_make_stride_strs(s, products, row_major))})")
+                    else:  # Shape (list)
+                        stride_strs.append(
+                            f"make_stride({', '.join(get_make_stride_strs(s, products, row_major))})"
+                        )
                     products.append(get_product(s))
             else:
                 for s in reversed(shape):
@@ -847,9 +847,14 @@ class NvIrCodeGenerator:
                         stride_strs.insert(0, "_0{}")
                         continue
                     if not isinstance(s, Shape):
-                        stride_strs.insert(0, " * ".join(products) if products else "_1{}")
-                    else: # Shape (list)
-                        stride_strs.insert(0, f"make_stride({', '.join(get_make_stride_strs(s, products, row_major))})")
+                        stride_strs.insert(
+                            0, " * ".join(products) if products else "_1{}"
+                        )
+                    else:  # Shape (list)
+                        stride_strs.insert(
+                            0,
+                            f"make_stride({', '.join(get_make_stride_strs(s, products, row_major))})",
+                        )
                     products.append(get_product(s))
             return stride_strs
 
@@ -857,9 +862,10 @@ class NvIrCodeGenerator:
         if len(stride_strs) == 0:
             stride_strs.append("_0{}")
         if nbuf:
-            stride_strs.append(" * ".join(get_product(s) for s in shape) if shape else "_1{}")
+            stride_strs.append(
+                " * ".join(get_product(s) for s in shape) if shape else "_1{}"
+            )
         return f"make_stride({', '.join(stride_strs)})"
-                          
 
     def dump_input_decl(self, inp: NvOpInput) -> str:
         def dump_decl_input_shape_type() -> str:
