@@ -21,7 +21,9 @@ from sparsene.op_gen.nvir.nvop import (
 from sparsene.op_gen.nvir.plan import apply_pipeline, PipelinePlan
 from sparsene.op_gen.nvir.pipeline.pipeline_planner import (
     enumerate_pipeline_plans,
+    NeighborDependencyValidator,
 )
+from sparsene.op_gen.nvir.opgraph.graph import construct_graph_from_op_sequence
 
 
 def dtc():
@@ -810,13 +812,7 @@ for (int i_tileN = 0; i_tileN < get<1>(BLK_MNK{}) / 8; i_tileN++) {
 if __name__ == "__main__":
     from sparsene.op_gen.nvir.codegen import NvIrCodeGenerator
 
-    from sparsene.op_gen.nvir.opgraph.graphviz_visualizer import visualize_op_graph
-    from sparsene.op_gen.nvir.opgraph.graph import construct_graph_from_op_sequence
-
     dtc_main_loop_op, dtc_program = dtc()
-
-    # op_graph = construct_graph_from_op_sequence(dtc_main_loop_op.body)
-    # visualize_op_graph(op_graph, "dtc.dot")
 
     # Stage 0
     # 1. G2sSparseIndexLoadOp
