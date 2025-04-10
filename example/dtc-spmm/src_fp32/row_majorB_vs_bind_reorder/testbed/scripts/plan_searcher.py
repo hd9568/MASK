@@ -24,7 +24,7 @@ from sparsene.op_gen.nvir.pipeline.pipeline_planner import (
     NeighborDependencyValidator,
 )
 from sparsene.op_gen.nvir.opgraph.graph import construct_graph_from_op_sequence
-
+from sparsene.op_gen.nvir.opgraph.graphviz_visualizer import visualize_op_graph
 
 def dtc():
     dtc_program = NvOpProgram(
@@ -815,7 +815,7 @@ if __name__ == "__main__":
     dtc_main_loop_op, dtc_program = dtc()
 
     op_graph = construct_graph_from_op_sequence(dtc_main_loop_op.body)
-    # visualize_op_graph(op_graph, "dtc.dot")
+    visualize_op_graph(op_graph, "dtc.dot")
 
     validator = NeighborDependencyValidator(op_graph)
     plans = enumerate_pipeline_plans(
@@ -828,9 +828,9 @@ if __name__ == "__main__":
         min_shift=1,
         max_shift=3,
     )
-    plans_dir = Path(__file__).parent / "testbed" / "plans"
+    plans_dir = Path(__file__).parent.parent / "plans"
     plans_dir.mkdir(parents=True, exist_ok=True)
-    with open(plans_dir / "plans.txt", "w") as f_plans:
+    with open(plans_dir.parent / "plans.txt", "w") as f_plans:
         for idx, plan in enumerate(plans):
             print(f"Plan {idx}: {plan}")
             new_loop, new_dtc_program = dtc()
@@ -840,7 +840,3 @@ if __name__ == "__main__":
             f_plans.write(f"{idx},{plan}\n")
 
     print("Possible plans:", len(plans))
-
-    script_dir = Path(__file__).parent
-    with open(script_dir / "kernel-gen.inc", "w") as f:
-        f.write(NvIrCodeGenerator().dump_nvop_program(dtc_program))
