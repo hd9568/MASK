@@ -767,7 +767,7 @@ public:
     // Outputs
     using Shape_o0 = decltype(make_shape(get<0>(BLK_MNK{}), get<2>(BLK_MNK{}), NBUF{}));
     using Stride_o0 = decltype(make_stride(get<2>(BLK_MNK{}), _1{}, get<0>(BLK_MNK{}) * get<2>(BLK_MNK{})));
-    using Layout_o0 = decltype(composition(Swizzle<3, 3, 3>{}, make_layout(Shape_o0{}, Stride_o0{})));
+    using Layout_o0 = decltype(composition(Swizzle<1, 3, 3>{}, make_layout(Shape_o0{}, Stride_o0{})));
     using Tensor_o0 = decltype(make_tensor(make_smem_ptr((TO0*)nullptr), Layout_o0{}));
     Shape_o0 shape_o0;
     Layout_o0 layout_o0;
@@ -806,12 +806,10 @@ public:
                     local_idx = __popcll(mask << (63 - local_vid));
                 }
                 int vid = i_mask * 64 + local_vid;
-                int row = vid / get<2>(BLK_MNK{});
-                int col = vid % get<2>(BLK_MNK{});
                 if (local_idx == 0) {
-                    tile_mco_restore_val_block(row, col, buf_idx) = 0;
+                    *((half*)tile_mco_restore_val_block(_, _, buf_idx).data().get() + vid) = 0;
                 } else {
-                    tile_mco_restore_val_block(row, col, buf_idx) = tile_mco_val(off + local_idx - 1);
+                    *((half*)tile_mco_restore_val_block(_, _, buf_idx).data().get() + vid) = tile_mco_val(off + local_idx - 1);
                 }
             }
             off += __popcll(mask);

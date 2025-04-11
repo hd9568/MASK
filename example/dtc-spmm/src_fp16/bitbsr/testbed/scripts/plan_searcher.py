@@ -577,12 +577,11 @@ for (int tileK_iter_inner = 0; tileK_iter_inner < 4; tileK_iter_inner++) {
                     mem="smem",
                     dtype=DTYPE_A,
                     row_major=True,
-                    swizzle=SwizzleLayout(b=3, m=3, s=3),
+                    swizzle=SwizzleLayout(b=1, m=3, s=3),
                 ),
             ),
         ],
-        impl=NvOpImpl(
-            r"""int off = 0;
+        impl=NvOpImpl(r"""int off = 0;
 for (int i_mask = 0; i_mask < nmask_per_tile{}; i_mask++) {
     uint64_t mask = tile_mco_mask(i_mask);
     for (int local_vid = tid; local_vid < 64; local_vid += 32 /* num threads */) {
@@ -591,17 +590,14 @@ for (int i_mask = 0; i_mask < nmask_per_tile{}; i_mask++) {
             local_idx = __popcll(mask << (63 - local_vid));
         }
         int vid = i_mask * 64 + local_vid;
-        int row = vid / get<2>(BLK_MNK{});
-        int col = vid % get<2>(BLK_MNK{});
         if (local_idx == 0) {
-            tile_mco_restore_val_block(row, col, buf_idx) = 0;
+            *((half*)tile_mco_restore_val_block(_, _, buf_idx).data().get() + vid) = 0;
         } else {
-            tile_mco_restore_val_block(row, col, buf_idx) = tile_mco_val(off + local_idx - 1);
+            *((half*)tile_mco_restore_val_block(_, _, buf_idx).data().get() + vid) = tile_mco_val(off + local_idx - 1);
         }
     }
     off += __popcll(mask);
-}"""
-        ),
+}"""),
         mem_type=("s", "s"),
         parameters={
             "tile_mco_val_size": TILE_MCO_VAL_SIZE,
