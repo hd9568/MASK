@@ -2,7 +2,7 @@
 digraph {
 	G2rSparseIndexLoadOp [label=G2rSparseIndexLoadOp]
 	G2rSparseMcoOffLoadOp [label=G2rSparseMcoOffLoadOp]
-	G2sSparseMcoMaskLoadOp [label=G2sSparseMcoMaskLoadOp]
+	G2rSparseMcoMaskLoadOp [label=G2rSparseMcoMaskLoadOp]
 	G2sSparseMcoValLoadOp [label=G2sSparseMcoValLoadOp]
 	G2sMatrixBLoadOp [label=G2sMatrixBLoadOp]
 	S2sRestoreMatrixAOp [label=S2sRestoreMatrixAOp]
@@ -12,7 +12,7 @@ digraph {
 	G2rSparseMcoOffLoadOp -> G2sSparseMcoValLoadOp
 	G2rSparseIndexLoadOp -> G2sMatrixBLoadOp
 	G2sSparseMcoValLoadOp -> S2sRestoreMatrixAOp
-	G2sSparseMcoMaskLoadOp -> S2sRestoreMatrixAOp
+	G2rSparseMcoMaskLoadOp -> S2sRestoreMatrixAOp
 	S2sRestoreMatrixAOp -> S2rAValLoadOp
 	G2sMatrixBLoadOp -> S2rBValLoadOp
 	S2rAValLoadOp -> CalculateOp

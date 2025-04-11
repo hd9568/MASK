@@ -26,30 +26,27 @@ from sparsene.op_gen.nvir.pipeline.pipeline_planner import (
 from sparsene.op_gen.nvir.opgraph.graph import construct_graph_from_op_sequence
 from sparsene.op_gen.nvir.opgraph.graphviz_visualizer import visualize_op_graph
 
-DTYPE_A = "half"
-DTYPE_B = "half"
+DTYPE_A = "float"
+DTYPE_B = "float"
 DTYPE_C = "float"
 DTYPE_MASK = "uint64_t"
-NFRAG_A = 8
-NFRAG_B = 4
-NFRAG_C = 4
+NFRAG_A = 4 # 16 * 8 // 32
+NFRAG_B = 2 # 8 * 8 // 32
+NFRAG_C = 4 # 16 * 8 // 32
 
-BLK_MNK = (16, 64, 16)
-MMA_MNK = (16, 8, 16)
-BLK_MMA_MNK = (
-    BLK_MNK[0] // MMA_MNK[0],
-    BLK_MNK[1] // MMA_MNK[1],
-    BLK_MNK[2] // MMA_MNK[2],
-)
+BLK_MNK = (16, 64, 8)
+MMA_MNK = (16, 8, 8) # fp32tf32tf32fp32_m16n8k8
+BLK_MMA_MNK = (BLK_MNK[0] // MMA_MNK[0], BLK_MNK[1] // MMA_MNK[1], BLK_MNK[2] // MMA_MNK[2])
+
 
 NBITS_PER_MASK = 64
 TILE_MCO_VAL_SIZE = BLK_MNK[0] * BLK_MNK[2]
 NMASK_PER_TILE = TILE_MCO_VAL_SIZE // NBITS_PER_MASK
 
 
-def bitbsr():
-    bitbsr_program = NvOpProgram(
-        name="bitbsr_spmm_kernel_fp16fp16fp32",
+def acc():
+    acc_program = NvOpProgram(
+        name="acc_spmm_kernel_tf32tf32fp32",
         gmem_inouts={
             "B_val": GmemInout(
                 shape=Shape(VarlenShape("K"), VarlenShape("N")),
@@ -66,11 +63,11 @@ def bitbsr():
                 tensor_type_str="decltype(logical_divide(make_tensor(make_gmem_ptr((TO0*)nullptr), make_layout(make_shape(VARLEN, VARLEN), make_stride(VARLEN, _1{}))), select<0, 1>(BLK_MNK{}))(make_coord(_, VARLEN), make_coord(_, VARLEN)))",
             ),
             "val_sidx": GmemInout(
-                shape=Shape(VarlenShape("nnz_block")),
+                shape=Shape(MnkShape("BLK_MNK", "k"), VarlenShape("nnz_block")),
                 name="val_sidx",
                 dtype="int",
-                tensor_str="make_tensor(make_gmem_ptr(dval_sidx), make_shape(nnz_block))",
-                tensor_type_str="decltype(make_tensor(make_gmem_ptr((TO0*)nullptr), make_shape(VARLEN)))",
+                tensor_str="make_tensor(make_gmem_ptr(dval_sidx), make_shape(get<2>(BLK_MNK{}), nnz_block))",
+                tensor_type_str="decltype(make_tensor(make_gmem_ptr((TO0*)nullptr), make_shape(get<2>(BLK_MNK{}), VARLEN)))",
             ),
             "val_soff": GmemInout(
                 shape=Shape(VarlenShape("Mo")),
@@ -109,31 +106,31 @@ def bitbsr():
         },
     )
 
-    # bitbsr program body
+    # acc program body
     Zero_op = ConstantNvOp(
         name="ZeroOp",
         shape=Shape(),
         dtype="int",
         value=0,
     )
-    bitbsr_program.append_op(Zero_op)
+    acc_program.append_op(Zero_op)
     BlockDimY_op = ConstantNvOp(
         name="BlockDimYOp",
         shape=Shape(),
         dtype="int",
         value="blockDim.y",
     )
-    bitbsr_program.append_op(BlockDimY_op)
+    acc_program.append_op(BlockDimY_op)
     BlockDimX_op = ConstantNvOp(
         name="BlockDimXOp",
         shape=Shape(),
         dtype="int",
         value="blockDim.x",
     )
-    bitbsr_program.append_op(BlockDimX_op)
+    acc_program.append_op(BlockDimX_op)
 
-    bitbsr_blk_y_loop_op = ForLoopNvOp(
-        name="bitbsr_spmm_kernel_blk_y_loop",
+    acc_blk_y_loop_op = ForLoopNvOp(
+        name="acc_spmm_kernel_blk_y_loop",
         blk_idx_mapping="y",
         loop_l=NvOpInput(
             idx=0,
@@ -156,11 +153,11 @@ def bitbsr():
             ),
         ),
     )
-    bitbsr_program.append_op(bitbsr_blk_y_loop_op)
+    acc_program.append_op(acc_blk_y_loop_op)
 
     # blk_y_loop body
-    bitbsr_blk_x_loop_op = ForLoopNvOp(
-        name="bitbsr_spmm_kernel_blk_x_loop",
+    acc_blk_x_loop_op = ForLoopNvOp(
+        name="acc_spmm_kernel_blk_x_loop",
         blk_idx_mapping="x",
         loop_l=NvOpInput(
             idx=0,
@@ -183,42 +180,34 @@ def bitbsr():
             ),
         ),
     )
-    bitbsr_blk_y_loop_op.append(bitbsr_blk_x_loop_op)
+    acc_blk_y_loop_op.append(acc_blk_x_loop_op)
 
     # blk_x_loop body
     G2rSparseOffsetLoadOp = NvOp(
         name="G2rSparseOffsetLoadOp",
         inputs=[
             NvOpInput(
-                idx=0,
-                name="val_soff",
+                idx=0, name="val_soff",
                 tensor=NvOpTensor(
-                    shape=Shape(VarlenShape("Mo")),
-                    mem="gmem",
-                    dtype="int",
-                    source=bitbsr_program.gmem_tensor_ops["val_soff"].outputs[0],
+                    shape=Shape(VarlenShape("Mo")), mem="gmem", dtype="int",
+                    source=acc_program.gmem_tensor_ops["val_soff"].outputs[0],
                 ),
             ),
             NvOpInput(
-                idx=1,
-                name="i",
+                idx=1, name="i",
                 tensor=NvOpTensor(
-                    shape=Shape(),
-                    mem="rmem",
-                    dtype="int",
+                    shape=Shape(), mem="rmem", dtype="int",
                     source="blockIdx.x",
                 ),
             ),
         ],
         outputs=[
             NvOpOutput(
-                idx=0,
-                name="l",
+                idx=0, name="l",
                 tensor=NvOpTensor(shape=Shape(), mem="rmem", dtype="int"),
             ),
             NvOpOutput(
-                idx=1,
-                name="r",
+                idx=1, name="r",
                 tensor=NvOpTensor(shape=Shape(), mem="rmem", dtype="int"),
             ),
         ],
@@ -228,72 +217,52 @@ r(0) = val_soff(i + 1);"""
         ),
         mem_type=("g", "r"),
     )
-    bitbsr_blk_x_loop_op.append(G2rSparseOffsetLoadOp)
+    acc_blk_x_loop_op.append(G2rSparseOffsetLoadOp)
 
     ZerosOp = ConstantNvOp(
         name="ZerosOp",
-        shape=Shape(
-            IntShape(NFRAG_C),
-            Shape(MnkShape("BLK_MMA_MNK", "m"), MnkShape("BLK_MMA_MNK", "n")),
-        ),
-        dtype=DTYPE_C,
-        value=0,
+        shape=Shape(IntShape(NFRAG_C), Shape(MnkShape("BLK_MMA_MNK", "m"), MnkShape("BLK_MMA_MNK", "n"))),
+        dtype=DTYPE_C, value=0,
     )
-    bitbsr_blk_x_loop_op.append(ZerosOp)
+    acc_blk_x_loop_op.append(ZerosOp)
 
-    bitbsr_main_loop_op = ForLoopNvOp(
-        name="BitBsrMainLoopOp",
+    acc_main_loop_op = ForLoopNvOp(
+        name="AccMainLoopOp",
         loop_l=NvOpInput(
-            idx=0,
-            name="l",
-            tensor=NvOpTensor(
-                shape=Shape(),
-                mem="rmem",
-                dtype="int",
+            idx=0, name="l",
+            tensor=NvOpTensor(shape=Shape(),mem="rmem",dtype="int",
                 source=G2rSparseOffsetLoadOp.outputs[0],
             ),
         ),
         loop_r=NvOpInput(
-            idx=1,
-            name="r",
-            tensor=NvOpTensor(
-                shape=Shape(),
-                mem="rmem",
-                dtype="int",
+            idx=1, name="r",
+            tensor=NvOpTensor(shape=Shape(),mem="rmem",dtype="int",
                 source=G2rSparseOffsetLoadOp.outputs[1],
             ),
         ),
         loop_result=[
             NvOpOutput(
-                idx=0,
-                name="REGC",
+                idx=0, name="REGC",
                 tensor=NvOpTensor(
-                    shape=Shape(
-                        IntShape(NFRAG_C),
-                        Shape(
-                            MnkShape("BLK_MMA_MNK", "m"), MnkShape("BLK_MMA_MNK", "n")
-                        ),
-                    ),
-                    mem="rmem",
-                    dtype=DTYPE_C,
+                    shape=Shape(IntShape(NFRAG_C),Shape(MnkShape("BLK_MMA_MNK", "m"),MnkShape("BLK_MMA_MNK", "n"))),
+                    mem="rmem", dtype=DTYPE_C,
                 ),
             ),
         ],
     )
-    bitbsr_blk_x_loop_op.append(bitbsr_main_loop_op)
+    acc_blk_x_loop_op.append(acc_main_loop_op)
 
     # main_loop body
-    G2rSparseIndexLoadOp = NvOp(
-        name="G2rSparseIndexLoadOp",
+    G2sSparseIndexLoadOp = NvOp(
+        name="G2sSparseIndexLoadOp",
         inputs=[
             NvOpInput(
                 idx=0,
                 name="val_sidx",
                 tensor=NvOpTensor(
                     shape=Shape(VarlenShape("nnz_block")),
-                    mem="gmem",
-                    dtype="int",
-                    source=bitbsr_program.gmem_tensor_ops["val_sidx"].outputs[0],
+                    mem="gmem", dtype="int",
+                    source=acc_program.gmem_tensor_ops["val_sidx"].outputs[0],
                 ),
             ),
             NvOpInput(
@@ -301,8 +270,7 @@ r(0) = val_soff(i + 1);"""
                 name="i",
                 tensor=NvOpTensor(
                     shape=Shape(),
-                    mem="rmem",
-                    dtype="int",
+                    mem="rmem", dtype="int", 
                     source="l + {c}",
                 ),
             ),
@@ -310,18 +278,25 @@ r(0) = val_soff(i + 1);"""
         outputs=[
             NvOpOutput(
                 idx=0,
-                name="tile_sidx",
+                name="tile_sidx_block",
                 tensor=NvOpTensor(
-                    shape=Shape(),
-                    mem="rmem",
+                    shape=Shape(MnkShape("BLK_MNK", "k")),
+                    mem="smem",
                     dtype="int",
                 ),
             ),
         ],
-        impl=NvOpImpl(r"""tile_sidx(0, buf_idx) = val_sidx(i);"""),
-        mem_type=("g", "r"),
+        impl=NvOpImpl(
+            r"""if (lid * 4 < get<2>(BLK_MNK{})) {
+    auto thr_tiler = make_shape(Int<4>{});
+    auto thr_coord = make_coord(lid);
+    auto src = local_tile(val_sidx(_, i), thr_tiler, thr_coord);
+    auto dst = local_tile(tile_sidx_block(_, buf_idx), thr_tiler, thr_coord);
+    copy(Copy_Atom<SM80_CP_ASYNC_CACHEGLOBAL<cute::uint128_t>, int>{}, src, dst);
+}"""),
+        mem_type=("g", "s"),
     )
-    bitbsr_main_loop_op.append(G2rSparseIndexLoadOp)
+    acc_main_loop_op.append(G2sSparseIndexLoadOp)
 
     G2rSparseMcoOffLoadOp = NvOp(
         name="G2rSparseMcoOffLoadOp",
@@ -333,7 +308,7 @@ r(0) = val_soff(i + 1);"""
                     shape=Shape(VarlenShape("nnz_block")),
                     mem="gmem",
                     dtype="int",
-                    source=bitbsr_program.gmem_tensor_ops["val_mco_off"].outputs[0],
+                    source=acc_program.gmem_tensor_ops["val_mco_off"].outputs[0],
                 ),
             ),
             NvOpInput(
@@ -358,19 +333,17 @@ r(0) = val_soff(i + 1);"""
                 ),
             ),
         ],
-        impl=NvOpImpl(
-            r"""mco_off_range(0, buf_idx) = val_mco_off(i);
-mco_off_range(1, buf_idx) = val_mco_off(i + 1);"""
-        ),
+        impl=NvOpImpl(r"""mco_off_range(0, buf_idx) = val_mco_off(i);
+mco_off_range(1, buf_idx) = val_mco_off(i + 1);"""),
         mem_type=("g", "r"),
         parameters={
             "nmask_per_tile": NMASK_PER_TILE,
         },
     )
-    bitbsr_main_loop_op.append(G2rSparseMcoOffLoadOp)
+    acc_main_loop_op.append(G2rSparseMcoOffLoadOp)
 
-    G2sSparseMcoMaskLoadOp = NvOp(
-        name="G2sSparseMcoMaskLoadOp",
+    G2rSparseMcoMaskLoadOp = NvOp(
+        name="G2rSparseMcoMaskLoadOp",
         inputs=[
             NvOpInput(
                 idx=0,
@@ -379,7 +352,7 @@ mco_off_range(1, buf_idx) = val_mco_off(i + 1);"""
                     shape=Shape(ParamShape("nmask_per_tile"), VarlenShape("nnz_block")),
                     mem="gmem",
                     dtype="uint64_t",
-                    source=bitbsr_program.gmem_tensor_ops["val_mco_mask"].outputs[0],
+                    source=acc_program.gmem_tensor_ops["val_mco_mask"].outputs[0],
                 ),
             ),
             NvOpInput(
@@ -399,28 +372,18 @@ mco_off_range(1, buf_idx) = val_mco_off(i + 1);"""
                 name="tile_mco_mask",
                 tensor=NvOpTensor(
                     shape=Shape(ParamShape("nmask_per_tile")),
-                    mem="smem",
+                    mem="rmem",
                     dtype=DTYPE_MASK,
                 ),
             ),
         ],
-        impl=NvOpImpl(
-            r"""auto thr_tiler = make_shape(_2{});
-auto input = val_mco_mask(_, i);
-#pragma unroll
-for (int i_load = lid; i_load * 2 < nmask_per_tile{}; i_load += 32) {
-    auto thr_coord = make_coord(i_load);
-    auto src = local_tile(input, thr_tiler, thr_coord);
-    auto dst = local_tile(tile_mco_mask(_, buf_idx), thr_tiler, thr_coord);
-    copy(Copy_Atom<SM80_CP_ASYNC_CACHEGLOBAL<cute::uint128_t>, uint64_t>{}, src, dst);
-}"""
-        ),
-        mem_type=("g", "s"),
+        impl=NvOpImpl(r"""copy(Copy_Atom<UniversalCopy<uint128_t>, uint64_t>{}, val_mco_mask(_, i), tile_mco_mask(_, buf_idx));"""),
+        mem_type=("g", "r"),
         parameters={
             "nmask_per_tile": NMASK_PER_TILE,
         },
     )
-    bitbsr_main_loop_op.append(G2sSparseMcoMaskLoadOp)
+    acc_main_loop_op.append(G2rSparseMcoMaskLoadOp)
 
     G2sSparseMcoValLoadOp = NvOp(
         name="G2sSparseMcoValLoadOp",
@@ -432,7 +395,7 @@ for (int i_load = lid; i_load * 2 < nmask_per_tile{}; i_load += 32) {
                     shape=Shape(VarlenShape("nnz")),
                     mem="gmem",
                     dtype=DTYPE_A,
-                    source=bitbsr_program.gmem_tensor_ops["val_mco_val"].outputs[0],
+                    source=acc_program.gmem_tensor_ops["val_mco_val"].outputs[0],
                 ),
             ),
             NvOpInput(
@@ -440,8 +403,7 @@ for (int i_load = lid; i_load * 2 < nmask_per_tile{}; i_load += 32) {
                 name="mco_off_range",
                 tensor=NvOpTensor(
                     shape=Shape(IntShape(2)),
-                    mem="rmem",
-                    dtype="int",
+                    mem="rmem", dtype="int",
                     source=G2rSparseMcoOffLoadOp.outputs[0],
                 ),
             ),
@@ -471,21 +433,20 @@ for (int i_load = lid; i_load * 2 < nmask_per_tile{}; i_load += 32) {
             r"""int ll = mco_off_range(0);
 int rr = mco_off_range(1);
 
-auto thr_tiler = make_shape(_8{});
+auto thr_tiler = make_shape(_4{});
 auto input = make_tensor(val_mco_val.data() + ll, tile_mco_val_size{});
-for (int i_load = lid; i_load * 8 + ll < rr; i_load += 32) {
+for (int i_load = lid; i_load * 4 + ll < rr; i_load += 32) {
     auto thr_coord = make_coord(i_load);
     auto src = local_tile(input, thr_tiler, thr_coord);
     auto dst = local_tile(tile_mco_val(_, buf_idx), thr_tiler, thr_coord);
-    copy(Copy_Atom<SM80_CP_ASYNC_CACHEGLOBAL<cute::uint128_t>, half>{}, src, dst);
-}"""
-        ),
+    copy(Copy_Atom<SM80_CP_ASYNC_CACHEGLOBAL<cute::uint128_t>, float>{}, src, dst);
+}"""),
         mem_type=("g", "s"),
         parameters={
             "tile_mco_val_size": TILE_MCO_VAL_SIZE,
         },
     )
-    bitbsr_main_loop_op.append(G2sSparseMcoValLoadOp)
+    acc_main_loop_op.append(G2sSparseMcoValLoadOp)
 
     G2sMatrixBLoadOp = NvOp(
         name="G2sMatrixBLoadOp",
@@ -497,17 +458,17 @@ for (int i_load = lid; i_load * 8 + ll < rr; i_load += 32) {
                     shape=Shape(VarlenShape("K"), VarlenShape("N")),
                     mem="gmem",
                     dtype=DTYPE_B,
-                    source=bitbsr_program.gmem_tensor_ops["B_val"].outputs[0],
+                    source=acc_program.gmem_tensor_ops["B_val"].outputs[0],
                 ),
             ),
             NvOpInput(
                 idx=1,
-                name="tile_sidx",
+                name="tile_sidx_block",
                 tensor=NvOpTensor(
-                    shape=Shape(),
-                    mem="rmem",
+                    shape=Shape(MnkShape("BLK_MNK", "k")),
+                    mem="smem",
                     dtype="int",
-                    source=G2rSparseIndexLoadOp.outputs[0],
+                    source=G2sSparseIndexLoadOp.outputs[0],
                 ),
             ),
         ],
@@ -520,29 +481,26 @@ for (int i_load = lid; i_load * 8 + ll < rr; i_load += 32) {
                     mem="smem",
                     dtype=DTYPE_B,
                     row_major=True,
-                    swizzle=SwizzleLayout(b=3, m=3, s=3),
+                    swizzle=SwizzleLayout(b=3, m=2, s=3),
                 ),
             ),
         ],
-        impl=NvOpImpl(
-            r"""auto thr_tiler = make_shape(_8{});
-auto thr_coord = make_coord(lid);
-for (int tileK_iter_inner = 0; tileK_iter_inner < 4; tileK_iter_inner++) {
-    int row = tileK_iter_inner * 4 + lid / 8;
-    int col = lid % 8;
-    int gmem_row = tile_sidx * get<2>(BLK_MNK{}) + row;
-    auto thr_tiler_gmem = make_shape(_1{}, _8{});
-    auto thr_coord_gmem = make_coord(gmem_row, col);
+        impl=NvOpImpl(r"""auto load_tile_n = _4{};
+for (int iter_i = lid; iter_i < get<2>(BLK_MNK{}) * get<1>(BLK_MNK{}) / load_tile_n; iter_i += 32) {
+    int row = iter_i / (get<1>(BLK_MNK{}) / load_tile_n);
+    int col = iter_i % (get<1>(BLK_MNK{}) / load_tile_n);
+    int sidx = tile_sidx_block(row);
+    auto thr_tiler_gmem = make_shape(_1{}, _4{});
+    auto thr_coord_gmem = make_coord(sidx, col);
     auto B_val_thr = local_tile(B_val, thr_tiler_gmem, thr_coord_gmem);
-    auto thr_tiler_smem = make_shape(_1{}, _8{});
+    auto thr_tiler_smem = make_shape(_1{}, _4{});
     auto thr_coord_smem = make_coord(row, col);
     auto dst = local_tile(tileB_block(_, _, buf_idx), thr_tiler_smem, thr_coord_smem);
-    copy(Copy_Atom<SM80_CP_ASYNC_CACHEGLOBAL<cute::uint128_t>, half>{}, B_val_thr(0, _), dst(0, _));
-}"""
-        ),
+    copy(Copy_Atom<SM80_CP_ASYNC_CACHEGLOBAL<cute::uint128_t>, float>{}, B_val_thr(0, _), dst(0, _));   
+}"""),
         mem_type=("g", "s"),
     )
-    bitbsr_main_loop_op.append(G2sMatrixBLoadOp)
+    acc_main_loop_op.append(G2sMatrixBLoadOp)
 
     S2sRestoreMatrixAOp = NvOp(
         name="S2sRestoreMatrixAOp",
@@ -562,9 +520,9 @@ for (int tileK_iter_inner = 0; tileK_iter_inner < 4; tileK_iter_inner++) {
                 name="tile_mco_mask",
                 tensor=NvOpTensor(
                     shape=Shape(ParamShape("nmask_per_tile")),
-                    mem="smem",
+                    mem="rmem",
                     dtype=DTYPE_MASK,
-                    source=G2sSparseMcoMaskLoadOp.outputs[0],
+                    source=G2rSparseMcoMaskLoadOp.outputs[0],
                 ),
             ),
         ],
@@ -577,7 +535,7 @@ for (int tileK_iter_inner = 0; tileK_iter_inner < 4; tileK_iter_inner++) {
                     mem="smem",
                     dtype=DTYPE_A,
                     row_major=True,
-                    swizzle=SwizzleLayout(b=1, m=3, s=3),
+                    swizzle=SwizzleLayout(b=1, m=2, s=3),
                 ),
             ),
         ],
@@ -591,9 +549,9 @@ for (int i_mask = 0; i_mask < nmask_per_tile{}; i_mask++) {
         }
         int vid = i_mask * 64 + local_vid;
         if (local_idx == 0) {
-            *((half*)tile_mco_restore_val_block(_, _, buf_idx).data().get() + vid) = 0;
+            *((float*)tile_mco_restore_val_block(_, _, buf_idx).data().get() + vid) = 0;
         } else {
-            *((half*)tile_mco_restore_val_block(_, _, buf_idx).data().get() + vid) = tile_mco_val(off + local_idx - 1);
+            *((float*)tile_mco_restore_val_block(_, _, buf_idx).data().get() + vid) = tile_mco_val(off + local_idx - 1);
         }
     }
     off += __popcll(mask);
@@ -605,7 +563,7 @@ for (int i_mask = 0; i_mask < nmask_per_tile{}; i_mask++) {
         },
         cp_async=False,
     )
-    bitbsr_main_loop_op.append(S2sRestoreMatrixAOp)
+    acc_main_loop_op.append(S2sRestoreMatrixAOp)
 
     S2rAValLoadOp = NvOp(
         name="S2rAValLoadOp",
@@ -638,57 +596,48 @@ for (int i_mask = 0; i_mask < nmask_per_tile{}; i_mask++) {
                 ),
             ),
         ],
-        impl=NvOpImpl(
-            r"""int row = lid % 16;
+        impl=NvOpImpl(r"""int row = lid % 16;
 int col = lid / 16;
 ldmatrix_m8n8k8_x4(
     (uint32_t*)(REGA(_, _0{}, buf_idx).data()),
-    (void*)(&tile_mco_restore_val_block(row, col * 8))
-);"""
-        ),
+    (void*)(&tile_mco_restore_val_block(row, col * 4))
+);"""),
         mem_type=("s", "r"),
     )
-    bitbsr_main_loop_op.append(S2rAValLoadOp)
+    acc_main_loop_op.append(S2rAValLoadOp)
 
     S2rBValLoadOp = NvOp(
         name="S2rBValLoadOp",
         inputs=[
             NvOpInput(
-                idx=0,
-                name="tileB_block",
+                idx=0, name="tileB_block",
                 tensor=NvOpTensor(
                     shape=Shape(MnkShape("BLK_MNK", "k"), MnkShape("BLK_MNK", "n")),
                     mem="smem",
                     dtype=DTYPE_B,
-                    source=G2sMatrixBLoadOp.outputs[0],
-                ),
-            ),
+                    source=G2sMatrixBLoadOp.outputs[0])),
         ],
         outputs=[
             NvOpOutput(
-                idx=0,
-                name="REGB",
+                idx=0, name="REGB",
                 tensor=NvOpTensor(
                     shape=Shape(IntShape(NFRAG_B), MnkShape("BLK_MMA_MNK", "n")),
                     mem="rmem",
-                    dtype=DTYPE_B,
-                ),
-            ),
+                    dtype=DTYPE_B)),
         ],
-        impl=NvOpImpl(
-            r"""for (int n_iter = 0; n_iter < get<1>(BLK_MMA_MNK{}); n_iter++) {
-    int row_b = lid % 16;
-    int col_b = n_iter;
-    // Tensor tileB_tensor = local_tile(tileB_block, make_shape());
-    ldmatrix_m8n8k8_x2_trans(
+        impl=NvOpImpl(r"""for (int n_iter = 0; n_iter < get<1>(BLK_MMA_MNK{}); n_iter++) {
+    int row_b = lid / 2;
+    int col_b = lid % 2;
+    ldmatrix_m8n8k8_x2(
         (uint32_t*)(REGB(_, n_iter, buf_idx).data()),
-        (void*)(&tileB_block(row_b, col_b * 8))
+        (void*)(&tileB_block(row_b, col_b * 4 + n_iter * 8))
     );
-}"""
-        ),
+    REGB(_0{}, n_iter, buf_idx) = __shfl_sync(0xffffffff, REGB(_0{}, n_iter, buf_idx), lid / 4 + lid % 4 * 8);
+    REGB(_1{}, n_iter, buf_idx) = __shfl_sync(0xffffffff, REGB(_1{}, n_iter, buf_idx), lid / 4 + lid % 4 * 8);
+}"""),
         mem_type=("s", "r"),
     )
-    bitbsr_main_loop_op.append(S2rBValLoadOp)
+    acc_main_loop_op.append(S2rBValLoadOp)
 
     CalculateOp = NvOp(
         name="CalculateOp",
@@ -698,21 +647,15 @@ ldmatrix_m8n8k8_x4(
                 name="REGA",
                 tensor=NvOpTensor(
                     shape=Shape(IntShape(NFRAG_A), MnkShape("BLK_MMA_MNK", "m")),
-                    mem="rmem",
-                    dtype=DTYPE_A,
-                    source=S2rAValLoadOp.outputs[0],
-                ),
-            ),
+                    mem="rmem", dtype=DTYPE_A,
+                    source=S2rAValLoadOp.outputs[0])),
             NvOpInput(
                 idx=1,
                 name="REGB",
                 tensor=NvOpTensor(
                     shape=Shape(IntShape(NFRAG_B), MnkShape("BLK_MMA_MNK", "n")),
-                    mem="rmem",
-                    dtype=DTYPE_B,
-                    source=S2rBValLoadOp.outputs[0],
-                ),
-            ),
+                    mem="rmem", dtype=DTYPE_B,
+                    source=S2rBValLoadOp.outputs[0])),
         ],
         outputs=[
             NvOpOutput(
@@ -721,31 +664,30 @@ ldmatrix_m8n8k8_x4(
                 tensor=NvOpTensor(
                     shape=Shape(
                         IntShape(NFRAG_C),
-                        Shape(
-                            MnkShape("BLK_MMA_MNK", "m"), MnkShape("BLK_MMA_MNK", "n")
-                        ),
+                        Shape(MnkShape("BLK_MMA_MNK", "m"), MnkShape("BLK_MMA_MNK", "n")),
                     ),
-                    mem="rmem",
-                    dtype=DTYPE_C,
+                    mem="rmem", dtype=DTYPE_C,
                 ),
-                origin=ZerosOp.outputs[0],
-            )
+                origin=ZerosOp.outputs[0])
         ],
-        impl=NvOpImpl(
-            r"""for (int m_iter = 0; m_iter < get<0>(BLK_MMA_MNK{}); m_iter++) {
+        impl=NvOpImpl(r"""for (int m_iter = 0; m_iter < get<0>(BLK_MMA_MNK{}); m_iter++) {
     for (int n_iter = 0; n_iter < get<1>(BLK_MMA_MNK{}); n_iter++) {
-        mma_m16n8k16_fp32(
-            REGC(_, make_coord(m_iter, n_iter)).data(), 
-            (uint32_t*)(REGA(_, m_iter).data()), 
-            REGB(_, n_iter).data()
-        );
+        uint32_t frag_A[4];
+        uint32_t frag_B[2];
+        asm("cvt.rna.tf32.f32  %0, %1;\n" : "=r"(frag_A[0]) : "f"(REGA(0, m_iter)));
+        asm("cvt.rna.tf32.f32  %0, %1;\n" : "=r"(frag_A[1]) : "f"(REGA(1, m_iter)));
+        asm("cvt.rna.tf32.f32  %0, %1;\n" : "=r"(frag_A[2]) : "f"(REGA(2, m_iter)));
+        asm("cvt.rna.tf32.f32  %0, %1;\n" : "=r"(frag_A[3]) : "f"(REGA(3, m_iter)));
+        asm("cvt.rna.tf32.f32  %0, %1;\n" : "=r"(frag_B[0]) : "f"(REGB(0, n_iter)));
+        asm("cvt.rna.tf32.f32  %0, %1;\n" : "=r"(frag_B[1]) : "f"(REGB(1, n_iter)));
+
+        mma_m16n8k8_fp32_tf32_tf32_fp32(REGC(_, make_coord(m_iter, n_iter)).data(), frag_A, frag_B);
     }
-}"""
-        ),
+}"""),
         mem_type=("r", "r"),
     )
-    bitbsr_main_loop_op.append(CalculateOp)
-    bitbsr_main_loop_op.set_loop_result(0, CalculateOp.outputs[0])
+    acc_main_loop_op.append(CalculateOp)
+    acc_main_loop_op.set_loop_result(0, CalculateOp.outputs[0])
 
     R2gCValStoreOp = NvOp(
         name="R2gCValStoreOp",
@@ -763,7 +705,7 @@ ldmatrix_m8n8k8_x4(
                     ),
                     mem="rmem",
                     dtype=DTYPE_C,
-                    source=bitbsr_main_loop_op.outputs[0],
+                    source=acc_main_loop_op.outputs[0],
                 ),
             ),
         ],
@@ -779,7 +721,7 @@ ldmatrix_m8n8k8_x4(
                     mem="gmem",
                     dtype=DTYPE_C,
                 ),
-                origin=bitbsr_program.gmem_tensor_ops["C_val"].outputs[0],
+                origin=acc_program.gmem_tensor_ops["C_val"].outputs[0],
             ),
         ],
         impl=NvOpImpl(
@@ -795,27 +737,27 @@ for (int i_tileN = 0; i_tileN < get<1>(BLK_MNK{}) / 8; i_tileN++) {
         ),
         mem_type=("r", "g"),
     )
-    bitbsr_blk_x_loop_op.append(R2gCValStoreOp)
+    acc_blk_x_loop_op.append(R2gCValStoreOp)
 
-    return bitbsr_main_loop_op, bitbsr_program
+    return acc_main_loop_op, acc_program
 
 
 if __name__ == "__main__":
     from sparsene.op_gen.nvir.codegen import NvIrCodeGenerator
 
-    bitbsr_main_loop_op, bitbsr_program = bitbsr()
+    acc_main_loop_op, acc_program = acc()
 
-    op_graph = construct_graph_from_op_sequence(bitbsr_main_loop_op.body)
-    visualize_op_graph(op_graph, str(Path(__file__).parent / "bitbsr.dot"))
+    op_graph = construct_graph_from_op_sequence(acc_main_loop_op.body)
+    visualize_op_graph(op_graph, str(Path(__file__).parent / "acc.dot"))
 
     validator = NeighborDependencyValidator(op_graph)
     plans = enumerate_pipeline_plans(
-        bitbsr_main_loop_op,
+        acc_main_loop_op,
         validator,
         min_nstages=2,
         max_nstages=3,
         min_ops_per_stage=2,
-        max_ops_per_stage=3,
+        max_ops_per_stage=4,
         min_shift=1,
         max_shift=3,
     )
@@ -824,11 +766,11 @@ if __name__ == "__main__":
     with open(plans_dir.parent / "plans.txt", "w") as f_plans:
         for idx, plan in enumerate(plans):
             print(f"Plan {idx}: {plan}")
-            new_loop, new_bitbsr_program = bitbsr()
+            new_loop, new_acc_program = acc()
             apply_pipeline(new_loop, plan)
             with open(plans_dir / f"plan_{idx}.inc", "w") as f_kernel:
                 f_kernel.write(
-                    NvIrCodeGenerator().dump_nvop_program(new_bitbsr_program)
+                    NvIrCodeGenerator().dump_nvop_program(new_acc_program)
                 )
             f_plans.write(f"{idx},{plan}\n")
 

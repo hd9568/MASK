@@ -336,8 +336,8 @@ mco_off_range(1, buf_idx) = val_mco_off(i + 1);"""),
     )
     acc_main_loop_op.append(G2rSparseMcoOffLoadOp)
 
-    G2sSparseMcoMaskLoadOp = NvOp(
-        name="G2sSparseMcoMaskLoadOp",
+    G2rSparseMcoMaskLoadOp = NvOp(
+        name="G2rSparseMcoMaskLoadOp",
         inputs=[
             NvOpInput(
                 idx=0,
@@ -366,26 +366,18 @@ mco_off_range(1, buf_idx) = val_mco_off(i + 1);"""),
                 name="tile_mco_mask",
                 tensor=NvOpTensor(
                     shape=Shape(ParamShape("nmask_per_tile")),
-                    mem="smem",
+                    mem="rmem",
                     dtype=DTYPE_MASK,
                 ),
             ),
         ],
-        impl=NvOpImpl(r"""auto thr_tiler = make_shape(_2{});
-auto input = val_mco_mask(_, i);
-#pragma unroll
-for (int i_load = lid; i_load * 2 < nmask_per_tile{}; i_load += 32) {
-    auto thr_coord = make_coord(i_load);
-    auto src = local_tile(input, thr_tiler, thr_coord);
-    auto dst = local_tile(tile_mco_mask(_, buf_idx), thr_tiler, thr_coord);
-    copy(Copy_Atom<SM80_CP_ASYNC_CACHEGLOBAL<cute::uint128_t>, uint64_t>{}, src, dst);
-}"""),
-        mem_type=("g", "s"),
+        impl=NvOpImpl(r"""copy(Copy_Atom<UniversalCopy<uint128_t>, uint64_t>{}, val_mco_mask(_, i), tile_mco_mask(_, buf_idx));"""),
+        mem_type=("g", "r"),
         parameters={
             "nmask_per_tile": NMASK_PER_TILE,
         },
     )
-    acc_main_loop_op.append(G2sSparseMcoMaskLoadOp)
+    acc_main_loop_op.append(G2rSparseMcoMaskLoadOp)
 
     G2sSparseMcoValLoadOp = NvOp(
         name="G2sSparseMcoValLoadOp",
@@ -522,9 +514,9 @@ for (int iter_i = lid; iter_i < get<2>(BLK_MNK{}) * get<1>(BLK_MNK{}) / load_til
                 name="tile_mco_mask",
                 tensor=NvOpTensor(
                     shape=Shape(ParamShape("nmask_per_tile")),
-                    mem="smem",
+                    mem="rmem",
                     dtype=DTYPE_MASK,
-                    source=G2sSparseMcoMaskLoadOp.outputs[0],
+                    source=G2rSparseMcoMaskLoadOp.outputs[0],
                 ),
             ),
         ],
@@ -752,7 +744,7 @@ if __name__ == "__main__":
     s0 = NvOpSequence(
         acc_program.find_op_by_name("G2sSparseIndexLoadOp"),
         acc_program.find_op_by_name("G2rSparseMcoOffLoadOp"),
-        acc_program.find_op_by_name("G2sSparseMcoMaskLoadOp"),
+        acc_program.find_op_by_name("G2rSparseMcoMaskLoadOp"),
         acc_program.find_op_by_name("G2sSparseMcoValLoadOp"),
     )
     s1 = NvOpSequence(

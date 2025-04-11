@@ -330,8 +330,8 @@ mco_off_range(1, buf_idx) = val_mco_off(i + 1);"""),
     )
     bitbsr_main_loop_op.append(G2rSparseMcoOffLoadOp)
 
-    G2sSparseMcoMaskLoadOp = NvOp(
-        name="G2sSparseMcoMaskLoadOp",
+    G2rSparseMcoMaskLoadOp = NvOp(
+        name="G2rSparseMcoMaskLoadOp",
         inputs=[
             NvOpInput(
                 idx=0,
@@ -360,26 +360,22 @@ mco_off_range(1, buf_idx) = val_mco_off(i + 1);"""),
                 name="tile_mco_mask",
                 tensor=NvOpTensor(
                     shape=Shape(ParamShape("nmask_per_tile")),
-                    mem="smem",
+                    mem="rmem",
                     dtype=DTYPE_MASK,
                 ),
             ),
         ],
-        impl=NvOpImpl(r"""auto thr_tiler = make_shape(_2{});
-auto input = val_mco_mask(_, i);
-#pragma unroll
-for (int i_load = lid; i_load * 2 < nmask_per_tile{}; i_load += 32) {
-    auto thr_coord = make_coord(i_load);
-    auto src = local_tile(input, thr_tiler, thr_coord);
-    auto dst = local_tile(tile_mco_mask(_, buf_idx), thr_tiler, thr_coord);
-    copy(Copy_Atom<SM80_CP_ASYNC_CACHEGLOBAL<cute::uint128_t>, uint64_t>{}, src, dst);
-}"""),
-        mem_type=("g", "s"),
+        impl=NvOpImpl(r"""CUTE_STATIC_ASSERT_V((get<0>(shape_i0) == size<0>(shape(val_mco_mask))));
+auto tiler = make_shape(Int<sizeof(uint128_t) / sizeof(uint64_t)>{});
+auto src = flat_divide(val_mco_mask(_, i), tiler);
+auto dst = flat_divide(tile_mco_mask(_, buf_idx), tiler);
+copy(Copy_Atom<UniversalCopy<uint128_t>, uint64_t>{}, src, dst);"""),
+        mem_type=("g", "r"),
         parameters={
             "nmask_per_tile": NMASK_PER_TILE,
         },
     )
-    bitbsr_main_loop_op.append(G2sSparseMcoMaskLoadOp)
+    bitbsr_main_loop_op.append(G2rSparseMcoMaskLoadOp)
 
     G2sSparseMcoValLoadOp = NvOp(
         name="G2sSparseMcoValLoadOp",
@@ -517,9 +513,9 @@ for (int tileK_iter_inner = 0; tileK_iter_inner < 4; tileK_iter_inner++) {
                 name="tile_mco_mask",
                 tensor=NvOpTensor(
                     shape=Shape(ParamShape("nmask_per_tile")),
-                    mem="smem",
+                    mem="rmem",
                     dtype=DTYPE_MASK,
-                    source=G2sSparseMcoMaskLoadOp.outputs[0],
+                    source=G2rSparseMcoMaskLoadOp.outputs[0],
                 ),
             ),
         ],
@@ -741,7 +737,7 @@ if __name__ == "__main__":
     s0 = NvOpSequence(
         bitbsr_program.find_op_by_name("G2rSparseIndexLoadOp"),
         bitbsr_program.find_op_by_name("G2rSparseMcoOffLoadOp"),
-        bitbsr_program.find_op_by_name("G2sSparseMcoMaskLoadOp"),
+        bitbsr_program.find_op_by_name("G2rSparseMcoMaskLoadOp"),
         bitbsr_program.find_op_by_name("G2sSparseMcoValLoadOp"),
     )
     s1 = NvOpSequence(
