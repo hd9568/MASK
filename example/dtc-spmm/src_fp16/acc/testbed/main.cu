@@ -121,7 +121,7 @@ void convertToAcc(
     using dtypeC = float;
     using dtypeMask = uint64_t;
 
-    // { //! debug
+    // if (M <= 128 && N <= 128 && K <= 128) { //! debug
     //     printf("A_compressed:\n");
     //     for (int row = 0; row < M; row++) {
     //         for (int x = csrPtrA[row]; x < csrPtrA[row + 1]; x++) {
@@ -131,7 +131,6 @@ void convertToAcc(
     //         }
     //         printf("\n");
     //     }
-
     //     vector<float> A_restored(M * K);
     //     for (int i = 0; i < M; i++) {
     //         for (int x = csrPtrA[i]; x < csrPtrA[i + 1]; x++) {
@@ -172,12 +171,8 @@ void convertToAcc(
     int num_row_windows = DIVUP(M, Blk_M);
 
     vector<vector<int>> nz_blk_nz_cols(num_row_windows);
-    // [[0,2], [0,1,3]] two row windows, 2 nz blocks in rw 0, 3 nz blocks in rw 1
     vector<vector<uint64_t>> nz_blk_mask;
-    // [[2b01, 2b11], [2b11,2b10], [2b00, 2b01], [2b11, 2b01], [2b00, 2b11]] 5 nz blocks in total,
-    // each nz block has a fixed number of masks
     vector<vector<dtypeA>> nz_blk_val;
-    // [[x,x,x], [y,y,y], [z], [a,a,a], [b,b]] 5 nz blocks in total
 
     for (int rw_idx = 0; rw_idx < num_row_windows; rw_idx++) {
         int row_start = rw_idx * Blk_M;
@@ -193,39 +188,53 @@ void convertToAcc(
             }
         }
 
+        // {//! debug
+        //     printf("nz_cols: \n");
+        //     for (auto& [col, row_vals] : nz_cols) {
+        //         printf("%4d: ", col);
+        //         for (auto& [row, val] : row_vals) {
+        //             printf("%4.1f ", (float)val);
+        //         }
+        //         printf("\n");
+        //     }
+        // }
+
         // construct nz blocks by condensing nz cols
-        vector<map<int, dtypeA>> nz_blk;
-        nz_blk.emplace_back();
+        vector<map<int, dtypeA>> nz_blks;
+        nz_blks.emplace_back();
         int condensed_col = 0;
         for (auto& [col, row_vals] : nz_cols) {
             nz_blk_nz_cols[rw_idx].push_back(col);
-            auto& current_blk = nz_blk.back();
+            auto& current_blk = nz_blks.back();
             for (auto& [row, val] : row_vals) {
                 int idx = swizzler(cute::make_coord(row % Blk_M, condensed_col % Blk_K));
                 current_blk[idx] = val;
             }
             condensed_col++;
             if (condensed_col == Blk_K) {
-                nz_blk.emplace_back();
+                nz_blks.emplace_back();
                 condensed_col = 0;
             }
         }
-        if (nz_blk.back().size() == 0) {
-            nz_blk.pop_back();
+        if (nz_blks.back().size() == 0) {
+            nz_blks.pop_back();
+        }
+        while (nz_blk_nz_cols[rw_idx].size() % Blk_K != 0) {
+            nz_blk_nz_cols[rw_idx].push_back(nz_blk_nz_cols[rw_idx].back());
         }
 
         // extract bitmasks and values from nz blocks
-        for (auto& [blk_idx, idx_vals] : nz_blk) {
+        for (auto& nz_blk : nz_blks) {
             // { //! debug
             //     printf("Pushing ");
-            //     for (auto &val : vals) {
+            //     for (auto &[idx, val] : nz_blk) {
             //         printf("%4.1f ", (float)val);
             //     }
-            //     printf("into (%d, %d)\n", rw_idx, blk_idx);
+            //     printf("into (%d)\n", rw_idx);
             // }
             vector<bool> bitmask(Blk_M * Blk_K, false);
             vector<dtypeA> vals;
-            for (auto& [idx, val] : idx_vals) {
+            for (auto& [idx, val] : nz_blk) {
                 bitmask[idx] = true;
                 vals.push_back(val);
             }
@@ -241,17 +250,12 @@ void convertToAcc(
     // { //! debug
     //     printf("nz_blk_mask.size(): %d\n", nz_blk_mask.size());
     //     printf("nz_blk_val.size(): %d\n", nz_blk_val.size());
-    //     printf("nz_blk_indices.size(): %d\n", nz_blk_indices.size());
-
+    //     printf("nz_blk_nz_cols.size(): %d\n", nz_blk_nz_cols.size());
     //     for (int rw_idx = 0; rw_idx < num_row_windows; rw_idx++) {
-    //         printf("rw_idx = %d\n", rw_idx);
-    //         for (int blk_idx : nz_blk_indices[rw_idx]) {
-    //             printf("blk_idx = %d\n", blk_idx);
-    //             for (int i = 0; i < nz_blk_val[blk_idx].size(); i++) {
-    //                 printf("%4.1f ", (float)nz_blk_val[blk_idx][i]);
-    //             }
-    //             printf("\n");
+    //         for (auto &nz_col : nz_blk_nz_cols[rw_idx]) {
+    //             printf("%4d ", nz_col);
     //         }
+    //         printf("\n");
     //     }
     // }
 
@@ -267,10 +271,11 @@ void convertToAcc(
     int blk_ptr = 0;
     for (int rw_idx = 0; rw_idx < num_row_windows; rw_idx++) {
         vval_soff.push_back(soff_acc);
-        vval_sidx.insert(vval_sidx.end(), nz_blk_indices[rw_idx].begin(),
-                         nz_blk_indices[rw_idx].end());
-        soff_acc += DIVUP(nz_blk_indices[rw_idx].size(), Blk_K);
-        for (int blk_idx : nz_blk_indices[rw_idx]) {
+        vval_sidx.insert(vval_sidx.end(), nz_blk_nz_cols[rw_idx].begin(),
+                         nz_blk_nz_cols[rw_idx].end());
+        int n_blks = DIVUP(nz_blk_nz_cols[rw_idx].size(), Blk_K);
+        soff_acc += n_blks;
+        for (int i = 0; i < n_blks; i++) {
             vval_mco_off.push_back(mco_off_acc);
             vval_mco_val.insert(vval_mco_val.end(), nz_blk_val[blk_ptr].begin(),
                                 nz_blk_val[blk_ptr].end());

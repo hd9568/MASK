@@ -56,11 +56,11 @@ def acc():
                 tensor_type_str="decltype(logical_divide(make_tensor(make_gmem_ptr((TO0*)nullptr), make_layout(make_shape(VARLEN, VARLEN), make_stride(VARLEN, _1{}))), select<0, 1>(BLK_MNK{}))(make_coord(_, VARLEN), make_coord(_, VARLEN)))",
             ),
             "val_sidx": GmemInout(
-                shape=Shape(VarlenShape("nnz_block")),
+                shape=Shape(MnkShape("BLK_MNK", "k"), VarlenShape("nnz_block")),
                 name="val_sidx",
                 dtype="int",
-                tensor_str="make_tensor(make_gmem_ptr(dval_sidx), make_shape(nnz_block))",
-                tensor_type_str="decltype(make_tensor(make_gmem_ptr((TO0*)nullptr), make_shape(VARLEN)))",
+                tensor_str="make_tensor(make_gmem_ptr(dval_sidx), make_shape(get<2>(BLK_MNK{}), nnz_block))",
+                tensor_type_str="decltype(make_tensor(make_gmem_ptr((TO0*)nullptr), make_shape(get<2>(BLK_MNK{}), VARLEN)))",
             ),
             "val_soff": GmemInout(
                 shape=Shape(VarlenShape("Mo")),
@@ -246,8 +246,8 @@ r(0) = val_soff(i + 1);"""
     acc_blk_x_loop_op.append(acc_main_loop_op)
 
     # main_loop body
-    G2rSparseIndexLoadOp = NvOp(
-        name="G2rSparseIndexLoadOp",
+    G2sSparseIndexLoadOp = NvOp(
+        name="G2sSparseIndexLoadOp",
         inputs=[
             NvOpInput(
                 idx=0,
@@ -271,20 +271,25 @@ r(0) = val_soff(i + 1);"""
         outputs=[
             NvOpOutput(
                 idx=0,
-                name="tile_sidx",
+                name="tile_sidx_block",
                 tensor=NvOpTensor(
-                    shape=Shape(),
-                    mem="rmem",
+                    shape=Shape(MnkShape("BLK_MNK", "k")),
+                    mem="smem",
                     dtype="int",
                 ),
             ),
         ],
         impl=NvOpImpl(
-            r"""tile_sidx(0, buf_idx) = val_sidx(i);"""
-        ),
-        mem_type=("g", "r"),
+            r"""if (lid * 4 < get<2>(BLK_MNK{})) {
+    auto thr_tiler = make_shape(Int<4>{});
+    auto thr_coord = make_coord(lid);
+    auto src = local_tile(val_sidx(_, i), thr_tiler, thr_coord);
+    auto dst = local_tile(tile_sidx_block(_, buf_idx), thr_tiler, thr_coord);
+    copy(Copy_Atom<SM80_CP_ASYNC_CACHEGLOBAL<cute::uint128_t>, int>{}, src, dst);
+}"""),
+        mem_type=("g", "s"),
     )
-    acc_main_loop_op.append(G2rSparseIndexLoadOp)
+    acc_main_loop_op.append(G2sSparseIndexLoadOp)
 
     G2rSparseMcoOffLoadOp = NvOp(
         name="G2rSparseMcoOffLoadOp",
@@ -459,12 +464,12 @@ for (int i_load = lid; i_load * 8 + ll < rr; i_load += 32) {
             ),
             NvOpInput(
                 idx=1,
-                name="tile_sidx",
+                name="tile_sidx_block",
                 tensor=NvOpTensor(
-                    shape=Shape(),
-                    mem="rmem",
+                    shape=Shape(MnkShape("BLK_MNK", "k")),
+                    mem="smem",
                     dtype="int",
-                    source=G2rSparseIndexLoadOp.outputs[0],
+                    source=G2sSparseIndexLoadOp.outputs[0],
                 ),
             ),
         ],
@@ -486,7 +491,7 @@ auto thr_coord = make_coord(lid);
 for (int tileK_iter_inner = 0; tileK_iter_inner < 4; tileK_iter_inner++) {
     int row = tileK_iter_inner * 4 + lid / 8;
     int col = lid % 8;
-    int gmem_row = tile_sidx * get<2>(BLK_MNK{}) + row;
+    int gmem_row = tile_sidx_block(row);
     auto thr_tiler_gmem = make_shape(_1{}, _8{});
     auto thr_coord_gmem = make_coord(gmem_row, col);
     auto B_val_thr = local_tile(B_val, thr_tiler_gmem, thr_coord_gmem);
@@ -739,7 +744,7 @@ if __name__ == "__main__":
     acc_main_loop_op, acc_program = acc()
 
     s0 = NvOpSequence(
-        acc_program.find_op_by_name("G2rSparseIndexLoadOp"),
+        acc_program.find_op_by_name("G2sSparseIndexLoadOp"),
         acc_program.find_op_by_name("G2rSparseMcoOffLoadOp"),
         acc_program.find_op_by_name("G2sSparseMcoMaskLoadOp"),
         acc_program.find_op_by_name("G2sSparseMcoValLoadOp"),
