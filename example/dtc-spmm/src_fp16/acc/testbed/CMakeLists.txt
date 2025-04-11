@@ -20,6 +20,7 @@ set(CUDA_NVCC_FLAGS
         -Xcompiler -fopenmp-simd
         --expt-relaxed-constexpr
         --ptxas-options=-v
+        -ftemplate-backtrace-limit=0
 )
 
 set(CUDA_LIBS -lcusparse -lcublas)
@@ -65,7 +66,6 @@ foreach(PLAN_FILE ${PLAN_FILES})
 
     target_compile_options(${PLAN_NAME} PRIVATE ${CUDA_NVCC_FLAGS} -I${SRCDIR} -I${CMAKE_CURRENT_SOURCE_DIR})
     target_link_libraries(${PLAN_NAME} PRIVATE -lcusparse -lcublas)
-    target_compile_definitions(${PLAN_NAME} PRIVATE f32)
     target_include_directories(${PLAN_NAME} PRIVATE 
         ${CUTLASS_INCLUDE_DIR}
         ${CUTLASS_COMMON_DIR}
@@ -73,3 +73,14 @@ foreach(PLAN_FILE ${PLAN_FILES})
         ${SRCDIR}
     )
 endforeach()
+
+add_executable(demo ${CMAKE_SOURCE_DIR}/host_program.cu ${CMAKE_SOURCE_DIR}/main.cu ${SRC_CUDA_FILES})
+
+target_compile_options(demo PRIVATE ${CUDA_NVCC_FLAGS} -I${SRCDIR} -I${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(demo PRIVATE -lcusparse -lcublas)
+target_include_directories(demo PRIVATE 
+    ${CUTLASS_INCLUDE_DIR}
+    ${CUTLASS_COMMON_DIR}
+    ${CUTLASS_UTIL_DIR}
+    ${SRCDIR}
+)
