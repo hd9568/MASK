@@ -13,7 +13,10 @@
 #include "common.h"
 #include "utils.h"
 
+#include <cute/tensor.hpp>
+
 using namespace std;
+using namespace cute;
 
 #define OFFSET_ROW(row, col, lda) ((row) * (lda) + (col))
 #define OFFSET_COL(row, col, lda) ((col) * (lda) + (row))
@@ -222,6 +225,7 @@ int flashLLMPreprocess_full_matrixA(
         exit(-1);
     }
     // Generating compressed format for A Matrix
+    auto swizzle_layout = composition(Swizzle<3,3,3>{}, make_layout(make_shape(TILE_M, TILE_K), make_stride(TILE_K, 1)));
     assert(M % TILE_M == 0 && K % TILE_K == 0);
     int TotalNZCount = 0;
     for (int i = 0; i < M / TILE_M; i++) {
@@ -244,7 +248,11 @@ int flashLLMPreprocess_full_matrixA(
                         // int      col_permutated = col ^ mask;
                         // *short_ptr              = static_cast<short>(row * TILE_K + col_permutated);
                         //! not swizzle
-                        *short_ptr = static_cast<short>(row * TILE_K + col);
+                        // *short_ptr = static_cast<short>(row * TILE_K + col);
+                        //! swizzle cute
+                        auto coord = make_coord(row, col);
+                        auto idx = swizzle_layout(coord);
+                        *short_ptr = static_cast<short>(idx);
                         //
                         TileNZCount++;
                         TotalNZCount++;
@@ -263,7 +271,11 @@ int flashLLMPreprocess_full_matrixA(
                             //! swizzle
                             // *short_ptr              = static_cast<short>(row * TILE_K + col_permutated);
                             //! not swizzle
-                            *short_ptr = static_cast<short>(row * TILE_K + col_permutated);
+                            // *short_ptr = static_cast<short>(row * TILE_K + col_permutated);
+                            //! swizzle cute
+                            auto coord = make_coord(row, col);
+                            auto idx = swizzle_layout(coord);
+                            *short_ptr = static_cast<short>(idx);
                             //
                             TileNZCount++;
                             TotalNZCount++;
@@ -411,16 +423,18 @@ int main(int argc, char** argv) {
 
         // printf("check nan: cusp %.1f mykernel %.1f\n", C_cpu[0], C_cuda[0]);
     } else {
-        printf("==============================(%d,%d,%d)\n", 2304, 1536, 16384);
-        test(2304, 1536, 16384, false);
+        // printf("==============================(%d,%d,%d)\n", 2304, 1536, 16384);
+        // test(2304, 1536, 16384, false);
         printf("==============================(%d,%d,%d)\n", 1024, 1024, 1024);
         test(1024, 1024, 1024, true);
-        printf("==============================(%d,%d,%d)\n", 128, 128, 128);
-        test(128, 128, 128, true);
-        printf("==============================(%d,%d,%d)\n", 64, 64, 64);
-        test(64, 64, 64, true);
-        printf("==============================(%d,%d,%d)\n", 32, 32, 32);
-        test(32, 32, 32, true);
+        // printf("==============================(%d,%d,%d)\n", 128, 128, 128);
+        // test(128, 128, 128, true);
+        // printf("==============================(%d,%d,%d)\n", 64, 64, 64);
+        // test(64, 64, 64, true);
+        // printf("==============================(%d,%d,%d)\n", 64, 64, 64);
+        // test(64, 64, 64, true);
+        // printf("==============================(%d,%d,%d)\n", 32, 32, 32);
+        // test(32, 32, 32, true);
         // printf("==============================(%d,%d,%d)\n", 16, 32, 16);
         // test(16, 32, 16, true);
         printf("==============================\n");

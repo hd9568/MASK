@@ -19,6 +19,7 @@ from sparsene.op_gen.nvir.nvop import (
     ForLoopNvOp,
     ConstantNvOp,
     NvOpProgram,
+    SwizzleLayout,
 )
 from sparsene.op_gen.nvir.plan import apply_pipeline, PipelinePlan
 from sparsene.op_gen.nvir.pipeline.pipeline_planner import (
@@ -468,6 +469,7 @@ for (int i = 0; i < compressed_A_reg_set{}; i++) {
                     mem="smem",
                     dtype="half",
                     row_major=True,
+                    swizzle=SwizzleLayout(b=3,m=3,s=3),
                 ),
             ),
         ],
@@ -528,6 +530,8 @@ for (int iter_i = lid; iter_i < get<2>(BLK_MNK{}) * get<1>(BLK_MNK{}) / load_til
                     shape=(MnkShape("BLK_MNK", "k"), MnkShape("BLK_MNK", "m")), # TODO: add swizzle change to row major
                     mem="smem",
                     dtype="half",
+                    row_major=True,
+                    swizzle=SwizzleLayout(b=3, m=3, s=3),
                 ),
             ),
         ],
@@ -555,7 +559,9 @@ for (int i = 0; i < compressed_A_reg_set{}; i++) {
         short  idx      = *short_ptr;
         int row = idx / get<2>(BLK_MNK{});
         int col = idx % get<2>(BLK_MNK{});
-        tileA_block(col, row, buf_idx) = value; // TODO: add swizzle change to row major
+        // tileA_block(col, row, buf_idx) = value; 
+        // tileA_block(row, col, buf_idx) = value;
+        *((half*)tileA_block(_, _, buf_idx).data().get() + idx) = value;
     }
 }
             """
@@ -577,7 +583,8 @@ for (int i = 0; i < compressed_A_reg_set{}; i++) {
                 idx=0,
                 name="tileA_block",
                 tensor=NvOpTensor(
-                    shape=Shape(MnkShape("BLK_MNK", "k"), MnkShape("BLK_MNK", "m")),
+                    # shape=Shape(MnkShape("BLK_MNK", "k"), MnkShape("BLK_MNK", "m")),
+                    shape=Shape(MnkShape("BLK_MNK", "m"), MnkShape("BLK_MNK", "k")),
                     mem="smem",
                     dtype="half",
                     source=r2s_restore_tile_A_op.outputs[0],
@@ -605,7 +612,8 @@ for (int m_iter = 0; m_iter < get<0>(BLK_MMA_MNK{}); m_iter++) {
 
         ldmatrix_m8n8k8_x4(
             (uint32_t*)(REGA(_, make_coord(m_iter, k_iter), buf_idx).data()),
-            (void*)&tileA_block(col * 8, row)
+            // (void*)&tileA_block(col * 8, row)
+            (void*)&tileA_block(row, col * 8)
         );
     }
 }
