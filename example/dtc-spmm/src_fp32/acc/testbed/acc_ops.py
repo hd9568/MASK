@@ -20,17 +20,18 @@ from sparsene.op_gen.nvir.nvop import (
 )
 from sparsene.op_gen.nvir.plan import apply_pipeline, PipelinePlan
 
-DTYPE_A = "half"
-DTYPE_B = "half"
+DTYPE_A = "float"
+DTYPE_B = "float"
 DTYPE_C = "float"
 DTYPE_MASK = "uint64_t"
-NFRAG_A = 8
-NFRAG_B = 4
-NFRAG_C = 4
+NFRAG_A = 4 # 16 * 8 // 32
+NFRAG_B = 2 # 8 * 8 // 32
+NFRAG_C = 4 # 16 * 8 // 32
 
-BLK_MNK = (16, 64, 16)
-MMA_MNK = (16, 8, 16)
+BLK_MNK = (16, 64, 8)
+MMA_MNK = (16, 8, 8) # fp32tf32tf32fp32_m16n8k8
 BLK_MMA_MNK = (BLK_MNK[0] // MMA_MNK[0], BLK_MNK[1] // MMA_MNK[1], BLK_MNK[2] // MMA_MNK[2])
+
 
 NBITS_PER_MASK = 64
 TILE_MCO_VAL_SIZE = BLK_MNK[0] * BLK_MNK[2]
@@ -39,7 +40,7 @@ NMASK_PER_TILE = TILE_MCO_VAL_SIZE // NBITS_PER_MASK
 
 def acc():
     acc_program = NvOpProgram(
-        name="acc_spmm_kernel_fp16fp16fp32",
+        name="acc_spmm_kernel_tf32tf32fp32",
         gmem_inouts={
             "B_val": GmemInout(
                 shape=Shape(VarlenShape("K"), VarlenShape("N")),
@@ -434,13 +435,13 @@ for (int i_load = lid; i_load * 2 < nmask_per_tile{}; i_load += 32) {
             r"""int ll = mco_off_range(0);
 int rr = mco_off_range(1);
 
-auto thr_tiler = make_shape(_8{});
+auto thr_tiler = make_shape(_4{});
 auto input = make_tensor(val_mco_val.data() + ll, tile_mco_val_size{});
-for (int i_load = lid; i_load * 8 + ll < rr; i_load += 32) {
+for (int i_load = lid; i_load * 4 + ll < rr; i_load += 32) {
     auto thr_coord = make_coord(i_load);
     auto src = local_tile(input, thr_tiler, thr_coord);
     auto dst = local_tile(tile_mco_val(_, buf_idx), thr_tiler, thr_coord);
-    copy(Copy_Atom<SM80_CP_ASYNC_CACHEGLOBAL<cute::uint128_t>, half>{}, src, dst);
+    copy(Copy_Atom<SM80_CP_ASYNC_CACHEGLOBAL<cute::uint128_t>, float>{}, src, dst);
 }"""),
         mem_type=("g", "s"),
         parameters={
@@ -482,23 +483,22 @@ for (int i_load = lid; i_load * 8 + ll < rr; i_load += 32) {
                     mem="smem",
                     dtype=DTYPE_B,
                     row_major=True,
-                    swizzle=SwizzleLayout(b=3, m=3, s=3),
+                    swizzle=SwizzleLayout(b=3, m=2, s=3),
                 ),
             ),
         ],
-        impl=NvOpImpl(r"""auto thr_tiler = make_shape(_8{});
-auto thr_coord = make_coord(lid);
-for (int tileK_iter_inner = 0; tileK_iter_inner < 4; tileK_iter_inner++) {
-    int row = tileK_iter_inner * 4 + lid / 8;
-    int col = lid % 8;
-    int gmem_row = tile_sidx_block(row);
-    auto thr_tiler_gmem = make_shape(_1{}, _8{});
-    auto thr_coord_gmem = make_coord(gmem_row, col);
+        impl=NvOpImpl(r"""auto load_tile_n = _4{};
+for (int iter_i = lid; iter_i < get<2>(BLK_MNK{}) * get<1>(BLK_MNK{}) / load_tile_n; iter_i += 32) {
+    int row = iter_i / (get<1>(BLK_MNK{}) / load_tile_n);
+    int col = iter_i % (get<1>(BLK_MNK{}) / load_tile_n);
+    int sidx = tile_sidx_block(row);
+    auto thr_tiler_gmem = make_shape(_1{}, _4{});
+    auto thr_coord_gmem = make_coord(sidx, col);
     auto B_val_thr = local_tile(B_val, thr_tiler_gmem, thr_coord_gmem);
-    auto thr_tiler_smem = make_shape(_1{}, _8{});
+    auto thr_tiler_smem = make_shape(_1{}, _4{});
     auto thr_coord_smem = make_coord(row, col);
     auto dst = local_tile(tileB_block(_, _, buf_idx), thr_tiler_smem, thr_coord_smem);
-    copy(Copy_Atom<SM80_CP_ASYNC_CACHEGLOBAL<cute::uint128_t>, half>{}, B_val_thr(0, _), dst(0, _));
+    copy(Copy_Atom<SM80_CP_ASYNC_CACHEGLOBAL<cute::uint128_t>, float>{}, B_val_thr(0, _), dst(0, _));   
 }"""),
         mem_type=("g", "s"),
     )
@@ -537,7 +537,7 @@ for (int tileK_iter_inner = 0; tileK_iter_inner < 4; tileK_iter_inner++) {
                     mem="smem",
                     dtype=DTYPE_A,
                     row_major=True,
-                    swizzle=SwizzleLayout(b=1, m=3, s=3),
+                    swizzle=SwizzleLayout(b=1, m=2, s=3),
                 ),
             ),
         ],
@@ -551,9 +551,9 @@ for (int i_mask = 0; i_mask < nmask_per_tile{}; i_mask++) {
         }
         int vid = i_mask * 64 + local_vid;
         if (local_idx == 0) {
-            *((half*)tile_mco_restore_val_block(_, _, buf_idx).data().get() + vid) = 0;
+            *((float*)tile_mco_restore_val_block(_, _, buf_idx).data().get() + vid) = 0;
         } else {
-            *((half*)tile_mco_restore_val_block(_, _, buf_idx).data().get() + vid) = tile_mco_val(off + local_idx - 1);
+            *((float*)tile_mco_restore_val_block(_, _, buf_idx).data().get() + vid) = tile_mco_val(off + local_idx - 1);
         }
     }
     off += __popcll(mask);
@@ -602,7 +602,7 @@ for (int i_mask = 0; i_mask < nmask_per_tile{}; i_mask++) {
 int col = lid / 16;
 ldmatrix_m8n8k8_x4(
     (uint32_t*)(REGA(_, _0{}, buf_idx).data()),
-    (void*)(&tile_mco_restore_val_block(row, col * 8))
+    (void*)(&tile_mco_restore_val_block(row, col * 4))
 );"""),
         mem_type=("s", "r"),
     )
@@ -628,13 +628,14 @@ ldmatrix_m8n8k8_x4(
                     dtype=DTYPE_B)),
         ],
         impl=NvOpImpl(r"""for (int n_iter = 0; n_iter < get<1>(BLK_MMA_MNK{}); n_iter++) {
-    int row_b = lid % 16;
-    int col_b = n_iter;
-    // Tensor tileB_tensor = local_tile(tileB_block, make_shape());
-    ldmatrix_m8n8k8_x2_trans(
+    int row_b = lid / 2;
+    int col_b = lid % 2;
+    ldmatrix_m8n8k8_x2(
         (uint32_t*)(REGB(_, n_iter, buf_idx).data()),
-        (void*)(&tileB_block(row_b, col_b * 8))
+        (void*)(&tileB_block(row_b, col_b * 4 + n_iter * 8))
     );
+    REGB(_0{}, n_iter, buf_idx) = __shfl_sync(0xffffffff, REGB(_0{}, n_iter, buf_idx), lid / 4 + lid % 4 * 8);
+    REGB(_1{}, n_iter, buf_idx) = __shfl_sync(0xffffffff, REGB(_1{}, n_iter, buf_idx), lid / 4 + lid % 4 * 8);
 }"""),
         mem_type=("s", "r"),
     )
@@ -673,11 +674,16 @@ ldmatrix_m8n8k8_x4(
         ],
         impl=NvOpImpl(r"""for (int m_iter = 0; m_iter < get<0>(BLK_MMA_MNK{}); m_iter++) {
     for (int n_iter = 0; n_iter < get<1>(BLK_MMA_MNK{}); n_iter++) {
-        mma_m16n8k16_fp32(
-            REGC(_, make_coord(m_iter, n_iter)).data(), 
-            (uint32_t*)(REGA(_, m_iter).data()), 
-            REGB(_, n_iter).data()
-        );
+        uint32_t frag_A[4];
+        uint32_t frag_B[2];
+        asm("cvt.rna.tf32.f32  %0, %1;\n" : "=r"(frag_A[0]) : "f"(REGA(0, m_iter)));
+        asm("cvt.rna.tf32.f32  %0, %1;\n" : "=r"(frag_A[1]) : "f"(REGA(1, m_iter)));
+        asm("cvt.rna.tf32.f32  %0, %1;\n" : "=r"(frag_A[2]) : "f"(REGA(2, m_iter)));
+        asm("cvt.rna.tf32.f32  %0, %1;\n" : "=r"(frag_A[3]) : "f"(REGA(3, m_iter)));
+        asm("cvt.rna.tf32.f32  %0, %1;\n" : "=r"(frag_B[0]) : "f"(REGB(0, n_iter)));
+        asm("cvt.rna.tf32.f32  %0, %1;\n" : "=r"(frag_B[1]) : "f"(REGB(1, n_iter)));
+
+        mma_m16n8k8_fp32_tf32_tf32_fp32(REGC(_, make_coord(m_iter, n_iter)).data(), frag_A, frag_B);
     }
 }"""),
         mem_type=("r", "r"),

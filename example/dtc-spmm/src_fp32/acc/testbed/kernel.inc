@@ -99,7 +99,7 @@ __device__ __forceinline__ void unpack_half_short(uint32_t packed, half& h, shor
 }
 
 
-template <class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class TO0 = half>
+template <class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class TO0 = float>
 class B_valOp {
 public:
     // Outputs
@@ -159,7 +159,7 @@ public:
     }
 };
 
-template <class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class nmask_per_tile = Int<4>, class TO0 = uint64_t>
+template <class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class nmask_per_tile = Int<2>, class TO0 = uint64_t>
 class val_mco_maskOp {
 public:
     // Outputs
@@ -189,7 +189,7 @@ public:
     }
 };
 
-template <class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class nmask_per_tile = Int<4>, class TO0 = int>
+template <class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class nmask_per_tile = Int<2>, class TO0 = int>
 class val_mco_offOp {
 public:
     // Outputs
@@ -219,7 +219,7 @@ public:
     }
 };
 
-template <class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class TO0 = half>
+template <class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class TO0 = float>
 class val_mco_valOp {
 public:
     // Outputs
@@ -546,7 +546,7 @@ public:
     }
 };
 
-template<class NBUF, class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class nmask_per_tile = Int<4>, class TI0 = int, class TI1 = int, class TO0 = int>
+template<class NBUF, class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class nmask_per_tile = Int<2>, class TI0 = int, class TI1 = int, class TO0 = int>
 class G2rSparseMcoOffLoadOp {
 public:
     // Inputs
@@ -591,7 +591,7 @@ public:
     }
 };
 
-template<class NBUF, class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class nmask_per_tile = Int<4>, class TI0 = uint64_t, class TI1 = int, class TO0 = uint64_t>
+template<class NBUF, class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class nmask_per_tile = Int<2>, class TI0 = uint64_t, class TI1 = int, class TO0 = uint64_t>
 class G2sSparseMcoMaskLoadOp {
 public:
     // Inputs
@@ -644,7 +644,7 @@ public:
     }
 };
 
-template<class NBUF, class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class tile_mco_val_size = Int<256>, class TI0 = half, class TI1 = int, class TI2 = int, class TO0 = half>
+template<class NBUF, class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class tile_mco_val_size = Int<128>, class TI0 = float, class TI1 = int, class TI2 = int, class TO0 = float>
 class G2sSparseMcoValLoadOp {
 public:
     // Inputs
@@ -691,18 +691,18 @@ public:
         int ll = mco_off_range(0);
         int rr = mco_off_range(1);
         
-        auto thr_tiler = make_shape(_8{});
+        auto thr_tiler = make_shape(_4{});
         auto input = make_tensor(val_mco_val.data() + ll, tile_mco_val_size{});
-        for (int i_load = lid; i_load * 8 + ll < rr; i_load += 32) {
+        for (int i_load = lid; i_load * 4 + ll < rr; i_load += 32) {
             auto thr_coord = make_coord(i_load);
             auto src = local_tile(input, thr_tiler, thr_coord);
             auto dst = local_tile(tile_mco_val(_, buf_idx), thr_tiler, thr_coord);
-            copy(Copy_Atom<SM80_CP_ASYNC_CACHEGLOBAL<cute::uint128_t>, half>{}, src, dst);
+            copy(Copy_Atom<SM80_CP_ASYNC_CACHEGLOBAL<cute::uint128_t>, float>{}, src, dst);
         }
     }
 };
 
-template<class NBUF, class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class TI0 = half, class TI1 = int, class TO0 = half>
+template<class NBUF, class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class TI0 = float, class TI1 = int, class TO0 = float>
 class G2sMatrixBLoadOp {
 public:
     // Inputs
@@ -716,7 +716,7 @@ public:
     // Outputs
     using Shape_o0 = decltype(make_shape(get<2>(BLK_MNK{}), get<1>(BLK_MNK{}), NBUF{}));
     using Stride_o0 = decltype(make_stride(get<1>(BLK_MNK{}), _1{}, get<2>(BLK_MNK{}) * get<1>(BLK_MNK{})));
-    using Layout_o0 = decltype(composition(Swizzle<3, 3, 3>{}, make_layout(Shape_o0{}, Stride_o0{})));
+    using Layout_o0 = decltype(composition(Swizzle<3, 2, 3>{}, make_layout(Shape_o0{}, Stride_o0{})));
     using Tensor_o0 = decltype(make_tensor(make_smem_ptr((TO0*)nullptr), Layout_o0{}));
     Shape_o0 shape_o0;
     Layout_o0 layout_o0;
@@ -745,24 +745,23 @@ public:
     template<int buf_idx, class Tensor_i0, class Tensor_i1, typename = void>
     CUTE_DEVICE void f(Tensor_i0 B_val, Tensor_i1 tile_sidx_block) {
         CUTE_STATIC_ASSERT_V((get<0>(shape_i1) == size<0>(shape(tile_sidx_block))));
-        auto thr_tiler = make_shape(_8{});
-        auto thr_coord = make_coord(lid);
-        for (int tileK_iter_inner = 0; tileK_iter_inner < 4; tileK_iter_inner++) {
-            int row = tileK_iter_inner * 4 + lid / 8;
-            int col = lid % 8;
-            int gmem_row = tile_sidx_block(row);
-            auto thr_tiler_gmem = make_shape(_1{}, _8{});
-            auto thr_coord_gmem = make_coord(gmem_row, col);
+        auto load_tile_n = _4{};
+        for (int iter_i = lid; iter_i < get<2>(BLK_MNK{}) * get<1>(BLK_MNK{}) / load_tile_n; iter_i += 32) {
+            int row = iter_i / (get<1>(BLK_MNK{}) / load_tile_n);
+            int col = iter_i % (get<1>(BLK_MNK{}) / load_tile_n);
+            int sidx = tile_sidx_block(row);
+            auto thr_tiler_gmem = make_shape(_1{}, _4{});
+            auto thr_coord_gmem = make_coord(sidx, col);
             auto B_val_thr = local_tile(B_val, thr_tiler_gmem, thr_coord_gmem);
-            auto thr_tiler_smem = make_shape(_1{}, _8{});
+            auto thr_tiler_smem = make_shape(_1{}, _4{});
             auto thr_coord_smem = make_coord(row, col);
             auto dst = local_tile(tileB_block(_, _, buf_idx), thr_tiler_smem, thr_coord_smem);
-            copy(Copy_Atom<SM80_CP_ASYNC_CACHEGLOBAL<cute::uint128_t>, half>{}, B_val_thr(0, _), dst(0, _));
+            copy(Copy_Atom<SM80_CP_ASYNC_CACHEGLOBAL<cute::uint128_t>, float>{}, B_val_thr(0, _), dst(0, _));   
         }
     }
 };
 
-template<class NBUF, class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class tile_mco_val_size = Int<256>, class nmask_per_tile = Int<4>, class TI0 = half, class TI1 = uint64_t, class TO0 = half>
+template<class NBUF, class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class tile_mco_val_size = Int<128>, class nmask_per_tile = Int<2>, class TI0 = float, class TI1 = uint64_t, class TO0 = float>
 class S2sRestoreMatrixAOp {
 public:
     // Inputs
@@ -776,7 +775,7 @@ public:
     // Outputs
     using Shape_o0 = decltype(make_shape(get<0>(BLK_MNK{}), get<2>(BLK_MNK{}), NBUF{}));
     using Stride_o0 = decltype(make_stride(get<2>(BLK_MNK{}), _1{}, get<0>(BLK_MNK{}) * get<2>(BLK_MNK{})));
-    using Layout_o0 = decltype(composition(Swizzle<1, 3, 3>{}, make_layout(Shape_o0{}, Stride_o0{})));
+    using Layout_o0 = decltype(composition(Swizzle<1, 2, 3>{}, make_layout(Shape_o0{}, Stride_o0{})));
     using Tensor_o0 = decltype(make_tensor(make_smem_ptr((TO0*)nullptr), Layout_o0{}));
     Shape_o0 shape_o0;
     Layout_o0 layout_o0;
@@ -816,9 +815,9 @@ public:
                 }
                 int vid = i_mask * 64 + local_vid;
                 if (local_idx == 0) {
-                    *((half*)tile_mco_restore_val_block(_, _, buf_idx).data().get() + vid) = 0;
+                    *((float*)tile_mco_restore_val_block(_, _, buf_idx).data().get() + vid) = 0;
                 } else {
-                    *((half*)tile_mco_restore_val_block(_, _, buf_idx).data().get() + vid) = tile_mco_val(off + local_idx - 1);
+                    *((float*)tile_mco_restore_val_block(_, _, buf_idx).data().get() + vid) = tile_mco_val(off + local_idx - 1);
                 }
             }
             off += __popcll(mask);
@@ -826,7 +825,7 @@ public:
     }
 };
 
-template<class NBUF, class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class TI0 = half, class TO0 = half>
+template<class NBUF, class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class TI0 = float, class TO0 = float>
 class S2rAValLoadOp {
 public:
     // Inputs
@@ -835,8 +834,8 @@ public:
     // Tensor_i0 tile_mco_restore_val_block;
 
     // Outputs
-    using Shape_o0 = decltype(make_shape(Int<8>{}, get<0>(BLK_MMA_MNK{}), NBUF{}));
-    using Stride_o0 = decltype(make_stride(_1{}, Int<8>{}, Int<8>{} * get<0>(BLK_MMA_MNK{})));
+    using Shape_o0 = decltype(make_shape(Int<4>{}, get<0>(BLK_MMA_MNK{}), NBUF{}));
+    using Stride_o0 = decltype(make_stride(_1{}, Int<4>{}, Int<4>{} * get<0>(BLK_MMA_MNK{})));
     using Layout_o0 = decltype(make_layout(Shape_o0{}, Stride_o0{}));
     using Tensor_o0 = decltype(make_tensor(make_rmem_ptr((TO0*)nullptr), Layout_o0{}));
     Shape_o0 shape_o0;
@@ -871,12 +870,12 @@ public:
         int col = lid / 16;
         ldmatrix_m8n8k8_x4(
             (uint32_t*)(REGA(_, _0{}, buf_idx).data()),
-            (void*)(&tile_mco_restore_val_block(row, col * 8))
+            (void*)(&tile_mco_restore_val_block(row, col * 4))
         );
     }
 };
 
-template<class NBUF, class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class TI0 = half, class TO0 = half>
+template<class NBUF, class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class TI0 = float, class TO0 = float>
 class S2rBValLoadOp {
 public:
     // Inputs
@@ -885,8 +884,8 @@ public:
     // Tensor_i0 tileB_block;
 
     // Outputs
-    using Shape_o0 = decltype(make_shape(Int<4>{}, get<1>(BLK_MMA_MNK{}), NBUF{}));
-    using Stride_o0 = decltype(make_stride(_1{}, Int<4>{}, Int<4>{} * get<1>(BLK_MMA_MNK{})));
+    using Shape_o0 = decltype(make_shape(Int<2>{}, get<1>(BLK_MMA_MNK{}), NBUF{}));
+    using Stride_o0 = decltype(make_stride(_1{}, Int<2>{}, Int<2>{} * get<1>(BLK_MMA_MNK{})));
     using Layout_o0 = decltype(make_layout(Shape_o0{}, Stride_o0{}));
     using Tensor_o0 = decltype(make_tensor(make_rmem_ptr((TO0*)nullptr), Layout_o0{}));
     Shape_o0 shape_o0;
@@ -918,25 +917,26 @@ public:
         CUTE_STATIC_ASSERT_V((get<0>(shape_i0) == size<0>(shape(tileB_block))));
         CUTE_STATIC_ASSERT_V((get<1>(shape_i0) == size<1>(shape(tileB_block))));
         for (int n_iter = 0; n_iter < get<1>(BLK_MMA_MNK{}); n_iter++) {
-            int row_b = lid % 16;
-            int col_b = n_iter;
-            // Tensor tileB_tensor = local_tile(tileB_block, make_shape());
-            ldmatrix_m8n8k8_x2_trans(
+            int row_b = lid / 2;
+            int col_b = lid % 2;
+            ldmatrix_m8n8k8_x2(
                 (uint32_t*)(REGB(_, n_iter, buf_idx).data()),
-                (void*)(&tileB_block(row_b, col_b * 8))
+                (void*)(&tileB_block(row_b, col_b * 4 + n_iter * 8))
             );
+            REGB(_0{}, n_iter, buf_idx) = __shfl_sync(0xffffffff, REGB(_0{}, n_iter, buf_idx), lid / 4 + lid % 4 * 8);
+            REGB(_1{}, n_iter, buf_idx) = __shfl_sync(0xffffffff, REGB(_1{}, n_iter, buf_idx), lid / 4 + lid % 4 * 8);
         }
     }
 };
 
-template<class NBUF, class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class Tensor_o0, class TI0 = half, class TI1 = half, class TO0 = float>
+template<class NBUF, class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class Tensor_o0, class TI0 = float, class TI1 = float, class TO0 = float>
 class CalculateOp {
 public:
     // Inputs
-    using Shape_i0 = decltype(make_shape(Int<8>{}, get<0>(BLK_MMA_MNK{})));
+    using Shape_i0 = decltype(make_shape(Int<4>{}, get<0>(BLK_MMA_MNK{})));
     Shape_i0 shape_i0;
     // Tensor_i0 REGA;
-    using Shape_i1 = decltype(make_shape(Int<4>{}, get<1>(BLK_MMA_MNK{})));
+    using Shape_i1 = decltype(make_shape(Int<2>{}, get<1>(BLK_MMA_MNK{})));
     Shape_i1 shape_i1;
     // Tensor_i1 REGB;
 
@@ -973,11 +973,16 @@ public:
         CUTE_STATIC_ASSERT_V((get<1>(shape_i1) == size<1>(shape(REGB))));
         for (int m_iter = 0; m_iter < get<0>(BLK_MMA_MNK{}); m_iter++) {
             for (int n_iter = 0; n_iter < get<1>(BLK_MMA_MNK{}); n_iter++) {
-                mma_m16n8k16_fp32(
-                    REGC(_, make_coord(m_iter, n_iter)).data(), 
-                    (uint32_t*)(REGA(_, m_iter).data()), 
-                    REGB(_, n_iter).data()
-                );
+                uint32_t frag_A[4];
+                uint32_t frag_B[2];
+                asm("cvt.rna.tf32.f32  %0, %1;\n" : "=r"(frag_A[0]) : "f"(REGA(0, m_iter)));
+                asm("cvt.rna.tf32.f32  %0, %1;\n" : "=r"(frag_A[1]) : "f"(REGA(1, m_iter)));
+                asm("cvt.rna.tf32.f32  %0, %1;\n" : "=r"(frag_A[2]) : "f"(REGA(2, m_iter)));
+                asm("cvt.rna.tf32.f32  %0, %1;\n" : "=r"(frag_A[3]) : "f"(REGA(3, m_iter)));
+                asm("cvt.rna.tf32.f32  %0, %1;\n" : "=r"(frag_B[0]) : "f"(REGB(0, n_iter)));
+                asm("cvt.rna.tf32.f32  %0, %1;\n" : "=r"(frag_B[1]) : "f"(REGB(1, n_iter)));
+        
+                mma_m16n8k8_fp32_tf32_tf32_fp32(REGC(_, make_coord(m_iter, n_iter)).data(), frag_A, frag_B);
             }
         }
     }
@@ -1959,12 +1964,12 @@ public:
 
 // GLOBAL FUNCTION
 template <class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class nmask_per_tile, class tile_mco_val_size>
-__global__ void acc_spmm_kernel_fp16fp16fp32(
-    half *dB_val,
+__global__ void acc_spmm_kernel_tf32tf32fp32(
+    float *dB_val,
     float *dC_val,
     uint64_t *dval_mco_mask,
     int *dval_mco_off,
-    half *dval_mco_val,
+    float *dval_mco_val,
     int *dval_sidx,
     int *dval_soff,
     int K, int M, int Mo, int N, int nnz, int nnz_block
@@ -2039,7 +2044,7 @@ __global__ void acc_spmm_kernel_fp16fp16fp32(
     };
     using G2sSparseMcoValLoadOp_t = G2sSparseMcoValLoadOp<Int<2>, BLK_MNK, MMA_MNK, BLK_MMA_MNK>;
     using G2sSparseMcoValLoadOp_layout_o0 = typename G2sSparseMcoValLoadOp_t::Layout_o0;
-    __shared__ half G2sSparseMcoValLoadOp_tensor_o0[cosize_v<G2sSparseMcoValLoadOp_layout_o0>];
+    __shared__ float G2sSparseMcoValLoadOp_tensor_o0[cosize_v<G2sSparseMcoValLoadOp_layout_o0>];
     G2sSparseMcoValLoadOp_t G2sSparseMcoValLoadOp_v{
         tid, lid, wid, 
         G2sSparseMcoValLoadOp_tensor_o0, 
@@ -2047,7 +2052,7 @@ __global__ void acc_spmm_kernel_fp16fp16fp32(
     };
     using G2sMatrixBLoadOp_t = G2sMatrixBLoadOp<Int<2>, BLK_MNK, MMA_MNK, BLK_MMA_MNK>;
     using G2sMatrixBLoadOp_layout_o0 = typename G2sMatrixBLoadOp_t::Layout_o0;
-    __shared__ half G2sMatrixBLoadOp_tensor_o0[cosize_v<G2sMatrixBLoadOp_layout_o0>];
+    __shared__ float G2sMatrixBLoadOp_tensor_o0[cosize_v<G2sMatrixBLoadOp_layout_o0>];
     G2sMatrixBLoadOp_t G2sMatrixBLoadOp_v{
         tid, lid, wid, 
         G2sMatrixBLoadOp_tensor_o0, 
@@ -2055,21 +2060,21 @@ __global__ void acc_spmm_kernel_fp16fp16fp32(
     };
     using S2sRestoreMatrixAOp_t = S2sRestoreMatrixAOp<Int<2>, BLK_MNK, MMA_MNK, BLK_MMA_MNK>;
     using S2sRestoreMatrixAOp_layout_o0 = typename S2sRestoreMatrixAOp_t::Layout_o0;
-    __shared__ half S2sRestoreMatrixAOp_tensor_o0[cosize_v<S2sRestoreMatrixAOp_layout_o0>];
+    __shared__ float S2sRestoreMatrixAOp_tensor_o0[cosize_v<S2sRestoreMatrixAOp_layout_o0>];
     S2sRestoreMatrixAOp_t S2sRestoreMatrixAOp_v{
         tid, lid, wid, 
         S2sRestoreMatrixAOp_tensor_o0,
     };
     using S2rAValLoadOp_t = S2rAValLoadOp<Int<2>, BLK_MNK, MMA_MNK, BLK_MMA_MNK>;
     using S2rAValLoadOp_layout_o0 = typename S2rAValLoadOp_t::Layout_o0;
-    half S2rAValLoadOp_tensor_o0[cosize_v<S2rAValLoadOp_layout_o0>];
+    float S2rAValLoadOp_tensor_o0[cosize_v<S2rAValLoadOp_layout_o0>];
     S2rAValLoadOp_t S2rAValLoadOp_v{
         tid, lid, wid, 
         S2rAValLoadOp_tensor_o0,
     };
     using S2rBValLoadOp_t = S2rBValLoadOp<Int<2>, BLK_MNK, MMA_MNK, BLK_MMA_MNK>;
     using S2rBValLoadOp_layout_o0 = typename S2rBValLoadOp_t::Layout_o0;
-    half S2rBValLoadOp_tensor_o0[cosize_v<S2rBValLoadOp_layout_o0>];
+    float S2rBValLoadOp_tensor_o0[cosize_v<S2rBValLoadOp_layout_o0>];
     S2rBValLoadOp_t S2rBValLoadOp_v{
         tid, lid, wid, 
         S2rBValLoadOp_tensor_o0,

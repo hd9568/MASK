@@ -64,7 +64,7 @@ void ncu_test_all(int threadblock_num_x,
     using nmask_per_tile = Int<Tile_M * Tile_N / 64>;
     using tile_mco_val_size = Int<Tile_M * Tile_N>;
 
-    acc_spmm_kernel_fp16fp16fp32<BLK_MNK, MMA_MNK, BLK_MMA_MNK, nmask_per_tile, tile_mco_val_size>
+    acc_spmm_kernel_tf32tf32fp32<BLK_MNK, MMA_MNK, BLK_MMA_MNK, nmask_per_tile, tile_mco_val_size>
       <<<grid, block>>>(dB_val, dC_val, dval_mco_mask, dval_mco_off, dval_mco_val, dval_sidx,
                         dval_soff, K, M, Mo, N, nnz_aligned, nnz_block);
 }
@@ -142,9 +142,9 @@ void acc_spmm_test(int M,
     int threadblock_num_y = N / Tile_N;
     int thread_num = 32;
 
-    { //! debug
-        printf("Launching kernel\n");
-    }
+    // { //! debug
+    //     printf("Launching kernel\n");
+    // }
     ncu_test_all<dtypeA, dtypeB, dtypeC, dtypeMask, Tile_M, Tile_N, Tile_K, Mma_M, Mma_N, Mma_K>(
       threadblock_num_x, threadblock_num_y, thread_num, M, N, K, Mo, nnz_aligned, nnz_block, dB_val,
       dC_val, dval_sidx, dval_soff, dval_mco_mask, dval_mco_off, dval_mco_val);
@@ -155,13 +155,13 @@ void acc_spmm_test(int M,
 }
 
 template void
-acc_spmm_test<half, half, float, uint64_t, 16, 64, 16, 16, 8, 16>(int M,
+acc_spmm_test<float, float, float, uint64_t, 16, 64, 8, 16, 8, 8>(int M,
                                                                   int N,
                                                                   int K,
-                                                                  half* B_val,
+                                                                  float* B_val,
                                                                   float* C_val,
                                                                   int* val_sidx,
                                                                   int* val_soff,
                                                                   int* val_mco_off,
                                                                   uint64_t* val_mco_mask,
-                                                                  half* val_mco_val);
+                                                                  float* val_mco_val);

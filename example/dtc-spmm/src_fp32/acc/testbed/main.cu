@@ -45,43 +45,39 @@ extern void acc_spmm_test(int M,
                              dtypeA* val_mco_val);
 
 extern template void
-acc_spmm_test<half, half, float, uint64_t, 16, 64, 16, 16, 8, 16>(int M,
+acc_spmm_test<float, float, float, uint64_t, 16, 64, 8, 16, 8, 8>(int M,
                                                                      int N,
                                                                      int K,
-                                                                     half* B_val,
+                                                                     float* B_val,
                                                                      float* C_val,
                                                                      int* val_sidx,
                                                                      int* val_soff,
                                                                      int* val_mco_off,
                                                                      uint64_t* val_mco_mask,
-                                                                     half* val_mco_val);
+                                                                     float* val_mco_val);
 
 int binarySearch(int* arr, int l, int r, int target) {
     while (l <= r) {
         int mid = l + (r - l) / 2;
-        if (arr[mid] == target)
-            return mid;
-        if (arr[mid] < target)
-            l = mid + 1;
-        else
-            r = mid - 1;
+        if (arr[mid] == target) return mid;
+        if (arr[mid] < target) l = mid + 1;
+        else r = mid - 1;
     }
     return -1; // 未找到
 }
 
-void initVector(half* vec, int length, float sparsity) {
-    if (sparsity < 0.0f || sparsity > 1.0f)
-        return;
+void initVector(float* vec, int length, float sparsity) {
+    if (sparsity < 0.0f || sparsity > 1.0f) return; 
     auto seed = std::time(nullptr);
-    std::srand(1234);
+    std::srand(1234); 
     cout << seed << endl;
     // std::srand(1);
     for (int i = 0; i < length; ++i) {
         if (static_cast<float>(rand()) / RAND_MAX < sparsity) {
-            vec[i] = half(0.0f);
+            vec[i] = float(0.0f); 
         } else {
-            // vec[i] = half(static_cast<float>(rand()) / RAND_MAX * 2.0f - 1.0f);
-            vec[i] = half(rand() % 5 + 1);
+            // vec[i] = float(static_cast<float>(rand()) / RAND_MAX * 2.0f - 1.0f); 
+            vec[i] = float(rand() % 5 + 1);
         }
     }
 }
@@ -115,9 +111,9 @@ vector<uint64_t> convertToUInt64Vector(const vector<bool>& bitset) {
 }
 
 void convertToAcc(
-  int M, int N, int K, int nnz, int* csrPtrA, int* csrColIdxA, half* csrValA, half* B, float* C) {
-    using dtypeA = half;
-    using dtypeB = half;
+  int M, int N, int K, int nnz, int* csrPtrA, int* csrColIdxA, float* csrValA, float* B, float* C) {
+    using dtypeA = float;
+    using dtypeB = float;
     using dtypeC = float;
     using dtypeMask = uint64_t;
 
@@ -161,12 +157,12 @@ void convertToAcc(
     C_val = C;
 
     const int Blk_M = 16;
-    const int Blk_K = 16;
+    const int Blk_K = 8;
 
     // 2. Convert
 
     auto swizzler =
-      cute::composition(cute::Swizzle<1, 3, 3>{}, cute::make_layout(cute::make_shape(Blk_M, Blk_K),
+      cute::composition(cute::Swizzle<1, 2, 3>{}, cute::make_layout(cute::make_shape(Blk_M, Blk_K),
                                                                     cute::make_stride(Blk_K, 1)));
     int num_row_windows = DIVUP(M, Blk_M);
 
@@ -239,9 +235,9 @@ void convertToAcc(
                 vals.push_back(val);
             }
             nz_blk_mask.push_back(convertToUInt64Vector(bitmask));
-            while (vals.size() % 8 != 0) {
-                // padding with 0 to align with 8*fp16 (16 bytes)
-                vals.push_back(half(0.0f));
+            while (vals.size() % 4 != 0) {
+                // padding with 0 to align with 4*fp32 (16 bytes)
+                vals.push_back(float(0.0f));
             }
             nz_blk_val.push_back(vals);
         }
@@ -306,7 +302,7 @@ void convertToAcc(
     // { //! debug
     //     printf("Calling acc_spmm_test\n");
     // }
-    acc_spmm_test<dtypeA, dtypeB, dtypeC, dtypeMask, 16, 64, 16, 16, 8, 16>(
+    acc_spmm_test<dtypeA, dtypeB, dtypeC, dtypeMask, 16, 64, 8, 16, 8, 8>(
       M, N, K, B_val, C_val, val_sidx, val_soff, val_mco_off, val_mco_mask, val_mco_val);
     // { //! debug
     //     printf("acc_spmm_test done\n");
@@ -319,53 +315,44 @@ void verify_new(float* C_cpu, float* C_cuda, int M, int N) {
             float cusparse_val = C_cpu[OFFSET_ROW(i, j, N)];
             float mykernel_val = C_cuda[OFFSET_ROW(i, j, N)];
             if (fabs(cusparse_val - mykernel_val) > 0.01) {
-                printf("Error(%d, %d): cusp(%.1f) mykernel(%.1f)\n", i, j, cusparse_val,
-                       mykernel_val);
+                printf("Error(%d, %d): cusp(%.1f) mykernel(%.1f)\n", i, j, cusparse_val, mykernel_val);
             }
-            // if (i == 0)
-            // printf("check(%d, %d): cusp(%.1f) mykernel(%.1f)\n", i, j, cusparse_val,
-            // mykernel_val);
         }
     }
 }
 
-void cusparse_spmm_all(half* cu_ValA,
-                       int* cu_RowPtrA,
-                       int* cu_ColIdxA,
-                       half* cu_B,
-                       float* cu_C,
-                       int M,
-                       int N,
-                       int K,
-                       int nnz) {
+void cusparse_spmm_all(
+    float* cu_ValA, int* cu_RowPtrA, int* cu_ColIdxA,
+    float* cu_B, float* cu_C, int M, int N, int K, int nnz
+) {
     int A_num_rows = M;
     int A_num_cols = K;
     int B_num_rows = K;
     int B_num_cols = N;
-    int ldb = B_num_cols; // B: row first
+    int ldb = B_num_cols;   // B: row first
     int B_size = B_num_rows * ldb;
     int C_num_rows = M;
     int C_num_cols = N;
-    int ldc = C_num_cols; // C: row first
+    int ldc = C_num_cols;            // C: row first
     int C_size = C_num_rows * ldc;
     float alpha = 1.0f;
     float beta = 0.0f;
     // device memory management
     int* dA_rpt;
     int* dA_cid;
-    half* dA_val;
-    half* dB;
+    float* dA_val;
+    float* dB;
     float* dC;
     CHECK_CUDA(cudaMalloc(&dA_rpt, sizeof(int) * (M + 1)));
     CHECK_CUDA(cudaMalloc(&dA_cid, sizeof(int) * nnz));
-    CHECK_CUDA(cudaMalloc(&dA_val, sizeof(half) * nnz));
-    CHECK_CUDA(cudaMalloc(&dB, sizeof(half) * B_size));
+    CHECK_CUDA(cudaMalloc(&dA_val, sizeof(float) * nnz));
+    CHECK_CUDA(cudaMalloc(&dB, sizeof(float) * B_size));
     CHECK_CUDA(cudaMalloc(&dC, sizeof(float) * C_size));
 
     CHECK_CUDA(cudaMemcpy(dA_rpt, cu_RowPtrA, sizeof(int) * (M + 1), cudaMemcpyHostToDevice));
     CHECK_CUDA(cudaMemcpy(dA_cid, cu_ColIdxA, sizeof(int) * nnz, cudaMemcpyHostToDevice));
-    CHECK_CUDA(cudaMemcpy(dA_val, cu_ValA, sizeof(half) * nnz, cudaMemcpyHostToDevice));
-    CHECK_CUDA(cudaMemcpy(dB, cu_B, sizeof(half) * B_size, cudaMemcpyHostToDevice));
+    CHECK_CUDA(cudaMemcpy(dA_val, cu_ValA, sizeof(float) * nnz, cudaMemcpyHostToDevice));
+    CHECK_CUDA(cudaMemcpy(dB, cu_B, sizeof(float) * B_size, cudaMemcpyHostToDevice));
     CHECK_CUDA(cudaMemset(dC, 0, sizeof(float) * C_size));
 
     // cuSPARSE APIs
@@ -376,45 +363,51 @@ void cusparse_spmm_all(half* cu_ValA,
     size_t bufferSize = 0;
     CHECK_CUSPARSE(cusparseCreate(&handle));
     // Create sparse matrix A in CSR format
-    CHECK_CUSPARSE(cusparseCreateCsr(&matA, A_num_rows, A_num_cols, nnz, dA_rpt, dA_cid, dA_val,
-                                     CUSPARSE_INDEX_32I, CUSPARSE_INDEX_32I,
-                                     CUSPARSE_INDEX_BASE_ZERO, CUDA_R_16F));
-    CHECK_CUSPARSE(
-      cusparseCreateDnMat(&matB, B_num_rows, B_num_cols, ldb, dB, CUDA_R_16F, CUSPARSE_ORDER_ROW))
-    CHECK_CUSPARSE(
-      cusparseCreateDnMat(&matC, C_num_rows, C_num_cols, ldc, dC, CUDA_R_32F, CUSPARSE_ORDER_ROW));
+    CHECK_CUSPARSE(cusparseCreateCsr(&matA, A_num_rows, A_num_cols, nnz, 
+                                    dA_rpt, dA_cid, dA_val, 
+                                    CUSPARSE_INDEX_32I, CUSPARSE_INDEX_32I, CUSPARSE_INDEX_BASE_ZERO, CUDA_R_32F));
+    CHECK_CUSPARSE(cusparseCreateDnMat(&matB, B_num_rows, B_num_cols, ldb, dB,
+                                    CUDA_R_32F, CUSPARSE_ORDER_ROW))
+    CHECK_CUSPARSE(cusparseCreateDnMat(&matC, C_num_rows, C_num_cols, ldc, dC,
+                                    CUDA_R_32F, CUSPARSE_ORDER_ROW));
     // allocate an external buffer if needed
-    CHECK_CUSPARSE(cusparseSpMM_bufferSize(
-      handle, CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_OPERATION_NON_TRANSPOSE, &alpha, matA,
-      matB, &beta, matC, CUDA_R_32F, CUSPARSE_SPMM_ALG_DEFAULT, &bufferSize));
+    CHECK_CUSPARSE(cusparseSpMM_bufferSize(handle,
+        CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_OPERATION_NON_TRANSPOSE,
+        &alpha, matA, matB, &beta, matC, CUDA_R_32F,
+        CUSPARSE_SPMM_ALG_DEFAULT, &bufferSize));
     CHECK_CUDA(cudaMalloc(&dBuffer, bufferSize));
 
     // execute preprocess (optional)
-    CHECK_CUSPARSE(cusparseSpMM_preprocess(
-      handle, CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_OPERATION_NON_TRANSPOSE, &alpha, matA,
-      matB, &beta, matC, CUDA_R_32F, CUSPARSE_SPMM_ALG_DEFAULT, dBuffer))
+    CHECK_CUSPARSE( cusparseSpMM_preprocess(
+        handle,
+        CUSPARSE_OPERATION_NON_TRANSPOSE,
+        CUSPARSE_OPERATION_NON_TRANSPOSE,
+        &alpha, matA, matB, &beta, matC, CUDA_R_32F,
+        CUSPARSE_SPMM_ALG_DEFAULT, dBuffer) )
 
     // execute SpMM
-    CHECK_CUSPARSE(cusparseSpMM(handle, CUSPARSE_OPERATION_NON_TRANSPOSE,
-                                CUSPARSE_OPERATION_NON_TRANSPOSE, &alpha, matA, matB, &beta, matC,
-                                CUDA_R_32F, CUSPARSE_SPMM_ALG_DEFAULT, dBuffer))
+    CHECK_CUSPARSE( cusparseSpMM(handle,
+            CUSPARSE_OPERATION_NON_TRANSPOSE,
+            CUSPARSE_OPERATION_NON_TRANSPOSE,
+            &alpha, matA, matB, &beta, matC, CUDA_R_32F,
+            CUSPARSE_SPMM_ALG_DEFAULT, dBuffer) )
 
     CHECK_CUDA(cudaMemcpy(cu_C, dC, sizeof(float) * C_size, cudaMemcpyDeviceToHost));
 
     // destroy matrix/vector descriptors
-    CHECK_CUSPARSE(cusparseDestroySpMat(matA))
-    CHECK_CUSPARSE(cusparseDestroyDnMat(matB))
-    CHECK_CUSPARSE(cusparseDestroyDnMat(matC))
-    CHECK_CUSPARSE(cusparseDestroy(handle))
+    CHECK_CUSPARSE( cusparseDestroySpMat(matA) )
+    CHECK_CUSPARSE( cusparseDestroyDnMat(matB) )
+    CHECK_CUSPARSE( cusparseDestroyDnMat(matC) )
+    CHECK_CUSPARSE( cusparseDestroy(handle) )
 
     //--------------------------------------------------------------------------
     // device memory deallocation
-    CHECK_CUDA(cudaFree(dBuffer))
-    CHECK_CUDA(cudaFree(dA_cid))
-    CHECK_CUDA(cudaFree(dA_rpt))
-    CHECK_CUDA(cudaFree(dA_val))
-    CHECK_CUDA(cudaFree(dB))
-    CHECK_CUDA(cudaFree(dC))
+    CHECK_CUDA( cudaFree(dBuffer) )
+    CHECK_CUDA( cudaFree(dA_cid) )
+    CHECK_CUDA( cudaFree(dA_rpt) )
+    CHECK_CUDA( cudaFree(dA_val) )
+    CHECK_CUDA( cudaFree(dB) )
+    CHECK_CUDA( cudaFree(dC) )
     return;
 }
 
@@ -425,8 +418,7 @@ int main(int argc, char** argv) {
     int K = 1024;
     float sparsity = 0.9;
     int mtx_flag = 1;
-    parseInput(argc, argv, filename, "-filename", N, "-N", M, "-M", K, "-K", mtx_flag, "-mtx_flag",
-               sparsity, "-sparsity");
+    parseInput(argc, argv, filename, "-filename", N, "-N", M, "-M", K, "-K", mtx_flag, "-mtx_flag", sparsity, "-sparsity");
 
     cout << "Filename: " << filename << endl;
     cout << "N: " << N << endl;
@@ -436,16 +428,15 @@ int main(int argc, char** argv) {
     int isSymmetricA;
     int* csrPtrA;
     int* csrColIdxA;
-    half* csrValA;
-    half* A;
+    float* csrValA;
+    float* A;
     //! input from file
     if (mtx_flag == 1) {
-        mmio_allinone(&rowA, &colA, &nnz, &isSymmetricA, &csrPtrA, &csrColIdxA, &csrValA,
-                      filename.c_str());
+        mmio_allinone(&rowA, &colA, &nnz, &isSymmetricA, &csrPtrA, &csrColIdxA, &csrValA, filename.c_str());
         M = rowA;
         K = colA;
-    } else { //! sparse matrix init
-        A = (half*)malloc(sizeof(half) * M * K);
+    } else {//! sparse matrix init
+        A = (float*)malloc(sizeof(float) * M * K);
         initVector(A, M * K, sparsity);
         //> convert to csr
         csrPtrA = (int*)malloc(sizeof(int) * (M + 1));
@@ -460,25 +451,25 @@ int main(int argc, char** argv) {
         }
         csrPtrA[M] = nnz;
         csrColIdxA = (int*)malloc(sizeof(int) * nnz);
-        csrValA = (half*)malloc(sizeof(half) * nnz);
+        csrValA = (float*)malloc(sizeof(float) * nnz);
         memset(csrColIdxA, 0, sizeof(int) * nnz);
-        memset(csrValA, 0, sizeof(half) * nnz);
+        memset(csrValA, 0, sizeof(float) * nnz);
         int ptr = 0;
         for (int i = 0; i < M; i++) {
             for (int k = 0; k < K; k++) {
-                float value = (float)A[i * K + k];
+                float value = A[i * K + k];
                 if (value != 0) {
                     csrColIdxA[ptr] = k;
-                    csrValA[ptr] = (half)value;
+                    csrValA[ptr] = value;
                     ptr++;
                 }
             }
         }
     }
 
-    printf("HALF: Sparse A[%d,%d] x B[%d,%d] = C[%d,%d]\n", M, K, K, N, M, N);
+    printf("FLOAT: Sparse A[%d,%d] x B[%d,%d] = C[%d,%d]\n", M, K, K, N, M, N);
 
-    half* B = (half*)malloc(sizeof(half) * K * N);
+    float* B = (float*)malloc(sizeof(float) * K * N);
     // initVec(B, K * N);
     initVec(csrValA, nnz);
     initVector(B, K * N, 0);
@@ -488,7 +479,7 @@ int main(int argc, char** argv) {
 
     // host check
     float* C_cpu = (float*)malloc(sizeof(float) * M * N);
-    memset(C_cpu, 0, sizeof(half) * M * N);
+    memset(C_cpu, 0, sizeof(float) * M * N);
     cusparse_spmm_all(csrValA, csrPtrA, csrColIdxA, B, C_cpu, M, N, K, nnz);
     verify_new(C_cpu, C_cuda, M, N);
 

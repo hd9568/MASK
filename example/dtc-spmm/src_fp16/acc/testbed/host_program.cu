@@ -142,9 +142,9 @@ void acc_spmm_test(int M,
     int threadblock_num_y = N / Tile_N;
     int thread_num = 32;
 
-    { //! debug
-        printf("Launching kernel\n");
-    }
+    // { //! debug
+    //     printf("Launching kernel\n");
+    // }
     ncu_test_all<dtypeA, dtypeB, dtypeC, dtypeMask, Tile_M, Tile_N, Tile_K, Mma_M, Mma_N, Mma_K>(
       threadblock_num_x, threadblock_num_y, thread_num, M, N, K, Mo, nnz_aligned, nnz_block, dB_val,
       dC_val, dval_sidx, dval_soff, dval_mco_mask, dval_mco_off, dval_mco_val);
