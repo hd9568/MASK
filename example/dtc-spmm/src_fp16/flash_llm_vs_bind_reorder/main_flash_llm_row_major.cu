@@ -177,9 +177,9 @@ int flashLLMPreprocess_full_matrixA(
     uint32_t** Compressed_A,    // CPU PTR
     int** TileOffsets           // CPU PTR
 ) {
-    const int TILE_M                       = 64;
+    const int TILE_M                       = 128;
     const int TILE_K                       = 32;
-    const int TILE_N                       = 64;
+    const int TILE_N                       = 128;
     const int VECTOR_SIZE                  = 4;
     const int PADDING_SIZE_FOR_TILEOFFSETS = 2;
 
@@ -251,6 +251,9 @@ int flashLLMPreprocess_full_matrixA(
                         //! swizzle cute
                         auto coord = make_coord(row, col);
                         auto idx = swizzle_layout(coord);
+                        if (row >= 64) {
+                            // printf("m = %d, n = %d, idx = %d\n", m, n, idx);
+                        }
                         *short_ptr = static_cast<short>(idx);
                         //
                         TileNZCount++;
@@ -304,7 +307,7 @@ void test(int M, int N, int K, bool check) {
     
     memset(A, 0, sizeof(half) * M * K);
     memset(B, 0, sizeof(half) * K * N);
-    float sparsity = 0.5;
+    float sparsity = 0.9;
     initVector(B, K * N);
     initVector(A, M * K, sparsity);
     
@@ -373,7 +376,8 @@ void test(int M, int N, int K, bool check) {
     printf("NumOffsets: %d, NNZ: %d\n", NumOffsets, NNZ);
     // flashLLMPreprocess_full_matrixA(A, )
     // convertToMETCF(M, N, K, nnz, csrPtrA, csrColIdxA, csrValA, B, C_cuda);
-    flash_llm_test<64, 64, 32>(M, N, K, NumOffsets, NNZ, TileOffsets, Compressed_A, B, C_cuda);
+    // flash_llm_test<64, 128, 32>(M, N, K, NumOffsets, NNZ, TileOffsets, Compressed_A, B, C_cuda);
+    flash_llm_test<128, 128, 32>(M, N, K, NumOffsets, NNZ, TileOffsets, Compressed_A, B, C_cuda);
     //host check
     if (check) {
         float* C_cpu = (float*)malloc(sizeof(float) * M * N);
@@ -424,19 +428,19 @@ int main(int argc, char** argv) {
     } else {
         // printf("==============================(%d,%d,%d)\n", 2304, 1536, 16384);
         // test(2304, 1536, 16384, false);
-        // printf("==============================(%d,%d,%d)\n", 1024, 1024, 1024);
-        // test(1024, 1024, 1024, true);
+        printf("==============================(%d,%d,%d)\n", 1024, 1024, 1024);
+        test(1024, 1024, 1024, true);
         // printf("==============================(%d,%d,%d)\n", 128, 128, 128);
         // test(128, 128, 128, true);
-        printf("==============================(%d,%d,%d)\n", 64, 64, 64);
-        test(64, 64, 64, true);
+        // printf("==============================(%d,%d,%d)\n", 64, 64, 64);
+        // test(64, 64, 64, true);
         // printf("==============================(%d,%d,%d)\n", 64, 64, 64);
         // test(64, 64, 64, true);
         // printf("==============================(%d,%d,%d)\n", 32, 32, 32);
         // test(32, 32, 32, true);
         // printf("==============================(%d,%d,%d)\n", 16, 32, 16);
         // test(16, 32, 16, true);
-        printf("==============================\n");
+        printf("==============================\n"); 
     }
 
     return 0;

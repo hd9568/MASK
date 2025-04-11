@@ -432,7 +432,7 @@ for (int i = 0; i < compressed_A_reg_set{}; i++) {
     //! single warp
     // int index = lid + i * (32);
     //! multi warps
-    int index = lid + i * (blockDim.x);
+    int index = threadIdx.x + i * (blockDim.x);
     if (index >= max_nnz_vector_this_tile) {
         break;
     }
@@ -503,7 +503,7 @@ for (int i = 0; i < compressed_A_reg_set{}; i++) {
 __syncthreads();
 //! multi warps. check commit history for single warp version
 auto load_tile_n = _8{};
-for (int iter_i = lid; iter_i < get<2>(BLK_MNK{}) * get<1>(BLK_MNK{}) / load_tile_n; iter_i += blockDim.x) {
+for (int iter_i = threadIdx.x; iter_i < get<2>(BLK_MNK{}) * get<1>(BLK_MNK{}) / load_tile_n; iter_i += blockDim.x) {
     int row = iter_i / (get<1>(BLK_MNK{}) / load_tile_n);
     int col = iter_i % (get<1>(BLK_MNK{}) / load_tile_n);
     int gmem_row = tile_idx * get<2>(BLK_MNK{}) + row;
@@ -563,13 +563,13 @@ for (int iter_i = lid; iter_i < get<2>(BLK_MNK{}) * get<1>(BLK_MNK{}) / load_til
         ],
         impl=NvOpImpl(
             code_template="""
-for (int i_o2s = lid; i_o2s < (get<0>(BLK_MNK{}) * get<2>(BLK_MNK{})) / 2; i_o2s += blockDim.x) {
+for (int i_o2s = threadIdx.x; i_o2s < (get<0>(BLK_MNK{}) * get<2>(BLK_MNK{})) / 2; i_o2s += blockDim.x) {
     *((float*)(tileA_block(_, _, buf_idx).data().get()) + i_o2s) = 0;
 }
 __syncthreads();
 int max_nnz_vector_this_tile = tile_offsets_reg(1) - tile_offsets_reg(0);
 for (int i = 0; i < compressed_A_reg_set{}; i++) {
-    int index = lid + i * (blockDim.x);
+    int index = threadIdx.x + i * (blockDim.x);
     if (index >= max_nnz_vector_this_tile) {
         break;
     }

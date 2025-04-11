@@ -89,7 +89,16 @@ void flash_llm_test(
     CHECK_CUDA2(cudaMemcpy(C, dC, sizeof(float) * M * N, cudaMemcpyDeviceToHost));
 }
 
-template void flash_llm_test<64, 64, 32>(
+// template void flash_llm_test<64, 128, 32>(
+//     int M, int N, int K,
+//     int NumOffsets,
+//     int NNZ,
+//     int* TileOffsets,
+//     uint32_t* Compressed_A,
+//     half* B_val,
+//     float* C
+// );
+template void flash_llm_test<128, 128, 32>(
     int M, int N, int K,
     int NumOffsets,
     int NNZ,
@@ -97,4 +106,4 @@ template void flash_llm_test<64, 64, 32>(
     uint32_t* Compressed_A,
     half* B_val,
     float* C
-);
+); 
