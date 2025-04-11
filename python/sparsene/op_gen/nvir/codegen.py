@@ -88,7 +88,7 @@ class NvIrCodeGenerator:
             else:
                 nbuf_type_str = ""
 
-            return f"template<{nbuf_type_str}class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK{parameter_types_str}{non_owning_tensor_types_str}{io_types_str}>"
+            return f"template<{nbuf_type_str}class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class WARP_MNK{non_owning_tensor_types_str}{parameter_types_str}{io_types_str}>"
 
         template_head_str = dump_template_head()
 
@@ -1043,7 +1043,7 @@ class NvIrCodeGenerator:
         template_args = []
         if op.pipelined:
             template_args.append(f"Int<{nbuf}>")
-        template_args.extend(["BLK_MNK", "MMA_MNK", "BLK_MMA_MNK"])
+        template_args.extend(["BLK_MNK", "MMA_MNK", "BLK_MMA_MNK", "WARP_MNK"])
         # template_args.extend([parameter for parameter in op.parameters])
         template_args.extend(self.dump_non_owning_tensor_type_template_arg_strs(op))
 

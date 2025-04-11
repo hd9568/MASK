@@ -252,7 +252,8 @@ ubo(0) = ubi;
         name="FlashLLMLoadCompressedANumRegOp",
         shape=Shape(),
         dtype="int",
-        value="(get<0>(BLK_MNK{}) * get<2>(BLK_MNK{}) + 32 - 1) / 32"
+        # value="(get<0>(BLK_MNK{}) * get<2>(BLK_MNK{}) + 32 - 1) / 32",
+        value="(get<0>(BLK_MNK{}) * get<2>(BLK_MNK{}) + blockDim.x - 1) / blockDim.x",  # supporting multi warp
     )
     flash_llm_blk_x_loop_op.append(flash_llm_load_compressed_A_num_reg_op)
 
@@ -261,13 +262,24 @@ ubo(0) = ubi;
         name="ZerosOp",
         shape=Shape(
             IntShape(4),
+            #! only for one warp
+            # Shape(
+            #     MnkShape("BLK_MMA_MNK", "m"),
+            #     MnkShape("BLK_MMA_MNK", "n"),
+            # ),
+            #! supporting multi warp
             Shape(
-                MnkShape("BLK_MMA_MNK", "m"),
-                MnkShape("BLK_MMA_MNK", "n"),
-            ),
+                ParamShape("REGA_RMEM_SET"),
+                ParamShape("REGB_RMEM_SET"),
+            )
         ),
         dtype="float",
         value=0,
+        parameters={
+            # "REGC_RMEM_SET": "(get<0>(BLK_MMA_MNK{}) / get<0>(WARP_MNK{})) * (get<1>(BLK_MMA_MNK{} / get<1>(WARP_MNK{})))",
+            "REGA_RMEM_SET": "get<0>(BLK_MMA_MNK{}) / get<0>(WARP_MNK{})",
+            "REGB_RMEM_SET": "get<1>(BLK_MMA_MNK{}) / get<1>(WARP_MNK{})",
+        },
     )
     flash_llm_blk_x_loop_op.append(zeros_op)
 
@@ -298,7 +310,10 @@ ubo(0) = ubi;
                 idx=0,
                 name="REGC",
                 tensor=NvOpTensor(
-                    shape=Shape(IntShape(4), Shape(MnkShape("BLK_MMA_MNK", "m"), MnkShape("BLK_MMA_MNK", "n"))),
+                    #! single warp
+                    # shape=Shape(IntShape(4), Shape(MnkShape("BLK_MMA_MNK", "m"), MnkShape("BLK_MMA_MNK", "n"))),
+                    #!
+                    shape=Shape(IntShape(4), Shape(ParamShape("REGA_RMEM_SET"), ParamShape("REGB_RMEM_SET"))),
                     mem="rmem",
                     dtype="float",
                 ),
@@ -306,6 +321,10 @@ ubo(0) = ubi;
         ],
         body=NvOpSequence(),
         iter_args={},
+        parameters={
+            "REGA_RMEM_SET": "get<0>(BLK_MMA_MNK{}) / get<0>(WARP_MNK{})",
+            "REGB_RMEM_SET": "get<1>(BLK_MMA_MNK{}) / get<1>(WARP_MNK{})",
+        },
     )
     flash_llm_blk_x_loop_op.append(flash_llm_main_loop_op)
 
@@ -410,8 +429,10 @@ tile_offsets_reg(1, buf_idx) = tile_offsets(blockIdx.x * num_tile_per_row_window
             code_template="""
 int max_nnz_vector_this_tile = tile_offsets_reg(1) - tile_offsets_reg(0);
 for (int i = 0; i < compressed_A_reg_set{}; i++) {
-    
-    int index = lid + i * (32);
+    //! single warp
+    // int index = lid + i * (32);
+    //! multi warps
+    int index = lid + i * (blockDim.x);
     if (index >= max_nnz_vector_this_tile) {
         break;
     }
@@ -427,8 +448,11 @@ for (int i = 0; i < compressed_A_reg_set{}; i++) {
         mem_type=("g", "r"),
         # 这个parameters是[str, int]类型的？能否表示 BLK_M * BLK_K / 32
         parameters={
-            "compressed_A_reg_set": "(get<0>(BLK_MNK{}) * get<2>(BLK_MNK{}) + 32 - 1) / 32 / 4",
-            "tile_val_idx_bind_size": "get<0>(BLK_MNK{}) * get<2>(BLK_MNK{})",
+            #! single warp
+            # "compressed_A_reg_set": "(get<0>(BLK_MNK{}) * get<2>(BLK_MNK{}) + 32 - 1) / 32 / 4",
+            #! multi warp: threads in all warps together load the Compressed_A
+            # TODO: easier way to get the full size of the shape
+            "compressed_A_reg_set": "DIVUP(DIVUP(get<0>(BLK_MNK{}) * get<2>(BLK_MNK{}), get<0>(WARP_MNK{}) * get<1>(WARP_MNK{}) * get<2>(WARP_MNK{}) * 32/*blockDim*/), 4 /*vector size = 4 for a thread*/)",
         },
     )
     flash_llm_main_loop_op.append(g2r_load_compressed_tile_A_op)
@@ -465,6 +489,7 @@ for (int i = 0; i < compressed_A_reg_set{}; i++) {
                 idx=0,
                 name="tileB_block",
                 tensor=NvOpTensor(
+                    #! matrix B in SMEM, no need to cahnge in mutli-warp version
                     shape=Shape(MnkShape("BLK_MNK", "k"), MnkShape("BLK_MNK", "n")),
                     mem="smem",
                     dtype="half",
@@ -476,8 +501,9 @@ for (int i = 0; i < compressed_A_reg_set{}; i++) {
         impl=NvOpImpl(
             code_template="""
 __syncthreads();
+//! multi warps. check commit history for single warp version
 auto load_tile_n = _8{};
-for (int iter_i = lid; iter_i < get<2>(BLK_MNK{}) * get<1>(BLK_MNK{}) / load_tile_n; iter_i += 32) {
+for (int iter_i = lid; iter_i < get<2>(BLK_MNK{}) * get<1>(BLK_MNK{}) / load_tile_n; iter_i += blockDim.x) {
     int row = iter_i / (get<1>(BLK_MNK{}) / load_tile_n);
     int col = iter_i % (get<1>(BLK_MNK{}) / load_tile_n);
     int gmem_row = tile_idx * get<2>(BLK_MNK{}) + row;
@@ -527,7 +553,7 @@ for (int iter_i = lid; iter_i < get<2>(BLK_MNK{}) * get<1>(BLK_MNK{}) / load_til
                 idx=0,
                 name="tileA_block",
                 tensor=NvOpTensor(
-                    shape=(MnkShape("BLK_MNK", "k"), MnkShape("BLK_MNK", "m")), # TODO: add swizzle change to row major
+                    shape=(MnkShape("BLK_MNK", "m"), MnkShape("BLK_MNK", "k")), 
                     mem="smem",
                     dtype="half",
                     row_major=True,
@@ -537,13 +563,13 @@ for (int iter_i = lid; iter_i < get<2>(BLK_MNK{}) * get<1>(BLK_MNK{}) / load_til
         ],
         impl=NvOpImpl(
             code_template="""
-for (int i_o2s = lid; i_o2s < (get<0>(BLK_MNK{}) * get<2>(BLK_MNK{})) / 2; i_o2s += 32) {
+for (int i_o2s = lid; i_o2s < (get<0>(BLK_MNK{}) * get<2>(BLK_MNK{})) / 2; i_o2s += blockDim.x) {
     *((float*)(tileA_block(_, _, buf_idx).data().get()) + i_o2s) = 0;
 }
 __syncthreads();
 int max_nnz_vector_this_tile = tile_offsets_reg(1) - tile_offsets_reg(0);
 for (int i = 0; i < compressed_A_reg_set{}; i++) {
-    int index = lid + i * (32);
+    int index = lid + i * (blockDim.x);
     if (index >= max_nnz_vector_this_tile) {
         break;
     }
@@ -568,7 +594,10 @@ for (int i = 0; i < compressed_A_reg_set{}; i++) {
         ),
         mem_type=("r", "s"),
         parameters={
-            "compressed_A_reg_set": "(get<0>(BLK_MNK{}) * get<2>(BLK_MNK{}) + 32 - 1) / 32 / 4",
+            #! single warp
+            # "compressed_A_reg_set": "(get<0>(BLK_MNK{}) * get<2>(BLK_MNK{}) + 32 - 1) / 32 / 4",
+            #! multi warp
+            "compressed_A_reg_set": "DIVUP(DIVUP(get<0>(BLK_MNK{}) * get<2>(BLK_MNK{}), get<0>(WARP_MNK{}) * get<1>(WARP_MNK{}) * get<2>(WARP_MNK{}) * 32/*blockDim*/), 4 /*vector size = 4 for a thread*/)",
         },
     )
     flash_llm_main_loop_op.append(r2s_restore_tile_A_op)
@@ -596,7 +625,10 @@ for (int i = 0; i < compressed_A_reg_set{}; i++) {
                 idx=0, 
                 name="REGA",
                 tensor=NvOpTensor(
-                    shape=Shape(IntShape(8), Shape(MnkShape("BLK_MMA_MNK", "m"), MnkShape("BLK_MMA_MNK", "k"))),
+                    #! single warp
+                    # shape=Shape(IntShape(8), Shape(MnkShape("BLK_MMA_MNK", "m"), MnkShape("BLK_MMA_MNK", "k"))),
+                    #! multi-warp
+                    shape=Shape(IntShape(8), Shape(ParamShape("REGA_RMEM_SET"), MnkShape("BLK_MMA_MNK", "k"))),
                     mem="rmem",
                     dtype="half",
                 ),
@@ -605,9 +637,11 @@ for (int i = 0; i < compressed_A_reg_set{}; i++) {
         impl=NvOpImpl(
             code_template="""
 __syncthreads();
-for (int m_iter = 0; m_iter < get<0>(BLK_MMA_MNK{}); m_iter++) {
+int WARP_M_ID = wid / get<1>(WARP_MNK{});
+int WARP_N_ID = wid % get<1>(WARP_MNK{});
+for (int m_iter = 0; m_iter < REGA_RMEM_SET{}; m_iter++) {
     for (int k_iter = 0; k_iter < get<2>(BLK_MMA_MNK{}); k_iter++) {
-        int row = lid % 16 + m_iter * 16;
+        int row = lid % 16 + m_iter * 16 + WARP_M_ID * REGA_RMEM_SET{} * 16;
         int col = lid / 16 + k_iter * 2;
 
         ldmatrix_m8n8k8_x4(
@@ -620,6 +654,9 @@ for (int m_iter = 0; m_iter < get<0>(BLK_MMA_MNK{}); m_iter++) {
             """
         ),
         mem_type=("s", "r"),
+        parameters={
+            "REGA_RMEM_SET": "get<0>(BLK_MMA_MNK{}) / get<0>(WARP_MNK{})",
+        },
     )
     flash_llm_main_loop_op.append(s2r_load_tile_A_op)
 
@@ -645,7 +682,10 @@ for (int m_iter = 0; m_iter < get<0>(BLK_MMA_MNK{}); m_iter++) {
                 idx=0,
                 name="REGB",
                 tensor=NvOpTensor(
-                    shape=Shape(IntShape(4), Shape(MnkShape("BLK_MMA_MNK", "k"), MnkShape("BLK_MMA_MNK", "n"))),
+                    #! single warp
+                    # shape=Shape(IntShape(4), Shape(MnkShape("BLK_MMA_MNK", "k"), MnkShape("BLK_MMA_MNK", "n"))),
+                    #! multi warp
+                    shape=Shape(IntShape(4), Shape(MnkShape("BLK_MMA_MNK", "k"), ParamShape("REGB_RMEM_SET"))),
                     mem="rmem",
                     dtype="half",
                 ),
@@ -654,10 +694,12 @@ for (int m_iter = 0; m_iter < get<0>(BLK_MMA_MNK{}); m_iter++) {
         impl=NvOpImpl(
             code_template="""
 __syncthreads();
+int WARP_M_ID = wid / get<1>(WARP_MNK{});
+int WARP_N_ID = wid % get<1>(WARP_MNK{});
 for (int k_iter = 0; k_iter < get<2>(BLK_MMA_MNK{}); k_iter++) {
-    for (int n_iter = 0; n_iter < get<1>(BLK_MMA_MNK{}); n_iter++) {
+    for (int n_iter = 0; n_iter < REGB_RMEM_SET{}; n_iter++) {
         int row_b = lid % 16 + k_iter * 16;
-        int col_b = n_iter;
+        int col_b = n_iter + REGB_RMEM_SET{} * WARP_N_ID;
         ldmatrix_m8n8k8_x2_trans(
             (uint32_t*)(REGB(_, make_coord(k_iter, n_iter), buf_idx).data()),
             (void*)(&tileB_block(row_b, col_b * 8))
@@ -667,6 +709,9 @@ for (int k_iter = 0; k_iter < get<2>(BLK_MMA_MNK{}); k_iter++) {
             """
         ),
         mem_type=("s", "r"),
+        parameters={
+            "REGB_RMEM_SET": "get<1>(BLK_MMA_MNK{}) / get<1>(WARP_MNK{})",
+        },
     )
     flash_llm_main_loop_op.append(s2r_load_tile_B_op)
 
@@ -680,7 +725,10 @@ for (int k_iter = 0; k_iter < get<2>(BLK_MMA_MNK{}); k_iter++) {
                 idx=0,
                 name="REGA",
                 tensor=NvOpTensor(
-                    shape=(IntShape(8), Shape(MnkShape("BLK_MMA_MNK", "m"), MnkShape("BLK_MMA_MNK", "k"))),
+                    #! single warp
+                    # shape=Shape(IntShape(8), Shape(MnkShape("BLK_MMA_MNK", "m"), MnkShape("BLK_MMA_MNK", "k"))),
+                    #! multi-warp
+                    shape=Shape(IntShape(8), Shape(ParamShape("REGA_RMEM_SET"), MnkShape("BLK_MMA_MNK", "k"))),
                     mem="rmem",
                     dtype="half",
                     source=s2r_load_tile_A_op.outputs[0],
@@ -690,7 +738,10 @@ for (int k_iter = 0; k_iter < get<2>(BLK_MMA_MNK{}); k_iter++) {
                 idx=1,
                 name="REGB",
                 tensor=NvOpTensor(
-                    shape=Shape(IntShape(4), Shape(MnkShape("BLK_MMA_MNK", "k"), MnkShape("BLK_MMA_MNK", "n"))),
+                    #! single warp
+                    # shape=Shape(IntShape(4), Shape(MnkShape("BLK_MMA_MNK", "k"), MnkShape("BLK_MMA_MNK", "n"))),
+                    #! multi warp
+                    shape=Shape(IntShape(4), Shape(MnkShape("BLK_MMA_MNK", "k"), ParamShape("REGB_RMEM_SET"))),
                     mem="rmem",
                     dtype="half",
                     source=s2r_load_tile_B_op.outputs[0],
@@ -702,7 +753,10 @@ for (int k_iter = 0; k_iter < get<2>(BLK_MMA_MNK{}); k_iter++) {
                 idx=0,
                 name="REGC",
                 tensor=NvOpTensor(
-                    shape=Shape(IntShape(4), Shape(MnkShape("BLK_MMA_MNK", "m"), MnkShape("BLK_MMA_MNK", "n"))),
+                    #! single warp
+                    # shape=Shape(IntShape(4), Shape(MnkShape("BLK_MMA_MNK", "m"), MnkShape("BLK_MMA_MNK", "n"))),
+                    #! multi warp
+                    shape=Shape(IntShape(4), Shape(ParamShape("REGA_RMEM_SET"), ParamShape("REGB_RMEM_SET"))),
                     mem="rmem",
                     dtype="float",
                 ),
@@ -711,8 +765,8 @@ for (int k_iter = 0; k_iter < get<2>(BLK_MMA_MNK{}); k_iter++) {
         ],
         impl=NvOpImpl(
             code_template="""
-for (int m_iter = 0; m_iter < get<0>(BLK_MMA_MNK{}); m_iter++) {
-    for (int n_iter = 0; n_iter < get<1>(BLK_MMA_MNK{}); n_iter++) {
+for (int m_iter = 0; m_iter < REGA_RMEM_SET{}; m_iter++) {
+    for (int n_iter = 0; n_iter < REGB_RMEM_SET{}; n_iter++) {
         for (int k_iter = 0; k_iter < get<2>(BLK_MMA_MNK{}); k_iter++) {
             mma_m16n8k16_fp32(REGC(_, make_coord(m_iter, n_iter)).data(), (uint32_t*)(REGA(_, make_coord(m_iter, k_iter)).data()), REGB(_, make_coord(k_iter, n_iter)).data());
         }
@@ -721,6 +775,10 @@ for (int m_iter = 0; m_iter < get<0>(BLK_MMA_MNK{}); m_iter++) {
             """
         ),
         mem_type=("r", "r"),
+        parameters={
+            "REGA_RMEM_SET": "get<0>(BLK_MMA_MNK{}) / get<0>(WARP_MNK{})",
+            "REGB_RMEM_SET": "get<1>(BLK_MMA_MNK{}) / get<1>(WARP_MNK{})",
+        },
     )
     flash_llm_main_loop_op.append(mma_op)
 
@@ -735,7 +793,10 @@ for (int m_iter = 0; m_iter < get<0>(BLK_MMA_MNK{}); m_iter++) {
                 idx=0,
                 name="REGC",
                 tensor=NvOpTensor(
-                    shape=Shape(IntShape(4), Shape(MnkShape("BLK_MMA_MNK", "m"), MnkShape("BLK_MMA_MNK", "n"))),
+                    #! single warp
+                    # shape=Shape(IntShape(4), Shape(MnkShape("BLK_MMA_MNK", "m"), MnkShape("BLK_MMA_MNK", "n"))),
+                    #! multi warp
+                    shape=Shape(IntShape(4), Shape(ParamShape("REGA_RMEM_SET"), ParamShape("REGB_RMEM_SET"))),
                     mem="rmem",
                     dtype="float",
                     source=flash_llm_main_loop_op.outputs[0],
@@ -757,10 +818,12 @@ for (int m_iter = 0; m_iter < get<0>(BLK_MMA_MNK{}); m_iter++) {
         impl=NvOpImpl(
             code_template="""
 //! write back
-for (int i_tileM = 0; i_tileM < get<0>(BLK_MMA_MNK{}); i_tileM++) {
-    for (int i_tileN = 0; i_tileN < get<1>(BLK_MMA_MNK{}); i_tileN++) {
-        int row = lid / 4 + i_tileM * 16;
-        int col = lid % 4 * 2 + i_tileN * 8;
+int WARP_M_ID = wid / get<1>(WARP_MNK{});
+int WARP_N_ID = wid % get<1>(WARP_MNK{});
+for (int i_tileM = 0; i_tileM < REGA_RMEM_SET{}; i_tileM++) {
+    for (int i_tileN = 0; i_tileN < REGB_RMEM_SET{}; i_tileN++) {
+        int row = lid / 4 + i_tileM * 16 + WARP_M_ID * REGA_RMEM_SET{} * 16;
+        int col = lid % 4 * 2 + i_tileN * 8 + WARP_N_ID * REGB_RMEM_SET{} * 8;
         C_val(col, row) = REGC(0, make_coord(i_tileM, i_tileN));
         C_val(col + 1, row) = REGC(1, make_coord(i_tileM, i_tileN));
         C_val(col, row + 8) = REGC(2, make_coord(i_tileM, i_tileN));
@@ -770,6 +833,10 @@ for (int i_tileM = 0; i_tileM < get<0>(BLK_MMA_MNK{}); i_tileM++) {
             """
         ),
         mem_type=("r", "g"),
+        parameters={
+            "REGA_RMEM_SET": "get<0>(BLK_MMA_MNK{}) / get<0>(WARP_MNK{})",
+            "REGB_RMEM_SET": "get<1>(BLK_MMA_MNK{}) / get<1>(WARP_MNK{})",
+        },
     )
     flash_llm_blk_x_loop_op.append(r2g_c_val_store_op)
 

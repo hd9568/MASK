@@ -54,7 +54,6 @@ void initVector(half* vec, int length, float sparsity) {
     }
 }
 
-#define ROW_WINDOW_M 16
 #define TC_BLOCK_K 16
 #define TC_BLOCK_M 16
 
@@ -178,7 +177,7 @@ int flashLLMPreprocess_full_matrixA(
     uint32_t** Compressed_A,    // CPU PTR
     int** TileOffsets           // CPU PTR
 ) {
-    const int TILE_M                       = 32;
+    const int TILE_M                       = 64;
     const int TILE_K                       = 32;
     const int TILE_N                       = 64;
     const int VECTOR_SIZE                  = 4;
@@ -374,7 +373,7 @@ void test(int M, int N, int K, bool check) {
     printf("NumOffsets: %d, NNZ: %d\n", NumOffsets, NNZ);
     // flashLLMPreprocess_full_matrixA(A, )
     // convertToMETCF(M, N, K, nnz, csrPtrA, csrColIdxA, csrValA, B, C_cuda);
-    flash_llm_test<32, 32, 32>(M, N, K, NumOffsets, NNZ, TileOffsets, Compressed_A, B, C_cuda);
+    flash_llm_test<64, 64, 32>(M, N, K, NumOffsets, NNZ, TileOffsets, Compressed_A, B, C_cuda);
     //host check
     if (check) {
         float* C_cpu = (float*)malloc(sizeof(float) * M * N);
@@ -425,12 +424,12 @@ int main(int argc, char** argv) {
     } else {
         // printf("==============================(%d,%d,%d)\n", 2304, 1536, 16384);
         // test(2304, 1536, 16384, false);
-        printf("==============================(%d,%d,%d)\n", 1024, 1024, 1024);
-        test(1024, 1024, 1024, true);
+        // printf("==============================(%d,%d,%d)\n", 1024, 1024, 1024);
+        // test(1024, 1024, 1024, true);
         // printf("==============================(%d,%d,%d)\n", 128, 128, 128);
         // test(128, 128, 128, true);
-        // printf("==============================(%d,%d,%d)\n", 64, 64, 64);
-        // test(64, 64, 64, true);
+        printf("==============================(%d,%d,%d)\n", 64, 64, 64);
+        test(64, 64, 64, true);
         // printf("==============================(%d,%d,%d)\n", 64, 64, 64);
         // test(64, 64, 64, true);
         // printf("==============================(%d,%d,%d)\n", 32, 32, 32);
