@@ -18,6 +18,10 @@
 using namespace std;
 using namespace cute;
 
+#define BLK_M 64
+#define BLK_N 128
+#define BLK_K 32
+
 #define OFFSET_ROW(row, col, lda) ((row) * (lda) + (col))
 #define OFFSET_COL(row, col, lda) ((col) * (lda) + (row))
 
@@ -177,9 +181,9 @@ int flashLLMPreprocess_full_matrixA(
     uint32_t** Compressed_A,    // CPU PTR
     int** TileOffsets           // CPU PTR
 ) {
-    const int TILE_M                       = 128;
-    const int TILE_K                       = 32;
-    const int TILE_N                       = 128;
+    const int TILE_M                       = BLK_M;
+    const int TILE_N                       = BLK_N;
+    const int TILE_K                       = BLK_K;
     const int VECTOR_SIZE                  = 4;
     const int PADDING_SIZE_FOR_TILEOFFSETS = 2;
 
@@ -377,7 +381,7 @@ void test(int M, int N, int K, bool check) {
     // flashLLMPreprocess_full_matrixA(A, )
     // convertToMETCF(M, N, K, nnz, csrPtrA, csrColIdxA, csrValA, B, C_cuda);
     // flash_llm_test<64, 128, 32>(M, N, K, NumOffsets, NNZ, TileOffsets, Compressed_A, B, C_cuda);
-    flash_llm_test<128, 128, 32>(M, N, K, NumOffsets, NNZ, TileOffsets, Compressed_A, B, C_cuda);
+    flash_llm_test<BLK_M, BLK_N, BLK_K>(M, N, K, NumOffsets, NNZ, TileOffsets, Compressed_A, B, C_cuda);
     //host check
     if (check) {
         float* C_cpu = (float*)malloc(sizeof(float) * M * N);

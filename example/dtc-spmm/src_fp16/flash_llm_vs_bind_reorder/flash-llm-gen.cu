@@ -18,23 +18,16 @@ void ncu_test_all(
     using MMA_MNK = decltype(mma_mnk);
     constexpr auto blk_mma_mnk = make_shape(Int<TILE_M / 16>{}, Int<TILE_N / 8>{}, Int<TILE_K / 16>{});
     using BLK_MMA_MNK = decltype(blk_mma_mnk);
-    constexpr auto warp_mnk = make_shape(_2{}, _2{}, _1{});
+    constexpr auto warp_mnk = make_shape(_1{}, _1{}, _1{});
     using WARP_MNK = decltype(warp_mnk);
 
 
-    // constexpr auto compressed_A_reg_size_ins = make_shape(Int<(TILE_M * TILE_K + 32 - 1) / 32>{});
-    // using compressed_A_reg_size = decltype(compressed_A_reg_size_ins);
-    // constexpr auto tile_val_idx_bind_size_ins = make_shape(Int<get<0>(BLK_MNK{}) * get<2>(BLK_MNK{})>{});
-    // using tile_val_idx_bind_size = decltype(tile_val_idx_bind_size_ins);
-    // class REGA_RMEM_SET, class REGB_RMEM_SET, class compressed_A_reg_set
-    constexpr auto compressed_A_reg_set_ins = make_shape(Int<DIVUP(DIVUP(Int<TILE_M>{} * Int<TILE_K>{}, 128), 4)>{});
-    using compressed_A_reg_set = decltype(compressed_A_reg_set_ins);
-    constexpr auto REGA_RMEM_SET_INS = make_shape(Int<get<0>(BLK_MMA_MNK{}) / get<0>(WARP_MNK{})>{});
-    using REGA_RMEM_SET = decltype(REGA_RMEM_SET_INS);
-    constexpr auto REGB_RMEM_SET_INS = make_shape(Int<get<1>(BLK_MMA_MNK{}) / get<1>(WARP_MNK{})>{});
-    using REGB_RMEM_SET = decltype(REGB_RMEM_SET_INS);
+    constexpr auto compressed_A_reg_size_ins = make_shape(Int<(TILE_M * TILE_K + 32 - 1) / 32>{});
+    using compressed_A_reg_size = decltype(compressed_A_reg_size_ins);
+    constexpr auto tile_val_idx_bind_size_ins = make_shape(Int<get<0>(BLK_MNK{}) * get<2>(BLK_MNK{})>{});
+    using tile_val_idx_bind_size = decltype(tile_val_idx_bind_size_ins);
 
-    flash_llm_spmm_kernel_sstage_rstage<BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK, REGA_RMEM_SET, REGB_RMEM_SET, compressed_A_reg_set>
+    flash_llm_spmm_kernel_sstage_rstage<BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK, compressed_A_reg_size, tile_val_idx_bind_size>
     <<<grid, block>>>(dB_val, dC, dCompressed_A, dTileOffsets, K, M, N, NumOffsets, NNZ);
 }
 
@@ -80,7 +73,7 @@ void flash_llm_test(
 
     int threadblock_num_x = M / TILE_M;
     int threadblock_num_y = N / TILE_N;
-    int thread_num = 128;
+    int thread_num = 32;
 
     ncu_test_all<TILE_M, TILE_N, TILE_K>(threadblock_num_x, threadblock_num_y, thread_num, M, N, K, NumOffsets, NNZ, dTileOffsets, dCompressed_A, dB_val, dC);
 
@@ -89,16 +82,7 @@ void flash_llm_test(
     CHECK_CUDA2(cudaMemcpy(C, dC, sizeof(float) * M * N, cudaMemcpyDeviceToHost));
 }
 
-// template void flash_llm_test<64, 128, 32>(
-//     int M, int N, int K,
-//     int NumOffsets,
-//     int NNZ,
-//     int* TileOffsets,
-//     uint32_t* Compressed_A,
-//     half* B_val,
-//     float* C
-// );
-template void flash_llm_test<128, 128, 32>(
+template void flash_llm_test<64, 128, 32>(
     int M, int N, int K,
     int NumOffsets,
     int NNZ,
@@ -106,4 +90,4 @@ template void flash_llm_test<128, 128, 32>(
     uint32_t* Compressed_A,
     half* B_val,
     float* C
-); 
+);
