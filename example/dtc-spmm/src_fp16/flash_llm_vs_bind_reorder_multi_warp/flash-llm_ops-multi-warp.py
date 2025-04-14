@@ -494,7 +494,7 @@ for (int i = 0; i < compressed_A_reg_set{}; i++) {
                     mem="smem",
                     dtype="half",
                     row_major=True,
-                    swizzle=SwizzleLayout(b=3,m=3,s=3),
+                    swizzle=SwizzleLayout(b=3,m=3,s=4),
                 ),
             ),
         ],
@@ -808,7 +808,7 @@ if __name__ == "__main__":
 
     apply_pipeline(
         flash_llm_main_loop_op,
-        PipelinePlan([s0, s1, s2], [2, 1]),
+        PipelinePlan([s0, s1, s2], [1, 1]),
     )
 
     print(NvIrCodeGenerator().dump_nvop_program(flash_llm_program))

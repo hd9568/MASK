@@ -18,8 +18,8 @@ void ncu_test_all(
     using MMA_MNK = decltype(mma_mnk);
     constexpr auto blk_mma_mnk = make_shape(Int<TILE_M / 16>{}, Int<TILE_N / 8>{}, Int<TILE_K / 16>{});
     using BLK_MMA_MNK = decltype(blk_mma_mnk);
-    // constexpr auto warp_mnk = make_shape(_2{}, _2{}, _1{});
-    constexpr auto warp_mnk = make_shape(_1{}, _1{}, _1{});
+    constexpr auto warp_mnk = make_shape(_2{}, _2{}, _1{});
+    // constexpr auto warp_mnk = make_shape(_1{}, _1{}, _1{});
     using WARP_MNK = decltype(warp_mnk);
 
 
@@ -81,7 +81,7 @@ void flash_llm_test(
 
     int threadblock_num_x = M / TILE_M;
     int threadblock_num_y = N / TILE_N;
-    int thread_num = 32;
+    int thread_num = 128;
 
     ncu_test_all<TILE_M, TILE_N, TILE_K>(threadblock_num_x, threadblock_num_y, thread_num, M, N, K, NumOffsets, NNZ, dTileOffsets, dCompressed_A, dB_val, dC);
 
