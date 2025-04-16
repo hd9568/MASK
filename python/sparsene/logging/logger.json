@@ -26,12 +26,6 @@
 			"formatter": "standard",
 			"level": "WARNING",
 			"stream": "ext://sys.stderr"
-		},
-		"file": {
-			"class": "logging.FileHandler",
-			"formatter": "detailed",
-			"level": "DEBUG",
-			"filename": "sparsene.log"
 		}
 	},
 	"loggers": {
@@ -39,8 +33,7 @@
 			"level": "INFO",
 			"handlers": [
 				"stdout",
-				"stderr",
-				"file"
+				"stderr"
 			]
 		}
 	}
