@@ -23,5 +23,5 @@ example/dtc-spmm/**/plan_exes
 example/bin/*-fp16
 example/bin/*-tf32
 example/bin/*.log
-example/bin/*list.txt
+example/bin/*list*.txt
 example/dtc-spmm/matrix_generator/generated_matrices
