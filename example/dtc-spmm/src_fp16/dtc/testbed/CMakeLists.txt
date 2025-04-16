@@ -66,7 +66,6 @@ foreach(PLAN_FILE ${PLAN_FILES})
 
     target_compile_options(${PLAN_NAME} PRIVATE ${CUDA_NVCC_FLAGS} -I${SRCDIR} -I${CMAKE_CURRENT_SOURCE_DIR})
     target_link_libraries(${PLAN_NAME} PRIVATE -lcusparse -lcublas)
-    target_compile_definitions(${PLAN_NAME} PRIVATE f32)
     target_include_directories(${PLAN_NAME} PRIVATE 
         ${CUTLASS_INCLUDE_DIR}
         ${CUTLASS_COMMON_DIR}
@@ -79,7 +78,6 @@ add_executable(demo ${CMAKE_SOURCE_DIR}/host_program.cu ${CMAKE_SOURCE_DIR}/main
 
 target_compile_options(demo PRIVATE ${CUDA_NVCC_FLAGS} -I${SRCDIR} -I${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(demo PRIVATE -lcusparse -lcublas)
-target_compile_definitions(demo PRIVATE f32)
 target_include_directories(demo PRIVATE 
     ${CUTLASS_INCLUDE_DIR}
     ${CUTLASS_COMMON_DIR}

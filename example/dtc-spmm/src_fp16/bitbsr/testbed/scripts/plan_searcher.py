@@ -750,7 +750,7 @@ if __name__ == "__main__":
         min_ops_per_stage=2,
         max_ops_per_stage=4,
         min_shift=1,
-        max_shift=3,
+        max_shift=2,
     )
     plans_dir = Path(__file__).parent.parent / "plans"
     plans_dir.mkdir(parents=True, exist_ok=True)

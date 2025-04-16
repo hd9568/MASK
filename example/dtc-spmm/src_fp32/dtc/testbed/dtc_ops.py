@@ -856,7 +856,7 @@ if __name__ == "__main__":
 
     apply_pipeline(
         dtc_main_loop_op,
-        PipelinePlan([s0, s1, s2], [1, 2]),
+        PipelinePlan([s0, s1, s2], [1, 1]),
     )
 
     script_dir = Path(__file__).parent

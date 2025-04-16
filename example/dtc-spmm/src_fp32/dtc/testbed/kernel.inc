@@ -1062,9 +1062,6 @@ public:
             
             // i = 1
             
-            
-            // i = 2
-            
         }
         else if (k == 1) {
             // i = 0
@@ -1106,9 +1103,6 @@ public:
             
             
             // i = 2
-            
-            
-            // i = 3
             __pipeline_wait_prior(0);
             __syncthreads();
             S2rAValLoadOp_v.template f<0>(
@@ -1197,9 +1191,6 @@ public:
                 G2sSparseCooIdxLoadOp_v.template output<0, 1>()(0)
             );
             __pipeline_commit();
-            
-            
-            // i = 3
             __pipeline_wait_prior(2);
             __syncthreads();
             S2rAValLoadOp_v.template f<0>(
@@ -1216,7 +1207,7 @@ public:
             );
             
             
-            // i = 4
+            // i = 3
             __pipeline_wait_prior(0);
             __syncthreads();
             S2rAValLoadOp_v.template f<1>(
@@ -1290,18 +1281,18 @@ public:
             
             
             // i = 2
-            G2sSparseIndexLoadOp_v.template f<2>(
+            G2sSparseIndexLoadOp_v.template f<0>(
                 val_sidxOp_v.template output<0>(),
                 l + 2
             );
             __pipeline_commit();
-            G2sSparseCooIdxLoadOp_v.template f<2>(
+            G2sSparseCooIdxLoadOp_v.template f<0>(
                 val_coo_offOp_v.template output<0>(),
                 val_coo_idxOp_v.template output<0>(),
                 l + 2
             );
             __pipeline_commit();
-            G2sSparseCooValLoadOp_v.template f<2>(
+            G2sSparseCooValLoadOp_v.template f<0>(
                 val_coo_offOp_v.template output<0>(),
                 val_coo_valOp_v.template output<0>(),
                 l + 2
@@ -1320,206 +1311,14 @@ public:
                 G2sSparseCooIdxLoadOp_v.template output<1, 1>(),
                 G2sSparseCooValLoadOp_v.template output<0, 1>(),
                 G2sSparseCooIdxLoadOp_v.template output<0, 1>()(0)
-            );
-            __pipeline_commit();
-            
-            
-            // i = 3
-            __pipeline_wait_prior(4);
-            __syncthreads();
-            G2sMatrixBLoadOp_v.template f<2>(
-                B_valOp_v.template output<0>(),
-                G2sSparseIndexLoadOp_v.template output<0, 2>()
-            );
-            __pipeline_commit();
-            __pipeline_wait_prior(3);
-            __syncthreads();
-            S2sRestoreMatrixAOp_v.template f<2>(
-                G2sSparseCooIdxLoadOp_v.template output<1, 2>(),
-                G2sSparseCooValLoadOp_v.template output<0, 2>(),
-                G2sSparseCooIdxLoadOp_v.template output<0, 2>()(0)
-            );
-            __pipeline_commit();
-            __pipeline_wait_prior(7);
-            __syncthreads();
-            S2rAValLoadOp_v.template f<0>(
-                S2sRestoreMatrixAOp_v.template output<0, 0>()
-            );
-            __pipeline_wait_prior(8);
-            __syncthreads();
-            S2rBValLoadOp_v.template f<0>(
-                G2sMatrixBLoadOp_v.template output<0, 0>()
-            );
-            CalculateOp_v.template f<0>(
-                S2rAValLoadOp_v.template output<0, 0>(),
-                S2rBValLoadOp_v.template output<0, 0>()
-            );
-            
-            
-            // i = 4
-            __pipeline_wait_prior(2);
-            __syncthreads();
-            S2rAValLoadOp_v.template f<1>(
-                S2sRestoreMatrixAOp_v.template output<0, 1>()
-            );
-            __pipeline_wait_prior(3);
-            __syncthreads();
-            S2rBValLoadOp_v.template f<1>(
-                G2sMatrixBLoadOp_v.template output<0, 1>()
-            );
-            CalculateOp_v.template f<1>(
-                S2rAValLoadOp_v.template output<0, 1>(),
-                S2rBValLoadOp_v.template output<0, 1>()
-            );
-            
-            
-            // i = 5
-            __pipeline_wait_prior(0);
-            __syncthreads();
-            S2rAValLoadOp_v.template f<2>(
-                S2sRestoreMatrixAOp_v.template output<0, 2>()
-            );
-            __pipeline_wait_prior(1);
-            __syncthreads();
-            S2rBValLoadOp_v.template f<2>(
-                G2sMatrixBLoadOp_v.template output<0, 2>()
-            );
-            CalculateOp_v.template f<2>(
-                S2rAValLoadOp_v.template output<0, 2>(),
-                S2rBValLoadOp_v.template output<0, 2>()
-            );
-            
-        }
-        else if (k == 4) {
-            // i = 0
-            G2sSparseIndexLoadOp_v.template f<0>(
-                val_sidxOp_v.template output<0>(),
-                l + 0
-            );
-            __pipeline_commit();
-            G2sSparseCooIdxLoadOp_v.template f<0>(
-                val_coo_offOp_v.template output<0>(),
-                val_coo_idxOp_v.template output<0>(),
-                l + 0
-            );
-            __pipeline_commit();
-            G2sSparseCooValLoadOp_v.template f<0>(
-                val_coo_offOp_v.template output<0>(),
-                val_coo_valOp_v.template output<0>(),
-                l + 0
-            );
-            __pipeline_commit();
-            
-            
-            // i = 1
-            G2sSparseIndexLoadOp_v.template f<1>(
-                val_sidxOp_v.template output<0>(),
-                l + 1
-            );
-            __pipeline_commit();
-            G2sSparseCooIdxLoadOp_v.template f<1>(
-                val_coo_offOp_v.template output<0>(),
-                val_coo_idxOp_v.template output<0>(),
-                l + 1
-            );
-            __pipeline_commit();
-            G2sSparseCooValLoadOp_v.template f<1>(
-                val_coo_offOp_v.template output<0>(),
-                val_coo_valOp_v.template output<0>(),
-                l + 1
             );
             __pipeline_commit();
             __pipeline_wait_prior(5);
             __syncthreads();
-            G2sMatrixBLoadOp_v.template f<0>(
-                B_valOp_v.template output<0>(),
-                G2sSparseIndexLoadOp_v.template output<0, 0>()
-            );
-            __pipeline_commit();
-            __pipeline_wait_prior(4);
-            __syncthreads();
-            S2sRestoreMatrixAOp_v.template f<0>(
-                G2sSparseCooIdxLoadOp_v.template output<1, 0>(),
-                G2sSparseCooValLoadOp_v.template output<0, 0>(),
-                G2sSparseCooIdxLoadOp_v.template output<0, 0>()(0)
-            );
-            __pipeline_commit();
-            
-            
-            // i = 2
-            G2sSparseIndexLoadOp_v.template f<2>(
-                val_sidxOp_v.template output<0>(),
-                l + 2
-            );
-            __pipeline_commit();
-            G2sSparseCooIdxLoadOp_v.template f<2>(
-                val_coo_offOp_v.template output<0>(),
-                val_coo_idxOp_v.template output<0>(),
-                l + 2
-            );
-            __pipeline_commit();
-            G2sSparseCooValLoadOp_v.template f<2>(
-                val_coo_offOp_v.template output<0>(),
-                val_coo_valOp_v.template output<0>(),
-                l + 2
-            );
-            __pipeline_commit();
-            __pipeline_wait_prior(7);
-            __syncthreads();
-            G2sMatrixBLoadOp_v.template f<1>(
-                B_valOp_v.template output<0>(),
-                G2sSparseIndexLoadOp_v.template output<0, 1>()
-            );
-            __pipeline_commit();
-            __pipeline_wait_prior(6);
-            __syncthreads();
-            S2sRestoreMatrixAOp_v.template f<1>(
-                G2sSparseCooIdxLoadOp_v.template output<1, 1>(),
-                G2sSparseCooValLoadOp_v.template output<0, 1>(),
-                G2sSparseCooIdxLoadOp_v.template output<0, 1>()(0)
-            );
-            __pipeline_commit();
-            
-            
-            // i = 3
-            G2sSparseIndexLoadOp_v.template f<0>(
-                val_sidxOp_v.template output<0>(),
-                l + 3
-            );
-            __pipeline_commit();
-            G2sSparseCooIdxLoadOp_v.template f<0>(
-                val_coo_offOp_v.template output<0>(),
-                val_coo_idxOp_v.template output<0>(),
-                l + 3
-            );
-            __pipeline_commit();
-            G2sSparseCooValLoadOp_v.template f<0>(
-                val_coo_offOp_v.template output<0>(),
-                val_coo_valOp_v.template output<0>(),
-                l + 3
-            );
-            __pipeline_commit();
-            __pipeline_wait_prior(7);
-            __syncthreads();
-            G2sMatrixBLoadOp_v.template f<2>(
-                B_valOp_v.template output<0>(),
-                G2sSparseIndexLoadOp_v.template output<0, 2>()
-            );
-            __pipeline_commit();
-            __pipeline_wait_prior(6);
-            __syncthreads();
-            S2sRestoreMatrixAOp_v.template f<2>(
-                G2sSparseCooIdxLoadOp_v.template output<1, 2>(),
-                G2sSparseCooValLoadOp_v.template output<0, 2>(),
-                G2sSparseCooIdxLoadOp_v.template output<0, 2>()(0)
-            );
-            __pipeline_commit();
-            __pipeline_wait_prior(10);
-            __syncthreads();
             S2rAValLoadOp_v.template f<0>(
                 S2sRestoreMatrixAOp_v.template output<0, 0>()
             );
-            __pipeline_wait_prior(11);
+            __pipeline_wait_prior(6);
             __syncthreads();
             S2rBValLoadOp_v.template f<0>(
                 G2sMatrixBLoadOp_v.template output<0, 0>()
@@ -1530,7 +1329,7 @@ public:
             );
             
             
-            // i = 4
+            // i = 3
             __pipeline_wait_prior(4);
             __syncthreads();
             G2sMatrixBLoadOp_v.template f<0>(
@@ -1546,12 +1345,12 @@ public:
                 G2sSparseCooIdxLoadOp_v.template output<0, 0>()(0)
             );
             __pipeline_commit();
-            __pipeline_wait_prior(7);
+            __pipeline_wait_prior(2);
             __syncthreads();
             S2rAValLoadOp_v.template f<1>(
                 S2sRestoreMatrixAOp_v.template output<0, 1>()
             );
-            __pipeline_wait_prior(8);
+            __pipeline_wait_prior(3);
             __syncthreads();
             S2rBValLoadOp_v.template f<1>(
                 G2sMatrixBLoadOp_v.template output<0, 1>()
@@ -1562,24 +1361,7 @@ public:
             );
             
             
-            // i = 5
-            __pipeline_wait_prior(2);
-            __syncthreads();
-            S2rAValLoadOp_v.template f<2>(
-                S2sRestoreMatrixAOp_v.template output<0, 2>()
-            );
-            __pipeline_wait_prior(3);
-            __syncthreads();
-            S2rBValLoadOp_v.template f<2>(
-                G2sMatrixBLoadOp_v.template output<0, 2>()
-            );
-            CalculateOp_v.template f<2>(
-                S2rAValLoadOp_v.template output<0, 2>(),
-                S2rBValLoadOp_v.template output<0, 2>()
-            );
-            
-            
-            // i = 6
+            // i = 4
             __pipeline_wait_prior(0);
             __syncthreads();
             S2rAValLoadOp_v.template f<0>(
@@ -1593,261 +1375,6 @@ public:
             CalculateOp_v.template f<0>(
                 S2rAValLoadOp_v.template output<0, 0>(),
                 S2rBValLoadOp_v.template output<0, 0>()
-            );
-            
-        }
-        else if (k == 5) {
-            // i = 0
-            G2sSparseIndexLoadOp_v.template f<0>(
-                val_sidxOp_v.template output<0>(),
-                l + 0
-            );
-            __pipeline_commit();
-            G2sSparseCooIdxLoadOp_v.template f<0>(
-                val_coo_offOp_v.template output<0>(),
-                val_coo_idxOp_v.template output<0>(),
-                l + 0
-            );
-            __pipeline_commit();
-            G2sSparseCooValLoadOp_v.template f<0>(
-                val_coo_offOp_v.template output<0>(),
-                val_coo_valOp_v.template output<0>(),
-                l + 0
-            );
-            __pipeline_commit();
-            
-            
-            // i = 1
-            G2sSparseIndexLoadOp_v.template f<1>(
-                val_sidxOp_v.template output<0>(),
-                l + 1
-            );
-            __pipeline_commit();
-            G2sSparseCooIdxLoadOp_v.template f<1>(
-                val_coo_offOp_v.template output<0>(),
-                val_coo_idxOp_v.template output<0>(),
-                l + 1
-            );
-            __pipeline_commit();
-            G2sSparseCooValLoadOp_v.template f<1>(
-                val_coo_offOp_v.template output<0>(),
-                val_coo_valOp_v.template output<0>(),
-                l + 1
-            );
-            __pipeline_commit();
-            __pipeline_wait_prior(5);
-            __syncthreads();
-            G2sMatrixBLoadOp_v.template f<0>(
-                B_valOp_v.template output<0>(),
-                G2sSparseIndexLoadOp_v.template output<0, 0>()
-            );
-            __pipeline_commit();
-            __pipeline_wait_prior(4);
-            __syncthreads();
-            S2sRestoreMatrixAOp_v.template f<0>(
-                G2sSparseCooIdxLoadOp_v.template output<1, 0>(),
-                G2sSparseCooValLoadOp_v.template output<0, 0>(),
-                G2sSparseCooIdxLoadOp_v.template output<0, 0>()(0)
-            );
-            __pipeline_commit();
-            
-            
-            // i = 2
-            G2sSparseIndexLoadOp_v.template f<2>(
-                val_sidxOp_v.template output<0>(),
-                l + 2
-            );
-            __pipeline_commit();
-            G2sSparseCooIdxLoadOp_v.template f<2>(
-                val_coo_offOp_v.template output<0>(),
-                val_coo_idxOp_v.template output<0>(),
-                l + 2
-            );
-            __pipeline_commit();
-            G2sSparseCooValLoadOp_v.template f<2>(
-                val_coo_offOp_v.template output<0>(),
-                val_coo_valOp_v.template output<0>(),
-                l + 2
-            );
-            __pipeline_commit();
-            __pipeline_wait_prior(7);
-            __syncthreads();
-            G2sMatrixBLoadOp_v.template f<1>(
-                B_valOp_v.template output<0>(),
-                G2sSparseIndexLoadOp_v.template output<0, 1>()
-            );
-            __pipeline_commit();
-            __pipeline_wait_prior(6);
-            __syncthreads();
-            S2sRestoreMatrixAOp_v.template f<1>(
-                G2sSparseCooIdxLoadOp_v.template output<1, 1>(),
-                G2sSparseCooValLoadOp_v.template output<0, 1>(),
-                G2sSparseCooIdxLoadOp_v.template output<0, 1>()(0)
-            );
-            __pipeline_commit();
-            
-            
-            // i = 3
-            G2sSparseIndexLoadOp_v.template f<0>(
-                val_sidxOp_v.template output<0>(),
-                l + 3
-            );
-            __pipeline_commit();
-            G2sSparseCooIdxLoadOp_v.template f<0>(
-                val_coo_offOp_v.template output<0>(),
-                val_coo_idxOp_v.template output<0>(),
-                l + 3
-            );
-            __pipeline_commit();
-            G2sSparseCooValLoadOp_v.template f<0>(
-                val_coo_offOp_v.template output<0>(),
-                val_coo_valOp_v.template output<0>(),
-                l + 3
-            );
-            __pipeline_commit();
-            __pipeline_wait_prior(7);
-            __syncthreads();
-            G2sMatrixBLoadOp_v.template f<2>(
-                B_valOp_v.template output<0>(),
-                G2sSparseIndexLoadOp_v.template output<0, 2>()
-            );
-            __pipeline_commit();
-            __pipeline_wait_prior(6);
-            __syncthreads();
-            S2sRestoreMatrixAOp_v.template f<2>(
-                G2sSparseCooIdxLoadOp_v.template output<1, 2>(),
-                G2sSparseCooValLoadOp_v.template output<0, 2>(),
-                G2sSparseCooIdxLoadOp_v.template output<0, 2>()(0)
-            );
-            __pipeline_commit();
-            __pipeline_wait_prior(10);
-            __syncthreads();
-            S2rAValLoadOp_v.template f<0>(
-                S2sRestoreMatrixAOp_v.template output<0, 0>()
-            );
-            __pipeline_wait_prior(11);
-            __syncthreads();
-            S2rBValLoadOp_v.template f<0>(
-                G2sMatrixBLoadOp_v.template output<0, 0>()
-            );
-            CalculateOp_v.template f<0>(
-                S2rAValLoadOp_v.template output<0, 0>(),
-                S2rBValLoadOp_v.template output<0, 0>()
-            );
-            
-            
-            // i = 4
-            G2sSparseIndexLoadOp_v.template f<1>(
-                val_sidxOp_v.template output<0>(),
-                l + 4
-            );
-            __pipeline_commit();
-            G2sSparseCooIdxLoadOp_v.template f<1>(
-                val_coo_offOp_v.template output<0>(),
-                val_coo_idxOp_v.template output<0>(),
-                l + 4
-            );
-            __pipeline_commit();
-            G2sSparseCooValLoadOp_v.template f<1>(
-                val_coo_offOp_v.template output<0>(),
-                val_coo_valOp_v.template output<0>(),
-                l + 4
-            );
-            __pipeline_commit();
-            __pipeline_wait_prior(7);
-            __syncthreads();
-            G2sMatrixBLoadOp_v.template f<0>(
-                B_valOp_v.template output<0>(),
-                G2sSparseIndexLoadOp_v.template output<0, 0>()
-            );
-            __pipeline_commit();
-            __pipeline_wait_prior(6);
-            __syncthreads();
-            S2sRestoreMatrixAOp_v.template f<0>(
-                G2sSparseCooIdxLoadOp_v.template output<1, 0>(),
-                G2sSparseCooValLoadOp_v.template output<0, 0>(),
-                G2sSparseCooIdxLoadOp_v.template output<0, 0>()(0)
-            );
-            __pipeline_commit();
-            __pipeline_wait_prior(10);
-            __syncthreads();
-            S2rAValLoadOp_v.template f<1>(
-                S2sRestoreMatrixAOp_v.template output<0, 1>()
-            );
-            __pipeline_wait_prior(11);
-            __syncthreads();
-            S2rBValLoadOp_v.template f<1>(
-                G2sMatrixBLoadOp_v.template output<0, 1>()
-            );
-            CalculateOp_v.template f<1>(
-                S2rAValLoadOp_v.template output<0, 1>(),
-                S2rBValLoadOp_v.template output<0, 1>()
-            );
-            
-            
-            // i = 5
-            __pipeline_wait_prior(4);
-            __syncthreads();
-            G2sMatrixBLoadOp_v.template f<1>(
-                B_valOp_v.template output<0>(),
-                G2sSparseIndexLoadOp_v.template output<0, 1>()
-            );
-            __pipeline_commit();
-            __pipeline_wait_prior(3);
-            __syncthreads();
-            S2sRestoreMatrixAOp_v.template f<1>(
-                G2sSparseCooIdxLoadOp_v.template output<1, 1>(),
-                G2sSparseCooValLoadOp_v.template output<0, 1>(),
-                G2sSparseCooIdxLoadOp_v.template output<0, 1>()(0)
-            );
-            __pipeline_commit();
-            __pipeline_wait_prior(7);
-            __syncthreads();
-            S2rAValLoadOp_v.template f<2>(
-                S2sRestoreMatrixAOp_v.template output<0, 2>()
-            );
-            __pipeline_wait_prior(8);
-            __syncthreads();
-            S2rBValLoadOp_v.template f<2>(
-                G2sMatrixBLoadOp_v.template output<0, 2>()
-            );
-            CalculateOp_v.template f<2>(
-                S2rAValLoadOp_v.template output<0, 2>(),
-                S2rBValLoadOp_v.template output<0, 2>()
-            );
-            
-            
-            // i = 6
-            __pipeline_wait_prior(2);
-            __syncthreads();
-            S2rAValLoadOp_v.template f<0>(
-                S2sRestoreMatrixAOp_v.template output<0, 0>()
-            );
-            __pipeline_wait_prior(3);
-            __syncthreads();
-            S2rBValLoadOp_v.template f<0>(
-                G2sMatrixBLoadOp_v.template output<0, 0>()
-            );
-            CalculateOp_v.template f<0>(
-                S2rAValLoadOp_v.template output<0, 0>(),
-                S2rBValLoadOp_v.template output<0, 0>()
-            );
-            
-            
-            // i = 7
-            __pipeline_wait_prior(0);
-            __syncthreads();
-            S2rAValLoadOp_v.template f<1>(
-                S2sRestoreMatrixAOp_v.template output<0, 1>()
-            );
-            __pipeline_wait_prior(1);
-            __syncthreads();
-            S2rBValLoadOp_v.template f<1>(
-                G2sMatrixBLoadOp_v.template output<0, 1>()
-            );
-            CalculateOp_v.template f<1>(
-                S2rAValLoadOp_v.template output<0, 1>(),
-                S2rBValLoadOp_v.template output<0, 1>()
             );
             
         }
@@ -1915,21 +1442,22 @@ public:
             G2sSparseCooIdxLoadOp_v.template output<0, 0>()(0)
         );
         __pipeline_commit();
-        // op_call |buf_idx=2| 2 G2sSparseIndexLoadOp 
-        G2sSparseIndexLoadOp_v.template f<2>(
+        // stage 0..2
+        // op_call |buf_idx=0| 2 G2sSparseIndexLoadOp 
+        G2sSparseIndexLoadOp_v.template f<0>(
             val_sidxOp_v.template output<0>(),
             l + 2
         );
         __pipeline_commit();
-        // op_call |buf_idx=2| 2 G2sSparseCooIdxLoadOp 
-        G2sSparseCooIdxLoadOp_v.template f<2>(
+        // op_call |buf_idx=0| 2 G2sSparseCooIdxLoadOp 
+        G2sSparseCooIdxLoadOp_v.template f<0>(
             val_coo_offOp_v.template output<0>(),
             val_coo_idxOp_v.template output<0>(),
             l + 2
         );
         __pipeline_commit();
-        // op_call |buf_idx=2| 2 G2sSparseCooValLoadOp 
-        G2sSparseCooValLoadOp_v.template f<2>(
+        // op_call |buf_idx=0| 2 G2sSparseCooValLoadOp 
+        G2sSparseCooValLoadOp_v.template f<0>(
             val_coo_offOp_v.template output<0>(),
             val_coo_valOp_v.template output<0>(),
             l + 2
@@ -1952,51 +1480,13 @@ public:
             G2sSparseCooIdxLoadOp_v.template output<0, 1>()(0)
         );
         __pipeline_commit();
-        // stage 0..2
-        // op_call |buf_idx=0| 3 G2sSparseIndexLoadOp 
-        G2sSparseIndexLoadOp_v.template f<0>(
-            val_sidxOp_v.template output<0>(),
-            l + 3
-        );
-        __pipeline_commit();
-        // op_call |buf_idx=0| 3 G2sSparseCooIdxLoadOp 
-        G2sSparseCooIdxLoadOp_v.template f<0>(
-            val_coo_offOp_v.template output<0>(),
-            val_coo_idxOp_v.template output<0>(),
-            l + 3
-        );
-        __pipeline_commit();
-        // op_call |buf_idx=0| 3 G2sSparseCooValLoadOp 
-        G2sSparseCooValLoadOp_v.template f<0>(
-            val_coo_offOp_v.template output<0>(),
-            val_coo_valOp_v.template output<0>(),
-            l + 3
-        );
-        __pipeline_commit();
-        __pipeline_wait_prior(7);
-        __syncthreads();
-        // op_call |buf_idx=2| 2 G2sMatrixBLoadOp 
-        G2sMatrixBLoadOp_v.template f<2>(
-            B_valOp_v.template output<0>(),
-            G2sSparseIndexLoadOp_v.template output<0, 2>()
-        );
-        __pipeline_commit();
-        __pipeline_wait_prior(6);
-        __syncthreads();
-        // op_call |buf_idx=2| 2 S2sRestoreMatrixAOp 
-        S2sRestoreMatrixAOp_v.template f<2>(
-            G2sSparseCooIdxLoadOp_v.template output<1, 2>(),
-            G2sSparseCooValLoadOp_v.template output<0, 2>(),
-            G2sSparseCooIdxLoadOp_v.template output<0, 2>()(0)
-        );
-        __pipeline_commit();
-        __pipeline_wait_prior(10);
+        __pipeline_wait_prior(5);
         __syncthreads();
         // op_call |buf_idx=0| 0 S2rAValLoadOp 
         S2rAValLoadOp_v.template f<0>(
             S2sRestoreMatrixAOp_v.template output<0, 0>()
         );
-        __pipeline_wait_prior(11);
+        __pipeline_wait_prior(6);
         __syncthreads();
         // op_call |buf_idx=0| 0 S2rBValLoadOp 
         S2rBValLoadOp_v.template f<0>(
@@ -2007,29 +1497,34 @@ public:
             S2rAValLoadOp_v.template output<0, 0>(),
             S2rBValLoadOp_v.template output<0, 0>()
         );
-        // op_call |buf_idx=1| 4 G2sSparseIndexLoadOp 
+    }
+    
+    // loop_step
+    CUTE_DEVICE void loop_step(int i, int l, int r) {
+        // step 0
+        // op_call |buf_idx=1| i + (0) G2sSparseIndexLoadOp 
         G2sSparseIndexLoadOp_v.template f<1>(
             val_sidxOp_v.template output<0>(),
-            l + 4
+            l + i + (0)
         );
         __pipeline_commit();
-        // op_call |buf_idx=1| 4 G2sSparseCooIdxLoadOp 
+        // op_call |buf_idx=1| i + (0) G2sSparseCooIdxLoadOp 
         G2sSparseCooIdxLoadOp_v.template f<1>(
             val_coo_offOp_v.template output<0>(),
             val_coo_idxOp_v.template output<0>(),
-            l + 4
+            l + i + (0)
         );
         __pipeline_commit();
-        // op_call |buf_idx=1| 4 G2sSparseCooValLoadOp 
+        // op_call |buf_idx=1| i + (0) G2sSparseCooValLoadOp 
         G2sSparseCooValLoadOp_v.template f<1>(
             val_coo_offOp_v.template output<0>(),
             val_coo_valOp_v.template output<0>(),
-            l + 4
+            l + i + (0)
         );
         __pipeline_commit();
         __pipeline_wait_prior(7);
         __syncthreads();
-        // op_call |buf_idx=0| 3 G2sMatrixBLoadOp 
+        // op_call |buf_idx=0| i + (-1) G2sMatrixBLoadOp 
         G2sMatrixBLoadOp_v.template f<0>(
             B_valOp_v.template output<0>(),
             G2sSparseIndexLoadOp_v.template output<0, 0>()
@@ -2037,88 +1532,29 @@ public:
         __pipeline_commit();
         __pipeline_wait_prior(6);
         __syncthreads();
-        // op_call |buf_idx=0| 3 S2sRestoreMatrixAOp 
+        // op_call |buf_idx=0| i + (-1) S2sRestoreMatrixAOp 
         S2sRestoreMatrixAOp_v.template f<0>(
             G2sSparseCooIdxLoadOp_v.template output<1, 0>(),
             G2sSparseCooValLoadOp_v.template output<0, 0>(),
             G2sSparseCooIdxLoadOp_v.template output<0, 0>()(0)
         );
         __pipeline_commit();
-        __pipeline_wait_prior(10);
+        __pipeline_wait_prior(5);
         __syncthreads();
-        // op_call |buf_idx=1| 1 S2rAValLoadOp 
+        // op_call |buf_idx=1| i + (-2) S2rAValLoadOp 
         S2rAValLoadOp_v.template f<1>(
             S2sRestoreMatrixAOp_v.template output<0, 1>()
         );
-        __pipeline_wait_prior(11);
+        __pipeline_wait_prior(6);
         __syncthreads();
-        // op_call |buf_idx=1| 1 S2rBValLoadOp 
+        // op_call |buf_idx=1| i + (-2) S2rBValLoadOp 
         S2rBValLoadOp_v.template f<1>(
             G2sMatrixBLoadOp_v.template output<0, 1>()
         );
-        // op_call |buf_idx=1| 1 CalculateOp 
+        // op_call |buf_idx=1| i + (-2) CalculateOp 
         CalculateOp_v.template f<1>(
             S2rAValLoadOp_v.template output<0, 1>(),
             S2rBValLoadOp_v.template output<0, 1>()
-        );
-    }
-    
-    // loop_step
-    CUTE_DEVICE void loop_step(int i, int l, int r) {
-        // step 0
-        // op_call |buf_idx=2| i + (0) G2sSparseIndexLoadOp 
-        G2sSparseIndexLoadOp_v.template f<2>(
-            val_sidxOp_v.template output<0>(),
-            l + i + (0)
-        );
-        __pipeline_commit();
-        // op_call |buf_idx=2| i + (0) G2sSparseCooIdxLoadOp 
-        G2sSparseCooIdxLoadOp_v.template f<2>(
-            val_coo_offOp_v.template output<0>(),
-            val_coo_idxOp_v.template output<0>(),
-            l + i + (0)
-        );
-        __pipeline_commit();
-        // op_call |buf_idx=2| i + (0) G2sSparseCooValLoadOp 
-        G2sSparseCooValLoadOp_v.template f<2>(
-            val_coo_offOp_v.template output<0>(),
-            val_coo_valOp_v.template output<0>(),
-            l + i + (0)
-        );
-        __pipeline_commit();
-        __pipeline_wait_prior(7);
-        __syncthreads();
-        // op_call |buf_idx=1| i + (-1) G2sMatrixBLoadOp 
-        G2sMatrixBLoadOp_v.template f<1>(
-            B_valOp_v.template output<0>(),
-            G2sSparseIndexLoadOp_v.template output<0, 1>()
-        );
-        __pipeline_commit();
-        __pipeline_wait_prior(6);
-        __syncthreads();
-        // op_call |buf_idx=1| i + (-1) S2sRestoreMatrixAOp 
-        S2sRestoreMatrixAOp_v.template f<1>(
-            G2sSparseCooIdxLoadOp_v.template output<1, 1>(),
-            G2sSparseCooValLoadOp_v.template output<0, 1>(),
-            G2sSparseCooIdxLoadOp_v.template output<0, 1>()(0)
-        );
-        __pipeline_commit();
-        __pipeline_wait_prior(10);
-        __syncthreads();
-        // op_call |buf_idx=2| i + (-3) S2rAValLoadOp 
-        S2rAValLoadOp_v.template f<2>(
-            S2sRestoreMatrixAOp_v.template output<0, 2>()
-        );
-        __pipeline_wait_prior(11);
-        __syncthreads();
-        // op_call |buf_idx=2| i + (-3) S2rBValLoadOp 
-        S2rBValLoadOp_v.template f<2>(
-            G2sMatrixBLoadOp_v.template output<0, 2>()
-        );
-        // op_call |buf_idx=2| i + (-3) CalculateOp 
-        CalculateOp_v.template f<2>(
-            S2rAValLoadOp_v.template output<0, 2>(),
-            S2rBValLoadOp_v.template output<0, 2>()
         );
         // step 1
         // op_call |buf_idx=0| i + (1) G2sSparseIndexLoadOp 
@@ -2143,62 +1579,66 @@ public:
         __pipeline_commit();
         __pipeline_wait_prior(7);
         __syncthreads();
-        // op_call |buf_idx=2| i + (0) G2sMatrixBLoadOp 
-        G2sMatrixBLoadOp_v.template f<2>(
+        // op_call |buf_idx=1| i + (0) G2sMatrixBLoadOp 
+        G2sMatrixBLoadOp_v.template f<1>(
             B_valOp_v.template output<0>(),
-            G2sSparseIndexLoadOp_v.template output<0, 2>()
+            G2sSparseIndexLoadOp_v.template output<0, 1>()
         );
         __pipeline_commit();
         __pipeline_wait_prior(6);
         __syncthreads();
-        // op_call |buf_idx=2| i + (0) S2sRestoreMatrixAOp 
-        S2sRestoreMatrixAOp_v.template f<2>(
-            G2sSparseCooIdxLoadOp_v.template output<1, 2>(),
-            G2sSparseCooValLoadOp_v.template output<0, 2>(),
-            G2sSparseCooIdxLoadOp_v.template output<0, 2>()(0)
+        // op_call |buf_idx=1| i + (0) S2sRestoreMatrixAOp 
+        S2sRestoreMatrixAOp_v.template f<1>(
+            G2sSparseCooIdxLoadOp_v.template output<1, 1>(),
+            G2sSparseCooValLoadOp_v.template output<0, 1>(),
+            G2sSparseCooIdxLoadOp_v.template output<0, 1>()(0)
         );
         __pipeline_commit();
-        __pipeline_wait_prior(10);
+        __pipeline_wait_prior(5);
         __syncthreads();
-        // op_call |buf_idx=0| i + (-2) S2rAValLoadOp 
+        // op_call |buf_idx=0| i + (-1) S2rAValLoadOp 
         S2rAValLoadOp_v.template f<0>(
             S2sRestoreMatrixAOp_v.template output<0, 0>()
         );
-        __pipeline_wait_prior(11);
+        __pipeline_wait_prior(6);
         __syncthreads();
-        // op_call |buf_idx=0| i + (-2) S2rBValLoadOp 
+        // op_call |buf_idx=0| i + (-1) S2rBValLoadOp 
         S2rBValLoadOp_v.template f<0>(
             G2sMatrixBLoadOp_v.template output<0, 0>()
         );
-        // op_call |buf_idx=0| i + (-2) CalculateOp 
+        // op_call |buf_idx=0| i + (-1) CalculateOp 
         CalculateOp_v.template f<0>(
             S2rAValLoadOp_v.template output<0, 0>(),
             S2rBValLoadOp_v.template output<0, 0>()
         );
-        // step 2
-        // op_call |buf_idx=1| i + (2) G2sSparseIndexLoadOp 
+    }
+    
+    // remainder
+    CUTE_DEVICE void remains_1(int i, int l, int r) {
+        // total remains 1, current 0
+        // op_call |buf_idx=1| i + (0) G2sSparseIndexLoadOp 
         G2sSparseIndexLoadOp_v.template f<1>(
             val_sidxOp_v.template output<0>(),
-            l + i + (2)
+            l + i + (0)
         );
         __pipeline_commit();
-        // op_call |buf_idx=1| i + (2) G2sSparseCooIdxLoadOp 
+        // op_call |buf_idx=1| i + (0) G2sSparseCooIdxLoadOp 
         G2sSparseCooIdxLoadOp_v.template f<1>(
             val_coo_offOp_v.template output<0>(),
             val_coo_idxOp_v.template output<0>(),
-            l + i + (2)
+            l + i + (0)
         );
         __pipeline_commit();
-        // op_call |buf_idx=1| i + (2) G2sSparseCooValLoadOp 
+        // op_call |buf_idx=1| i + (0) G2sSparseCooValLoadOp 
         G2sSparseCooValLoadOp_v.template f<1>(
             val_coo_offOp_v.template output<0>(),
             val_coo_valOp_v.template output<0>(),
-            l + i + (2)
+            l + i + (0)
         );
         __pipeline_commit();
         __pipeline_wait_prior(7);
         __syncthreads();
-        // op_call |buf_idx=0| i + (1) G2sMatrixBLoadOp 
+        // op_call |buf_idx=0| i + (-1) G2sMatrixBLoadOp 
         G2sMatrixBLoadOp_v.template f<0>(
             B_valOp_v.template output<0>(),
             G2sSparseIndexLoadOp_v.template output<0, 0>()
@@ -2206,210 +1646,35 @@ public:
         __pipeline_commit();
         __pipeline_wait_prior(6);
         __syncthreads();
-        // op_call |buf_idx=0| i + (1) S2sRestoreMatrixAOp 
+        // op_call |buf_idx=0| i + (-1) S2sRestoreMatrixAOp 
         S2sRestoreMatrixAOp_v.template f<0>(
             G2sSparseCooIdxLoadOp_v.template output<1, 0>(),
             G2sSparseCooValLoadOp_v.template output<0, 0>(),
             G2sSparseCooIdxLoadOp_v.template output<0, 0>()(0)
         );
         __pipeline_commit();
-        __pipeline_wait_prior(10);
+        __pipeline_wait_prior(5);
         __syncthreads();
-        // op_call |buf_idx=1| i + (-1) S2rAValLoadOp 
+        // op_call |buf_idx=1| i + (-2) S2rAValLoadOp 
         S2rAValLoadOp_v.template f<1>(
             S2sRestoreMatrixAOp_v.template output<0, 1>()
         );
-        __pipeline_wait_prior(11);
+        __pipeline_wait_prior(6);
         __syncthreads();
-        // op_call |buf_idx=1| i + (-1) S2rBValLoadOp 
+        // op_call |buf_idx=1| i + (-2) S2rBValLoadOp 
         S2rBValLoadOp_v.template f<1>(
             G2sMatrixBLoadOp_v.template output<0, 1>()
         );
-        // op_call |buf_idx=1| i + (-1) CalculateOp 
+        // op_call |buf_idx=1| i + (-2) CalculateOp 
         CalculateOp_v.template f<1>(
             S2rAValLoadOp_v.template output<0, 1>(),
             S2rBValLoadOp_v.template output<0, 1>()
         );
     }
     
-    // remainder
-    CUTE_DEVICE void remains_1(int i, int l, int r) {
-        // total remains 1, current 0
-        // op_call |buf_idx=2| i + (0) G2sSparseIndexLoadOp 
-        G2sSparseIndexLoadOp_v.template f<2>(
-            val_sidxOp_v.template output<0>(),
-            l + i + (0)
-        );
-        __pipeline_commit();
-        // op_call |buf_idx=2| i + (0) G2sSparseCooIdxLoadOp 
-        G2sSparseCooIdxLoadOp_v.template f<2>(
-            val_coo_offOp_v.template output<0>(),
-            val_coo_idxOp_v.template output<0>(),
-            l + i + (0)
-        );
-        __pipeline_commit();
-        // op_call |buf_idx=2| i + (0) G2sSparseCooValLoadOp 
-        G2sSparseCooValLoadOp_v.template f<2>(
-            val_coo_offOp_v.template output<0>(),
-            val_coo_valOp_v.template output<0>(),
-            l + i + (0)
-        );
-        __pipeline_commit();
-        __pipeline_wait_prior(7);
-        __syncthreads();
-        // op_call |buf_idx=1| i + (-1) G2sMatrixBLoadOp 
-        G2sMatrixBLoadOp_v.template f<1>(
-            B_valOp_v.template output<0>(),
-            G2sSparseIndexLoadOp_v.template output<0, 1>()
-        );
-        __pipeline_commit();
-        __pipeline_wait_prior(6);
-        __syncthreads();
-        // op_call |buf_idx=1| i + (-1) S2sRestoreMatrixAOp 
-        S2sRestoreMatrixAOp_v.template f<1>(
-            G2sSparseCooIdxLoadOp_v.template output<1, 1>(),
-            G2sSparseCooValLoadOp_v.template output<0, 1>(),
-            G2sSparseCooIdxLoadOp_v.template output<0, 1>()(0)
-        );
-        __pipeline_commit();
-        __pipeline_wait_prior(10);
-        __syncthreads();
-        // op_call |buf_idx=2| i + (-3) S2rAValLoadOp 
-        S2rAValLoadOp_v.template f<2>(
-            S2sRestoreMatrixAOp_v.template output<0, 2>()
-        );
-        __pipeline_wait_prior(11);
-        __syncthreads();
-        // op_call |buf_idx=2| i + (-3) S2rBValLoadOp 
-        S2rBValLoadOp_v.template f<2>(
-            G2sMatrixBLoadOp_v.template output<0, 2>()
-        );
-        // op_call |buf_idx=2| i + (-3) CalculateOp 
-        CalculateOp_v.template f<2>(
-            S2rAValLoadOp_v.template output<0, 2>(),
-            S2rBValLoadOp_v.template output<0, 2>()
-        );
-    }
-    
-    CUTE_DEVICE void remains_2(int i, int l, int r) {
-        // total remains 2, current 0
-        // op_call |buf_idx=2| i + (0) G2sSparseIndexLoadOp 
-        G2sSparseIndexLoadOp_v.template f<2>(
-            val_sidxOp_v.template output<0>(),
-            l + i + (0)
-        );
-        __pipeline_commit();
-        // op_call |buf_idx=2| i + (0) G2sSparseCooIdxLoadOp 
-        G2sSparseCooIdxLoadOp_v.template f<2>(
-            val_coo_offOp_v.template output<0>(),
-            val_coo_idxOp_v.template output<0>(),
-            l + i + (0)
-        );
-        __pipeline_commit();
-        // op_call |buf_idx=2| i + (0) G2sSparseCooValLoadOp 
-        G2sSparseCooValLoadOp_v.template f<2>(
-            val_coo_offOp_v.template output<0>(),
-            val_coo_valOp_v.template output<0>(),
-            l + i + (0)
-        );
-        __pipeline_commit();
-        __pipeline_wait_prior(7);
-        __syncthreads();
-        // op_call |buf_idx=1| i + (-1) G2sMatrixBLoadOp 
-        G2sMatrixBLoadOp_v.template f<1>(
-            B_valOp_v.template output<0>(),
-            G2sSparseIndexLoadOp_v.template output<0, 1>()
-        );
-        __pipeline_commit();
-        __pipeline_wait_prior(6);
-        __syncthreads();
-        // op_call |buf_idx=1| i + (-1) S2sRestoreMatrixAOp 
-        S2sRestoreMatrixAOp_v.template f<1>(
-            G2sSparseCooIdxLoadOp_v.template output<1, 1>(),
-            G2sSparseCooValLoadOp_v.template output<0, 1>(),
-            G2sSparseCooIdxLoadOp_v.template output<0, 1>()(0)
-        );
-        __pipeline_commit();
-        __pipeline_wait_prior(10);
-        __syncthreads();
-        // op_call |buf_idx=2| i + (-3) S2rAValLoadOp 
-        S2rAValLoadOp_v.template f<2>(
-            S2sRestoreMatrixAOp_v.template output<0, 2>()
-        );
-        __pipeline_wait_prior(11);
-        __syncthreads();
-        // op_call |buf_idx=2| i + (-3) S2rBValLoadOp 
-        S2rBValLoadOp_v.template f<2>(
-            G2sMatrixBLoadOp_v.template output<0, 2>()
-        );
-        // op_call |buf_idx=2| i + (-3) CalculateOp 
-        CalculateOp_v.template f<2>(
-            S2rAValLoadOp_v.template output<0, 2>(),
-            S2rBValLoadOp_v.template output<0, 2>()
-        );
-        // total remains 2, current 1
-        // op_call |buf_idx=0| i + (1) G2sSparseIndexLoadOp 
-        G2sSparseIndexLoadOp_v.template f<0>(
-            val_sidxOp_v.template output<0>(),
-            l + i + (1)
-        );
-        __pipeline_commit();
-        // op_call |buf_idx=0| i + (1) G2sSparseCooIdxLoadOp 
-        G2sSparseCooIdxLoadOp_v.template f<0>(
-            val_coo_offOp_v.template output<0>(),
-            val_coo_idxOp_v.template output<0>(),
-            l + i + (1)
-        );
-        __pipeline_commit();
-        // op_call |buf_idx=0| i + (1) G2sSparseCooValLoadOp 
-        G2sSparseCooValLoadOp_v.template f<0>(
-            val_coo_offOp_v.template output<0>(),
-            val_coo_valOp_v.template output<0>(),
-            l + i + (1)
-        );
-        __pipeline_commit();
-        __pipeline_wait_prior(7);
-        __syncthreads();
-        // op_call |buf_idx=2| i + (0) G2sMatrixBLoadOp 
-        G2sMatrixBLoadOp_v.template f<2>(
-            B_valOp_v.template output<0>(),
-            G2sSparseIndexLoadOp_v.template output<0, 2>()
-        );
-        __pipeline_commit();
-        __pipeline_wait_prior(6);
-        __syncthreads();
-        // op_call |buf_idx=2| i + (0) S2sRestoreMatrixAOp 
-        S2sRestoreMatrixAOp_v.template f<2>(
-            G2sSparseCooIdxLoadOp_v.template output<1, 2>(),
-            G2sSparseCooValLoadOp_v.template output<0, 2>(),
-            G2sSparseCooIdxLoadOp_v.template output<0, 2>()(0)
-        );
-        __pipeline_commit();
-        __pipeline_wait_prior(10);
-        __syncthreads();
-        // op_call |buf_idx=0| i + (-2) S2rAValLoadOp 
-        S2rAValLoadOp_v.template f<0>(
-            S2sRestoreMatrixAOp_v.template output<0, 0>()
-        );
-        __pipeline_wait_prior(11);
-        __syncthreads();
-        // op_call |buf_idx=0| i + (-2) S2rBValLoadOp 
-        S2rBValLoadOp_v.template f<0>(
-            G2sMatrixBLoadOp_v.template output<0, 0>()
-        );
-        // op_call |buf_idx=0| i + (-2) CalculateOp 
-        CalculateOp_v.template f<0>(
-            S2rAValLoadOp_v.template output<0, 0>(),
-            S2rBValLoadOp_v.template output<0, 0>()
-        );
-    }
-    
     CUTE_DEVICE void remainder(int i, int l, int r) {
         if (r - l - i == 1) {
             remains_1(i, l, r);
-        }
-        else if (r - l - i == 2) {
-            remains_2(i, l, r);
         }
     }
     
@@ -2418,153 +1683,7 @@ public:
         // stage 1..2
         __pipeline_wait_prior(4);
         __syncthreads();
-        // op_call |buf_idx=1| i + (-1) G2sMatrixBLoadOp 
-        G2sMatrixBLoadOp_v.template f<1>(
-            B_valOp_v.template output<0>(),
-            G2sSparseIndexLoadOp_v.template output<0, 1>()
-        );
-        __pipeline_commit();
-        __pipeline_wait_prior(3);
-        __syncthreads();
-        // op_call |buf_idx=1| i + (-1) S2sRestoreMatrixAOp 
-        S2sRestoreMatrixAOp_v.template f<1>(
-            G2sSparseCooIdxLoadOp_v.template output<1, 1>(),
-            G2sSparseCooValLoadOp_v.template output<0, 1>(),
-            G2sSparseCooIdxLoadOp_v.template output<0, 1>()(0)
-        );
-        __pipeline_commit();
-        __pipeline_wait_prior(7);
-        __syncthreads();
-        // op_call |buf_idx=2| i + (-3) S2rAValLoadOp 
-        S2rAValLoadOp_v.template f<2>(
-            S2sRestoreMatrixAOp_v.template output<0, 2>()
-        );
-        __pipeline_wait_prior(8);
-        __syncthreads();
-        // op_call |buf_idx=2| i + (-3) S2rBValLoadOp 
-        S2rBValLoadOp_v.template f<2>(
-            G2sMatrixBLoadOp_v.template output<0, 2>()
-        );
-        // op_call |buf_idx=2| i + (-3) CalculateOp 
-        CalculateOp_v.template f<2>(
-            S2rAValLoadOp_v.template output<0, 2>(),
-            S2rBValLoadOp_v.template output<0, 2>()
-        );
-        // stage 2..2
-        __pipeline_wait_prior(2);
-        __syncthreads();
-        // op_call |buf_idx=0| i + (-2) S2rAValLoadOp 
-        S2rAValLoadOp_v.template f<0>(
-            S2sRestoreMatrixAOp_v.template output<0, 0>()
-        );
-        __pipeline_wait_prior(3);
-        __syncthreads();
-        // op_call |buf_idx=0| i + (-2) S2rBValLoadOp 
-        S2rBValLoadOp_v.template f<0>(
-            G2sMatrixBLoadOp_v.template output<0, 0>()
-        );
-        // op_call |buf_idx=0| i + (-2) CalculateOp 
-        CalculateOp_v.template f<0>(
-            S2rAValLoadOp_v.template output<0, 0>(),
-            S2rBValLoadOp_v.template output<0, 0>()
-        );
-        __pipeline_wait_prior(0);
-        __syncthreads();
-        // op_call |buf_idx=1| i + (-1) S2rAValLoadOp 
-        S2rAValLoadOp_v.template f<1>(
-            S2sRestoreMatrixAOp_v.template output<0, 1>()
-        );
-        __pipeline_wait_prior(1);
-        __syncthreads();
-        // op_call |buf_idx=1| i + (-1) S2rBValLoadOp 
-        S2rBValLoadOp_v.template f<1>(
-            G2sMatrixBLoadOp_v.template output<0, 1>()
-        );
-        // op_call |buf_idx=1| i + (-1) CalculateOp 
-        CalculateOp_v.template f<1>(
-            S2rAValLoadOp_v.template output<0, 1>(),
-            S2rBValLoadOp_v.template output<0, 1>()
-        );
-    }
-    
-    CUTE_DEVICE void empty_after_remain_1(int i, int l, int r) {
-        // stage 1..2
-        __pipeline_wait_prior(4);
-        __syncthreads();
-        // op_call |buf_idx=2| i + (0) G2sMatrixBLoadOp 
-        G2sMatrixBLoadOp_v.template f<2>(
-            B_valOp_v.template output<0>(),
-            G2sSparseIndexLoadOp_v.template output<0, 2>()
-        );
-        __pipeline_commit();
-        __pipeline_wait_prior(3);
-        __syncthreads();
-        // op_call |buf_idx=2| i + (0) S2sRestoreMatrixAOp 
-        S2sRestoreMatrixAOp_v.template f<2>(
-            G2sSparseCooIdxLoadOp_v.template output<1, 2>(),
-            G2sSparseCooValLoadOp_v.template output<0, 2>(),
-            G2sSparseCooIdxLoadOp_v.template output<0, 2>()(0)
-        );
-        __pipeline_commit();
-        __pipeline_wait_prior(7);
-        __syncthreads();
-        // op_call |buf_idx=0| i + (-2) S2rAValLoadOp 
-        S2rAValLoadOp_v.template f<0>(
-            S2sRestoreMatrixAOp_v.template output<0, 0>()
-        );
-        __pipeline_wait_prior(8);
-        __syncthreads();
-        // op_call |buf_idx=0| i + (-2) S2rBValLoadOp 
-        S2rBValLoadOp_v.template f<0>(
-            G2sMatrixBLoadOp_v.template output<0, 0>()
-        );
-        // op_call |buf_idx=0| i + (-2) CalculateOp 
-        CalculateOp_v.template f<0>(
-            S2rAValLoadOp_v.template output<0, 0>(),
-            S2rBValLoadOp_v.template output<0, 0>()
-        );
-        // stage 2..2
-        __pipeline_wait_prior(2);
-        __syncthreads();
-        // op_call |buf_idx=1| i + (-1) S2rAValLoadOp 
-        S2rAValLoadOp_v.template f<1>(
-            S2sRestoreMatrixAOp_v.template output<0, 1>()
-        );
-        __pipeline_wait_prior(3);
-        __syncthreads();
-        // op_call |buf_idx=1| i + (-1) S2rBValLoadOp 
-        S2rBValLoadOp_v.template f<1>(
-            G2sMatrixBLoadOp_v.template output<0, 1>()
-        );
-        // op_call |buf_idx=1| i + (-1) CalculateOp 
-        CalculateOp_v.template f<1>(
-            S2rAValLoadOp_v.template output<0, 1>(),
-            S2rBValLoadOp_v.template output<0, 1>()
-        );
-        __pipeline_wait_prior(0);
-        __syncthreads();
-        // op_call |buf_idx=2| i + (0) S2rAValLoadOp 
-        S2rAValLoadOp_v.template f<2>(
-            S2sRestoreMatrixAOp_v.template output<0, 2>()
-        );
-        __pipeline_wait_prior(1);
-        __syncthreads();
-        // op_call |buf_idx=2| i + (0) S2rBValLoadOp 
-        S2rBValLoadOp_v.template f<2>(
-            G2sMatrixBLoadOp_v.template output<0, 2>()
-        );
-        // op_call |buf_idx=2| i + (0) CalculateOp 
-        CalculateOp_v.template f<2>(
-            S2rAValLoadOp_v.template output<0, 2>(),
-            S2rBValLoadOp_v.template output<0, 2>()
-        );
-    }
-    
-    CUTE_DEVICE void empty_after_remain_2(int i, int l, int r) {
-        // stage 1..2
-        __pipeline_wait_prior(4);
-        __syncthreads();
-        // op_call |buf_idx=0| i + (1) G2sMatrixBLoadOp 
+        // op_call |buf_idx=0| i + (-1) G2sMatrixBLoadOp 
         G2sMatrixBLoadOp_v.template f<0>(
             B_valOp_v.template output<0>(),
             G2sSparseIndexLoadOp_v.template output<0, 0>()
@@ -2572,64 +1691,103 @@ public:
         __pipeline_commit();
         __pipeline_wait_prior(3);
         __syncthreads();
-        // op_call |buf_idx=0| i + (1) S2sRestoreMatrixAOp 
+        // op_call |buf_idx=0| i + (-1) S2sRestoreMatrixAOp 
         S2sRestoreMatrixAOp_v.template f<0>(
             G2sSparseCooIdxLoadOp_v.template output<1, 0>(),
             G2sSparseCooValLoadOp_v.template output<0, 0>(),
             G2sSparseCooIdxLoadOp_v.template output<0, 0>()(0)
         );
         __pipeline_commit();
-        __pipeline_wait_prior(7);
+        __pipeline_wait_prior(2);
         __syncthreads();
-        // op_call |buf_idx=1| i + (-1) S2rAValLoadOp 
+        // op_call |buf_idx=1| i + (-2) S2rAValLoadOp 
         S2rAValLoadOp_v.template f<1>(
             S2sRestoreMatrixAOp_v.template output<0, 1>()
         );
-        __pipeline_wait_prior(8);
+        __pipeline_wait_prior(3);
         __syncthreads();
-        // op_call |buf_idx=1| i + (-1) S2rBValLoadOp 
+        // op_call |buf_idx=1| i + (-2) S2rBValLoadOp 
         S2rBValLoadOp_v.template f<1>(
             G2sMatrixBLoadOp_v.template output<0, 1>()
         );
-        // op_call |buf_idx=1| i + (-1) CalculateOp 
+        // op_call |buf_idx=1| i + (-2) CalculateOp 
         CalculateOp_v.template f<1>(
             S2rAValLoadOp_v.template output<0, 1>(),
             S2rBValLoadOp_v.template output<0, 1>()
         );
         // stage 2..2
-        __pipeline_wait_prior(2);
-        __syncthreads();
-        // op_call |buf_idx=2| i + (0) S2rAValLoadOp 
-        S2rAValLoadOp_v.template f<2>(
-            S2sRestoreMatrixAOp_v.template output<0, 2>()
-        );
-        __pipeline_wait_prior(3);
-        __syncthreads();
-        // op_call |buf_idx=2| i + (0) S2rBValLoadOp 
-        S2rBValLoadOp_v.template f<2>(
-            G2sMatrixBLoadOp_v.template output<0, 2>()
-        );
-        // op_call |buf_idx=2| i + (0) CalculateOp 
-        CalculateOp_v.template f<2>(
-            S2rAValLoadOp_v.template output<0, 2>(),
-            S2rBValLoadOp_v.template output<0, 2>()
-        );
         __pipeline_wait_prior(0);
         __syncthreads();
-        // op_call |buf_idx=0| i + (1) S2rAValLoadOp 
+        // op_call |buf_idx=0| i + (-1) S2rAValLoadOp 
         S2rAValLoadOp_v.template f<0>(
             S2sRestoreMatrixAOp_v.template output<0, 0>()
         );
         __pipeline_wait_prior(1);
         __syncthreads();
-        // op_call |buf_idx=0| i + (1) S2rBValLoadOp 
+        // op_call |buf_idx=0| i + (-1) S2rBValLoadOp 
         S2rBValLoadOp_v.template f<0>(
             G2sMatrixBLoadOp_v.template output<0, 0>()
         );
-        // op_call |buf_idx=0| i + (1) CalculateOp 
+        // op_call |buf_idx=0| i + (-1) CalculateOp 
         CalculateOp_v.template f<0>(
             S2rAValLoadOp_v.template output<0, 0>(),
             S2rBValLoadOp_v.template output<0, 0>()
+        );
+    }
+    
+    CUTE_DEVICE void empty_after_remain_1(int i, int l, int r) {
+        // stage 1..2
+        __pipeline_wait_prior(4);
+        __syncthreads();
+        // op_call |buf_idx=1| i + (0) G2sMatrixBLoadOp 
+        G2sMatrixBLoadOp_v.template f<1>(
+            B_valOp_v.template output<0>(),
+            G2sSparseIndexLoadOp_v.template output<0, 1>()
+        );
+        __pipeline_commit();
+        __pipeline_wait_prior(3);
+        __syncthreads();
+        // op_call |buf_idx=1| i + (0) S2sRestoreMatrixAOp 
+        S2sRestoreMatrixAOp_v.template f<1>(
+            G2sSparseCooIdxLoadOp_v.template output<1, 1>(),
+            G2sSparseCooValLoadOp_v.template output<0, 1>(),
+            G2sSparseCooIdxLoadOp_v.template output<0, 1>()(0)
+        );
+        __pipeline_commit();
+        __pipeline_wait_prior(2);
+        __syncthreads();
+        // op_call |buf_idx=0| i + (-1) S2rAValLoadOp 
+        S2rAValLoadOp_v.template f<0>(
+            S2sRestoreMatrixAOp_v.template output<0, 0>()
+        );
+        __pipeline_wait_prior(3);
+        __syncthreads();
+        // op_call |buf_idx=0| i + (-1) S2rBValLoadOp 
+        S2rBValLoadOp_v.template f<0>(
+            G2sMatrixBLoadOp_v.template output<0, 0>()
+        );
+        // op_call |buf_idx=0| i + (-1) CalculateOp 
+        CalculateOp_v.template f<0>(
+            S2rAValLoadOp_v.template output<0, 0>(),
+            S2rBValLoadOp_v.template output<0, 0>()
+        );
+        // stage 2..2
+        __pipeline_wait_prior(0);
+        __syncthreads();
+        // op_call |buf_idx=1| i + (0) S2rAValLoadOp 
+        S2rAValLoadOp_v.template f<1>(
+            S2sRestoreMatrixAOp_v.template output<0, 1>()
+        );
+        __pipeline_wait_prior(1);
+        __syncthreads();
+        // op_call |buf_idx=1| i + (0) S2rBValLoadOp 
+        S2rBValLoadOp_v.template f<1>(
+            G2sMatrixBLoadOp_v.template output<0, 1>()
+        );
+        // op_call |buf_idx=1| i + (0) CalculateOp 
+        CalculateOp_v.template f<1>(
+            S2rAValLoadOp_v.template output<0, 1>(),
+            S2rBValLoadOp_v.template output<0, 1>()
         );
     }
     
@@ -2640,9 +1798,6 @@ public:
         else if (r - l - i == 1) {
             empty_after_remain_1(i, l, r);
         }
-        else if (r - l - i == 2) {
-            empty_after_remain_2(i, l, r);
-        }
     }
     
     // dispatch
@@ -2650,12 +1805,12 @@ public:
         int l = this->_l;
         int r = this->_r;
         int k = r - l;
-        if (k <= 5) {
+        if (k <= 3) {
             short_pipe(k, l, r);
         } else {
             fill(l, r);
             int i;
-            for (i = 5; i + 3 <= k; i += 3) {
+            for (i = 3; i + 2 <= k; i += 2) {
                 loop_step(i, l, r);
             }
             remainder(i, l, r);
@@ -2878,7 +2033,7 @@ __global__ void dtc_spmm_kernel_fp32_val_idx_bind_stage2(
     using ZerosOp_layout_o0 = typename ZerosOp_t::Layout_o0;
     float ZerosOp_tensor_o0[cosize_v<ZerosOp_layout_o0>];
     ZerosOp_t ZerosOp_v{tid, lid, wid, ZerosOp_tensor_o0};
-    using G2sSparseIndexLoadOp_t = G2sSparseIndexLoadOp<Int<3>, BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK>;
+    using G2sSparseIndexLoadOp_t = G2sSparseIndexLoadOp<Int<2>, BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK>;
     using G2sSparseIndexLoadOp_layout_o0 = typename G2sSparseIndexLoadOp_t::Layout_o0;
     __shared__ int G2sSparseIndexLoadOp_tensor_o0[cosize_v<G2sSparseIndexLoadOp_layout_o0>];
     G2sSparseIndexLoadOp_t G2sSparseIndexLoadOp_v{
@@ -2886,7 +2041,7 @@ __global__ void dtc_spmm_kernel_fp32_val_idx_bind_stage2(
         G2sSparseIndexLoadOp_tensor_o0, 
         nnz_block,
     };
-    using G2sSparseCooIdxLoadOp_t = G2sSparseCooIdxLoadOp<Int<3>, BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK>;
+    using G2sSparseCooIdxLoadOp_t = G2sSparseCooIdxLoadOp<Int<2>, BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK>;
     using G2sSparseCooIdxLoadOp_layout_o1 = typename G2sSparseCooIdxLoadOp_t::Layout_o1;
     __shared__ int G2sSparseCooIdxLoadOp_tensor_o1[cosize_v<G2sSparseCooIdxLoadOp_layout_o1>];
     using G2sSparseCooIdxLoadOp_layout_o0 = typename G2sSparseCooIdxLoadOp_t::Layout_o0;
@@ -2896,7 +2051,7 @@ __global__ void dtc_spmm_kernel_fp32_val_idx_bind_stage2(
         G2sSparseCooIdxLoadOp_tensor_o0, G2sSparseCooIdxLoadOp_tensor_o1, 
         nnz_block, nnz,
     };
-    using G2sSparseCooValLoadOp_t = G2sSparseCooValLoadOp<Int<3>, BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK>;
+    using G2sSparseCooValLoadOp_t = G2sSparseCooValLoadOp<Int<2>, BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK>;
     using G2sSparseCooValLoadOp_layout_o0 = typename G2sSparseCooValLoadOp_t::Layout_o0;
     __shared__ float G2sSparseCooValLoadOp_tensor_o0[cosize_v<G2sSparseCooValLoadOp_layout_o0>];
     G2sSparseCooValLoadOp_t G2sSparseCooValLoadOp_v{
@@ -2904,7 +2059,7 @@ __global__ void dtc_spmm_kernel_fp32_val_idx_bind_stage2(
         G2sSparseCooValLoadOp_tensor_o0, 
         nnz_block, nnz,
     };
-    using G2sMatrixBLoadOp_t = G2sMatrixBLoadOp<Int<3>, BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK>;
+    using G2sMatrixBLoadOp_t = G2sMatrixBLoadOp<Int<2>, BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK>;
     using G2sMatrixBLoadOp_layout_o0 = typename G2sMatrixBLoadOp_t::Layout_o0;
     __shared__ float G2sMatrixBLoadOp_tensor_o0[cosize_v<G2sMatrixBLoadOp_layout_o0>];
     G2sMatrixBLoadOp_t G2sMatrixBLoadOp_v{
@@ -2912,28 +2067,28 @@ __global__ void dtc_spmm_kernel_fp32_val_idx_bind_stage2(
         G2sMatrixBLoadOp_tensor_o0, 
         K, N,
     };
-    using S2sRestoreMatrixAOp_t = S2sRestoreMatrixAOp<Int<3>, BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK>;
+    using S2sRestoreMatrixAOp_t = S2sRestoreMatrixAOp<Int<2>, BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK>;
     using S2sRestoreMatrixAOp_layout_o0 = typename S2sRestoreMatrixAOp_t::Layout_o0;
     __shared__ float S2sRestoreMatrixAOp_tensor_o0[cosize_v<S2sRestoreMatrixAOp_layout_o0>];
     S2sRestoreMatrixAOp_t S2sRestoreMatrixAOp_v{
         tid, lid, wid, 
         S2sRestoreMatrixAOp_tensor_o0,
     };
-    using S2rAValLoadOp_t = S2rAValLoadOp<Int<3>, BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK>;
+    using S2rAValLoadOp_t = S2rAValLoadOp<Int<2>, BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK>;
     using S2rAValLoadOp_layout_o0 = typename S2rAValLoadOp_t::Layout_o0;
     float S2rAValLoadOp_tensor_o0[cosize_v<S2rAValLoadOp_layout_o0>];
     S2rAValLoadOp_t S2rAValLoadOp_v{
         tid, lid, wid, 
         S2rAValLoadOp_tensor_o0,
     };
-    using S2rBValLoadOp_t = S2rBValLoadOp<Int<3>, BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK>;
+    using S2rBValLoadOp_t = S2rBValLoadOp<Int<2>, BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK>;
     using S2rBValLoadOp_layout_o0 = typename S2rBValLoadOp_t::Layout_o0;
     float S2rBValLoadOp_tensor_o0[cosize_v<S2rBValLoadOp_layout_o0>];
     S2rBValLoadOp_t S2rBValLoadOp_v{
         tid, lid, wid, 
         S2rBValLoadOp_tensor_o0,
     };
-    using CalculateOp_t = CalculateOp<Int<3>, BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK, std::decay_t<decltype(ZerosOp_v.template output<0>())>>;
+    using CalculateOp_t = CalculateOp<Int<2>, BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK, std::decay_t<decltype(ZerosOp_v.template output<0>())>>;
     CalculateOp_t CalculateOp_v{
         tid, lid, wid, 
         ZerosOp_v.template output<0>(),

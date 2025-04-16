@@ -26,7 +26,7 @@ using namespace cute;
 using namespace std;
 
 #define ROW_WINDOW_M 16
-#define TC_BLOCK_K 8
+#define TC_BLOCK_K 16
 #define TC_BLOCK_M 16
 
 //! mma.sync.aligned.m16n8k8.row.col.f32.tf32.tf32.f32
@@ -42,9 +42,8 @@ void ncu_test(int threadblock_num_x,
               int nnz,
               int* dval_sidx,
               int* dval_soff,
-              float* dB_val,
-              float* dval_coo_val,
-              int* dval_coo_idx,
+              half* dB_val,
+              uint32_t* dval_coo_val_idx_bind,
               int* dval_coo_off,
               float* dC) {
     dim3 grid(threadblock_num_x, threadblock_num_y);
@@ -52,10 +51,10 @@ void ncu_test(int threadblock_num_x,
 
     constexpr auto blk_mnk = make_shape(Int<TC_BLOCK_M>{}, Int<TILE_B>{}, Int<TC_BLOCK_K>{});
     using BLK_MNK = decltype(blk_mnk);
-    constexpr auto mma_mnk = make_shape(_16{}, _8{}, _8{});
+    constexpr auto mma_mnk = make_shape(_16{}, _8{}, _16{});
     using MMA_MNK = decltype(mma_mnk);
     constexpr auto blk_mma_mnk =
-      make_shape(Int<TC_BLOCK_M / 16>{}, Int<TILE_B / 8>{}, Int<TC_BLOCK_K / 8>{});
+      make_shape(Int<TC_BLOCK_M / 16>{}, Int<TILE_B / 8>{}, Int<TC_BLOCK_K / 16>{});
     using BLK_MMA_MNK = decltype(blk_mma_mnk);
     constexpr auto warp_mnk = make_shape(_1{}, _1{}, _1{});
     using WARP_MNK = decltype(warp_mnk);
@@ -64,10 +63,10 @@ void ncu_test(int threadblock_num_x,
     using tile_coo_val_size = Int<TC_BLOCK_M * TC_BLOCK_K>;
     using tile_coo_val_size_no_pad = Int<TC_BLOCK_M * TC_BLOCK_K>;
 
-    dtc_spmm_kernel_fp32_val_idx_bind_stage2<BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK,
+    dtc_spmm_kernel_fp16_val_idx_bind<BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK,
                                              tile_coo_val_size, tile_coo_val_size_no_pad,
                                              tile_sidx_size>
-      <<<grid, block>>>(dB_val, dC, dval_coo_idx, dval_coo_off, dval_coo_val, dval_sidx, dval_soff,
+      <<<grid, block>>>(dB_val, dC, dval_coo_off, dval_coo_val_idx_bind, dval_sidx, dval_soff,
                         K, M, Mo, N, nnz, nnz_block);
 }
 
@@ -83,9 +82,8 @@ void repeat_test(int threadblock_num_x,
                  int nnz,
                  int* dval_sidx,
                  int* dval_soff,
-                 float* dB_val,
-                 float* dval_coo_val,
-                 int* dval_coo_idx,
+                 half* dB_val,
+                 uint32_t* dval_coo_val_idx_bind,
                  int* dval_coo_off,
                  float* dC,
                  int warmup_time,
@@ -95,10 +93,10 @@ void repeat_test(int threadblock_num_x,
 
     constexpr auto blk_mnk = make_shape(Int<TC_BLOCK_M>{}, Int<TILE_B>{}, Int<TC_BLOCK_K>{});
     using BLK_MNK = decltype(blk_mnk);
-    constexpr auto mma_mnk = make_shape(_16{}, _8{}, _8{});
+    constexpr auto mma_mnk = make_shape(_16{}, _8{}, _16{});
     using MMA_MNK = decltype(mma_mnk);
     constexpr auto blk_mma_mnk =
-      make_shape(Int<TC_BLOCK_M / 16>{}, Int<TILE_B / 8>{}, Int<TC_BLOCK_K / 8>{});
+      make_shape(Int<TC_BLOCK_M / 16>{}, Int<TILE_B / 8>{}, Int<TC_BLOCK_K / 16>{});
     using BLK_MMA_MNK = decltype(blk_mma_mnk);
     constexpr auto warp_mnk = make_shape(_1{}, _1{}, _1{});
     using WARP_MNK = decltype(warp_mnk);
@@ -110,19 +108,19 @@ void repeat_test(int threadblock_num_x,
     struct timeval t1, t2;
     {
         for (int i = 0; i < warmup_time; i++) {
-            dtc_spmm_kernel_fp32_val_idx_bind_stage2<BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK,
+            dtc_spmm_kernel_fp16_val_idx_bind<BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK,
                                                      tile_coo_val_size, tile_coo_val_size_no_pad,
                                                      tile_sidx_size>
-              <<<grid, block>>>(dB_val, dC, dval_coo_idx, dval_coo_off, dval_coo_val, dval_sidx,
+              <<<grid, block>>>(dB_val, dC, dval_coo_off, dval_coo_val_idx_bind, dval_sidx,
                                 dval_soff, K, M, Mo, N, nnz, nnz_block);
         }
         CHECK_CUDA2(cudaDeviceSynchronize());
         gettimeofday(&t1, NULL);
         for (int i = 0; i < execute_time; i++) {
-            dtc_spmm_kernel_fp32_val_idx_bind_stage2<BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK,
+            dtc_spmm_kernel_fp16_val_idx_bind<BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK,
                                                      tile_coo_val_size, tile_coo_val_size_no_pad,
                                                      tile_sidx_size>
-              <<<grid, block>>>(dB_val, dC, dval_coo_idx, dval_coo_off, dval_coo_val, dval_sidx,
+              <<<grid, block>>>(dB_val, dC, dval_coo_off, dval_coo_val_idx_bind, dval_sidx,
                                 dval_soff, K, M, Mo, N, nnz, nnz_block);
         }
         CHECK_CUDA2(cudaDeviceSynchronize());
@@ -142,9 +140,8 @@ void dtc_spmm_test_val_sidx_bind_reorder(int M,
                                          int nnz,
                                          int* val_sidx,
                                          int* val_soff,
-                                         float* B_val,
-                                         int* val_coo_idx,
-                                         float* val_coo_val,
+                                         half* B_val,
+                                         uint32_t* val_coo_val_idx_bind,
                                          int* val_coo_off,
                                          float* C,
                                          bool is_ncu_test,
@@ -152,9 +149,8 @@ void dtc_spmm_test_val_sidx_bind_reorder(int M,
                                          int execute_time) {
     int* dval_sidx;
     int* dval_soff;
-    float* dB_val;
-    int* dval_coo_idx;
-    float* dval_coo_val;
+    half* dB_val;
+    uint32_t* dval_coo_val_idx_bind;
     int* dval_coo_off;
     float* dC;
 
@@ -165,12 +161,10 @@ void dtc_spmm_test_val_sidx_bind_reorder(int M,
     CHECK_CUDA2(cudaMalloc(&dval_sidx, sizeof(int) * TCBlock_num * TC_BLOCK_K));
 
     CHECK_CUDA2(cudaMalloc(&dval_soff, sizeof(int) * (row_window_num + 1)));
-    CHECK_CUDA2(cudaMalloc(&dB_val, sizeof(float) * K * N));
+    CHECK_CUDA2(cudaMalloc(&dB_val, sizeof(half) * K * N));
     //! coo
-    CHECK_CUDA2(cudaMalloc(&dval_coo_idx, (nnz + 8 - 1) / 8 * 8 * sizeof(int)));
-    CHECK_CUDA2(cudaMemset(dval_coo_idx, 0, (nnz + 8 - 1) / 8 * 8 * sizeof(int)));
-    CHECK_CUDA2(cudaMalloc(&dval_coo_val, (nnz + 8 - 1) / 8 * 8 * sizeof(float)));
-    CHECK_CUDA2(cudaMemset(dval_coo_val, 0, (nnz + 8 - 1) / 8 * 8 * sizeof(float)));
+    CHECK_CUDA2(cudaMalloc(&dval_coo_val_idx_bind, (nnz + 8 - 1) / 8 * 8 * sizeof(uint32_t)));
+    CHECK_CUDA2(cudaMemset(dval_coo_val_idx_bind, 0, (nnz + 8 - 1) / 8 * 8 * sizeof(uint32_t)));
     CHECK_CUDA2(cudaMalloc(&dval_coo_off, sizeof(int) * (2 * TCBlock_num + 1)));
     CHECK_CUDA2(cudaMalloc(&dC, sizeof(float) * (row_window_num * ROW_WINDOW_M) *
                                   N)); // C is row major (alloc more copy some)
@@ -178,10 +172,10 @@ void dtc_spmm_test_val_sidx_bind_reorder(int M,
                            cudaMemcpyHostToDevice));
     CHECK_CUDA2(
       cudaMemcpy(dval_soff, val_soff, sizeof(int) * (row_window_num + 1), cudaMemcpyHostToDevice));
-    CHECK_CUDA2(cudaMemcpy(dB_val, B_val, sizeof(float) * K * N, cudaMemcpyHostToDevice));
+    CHECK_CUDA2(cudaMemcpy(dB_val, B_val, sizeof(half) * K * N, cudaMemcpyHostToDevice));
     //! coo
-    CHECK_CUDA2(cudaMemcpy(dval_coo_idx, val_coo_idx, sizeof(int) * nnz, cudaMemcpyHostToDevice));
-    CHECK_CUDA2(cudaMemcpy(dval_coo_val, val_coo_val, sizeof(float) * nnz, cudaMemcpyHostToDevice));
+    CHECK_CUDA2(cudaMemcpy(dval_coo_val_idx_bind, val_coo_val_idx_bind, sizeof(uint32_t) * nnz,
+                           cudaMemcpyHostToDevice));
     CHECK_CUDA2(cudaMemcpy(dval_coo_off, val_coo_off, sizeof(int) * (2 * TCBlock_num + 1),
                            cudaMemcpyHostToDevice));
     CHECK_CUDA2(cudaMemset(dC, 0, sizeof(float) * (row_window_num * ROW_WINDOW_M) * N));
@@ -196,15 +190,15 @@ void dtc_spmm_test_val_sidx_bind_reorder(int M,
 
     if (!is_ncu_test) {
         repeat_test<TILE_B>(threadblock_num_x, threadblock_num_y, thread_num, M, N, K, Mo,
-                            nnz_block, nnz_aligned, dval_sidx, dval_soff, dB_val, dval_coo_val,
-                            dval_coo_idx, dval_coo_off, dC, warmup_time, execute_time);
+                            nnz_block, nnz_aligned, dval_sidx, dval_soff, dB_val, dval_coo_val_idx_bind,
+                            dval_coo_off, dC, warmup_time, execute_time);
     }
 
     // repeat test would cause C_val to accumulate results, so we need to reset it
     CHECK_CUDA2(cudaMemset(dC, 0, sizeof(float) * (row_window_num * ROW_WINDOW_M) * N));
     ncu_test<TILE_B>(threadblock_num_x, threadblock_num_y, thread_num, M, N, K, Mo, nnz_block,
-                     nnz_aligned, dval_sidx, dval_soff, dB_val, dval_coo_val, dval_coo_idx,
-                     dval_coo_off, dC);
+                     nnz_aligned, dval_sidx, dval_soff, dB_val, dval_coo_val_idx_bind, dval_coo_off,
+                     dC);
 
     CHECK_CUDA2(cudaDeviceSynchronize());
     CHECK_CUDA2(cudaGetLastError());
@@ -218,9 +212,8 @@ template void dtc_spmm_test_val_sidx_bind_reorder<64>(int M,
                                                       int nnz,
                                                       int* val_sidx,
                                                       int* val_soff,
-                                                      float* B_val,
-                                                      int* val_coo_idx,
-                                                      float* val_coo_val,
+                                                      half* B_val,
+                                                      uint32_t* val_coo_val_idx_bind,
                                                       int* val_coo_off,
                                                       float* C,
                                                       bool is_ncu_test,
