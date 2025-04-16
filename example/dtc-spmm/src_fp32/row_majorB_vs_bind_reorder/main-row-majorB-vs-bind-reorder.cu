@@ -13,7 +13,10 @@
 #include "common.h"
 #include "utils.h"
 
+#include <cute/tensor.hpp>
+
 using namespace std;
+using namespace cute;
 
 #define OFFSET_ROW(row, col, lda) ((row) * (lda) + (col))
 #define OFFSET_COL(row, col, lda) ((col) * (lda) + (row))
@@ -159,6 +162,7 @@ void convertToMETCF(
     }
     val_coo_off[2 * total_TCBlock_num] = cur_pos;
 
+    auto swizzle_layout = composition(Swizzle<1, 2, 3>{}, make_layout(make_shape(ROW_WINDOW_M, TC_BLOCK_K), make_stride(TC_BLOCK_K, 1)));
     int* tc_block_nnz_ptr = (int*)malloc(sizeof(int) * (K + TC_BLOCK_K - 1) / TC_BLOCK_K);
     for (int i_row_window = 0; i_row_window < row_window_num; i_row_window++) {
         int TC_block_offset = val_soff[i_row_window];
@@ -198,9 +202,15 @@ void convertToMETCF(
                 int condensed_pos = binarySearch(nnz_col, col_start_pos, nnz_col_num - 1, col);
                 col_start_pos = condensed_pos + 1;
                 int tc_block_id = condensed_pos / TC_BLOCK_K;
-                int coo_idx = i_row * TC_BLOCK_K + (condensed_pos % TC_BLOCK_K);
                 val_coo_val[tc_block_nnz_ptr[tc_block_id]] = value;
-                val_coo_idx[tc_block_nnz_ptr[tc_block_id]] = coo_idx;
+                //! origin idx
+                // int coo_idx = i_row * TC_BLOCK_K + (condensed_pos % TC_BLOCK_K);
+                // val_coo_idx[tc_block_nnz_ptr[tc_block_id]] = coo_idx;
+                //! manual swizzle
+                auto coord = make_coord(i_row, condensed_pos % TC_BLOCK_K);
+                auto swizzled_idx = swizzle_layout(coord);
+                val_coo_idx[tc_block_nnz_ptr[tc_block_id]] = swizzled_idx;
+                //! end
                 tc_block_nnz_ptr[tc_block_id]++;
             }
         }
