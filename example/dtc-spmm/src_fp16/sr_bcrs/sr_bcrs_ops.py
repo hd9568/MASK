@@ -342,7 +342,7 @@ if (lid < get<2>(BLK_MNK{}) / 4) {
                     mem="smem",
                     dtype="half",
                     row_major=True,
-                    swizzle=SwizzleLayout(b=1, m=3, s=3),
+                    swizzle=SwizzleLayout(b=2, m=3, s=3),
                 ),
             ),
         ],
@@ -355,10 +355,14 @@ for (int iter_i = lid; iter_i < get<0>(BLK_MNK{}) * get<2>(BLK_MNK{}) / load_til
     auto thr_tiler_gmem = make_shape(_1{}, _8{});
     auto thr_coord_gmem = make_coord(row, col);
     auto A_val_thr = local_tile(val_block_val(_, _, i), thr_tiler_gmem, thr_coord_gmem);
-    auto thr_tiler_smem = make_shape(_1{}, _8{});
-    auto thr_coord_smem = make_coord(row, col);
-    auto dst = local_tile(tileA_block(_, _, buf_idx), thr_tiler_smem, thr_coord_smem);
-    copy(Copy_Atom<SM80_CP_ASYNC_CACHEGLOBAL<cute::uint128_t>, half>{}, A_val_thr(0, _), dst(0, _));
+    //! without manual swizzle
+    // auto thr_tiler_smem = make_shape(_1{}, _8{});
+    // auto thr_coord_smem = make_coord(row, col);
+    // auto dst = local_tile(tileA_block(_, _, buf_idx), thr_tiler_smem, thr_coord_smem);
+    // copy(Copy_Atom<SM80_CP_ASYNC_CACHEGLOBAL<cute::uint128_t>, half>{}, A_val_thr(0, _), dst(0, _));
+    //! manual swizzle
+    half* dst = tileA_block(_, _, buf_idx).data().get() + iter_i * 8;
+    __pipeline_memcpy_async((float4*)dst, (float4*)(A_val_thr(0, _).data().get()), sizeof(float4));
 }
 {//! debug
     // if (thread0()) {

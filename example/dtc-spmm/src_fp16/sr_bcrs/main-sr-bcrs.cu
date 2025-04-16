@@ -13,7 +13,10 @@
 #include "common.h"
 #include "utils.h"
 
+#include <cute/tensor.hpp>
+
 using namespace std;
+using namespace cute;
 
 #define OFFSET_ROW(row, col, lda) ((row) * (lda) + (col))
 #define OFFSET_COL(row, col, lda) ((col) * (lda) + (row))
@@ -215,6 +218,7 @@ void convertToSRBCRS(
     half* val_block_val = (half*)malloc(sizeof(half) * total_TCBlock_num * TILE_M * TILE_K);
     memset(val_block_val, 0, sizeof(half) * total_TCBlock_num * TILE_M * TILE_K);
 
+    auto swizzle_layout = composition(Swizzle<2, 3, 3>{}, make_layout(make_shape(TILE_M, TILE_K), make_stride(TILE_K, 1)));
     for (int i_row_window = 0; i_row_window < row_window_num; i_row_window++) {
         int TC_block_offset = val_soff[i_row_window];
         int* tmp_val_sidx = val_sidx + TC_block_offset * TILE_K;
@@ -249,7 +253,16 @@ void convertToSRBCRS(
                 float value = (float)csrValA[j];
                 int condensed_pos = binarySearch(nnz_col, col_start_pos, nnz_col_num - 1, col);
                 col_start_pos = condensed_pos + 1;
-                tmp_val_block_val[(condensed_pos / TILE_K) * TILE_M * TILE_K + OFFSET_ROW(i_row, condensed_pos % TILE_K, TILE_K)] = (half)value;
+                //! without manual swizzle
+                // tmp_val_block_val[
+                //     (condensed_pos / TILE_K) * TILE_M * TILE_K + 
+                //     OFFSET_ROW(i_row, condensed_pos % TILE_K, TILE_K)] = (half)value;
+                //! manual swizzle
+                auto coord = make_coord(i_row, condensed_pos % TILE_K);
+                auto idx = swizzle_layout(coord);
+                tmp_val_block_val[
+                    (condensed_pos / TILE_K) * TILE_M * TILE_K + 
+                    idx] = (half)value;
             }
         }
         //! debug
