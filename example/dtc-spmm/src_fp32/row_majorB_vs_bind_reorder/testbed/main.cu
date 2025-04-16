@@ -1,14 +1,14 @@
-#include <stdlib.h>
-#include <stdio.h>
-#include <math.h>
-#include <string.h>
-#include <time.h>
-#include <cuda_runtime_api.h>
+#include <bits/stdc++.h>
 #include <cuda.h>
 #include <cuda_fp16.h>
-#include <bits/stdc++.h>
-#include <sys/stat.h>
+#include <cuda_runtime_api.h>
 #include <cusparse.h>
+#include <math.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/stat.h>
+#include <time.h>
 
 #include "common.h"
 #include "utils.h"
@@ -26,63 +26,80 @@ using namespace cute;
 #define TC_BLOCK_M 16
 
 template <int TILE_B>
-extern void dtc_spmm_test_val_sidx_bind_reorder(
-    int M, int N, int K,
-    int TCBlock_num,
-    int nnz, 
-    int* val_sidx,
-    int* val_soff,
-    float* B_val,
-    int* val_coo_idx,
-    float* val_coo_val, 
-    int* val_coo_off,
-    float* C
-);
+extern void dtc_spmm_test_val_sidx_bind_reorder(int M,
+                                                int N,
+                                                int K,
+                                                int TCBlock_num,
+                                                int nnz,
+                                                int* val_sidx,
+                                                int* val_soff,
+                                                float* B_val,
+                                                int* val_coo_idx,
+                                                float* val_coo_val,
+                                                int* val_coo_off,
+                                                float* C,
+                                                bool is_ncu_test,
+                                                int warmup_time,
+                                                int execute_time);
 
-extern template void dtc_spmm_test_val_sidx_bind_reorder<64>(
-    int M, int N, int K,
-    int TCBlock_num, 
-    int nnz,
-    int* val_sidx,
-    int* val_soff,
-    float* B_val,
-    int* val_coo_idx,
-    float* val_coo_val,
-    int* val_coo_off,
-    float* C
-);
+extern template void dtc_spmm_test_val_sidx_bind_reorder<64>(int M,
+                                                             int N,
+                                                             int K,
+                                                             int TCBlock_num,
+                                                             int nnz,
+                                                             int* val_sidx,
+                                                             int* val_soff,
+                                                             float* B_val,
+                                                             int* val_coo_idx,
+                                                             float* val_coo_val,
+                                                             int* val_coo_off,
+                                                             float* C,
+                                                             bool is_ncu_test,
+                                                             int warmup_time,
+                                                             int execute_time);
 
 int binarySearch(int* arr, int l, int r, int target) {
     while (l <= r) {
         int mid = l + (r - l) / 2;
-        if (arr[mid] == target) return mid;
-        if (arr[mid] < target) l = mid + 1;
-        else r = mid - 1;
+        if (arr[mid] == target)
+            return mid;
+        if (arr[mid] < target)
+            l = mid + 1;
+        else
+            r = mid - 1;
     }
     return -1; // 未找到
 }
 
 void initVector(float* vec, int length, float sparsity) {
-    if (sparsity < 0.0f || sparsity > 1.0f) return; 
+    if (sparsity < 0.0f || sparsity > 1.0f)
+        return;
     auto seed = std::time(nullptr);
-    std::srand(1234); 
+    std::srand(1234);
     cout << seed << endl;
     // std::srand(1);
     for (int i = 0; i < length; ++i) {
         if (static_cast<float>(rand()) / RAND_MAX < sparsity) {
-            vec[i] = float(0.0f); 
+            vec[i] = float(0.0f);
         } else {
-            // vec[i] = half(static_cast<float>(rand()) / RAND_MAX * 2.0f - 1.0f); 
+            // vec[i] = half(static_cast<float>(rand()) / RAND_MAX * 2.0f - 1.0f);
             vec[i] = float(rand() % 5 + 1);
         }
     }
 }
 
-void convertToMETCF(
-    int M, int N, int K, 
-    int nnz, int* csrPtrA, int* csrColIdxA, float* csrValA,
-    float* B, float* C
-) {
+void convertToMETCF(int M,
+                    int N,
+                    int K,
+                    int nnz,
+                    int* csrPtrA,
+                    int* csrColIdxA,
+                    float* csrValA,
+                    float* B,
+                    float* C,
+                    bool is_ncu_test,
+                    int warmup_time,
+                    int execute_time) {
     // convert to ME-TCF
     int row_window_num = (M + ROW_WINDOW_M - 1) / ROW_WINDOW_M;
     int* val_soff = (int*)malloc(sizeof(int) * (row_window_num + 1));
@@ -97,7 +114,8 @@ void convertToMETCF(
         vector<int>& nnz_per_tc_block = vec_nnz_per_tc_block[i_row_window];
         for (int i_row = 0; i_row < ROW_WINDOW_M; i_row++) {
             int row = i_row_window * ROW_WINDOW_M + i_row;
-            if (row >= M) continue;
+            if (row >= M)
+                continue;
             for (int j = csrPtrA[row]; j < csrPtrA[row + 1]; j++) {
                 nnz_col[csrColIdxA[j]] = 1;
             }
@@ -115,7 +133,8 @@ void convertToMETCF(
         nnz_per_tc_block.resize(TCBlock_num, 0);
         for (int i_row = 0; i_row < ROW_WINDOW_M; i_row++) {
             int row = i_row_window * ROW_WINDOW_M + i_row;
-            if (row >= M) continue;
+            if (row >= M)
+                continue;
             for (int j = csrPtrA[row]; j < csrPtrA[row + 1]; j++) {
                 int col = csrColIdxA[j];
                 int condensed_col = binarySearch(nnz_col, 0, nnz_col_num - 1, col);
@@ -135,7 +154,8 @@ void convertToMETCF(
     //> val_sidx -> 每个 TC Block 中非零列对应的column index
     int* val_sidx = (int*)malloc(sizeof(int) * total_TCBlock_num * TC_BLOCK_K);
     memset(val_sidx, 0, sizeof(int) * total_TCBlock_num * TC_BLOCK_K);
-    //> val_coo_off -> TC Block 中非零元个数，每个block有两个范围（起始index，结束index），TC Block可能pad0
+    //> val_coo_off -> TC Block 中非零元个数，每个block有两个范围（起始index，结束index），TC
+    // Block可能pad0
     int* val_coo_off = (int*)malloc(sizeof(int) * (total_TCBlock_num * 2 + 1));
     memset(val_coo_off, 0, sizeof(int) * (total_TCBlock_num * 2 + 1));
 
@@ -162,7 +182,9 @@ void convertToMETCF(
     }
     val_coo_off[2 * total_TCBlock_num] = cur_pos;
 
-    auto swizzle_layout = composition(Swizzle<1, 2, 3>{}, make_layout(make_shape(ROW_WINDOW_M, TC_BLOCK_K), make_stride(TC_BLOCK_K, 1)));
+    auto swizzle_layout =
+      composition(Swizzle<1, 2, 3>{},
+                  make_layout(make_shape(ROW_WINDOW_M, TC_BLOCK_K), make_stride(TC_BLOCK_K, 1)));
     int* tc_block_nnz_ptr = (int*)malloc(sizeof(int) * (K + TC_BLOCK_K - 1) / TC_BLOCK_K);
     for (int i_row_window = 0; i_row_window < row_window_num; i_row_window++) {
         int TC_block_offset = val_soff[i_row_window];
@@ -171,7 +193,8 @@ void convertToMETCF(
         vector<int>& nnz_per_tc_block = vec_nnz_per_tc_block[i_row_window];
         for (int i_row = 0; i_row < ROW_WINDOW_M; i_row++) {
             int row = i_row_window * ROW_WINDOW_M + i_row;
-            if (row >= M) continue;
+            if (row >= M)
+                continue;
             for (int j = csrPtrA[row]; j < csrPtrA[row + 1]; j++) {
                 nnz_col[csrColIdxA[j]] = 1;
             }
@@ -195,7 +218,8 @@ void convertToMETCF(
         for (int i_row = 0; i_row < ROW_WINDOW_M; i_row++) {
             int row = i_row_window * ROW_WINDOW_M + i_row;
             int col_start_pos = 0;
-            if (row >= M) continue;
+            if (row >= M)
+                continue;
             for (int j = csrPtrA[row]; j < csrPtrA[row + 1]; j++) {
                 int col = csrColIdxA[j];
                 float value = (float)csrValA[j];
@@ -216,17 +240,19 @@ void convertToMETCF(
         }
     }
 
-    {//! check sidx
-        // printf("check sparse AtoB array: ");
-        // for (int i = 0; i < total_TCBlock_num * TC_BLOCK_K; i++) {
-        //     printf("%d ", val_sidx[i]);
-        // } printf("\n");
+    { //! check sidx
+      // printf("check sparse AtoB array: ");
+      // for (int i = 0; i < total_TCBlock_num * TC_BLOCK_K; i++) {
+      //     printf("%d ", val_sidx[i]);
+      // } printf("\n");
     }
 
     // TODO: need to change according to swizzle
     //! reorder
 
-    dtc_spmm_test_val_sidx_bind_reorder<64>(M, N, K, total_TCBlock_num, nnz_pad, val_sidx, val_soff, B, val_coo_idx, val_coo_val, val_coo_off, C);
+    dtc_spmm_test_val_sidx_bind_reorder<64>(M, N, K, total_TCBlock_num, nnz_pad, val_sidx, val_soff,
+                                            B, val_coo_idx, val_coo_val, val_coo_off, C,
+                                            is_ncu_test, warmup_time, execute_time);
 }
 
 void verify_new(float* C_cpu, float* C_cuda, int M, int N) {
@@ -235,25 +261,31 @@ void verify_new(float* C_cpu, float* C_cuda, int M, int N) {
             float cusparse_val = C_cpu[OFFSET_ROW(i, j, N)];
             float mykernel_val = C_cuda[OFFSET_ROW(i, j, N)];
             if (fabs(cusparse_val - mykernel_val) > 0.01) {
-                printf("Error(%d, %d): cusp(%.1f) mykernel(%.1f)\n", i, j, cusparse_val, mykernel_val);
+                printf("Error(%d, %d): cusp(%.1f) mykernel(%.1f)\n", i, j, cusparse_val,
+                       mykernel_val);
             }
         }
     }
 }
 
-void cusparse_spmm_all(
-    float* cu_ValA, int* cu_RowPtrA, int* cu_ColIdxA,
-    float* cu_B, float* cu_C, int M, int N, int K, int nnz
-) {
+void cusparse_spmm_all(float* cu_ValA,
+                       int* cu_RowPtrA,
+                       int* cu_ColIdxA,
+                       float* cu_B,
+                       float* cu_C,
+                       int M,
+                       int N,
+                       int K,
+                       int nnz) {
     int A_num_rows = M;
     int A_num_cols = K;
     int B_num_rows = K;
     int B_num_cols = N;
-    int ldb = B_num_cols;   // B: row first
+    int ldb = B_num_cols; // B: row first
     int B_size = B_num_rows * ldb;
     int C_num_rows = M;
     int C_num_cols = N;
-    int ldc = C_num_cols;            // C: row first
+    int ldc = C_num_cols; // C: row first
     int C_size = C_num_rows * ldc;
     float alpha = 1.0f;
     float beta = 0.0f;
@@ -283,51 +315,45 @@ void cusparse_spmm_all(
     size_t bufferSize = 0;
     CHECK_CUSPARSE(cusparseCreate(&handle));
     // Create sparse matrix A in CSR format
-    CHECK_CUSPARSE(cusparseCreateCsr(&matA, A_num_rows, A_num_cols, nnz, 
-                                    dA_rpt, dA_cid, dA_val, 
-                                    CUSPARSE_INDEX_32I, CUSPARSE_INDEX_32I, CUSPARSE_INDEX_BASE_ZERO, CUDA_R_32F));
-    CHECK_CUSPARSE(cusparseCreateDnMat(&matB, B_num_rows, B_num_cols, ldb, dB,
-                                    CUDA_R_32F, CUSPARSE_ORDER_ROW))
-    CHECK_CUSPARSE(cusparseCreateDnMat(&matC, C_num_rows, C_num_cols, ldc, dC,
-                                    CUDA_R_32F, CUSPARSE_ORDER_ROW));
+    CHECK_CUSPARSE(cusparseCreateCsr(&matA, A_num_rows, A_num_cols, nnz, dA_rpt, dA_cid, dA_val,
+                                     CUSPARSE_INDEX_32I, CUSPARSE_INDEX_32I,
+                                     CUSPARSE_INDEX_BASE_ZERO, CUDA_R_32F));
+    CHECK_CUSPARSE(
+      cusparseCreateDnMat(&matB, B_num_rows, B_num_cols, ldb, dB, CUDA_R_32F, CUSPARSE_ORDER_ROW))
+    CHECK_CUSPARSE(
+      cusparseCreateDnMat(&matC, C_num_rows, C_num_cols, ldc, dC, CUDA_R_32F, CUSPARSE_ORDER_ROW));
     // allocate an external buffer if needed
-    CHECK_CUSPARSE(cusparseSpMM_bufferSize(handle,
-        CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_OPERATION_NON_TRANSPOSE,
-        &alpha, matA, matB, &beta, matC, CUDA_R_32F,
-        CUSPARSE_SPMM_ALG_DEFAULT, &bufferSize));
+    CHECK_CUSPARSE(cusparseSpMM_bufferSize(
+      handle, CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_OPERATION_NON_TRANSPOSE, &alpha, matA,
+      matB, &beta, matC, CUDA_R_32F, CUSPARSE_SPMM_ALG_DEFAULT, &bufferSize));
     CHECK_CUDA(cudaMalloc(&dBuffer, bufferSize));
 
     // execute preprocess (optional)
-    CHECK_CUSPARSE( cusparseSpMM_preprocess(
-        handle,
-        CUSPARSE_OPERATION_NON_TRANSPOSE,
-        CUSPARSE_OPERATION_NON_TRANSPOSE,
-        &alpha, matA, matB, &beta, matC, CUDA_R_32F,
-        CUSPARSE_SPMM_ALG_DEFAULT, dBuffer) )
+    CHECK_CUSPARSE(cusparseSpMM_preprocess(
+      handle, CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_OPERATION_NON_TRANSPOSE, &alpha, matA,
+      matB, &beta, matC, CUDA_R_32F, CUSPARSE_SPMM_ALG_DEFAULT, dBuffer))
 
     // execute SpMM
-    CHECK_CUSPARSE( cusparseSpMM(handle,
-            CUSPARSE_OPERATION_NON_TRANSPOSE,
-            CUSPARSE_OPERATION_NON_TRANSPOSE,
-            &alpha, matA, matB, &beta, matC, CUDA_R_32F,
-            CUSPARSE_SPMM_ALG_DEFAULT, dBuffer) )
+    CHECK_CUSPARSE(cusparseSpMM(handle, CUSPARSE_OPERATION_NON_TRANSPOSE,
+                                CUSPARSE_OPERATION_NON_TRANSPOSE, &alpha, matA, matB, &beta, matC,
+                                CUDA_R_32F, CUSPARSE_SPMM_ALG_DEFAULT, dBuffer))
 
     CHECK_CUDA(cudaMemcpy(cu_C, dC, sizeof(float) * C_size, cudaMemcpyDeviceToHost));
 
     // destroy matrix/vector descriptors
-    CHECK_CUSPARSE( cusparseDestroySpMat(matA) )
-    CHECK_CUSPARSE( cusparseDestroyDnMat(matB) )
-    CHECK_CUSPARSE( cusparseDestroyDnMat(matC) )
-    CHECK_CUSPARSE( cusparseDestroy(handle) )
+    CHECK_CUSPARSE(cusparseDestroySpMat(matA))
+    CHECK_CUSPARSE(cusparseDestroyDnMat(matB))
+    CHECK_CUSPARSE(cusparseDestroyDnMat(matC))
+    CHECK_CUSPARSE(cusparseDestroy(handle))
 
     //--------------------------------------------------------------------------
     // device memory deallocation
-    CHECK_CUDA( cudaFree(dBuffer) )
-    CHECK_CUDA( cudaFree(dA_cid) )
-    CHECK_CUDA( cudaFree(dA_rpt) )
-    CHECK_CUDA( cudaFree(dA_val) )
-    CHECK_CUDA( cudaFree(dB) )
-    CHECK_CUDA( cudaFree(dC) )
+    CHECK_CUDA(cudaFree(dBuffer))
+    CHECK_CUDA(cudaFree(dA_cid))
+    CHECK_CUDA(cudaFree(dA_rpt))
+    CHECK_CUDA(cudaFree(dA_val))
+    CHECK_CUDA(cudaFree(dB))
+    CHECK_CUDA(cudaFree(dC))
     return;
 }
 
@@ -338,7 +364,12 @@ int main(int argc, char** argv) {
     int K = 1024;
     float sparsity = 0.9;
     int mtx_flag = 1;
-    parseInput(argc, argv, filename, "-filename", N, "-N", M, "-M", K, "-K", mtx_flag, "-mtx_flag", sparsity, "-sparsity");
+    int is_ncu_test = 0;
+    int warmup_time = 100;
+    int execute_time = 1000;
+    parseInput(argc, argv, filename, "-filename", N, "-N", M, "-M", K, "-K", mtx_flag, "-mtx_flag",
+               sparsity, "-sparsity", is_ncu_test, "-ncu", warmup_time, "-warmup", execute_time,
+               "-repeat");
 
     cout << "Filename: " << filename << endl;
     cout << "N: " << N << endl;
@@ -352,10 +383,11 @@ int main(int argc, char** argv) {
     float* A;
     //! input from file
     if (mtx_flag == 1) {
-        mmio_allinone(&rowA, &colA, &nnz, &isSymmetricA, &csrPtrA, &csrColIdxA, &csrValA, filename.c_str());
+        mmio_allinone(&rowA, &colA, &nnz, &isSymmetricA, &csrPtrA, &csrColIdxA, &csrValA,
+                      filename.c_str());
         M = rowA;
         K = colA;
-    } else {//! sparse matrix init
+    } else { //! sparse matrix init
         A = (float*)malloc(sizeof(float) * M * K);
         initVector(A, M * K, sparsity);
         //> convert to csr
@@ -394,72 +426,15 @@ int main(int argc, char** argv) {
     initVec(csrValA, nnz);
     initVector(B, K * N, 0);
 
-    {//! debug convert to dense
-        // float* restoreA = (float*)malloc(sizeof(float) * rowA * colA);
-        // memset(restoreA, 0, sizeof(float) * rowA * colA);
-        // for (int i_row = 0; i_row < rowA; i_row++) {
-        //     for (int j = csrPtrA[i_row]; j < csrPtrA[i_row + 1]; j++) {
-        //         int col = csrColIdxA[j];
-        //         float value = (float)csrValA[j];
-        //         restoreA[i_row * colA + col] = value;
-        //     }
-        // }
-
-        // for (int k_ptr = 0; k_ptr < colA / 8; k_ptr++) {
-        //     printf("host check tileA: i=%d\n", k_ptr);
-        //     for (int i = 0; i < 16; i++) {
-        //         for (int j = 0; j < 8; j++) {
-        //             printf("%.0f ", restoreA[OFFSET_ROW(i, k_ptr * 8 + j, colA)]);
-        //         } printf("\n");
-        //     }
-        // }
-    }
-
-    {//! debug tile B
-        // for (int k_ptr = 0; k_ptr < colA / 8; k_ptr++) {
-        //     printf("host check tile B: i = %d\n", k_ptr);
-        //     for (int i = 0; i < 8; i++) {
-        //         for (int j = 0; j < 8; j++) {
-        //             printf("%.0f ", B[OFFSET_ROW(i + k_ptr * 8, j, N)]);
-        //         } printf("\n");
-        //     }
-        // }
-    }
-    
     float* C_cuda = (float*)malloc(sizeof(float) * M * N);
-    convertToMETCF(M, N, K, nnz, csrPtrA, csrColIdxA, csrValA, B, C_cuda);
+    convertToMETCF(M, N, K, nnz, csrPtrA, csrColIdxA, csrValA, B, C_cuda, (bool)is_ncu_test,
+                   warmup_time, execute_time);
 
     // host check
     float* C_cpu = (float*)malloc(sizeof(float) * M * N);
     memset(C_cpu, 0, sizeof(float) * M * N);
     cusparse_spmm_all(csrValA, csrPtrA, csrColIdxA, B, C_cpu, M, N, K, nnz);
     verify_new(C_cpu, C_cuda, M, N);
-
-    {//! debug check cusparse
-        // float* restoreA = (float*)malloc(sizeof(float) * rowA * colA);
-        // memset(restoreA, 0, sizeof(float) * rowA * colA);
-        // for (int i_row = 0; i_row < rowA; i_row++) {
-        //     for (int j = csrPtrA[i_row]; j < csrPtrA[i_row + 1]; j++) {
-        //         int col = csrColIdxA[j];
-        //         float value = (float)csrValA[j];
-        //         restoreA[i_row * colA + col] = value;
-        //     }
-        // }
-        // float* c_hand = (float*)malloc(sizeof(float) * M * N);
-        // memset(c_hand, 0, sizeof(float) * M * N);
-        // for (int i = 0; i < M; i++) {
-        //     for (int j = 0; j < N; j++) {
-        //         for (int k = 0; k < K; k++) {
-        //             if (k % 8 == 0 && i == 0 && j == 0) {
-        //                 printf("k == %d, c_hand[0, 0] = %.0f\n", k, c_hand[OFFSET_ROW(i, j, N)]);   
-        //             }
-        //             c_hand[OFFSET_ROW(i, j, N)] += restoreA[OFFSET_ROW(i, k, K)] * B[OFFSET_ROW(k, j, N)];
-        //         }
-        //     }
-        // }
-        // printf("check hand\n");
-        // verify_new(C_cpu, c_hand, M, N);
-    }
 
     printf("check nan: cusp %.1f mykernel %.1f\n", C_cpu[0], C_cuda[0]);
     return 0;
