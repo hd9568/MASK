@@ -20,3 +20,4 @@ example/dtc-spmm/report/
 .vscode
 
 example/dtc-spmm/**/plan_exes
+example/bin

@@ -74,7 +74,7 @@ int main(int argc, char** argv) {
 
     //> write to file
     FILE* f = fopen(filename.c_str(), "w");
-    fprintf(f, "%%MatrixMarket matrix coordinate real general\n");
+    fprintf(f, "%%%%MatrixMarket matrix coordinate real general\n");
     fprintf(f, "%d %d %d\n", M, K, nnz);
     for (int i = 0; i < nnz; i++) {
         fprintf(f, "%d %d %.9f\n", rows[i], cols[i], vals[i]);
