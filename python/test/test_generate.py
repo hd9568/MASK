@@ -1,7 +1,7 @@
 import argparse
 
 from sparsene.op_gen.opir import printer
-from sparsene.formats.DTC_SpMM import DTC_SPMM_FORMAT
+from sparsene.formats.DTC_SpMM import ME_TCF_FORMAT
 from sparsene.transform.rts import derive_rts
 from sparsene.op_gen.computent.computent import computent_from_rts
 from sparsene.op_gen.opir.generate import generate_from_computent
@@ -21,8 +21,8 @@ if __name__ == "__main__":
 
     logger = get_logger("test")
 
-    rts = derive_rts(DTC_SPMM_FORMAT)
-    computent = computent_from_rts("dtc_spmm", rts)
+    rts = derive_rts(ME_TCF_FORMAT)
+    computent = computent_from_rts("me_tcf", rts)
     logger.info(rts)
     logger.info(computent)
 

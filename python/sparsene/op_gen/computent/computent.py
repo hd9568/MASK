@@ -1146,6 +1146,11 @@ def computent_from_rts(name: str, rts: TransformationSequence) -> Computent:
     schedule = deepcopy(DENSE_SCHEDULE)
     array_defs = deepcopy(DENSE_ARRAY_DEFS)
 
+    logger.debug("\n" + str(schedule))
+    logger.debug("\n" + str(array_defs))
+    logger.debug("\n" + str(root_format.child))
+    logger.debug("-" * 100)
+
     atomic_format_reached = False
     for transform in rts.sequence:
         assert (
@@ -1190,9 +1195,9 @@ def computent_from_rts(name: str, rts: TransformationSequence) -> Computent:
         else:
             raise ValueError(f"Unknown transformation: {transform}")
 
-        logger.debug(schedule)
-        logger.debug(array_defs)
-        logger.debug(root_format.child)
+        logger.debug("\n" + str(schedule))
+        logger.debug("\n" + str(array_defs))
+        logger.debug("\n" + str(root_format.child))
         logger.debug("-" * 100)
 
     assert isinstance(root_format.child, Format)
