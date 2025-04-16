@@ -18,11 +18,11 @@ using namespace std;
 #define OFFSET_ROW(row, col, lda) ((row) * (lda) + (col))
 #define OFFSET_COL(row, col, lda) ((col) * (lda) + (row))
 
-#define ROW_WINDOW_M 16
-#define TC_BLOCK_K 16
-#define TC_BLOCK_M 16
+#define TILE_M 32
+#define TILE_N 64
+#define TILE_K 32
 
-template <int TILE_B>
+template <int T_M, int T_N, int T_K>
 extern void sr_bcrs_test_fp16(
     int M, int N, int K,
     int TCBlock_num,
@@ -33,16 +33,16 @@ extern void sr_bcrs_test_fp16(
     float* C
 );
 
-extern template 
-void sr_bcrs_test_fp16<64>(
-    int M, int N, int K,
-    int TCBlock_num,
-    int* val_sidx,
-    int* val_soff,
-    half* B_val,
-    half* val_block_val,
-    float* C
-);
+// extern template 
+// void sr_bcrs_test_fp16<32, 64, 32>(
+//     int M, int N, int K,
+//     int TCBlock_num,
+//     int* val_sidx,
+//     int* val_soff,
+//     half* B_val,
+//     half* val_block_val,
+//     float* C
+// );
 
 
 
@@ -182,18 +182,16 @@ void convertToSRBCRS(
     half* B, float* C
 ) {
     // convert to SR-BCRS
-    int row_window_num = (M + ROW_WINDOW_M - 1) / ROW_WINDOW_M;
+    int row_window_num = (M + TILE_M - 1) / TILE_M;
     int* val_soff = (int*)malloc(sizeof(int) * (row_window_num + 1));
     memset(val_soff, 0, sizeof(int) * (row_window_num + 1));
     int total_TCBlock_num = 0;
     int* nnz_col = (int*)malloc(sizeof(int) * K);
-    vector<vector<int>> vec_nnz_per_tc_block(row_window_num);
     for (int i_row_window = 0; i_row_window < row_window_num; i_row_window++) {
         val_soff[i_row_window] = total_TCBlock_num;
         memset(nnz_col, 0, sizeof(int) * K);
-        vector<int>& nnz_per_tc_block = vec_nnz_per_tc_block[i_row_window];
-        for (int i_row = 0; i_row < ROW_WINDOW_M; i_row++) {
-            int row = i_row_window * ROW_WINDOW_M + i_row;
+        for (int i_row = 0; i_row < TILE_M; i_row++) {
+            int row = i_row_window * TILE_M + i_row;
             if (row >= M) continue;
             for (int j = csrPtrA[row]; j < csrPtrA[row + 1]; j++) {
                 nnz_col[csrColIdxA[j]] = 1;
@@ -207,23 +205,23 @@ void convertToSRBCRS(
                 nnz_col_num++;
             }
         }
-        total_TCBlock_num += (nnz_col_num + TC_BLOCK_K - 1) / TC_BLOCK_K;
+        total_TCBlock_num += (nnz_col_num + TILE_K - 1) / TILE_K;
     }
     val_soff[row_window_num] = total_TCBlock_num;
-    printf("total_TCBlock_num = %d\n", total_TCBlock_num);
+    printf("total_BCRS_Block_num = %d\n", total_TCBlock_num);
 
-    int* val_sidx = (int*)malloc(sizeof(int) * total_TCBlock_num * TC_BLOCK_K);
-    memset(val_sidx, 0, sizeof(int) * total_TCBlock_num * TC_BLOCK_K);
-    half* val_block_val = (half*)malloc(sizeof(half) * total_TCBlock_num * TC_BLOCK_M * TC_BLOCK_K);
-    memset(val_block_val, 0, sizeof(half) * total_TCBlock_num * TC_BLOCK_M * TC_BLOCK_K);
+    int* val_sidx = (int*)malloc(sizeof(int) * total_TCBlock_num * TILE_K);
+    memset(val_sidx, 0, sizeof(int) * total_TCBlock_num * TILE_K);
+    half* val_block_val = (half*)malloc(sizeof(half) * total_TCBlock_num * TILE_M * TILE_K);
+    memset(val_block_val, 0, sizeof(half) * total_TCBlock_num * TILE_M * TILE_K);
 
     for (int i_row_window = 0; i_row_window < row_window_num; i_row_window++) {
         int TC_block_offset = val_soff[i_row_window];
-        int* tmp_val_sidx = val_sidx + TC_block_offset * TC_BLOCK_K;
-        half* tmp_val_block_val = val_block_val + TC_block_offset * TC_BLOCK_M * TC_BLOCK_K;
+        int* tmp_val_sidx = val_sidx + TC_block_offset * TILE_K;
+        half* tmp_val_block_val = val_block_val + TC_block_offset * TILE_M * TILE_K;
         memset(nnz_col, 0, sizeof(int) * K);
-        for (int i_row = 0; i_row < ROW_WINDOW_M; i_row++) {
-            int row = i_row_window * TC_BLOCK_M + i_row;
+        for (int i_row = 0; i_row < TILE_M; i_row++) {
+            int row = i_row_window * TILE_M + i_row;
             if (row >= M) continue;
             for (int j = csrPtrA[row]; j < csrPtrA[row + 1]; j++) {
                 nnz_col[csrColIdxA[j]] = 1;
@@ -237,13 +235,13 @@ void convertToSRBCRS(
                 nnz_col_num++;
             }
         }
-        int tc_block_num = (nnz_col_num + TC_BLOCK_K - 1) / TC_BLOCK_K;
-        for (int i_tc_block_col = 0; i_tc_block_col < tc_block_num * TC_BLOCK_K; i_tc_block_col++) {
+        int tc_block_num = (nnz_col_num + TILE_K - 1) / TILE_K;
+        for (int i_tc_block_col = 0; i_tc_block_col < tc_block_num * TILE_K; i_tc_block_col++) {
             if (i_tc_block_col >= nnz_col_num) tmp_val_sidx[i_tc_block_col] = nnz_col[nnz_col_num - 1];
             else tmp_val_sidx[i_tc_block_col] = nnz_col[i_tc_block_col];
         }
-        for (int i_row = 0; i_row < ROW_WINDOW_M; i_row++) {
-            int row = i_row_window * ROW_WINDOW_M + i_row;
+        for (int i_row = 0; i_row < TILE_M; i_row++) {
+            int row = i_row_window * TILE_M + i_row;
             int col_start_pos = 0;
             if (row >= M) continue;
             for (int j = csrPtrA[row]; j < csrPtrA[row + 1]; j++) {
@@ -251,7 +249,7 @@ void convertToSRBCRS(
                 float value = (float)csrValA[j];
                 int condensed_pos = binarySearch(nnz_col, col_start_pos, nnz_col_num - 1, col);
                 col_start_pos = condensed_pos + 1;
-                tmp_val_block_val[(condensed_pos / TC_BLOCK_K) * TC_BLOCK_M * TC_BLOCK_K + OFFSET_ROW(i_row, condensed_pos % TC_BLOCK_K, TC_BLOCK_K)] = (half)value;
+                tmp_val_block_val[(condensed_pos / TILE_K) * TILE_M * TILE_K + OFFSET_ROW(i_row, condensed_pos % TILE_K, TILE_K)] = (half)value;
             }
         }
         //! debug
@@ -262,16 +260,16 @@ void convertToSRBCRS(
             // } printf("\n");
             // for (int tc_block_ptr = 0; tc_block_ptr < tc_block_num; tc_block_ptr++) {
             //     printf("tc_block i = %d, j = %d\n", i_row_window, tc_block_ptr);
-            //     for (int i = 0; i < 16; i++) {
-            //         for (int j = 0; j < 16; j++) {
-            //             printf("%.0f ", (float)tmp_val_block_val[tc_block_ptr * TC_BLOCK_M * TC_BLOCK_K + OFFSET_ROW(i, j, TC_BLOCK_K)]);
+            //     for (int i = 0; i < TILE_M; i++) {
+            //         for (int j = 0; j < TILE_K; j++) {
+            //             printf("%.0f ", (float)tmp_val_block_val[tc_block_ptr * TILE_M * TILE_K + OFFSET_ROW(i, j, TILE_K)]);
             //         } printf("\n");
             //     }
             // }
         }
     }
     //! launch kernel
-    sr_bcrs_test_fp16<64>(M, N, K, total_TCBlock_num, val_sidx, val_soff, B, val_block_val, C);
+    sr_bcrs_test_fp16<TILE_M, TILE_N, TILE_K>(M, N, K, total_TCBlock_num, val_sidx, val_soff, B, val_block_val, C);
 }
 
 int main(int argc, char** argv) {
@@ -360,22 +358,22 @@ int main(int argc, char** argv) {
         //     }
         // }
 
-        // for (int k_ptr = 0; k_ptr < colA / 16; k_ptr++) {
+        // for (int k_ptr = 0; k_ptr < colA / TILE_K; k_ptr++) {
         //     printf("host check tileA: i=%d\n", k_ptr);
-        //     for (int i = 0; i < 16; i++) {
-        //         for (int j = 0; j < 16; j++) {
-        //             printf("%.0f ", restoreA[OFFSET_ROW(i, k_ptr * 16 + j, colA)]);
+        //     for (int i = 0; i < TILE_M; i++) {
+        //         for (int j = 0; j < TILE_K; j++) {
+        //             printf("%.0f ", restoreA[OFFSET_ROW(i, k_ptr * TILE_K + j, colA)]);
         //         } printf("\n");
         //     }
         // }
 
     }
     {//! debug tile B
-        // for (int k_ptr = 0; k_ptr < colA / 16; k_ptr++) {
+        // for (int k_ptr = 0; k_ptr < colA / TILE_K; k_ptr++) {
         //     printf("host check tile B: i = %d\n", k_ptr);
-        //     for (int i = 0; i < 16; i++) {
-        //         for (int j = 0; j < 8; j++) {
-        //             printf("%.0f ", (float)B[OFFSET_ROW(i + k_ptr * 16, j, N)]);
+        //     for (int i = 0; i < TILE_K; i++) {
+        //         for (int j = 0; j < 16; j++) {
+        //             printf("%.0f ", (float)B[OFFSET_ROW(i + k_ptr * TILE_K, j, N)]);
         //         } printf("\n");
         //     }
         // }

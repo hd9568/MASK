@@ -46,12 +46,11 @@ def sr_bcrs():
                 tensor_type_str="decltype(logical_divide(make_tensor(make_gmem_ptr((TO0*)nullptr), make_shape(VARLEN, VARLEN)), select<1, 0>(BLK_MNK{}))(make_coord(_, VARLEN), make_coord(_, VARLEN)))",
             ),
             "val_sidx": GmemInout(
-                shape=Shape(ParamShape("tile_sidx_size"), VarlenShape("nnz_block")),
+                shape=Shape(MnkShape("BLK_MNK", "k"), VarlenShape("nnz_block")),
                 name="val_sidx",
                 dtype="int",
-                tensor_str="make_tensor(make_gmem_ptr(dval_sidx), make_shape(tile_sidx_size{}, nnz_block))",
-                tensor_type_str="decltype(make_tensor(make_gmem_ptr((TO0*)nullptr), make_shape(tile_sidx_size{}, VARLEN)))",
-                parameters={"tile_sidx_size": 16},
+                tensor_str="make_tensor(make_gmem_ptr(dval_sidx), make_shape(get<2>(BLK_MNK{}), nnz_block))",
+                tensor_type_str="decltype(make_tensor(make_gmem_ptr((TO0*)nullptr), make_shape(get<2>(BLK_MNK{}), VARLEN)))",
             ),
             "val_soff": GmemInout(
                 shape=Shape(VarlenShape("Mo")),
@@ -267,7 +266,7 @@ r(0) = val_soff(i + 1);"""
                 idx=0,
                 name="val_sidx",
                 tensor=NvOpTensor(
-                    shape=Shape(ParamShape("tile_sidx_size"), VarlenShape("nnz_block")),
+                    shape=Shape(MnkShape("BLK_MNK", "k"), VarlenShape("nnz_block")),
                     mem="gmem",
                     dtype="int",
                     source=sr_bcrs_program.gmem_tensor_ops["val_sidx"].outputs[0],
@@ -289,7 +288,7 @@ r(0) = val_soff(i + 1);"""
                 idx=0,
                 name="tile_sidx_block",
                 tensor=NvOpTensor(
-                    shape=Shape(ParamShape("tile_sidx_size")),
+                    shape=Shape(MnkShape("BLK_MNK", "k")),
                     mem="smem",
                     dtype="int",
                 )
@@ -297,7 +296,7 @@ r(0) = val_soff(i + 1);"""
         ],
         impl=NvOpImpl(
             r"""
-if (lid < 4) {
+if (lid < get<2>(BLK_MNK{}) / 4) {
     auto thr_tiler = make_shape(Int<4>{});
     auto thr_coord = make_coord(lid);
     auto src = local_tile(val_sidx(_, i), thr_tiler, thr_coord);
@@ -307,9 +306,6 @@ if (lid < 4) {
 """
         ),
         mem_type=("g", "s"),
-        parameters={
-            "tile_sidx_size": 16,
-        },
     )
     sr_bcrs_main_loop_op.append(G2sSparseIndexLoadOp)
 
@@ -367,8 +363,8 @@ for (int iter_i = lid; iter_i < get<0>(BLK_MNK{}) * get<2>(BLK_MNK{}) / load_til
 {//! debug
     // if (thread0()) {
     //     printf("i = %d, gmem check A\n", i);
-    //     for (int row = 0; row < 16; row++) {
-    //         for (int col = 0; col < 16; col++) {
+    //     for (int row = 0; row < get<0>(BLK_MNK{}); row++) {
+    //         for (int col = 0; col < get<2>(BLK_MNK{}); col++) {
     //             printf("%.0f ", (float)val_block_val(row, col, i));
     //         } printf("\n");
     //     }
@@ -458,7 +454,7 @@ for (int iter_i = lid; iter_i < get<2>(BLK_MNK{}) * get<1>(BLK_MNK{}) / load_til
                 idx=0,
                 name="REGA",
                 tensor=NvOpTensor(
-                    shape=Shape(IntShape(8), MnkShape("BLK_MMA_MNK", "m")),
+                    shape=Shape(IntShape(8), Shape(MnkShape("BLK_MMA_MNK", "m"), MnkShape("BLK_MMA_MNK", "k"))),
                     mem="rmem",
                     dtype="half",
                 ),
@@ -468,21 +464,25 @@ for (int iter_i = lid; iter_i < get<2>(BLK_MNK{}) * get<1>(BLK_MNK{}) / load_til
             r"""
 __syncthreads();
 //! debug tile A
-// if (thread0()) {
-//     printf("tile A block\n");
-//     for (int i = 0; i < 16; i++) {
-//         for (int j = 0; j < 16; j++) {
-//             printf("%.0f ", (float)tileA_block(i, j));
-//         } printf("\n");
-//     }
-// } 
+if (thread0()) {
+    // printf("tile A block\n");
+    // for (int i = 0; i < get<0>(BLK_MNK{}); i++) {
+    //     for (int j = 0; j < get<2>(BLK_MNK{}); j++) {
+    //         printf("%.0f ", (float)tileA_block(i, j));
+    //     } printf("\n");
+    // }
+} 
 //> m16n8k16
-int row = lid % 16;
-int col = lid / 16;
-ldmatrix_m8n8k8_x4(
-    (uint32_t*)(REGA(_, _0{}, buf_idx).data()),
-    (void*)(&tileA_block(row, col * 8))
-);
+for (int m_iter = 0; m_iter < get<0>(BLK_MMA_MNK{}); m_iter++) {
+    for (int k_iter = 0; k_iter < get<2>(BLK_MMA_MNK{}); k_iter++) {
+        int row = m_iter * get<0>(MMA_MNK{}) + lid % 16;
+        int col = lid / 16;
+        ldmatrix_m8n8k8_x4(
+            (uint32_t*)(REGA(_, make_coord(m_iter, k_iter), buf_idx).data()),
+            (void*)(&tileA_block(row, col * 8 + k_iter * get<2>(MMA_MNK{})))
+        );
+    }
+}
 """
         ),
         mem_type=("s", "r"),
@@ -508,7 +508,7 @@ ldmatrix_m8n8k8_x4(
                 idx=0,
                 name="REGB",
                 tensor=NvOpTensor(
-                    shape=Shape(IntShape(4), MnkShape("BLK_MMA_MNK", "n")),
+                    shape=Shape(IntShape(4), Shape(MnkShape("BLK_MMA_MNK", "k"), MnkShape("BLK_MMA_MNK", "n"))),
                     mem="rmem",
                     dtype="half",
                 ),
@@ -518,20 +518,23 @@ ldmatrix_m8n8k8_x4(
 __syncthreads();
 if (thread0()) {
     // printf("tileB_block\n");
-    // for (int i = 0; i < 16; i++) {
+    // for (int i = 0; i < get<2>(BLK_MNK{}); i++) {
     //     for (int j = 0; j < 16; j++) {
     //         printf("%.0f ", (float)tileB_block(i, j));
     //     } printf("\n");
     // }
 }
 for (int n_iter = 0; n_iter < get<1>(BLK_MMA_MNK{}); n_iter++) {
-    int row_b = lid % 16;
-    int col_b = n_iter;
-    // Tensor tileB_tensor = local_tile(tileB_block, make_shape());
-    ldmatrix_m8n8k8_x2_trans(
-        (uint32_t*)(REGB(_, n_iter, buf_idx).data()),
-        (void*)(&tileB_block(row_b, col_b * 8))
-    );
+    for (int k_iter = 0; k_iter < get<2>(BLK_MMA_MNK{}); k_iter++) {
+        int row_b = lid % 16 + k_iter * get<2>(MMA_MNK{});
+        int col_b = n_iter;
+        // Tensor tileB_tensor = local_tile(tileB_block, make_shape());
+        ldmatrix_m8n8k8_x2_trans(
+            (uint32_t*)(REGB(_, make_coord(k_iter, n_iter), buf_idx).data()),
+            (void*)(&tileB_block(row_b, col_b * 8))
+        );
+    }
+    
 }
 """
         ),
@@ -548,7 +551,10 @@ for (int n_iter = 0; n_iter < get<1>(BLK_MMA_MNK{}); n_iter++) {
                 tensor=NvOpTensor(
                     shape=Shape(
                         IntShape(8),
-                        MnkShape("BLK_MMA_MNK", "m"),
+                        Shape(
+                            MnkShape("BLK_MMA_MNK", "m"),
+                            MnkShape("BLK_MMA_MNK", "k"),
+                        ),
                     ),
                     mem="rmem",
                     dtype="half",
@@ -561,7 +567,10 @@ for (int n_iter = 0; n_iter < get<1>(BLK_MMA_MNK{}); n_iter++) {
                 tensor=NvOpTensor(
                     shape=Shape(
                         IntShape(4),
-                        MnkShape("BLK_MMA_MNK", "n"),
+                        Shape(
+                            MnkShape("BLK_MMA_MNK", "k"),
+                            MnkShape("BLK_MMA_MNK", "n"),
+                        ),
                     ),
                     mem="rmem",
                     dtype="half",
@@ -587,10 +596,31 @@ for (int n_iter = 0; n_iter < get<1>(BLK_MMA_MNK{}); n_iter++) {
                 origin=ZerosOp.outputs[0],
             ),
         ],
-        impl=NvOpImpl(r"""
+        impl=NvOpImpl(
+r"""
+// __syncthreads();
+if (blockIdx.x == 0 && blockIdx.y == 0) {
+    // for (int n_iter = 0; n_iter < 2; n_iter++) {
+    //     for (int k_iter = 0; k_iter < get<2>(BLK_MMA_MNK{}); k_iter++) {
+    //         printf("[%d,%d][%d]check n_iter=%d,k_iter=%d,REGB(%.0f %.0f)(%.0f %.0f)\n",
+    //             blockIdx.x, blockIdx.y, lid,
+    //             n_iter, k_iter,
+    //             (float)REGB(0, make_coord(k_iter, n_iter)),
+    //             (float)REGB(1, make_coord(k_iter, n_iter)),
+    //             (float)REGB(2, make_coord(k_iter, n_iter)),
+    //             (float)REGB(3, make_coord(k_iter, n_iter))
+    //         );
+    //     }
+    // }
+}
 for (int m_iter = 0; m_iter < get<0>(BLK_MMA_MNK{}); m_iter++) {
     for (int n_iter = 0; n_iter < get<1>(BLK_MMA_MNK{}); n_iter++) {
-        mma_m16n8k16_fp32(REGC(_, make_coord(m_iter, n_iter)).data(), (uint32_t*)(REGA(_, m_iter).data()), REGB(_, n_iter).data());
+        for (int k_iter = 0; k_iter < get<2>(BLK_MMA_MNK{}); k_iter++) {
+            mma_m16n8k16_fp32(
+                REGC(_, make_coord(m_iter, n_iter)).data(), 
+                (uint32_t*)(REGA(_, make_coord(m_iter, k_iter)).data()), 
+                REGB(_, make_coord(k_iter, n_iter)).data());
+        }
     }
 }
         """),
@@ -636,14 +666,17 @@ for (int m_iter = 0; m_iter < get<0>(BLK_MMA_MNK{}); m_iter++) {
         ],
         impl=NvOpImpl(r"""
 //! write back
-for (int i_tileN = 0; i_tileN < get<1>(BLK_MNK{}) / 8; i_tileN++) {
-    int row = lid / 4;
-    int col = i_tileN * 8 + lid % 4 * 2;
-    C_val(col, row) = REGC(0, i_tileN);
-    C_val(col + 1, row) = REGC(1, i_tileN);
-    C_val(col, row + 8) = REGC(2, i_tileN);
-    C_val(col + 1, row + 8) = REGC(3, i_tileN);
+for (int i_tileM = 0; i_tileM < get<0>(BLK_MMA_MNK{}); i_tileM++) {
+    for (int i_tileN = 0; i_tileN < get<1>(BLK_MMA_MNK{}); i_tileN++) {
+        int row = lid / 4 + i_tileM * get<0>(MMA_MNK{});
+        int col = i_tileN * 8 + lid % 4 * 2;
+        C_val(col, row) = REGC(0, make_coord(i_tileM, i_tileN));
+        C_val(col + 1, row) = REGC(1, make_coord(i_tileM, i_tileN));
+        C_val(col, row + 8) = REGC(2, make_coord(i_tileM, i_tileN));
+        C_val(col + 1, row + 8) = REGC(3, make_coord(i_tileM, i_tileN));
+    }
 }
+
         """),
         mem_type=("r", "g"),
     )

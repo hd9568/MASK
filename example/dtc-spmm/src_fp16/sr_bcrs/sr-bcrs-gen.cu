@@ -29,7 +29,7 @@
 using namespace cute;
 using namespace std;
 
-template <int TILE_B>
+template <int TILE_M, int TILE_N, int TILE_K>
 void ncu_test_all(
     int threadblock_num_x, int threadblock_num_y, int thread_num,
     int M, int N, int K,
@@ -43,27 +43,24 @@ void ncu_test_all(
     dim3 grid(threadblock_num_x, threadblock_num_y);
     dim3 block(thread_num);
 
-    constexpr auto blk_mnk = make_shape(Int<TC_BLOCK_M>{}, Int<TILE_B>{}, Int<TC_BLOCK_K>{});
+    constexpr auto blk_mnk = make_shape(Int<TILE_M>{}, Int<TILE_N>{}, Int<TILE_K>{});
     using BLK_MNK = decltype(blk_mnk);
     constexpr auto mma_mnk = make_shape(_16{}, _8{}, _16{});
     using MMA_MNK = decltype(mma_mnk);
-    constexpr auto blk_mma_mnk = make_shape(Int<TC_BLOCK_M / 16>{}, Int<TILE_B / 8>{}, Int<TC_BLOCK_K / 16>{});
+    constexpr auto blk_mma_mnk = make_shape(Int<TILE_M / 16>{}, Int<TILE_N / 8>{}, Int<TILE_K / 16>{});
     using BLK_MMA_MNK = decltype(blk_mma_mnk);
     constexpr auto warp_mnk = make_shape(_1{}, _1{}, _1{});
     using WARP_MNK = decltype(warp_mnk);
 
-    using tile_sidx_size = Int<TC_BLOCK_K>;
-
     sr_bcrs_spmm_kernel_fp16<
-        BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK,
-        tile_sidx_size
+        BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK
     ><<<grid, block>>>(dB_val, dC, dval_block_val, dval_sidx, dval_soff, K, M, Mo, N, nnz_block);
 }
 
 #define DIVUP(a, b) (((a) - 1) / (b) + 1)
 #define ALIGN(a,b) (DIVUP(a,b)*(b))
 
-template <int TILE_B>
+template <int TILE_M, int TILE_N, int TILE_K>
 void sr_bcrs_test_fp16(
     int M, int N, int K,
     int TCBlock_num,
@@ -79,29 +76,29 @@ void sr_bcrs_test_fp16(
     half* dval_block_val;
     float* dC;
 
-    int row_window_num = DIVUP(M, ROW_WINDOW_M);
-    assert(N % TILE_B == 0);
+    int row_window_num = DIVUP(M, TILE_M);
+    assert(N % TILE_N == 0);
 
-    CHECK_CUDA2(cudaMalloc(&dval_sidx, sizeof(int) * TCBlock_num * TC_BLOCK_K));
+    CHECK_CUDA2(cudaMalloc(&dval_sidx, sizeof(int) * TCBlock_num * TILE_K));
     CHECK_CUDA2(cudaMalloc(&dval_soff, sizeof(int) * (row_window_num + 1)));
     CHECK_CUDA2(cudaMalloc(&dB_val, sizeof(half) * K * N));
-    CHECK_CUDA2(cudaMalloc(&dval_block_val, sizeof(half) * TCBlock_num * ROW_WINDOW_M * TC_BLOCK_K));
-    CHECK_CUDA2(cudaMalloc(&dC, sizeof(float) * (row_window_num * ROW_WINDOW_M) * N)); // C is row major (alloc more copy some)
+    CHECK_CUDA2(cudaMalloc(&dval_block_val, sizeof(half) * TCBlock_num * TILE_M * TILE_K));
+    CHECK_CUDA2(cudaMalloc(&dC, sizeof(float) * (row_window_num * TILE_M) * N)); // C is row major (alloc more copy some)
 
-    CHECK_CUDA2(cudaMemcpy(dval_sidx, val_sidx, sizeof(int) * TCBlock_num * TC_BLOCK_K, cudaMemcpyHostToDevice));
+    CHECK_CUDA2(cudaMemcpy(dval_sidx, val_sidx, sizeof(int) * TCBlock_num * TILE_K, cudaMemcpyHostToDevice));
     CHECK_CUDA2(cudaMemcpy(dval_soff, val_soff, sizeof(int) * (row_window_num + 1), cudaMemcpyHostToDevice));
     CHECK_CUDA2(cudaMemcpy(dB_val, B_val, sizeof(half) * K * N, cudaMemcpyHostToDevice));
-    CHECK_CUDA2(cudaMemcpy(dval_block_val, val_block_val, sizeof(half) * ROW_WINDOW_M * TC_BLOCK_K * TCBlock_num, cudaMemcpyHostToDevice));
-    CHECK_CUDA2(cudaMemset(dC, 0, sizeof(float) * (row_window_num * ROW_WINDOW_M) * N));
+    CHECK_CUDA2(cudaMemcpy(dval_block_val, val_block_val, sizeof(half) * TILE_M * TILE_K * TCBlock_num, cudaMemcpyHostToDevice));
+    CHECK_CUDA2(cudaMemset(dC, 0, sizeof(float) * (row_window_num * TILE_M) * N));
 
     int threadblock_num_x = row_window_num;
-    int threadblock_num_y = N / TILE_B;
+    int threadblock_num_y = N / TILE_N;
     int thread_num = 32;
 
-    const int Mo = DIVUP(M, ROW_WINDOW_M);
+    const int Mo = DIVUP(M, TILE_M);
     const int nnz_block = val_soff[Mo];
     
-    ncu_test_all<TILE_B>(
+    ncu_test_all<TILE_M, TILE_N, TILE_K>(
         threadblock_num_x, threadblock_num_y, thread_num,
         M, N, K, 
         Mo, nnz_block, 
@@ -115,7 +112,7 @@ void sr_bcrs_test_fp16(
 }
 
 template 
-void sr_bcrs_test_fp16<64>(
+void sr_bcrs_test_fp16<32, 64, 32>(
     int M, int N, int K,
     int TCBlock_num,
     int* val_sidx,
