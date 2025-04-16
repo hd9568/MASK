@@ -23,12 +23,12 @@ print(progs)
 log_path = script_path / f"all_{datetime.now().strftime('%Y%m%d-%H%M%S')}.log"
 with open(log_path, "w") as f:
     # Create progress bars outside the loops
-    n_bar = tqdm(N, desc="N Size", position=0)
-    for n in n_bar:
-        mat_bar = tqdm(mats, desc="Matrix", position=1, leave=False)
-        for mat in mat_bar:
-            prog_bar = tqdm(progs, desc="Program", position=2, leave=False)
-            for prog in prog_bar:
+    mat_bar = tqdm(mats, desc="Matrix", position=1, leave=False)
+    for mat in mat_bar:
+        prog_bar = tqdm(progs, desc="Program", position=2, leave=False)
+        for prog in prog_bar:
+            n_bar = tqdm(N, desc="N Size", position=0)
+            for n in n_bar:
                 # Get current date
                 f.write(f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
 
@@ -65,6 +65,6 @@ with open(log_path, "w") as f:
                 f.flush()  # Ensure separator is written to file
                 
                 # Update all progress bars
+                n_bar.refresh()
                 prog_bar.refresh()
                 mat_bar.refresh()
-                n_bar.refresh()
