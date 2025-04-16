@@ -105,8 +105,11 @@ void repeat_test(int threadblock_num_x,
     using tile_coo_val_size = Int<TC_BLOCK_M * TC_BLOCK_K>;
     using tile_coo_val_size_no_pad = Int<TC_BLOCK_M * TC_BLOCK_K>;
 
-    struct timeval t1, t2;
     {
+        cudaEvent_t start, stop;
+        CHECK_CUDA2(cudaEventCreate(&start));
+        CHECK_CUDA2(cudaEventCreate(&stop));
+
         for (int i = 0; i < warmup_time; i++) {
             dtc_spmm_kernel_fp16_val_idx_bind<BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK,
                                                      tile_coo_val_size, tile_coo_val_size_no_pad,
@@ -115,7 +118,8 @@ void repeat_test(int threadblock_num_x,
                                 dval_soff, K, M, Mo, N, nnz, nnz_block);
         }
         CHECK_CUDA2(cudaDeviceSynchronize());
-        gettimeofday(&t1, NULL);
+
+        CHECK_CUDA2(cudaEventRecord(start));
         for (int i = 0; i < execute_time; i++) {
             dtc_spmm_kernel_fp16_val_idx_bind<BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK,
                                                      tile_coo_val_size, tile_coo_val_size_no_pad,
@@ -123,11 +127,16 @@ void repeat_test(int threadblock_num_x,
               <<<grid, block>>>(dB_val, dC, dval_coo_off, dval_coo_val_idx_bind, dval_sidx,
                                 dval_soff, K, M, Mo, N, nnz, nnz_block);
         }
-        CHECK_CUDA2(cudaDeviceSynchronize());
-        gettimeofday(&t2, NULL);
-        double mykernel_time =
-          ((t2.tv_sec - t1.tv_sec) * 1000.0 + (t2.tv_usec - t1.tv_usec) / 1000.0) / execute_time;
+        CHECK_CUDA2(cudaEventRecord(stop));
+        CHECK_CUDA2(cudaEventSynchronize(stop));
+
+        float milliseconds = 0;
+        CHECK_CUDA2(cudaEventElapsedTime(&milliseconds, start, stop));
+        double mykernel_time = milliseconds / execute_time;
         printf("mykernel_time: %f ms\n", mykernel_time);
+
+        CHECK_CUDA2(cudaEventDestroy(start));
+        CHECK_CUDA2(cudaEventDestroy(stop));
     }
 }
 

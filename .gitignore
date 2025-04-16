@@ -18,3 +18,5 @@ example/dtc-spmm/build/
 example/dtc-spmm/report/
 
 .vscode
+
+example/dtc-spmm/**/plan_exes
