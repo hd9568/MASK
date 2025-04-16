@@ -22,38 +22,34 @@
 // #include "example/dtc-spmm/src_fp16/row_majorB_vs_bind_reorder/kernel-gen.inc"
 #include "kernel.inc"
 
-#define ROW_WINDOW_M 16
-#define TC_BLOCK_K 16
-#define TC_BLOCK_M 16
-
 #define DTYPEAB float
 
 using namespace cute;
 using namespace std;
 
 template <int TILE_M, int TILE_N, int TILE_K>
-void ncu_test_all(int threadblock_num_x,
-                  int threadblock_num_y,
-                  int thread_num,
-                  int M,
-                  int N,
-                  int K,
-                  int Mo,
-                  int nnz_block,
-                  int* dval_sidx,
-                  int* dval_soff,
-                  DTYPEAB* dB_val,
-                  DTYPEAB* dval_block_val,
-                  float* dC) {
+void ncu_test(int threadblock_num_x,
+              int threadblock_num_y,
+              int thread_num,
+              int M,
+              int N,
+              int K,
+              int Mo,
+              int nnz_block,
+              int* dval_sidx,
+              int* dval_soff,
+              DTYPEAB* dB_val,
+              DTYPEAB* dval_block_val,
+              float* dC) {
     dim3 grid(threadblock_num_x, threadblock_num_y);
     dim3 block(thread_num);
 
     constexpr auto blk_mnk = make_shape(Int<TILE_M>{}, Int<TILE_N>{}, Int<TILE_K>{});
     using BLK_MNK = decltype(blk_mnk);
-    constexpr auto mma_mnk = make_shape(_16{}, _8{}, _16{});
+    constexpr auto mma_mnk = make_shape(_16{}, _8{}, _8{});
     using MMA_MNK = decltype(mma_mnk);
     constexpr auto blk_mma_mnk =
-      make_shape(Int<TILE_M / 16>{}, Int<TILE_N / 8>{}, Int<TILE_K / 16>{});
+      make_shape(Int<TILE_M / 16>{}, Int<TILE_N / 8>{}, Int<TILE_K / 8>{});
     using BLK_MMA_MNK = decltype(blk_mma_mnk);
     constexpr auto warp_mnk = make_shape(_1{}, _1{}, _1{});
     using WARP_MNK = decltype(warp_mnk);
@@ -62,8 +58,62 @@ void ncu_test_all(int threadblock_num_x,
       <<<grid, block>>>(dB_val, dC, dval_block_val, dval_sidx, dval_soff, K, M, Mo, N, nnz_block);
 }
 
-#define DIVUP(a, b) (((a) - 1) / (b) + 1)
-#define ALIGN(a, b) (DIVUP(a, b) * (b))
+template <int TILE_M, int TILE_N, int TILE_K>
+void repeat_test(int threadblock_num_x,
+                 int threadblock_num_y,
+                 int thread_num,
+                 int M,
+                 int N,
+                 int K,
+                 int Mo,
+                 int nnz_block,
+                 int* dval_sidx,
+                 int* dval_soff,
+                 DTYPEAB* dB_val,
+                 DTYPEAB* dval_block_val,
+                 float* dC,
+                 int warmup_time,
+                 int execute_time) {
+    dim3 grid(threadblock_num_x, threadblock_num_y);
+    dim3 block(thread_num);
+
+    constexpr auto blk_mnk = make_shape(Int<TILE_M>{}, Int<TILE_N>{}, Int<TILE_K>{});
+    using BLK_MNK = decltype(blk_mnk);
+    constexpr auto mma_mnk = make_shape(_16{}, _8{}, _8{});
+    using MMA_MNK = decltype(mma_mnk);
+    constexpr auto blk_mma_mnk =
+      make_shape(Int<TILE_M / 16>{}, Int<TILE_N / 8>{}, Int<TILE_K / 8>{});
+    using BLK_MMA_MNK = decltype(blk_mma_mnk);
+    constexpr auto warp_mnk = make_shape(_1{}, _1{}, _1{});
+    using WARP_MNK = decltype(warp_mnk);
+    {
+        cudaEvent_t start, stop;
+        CHECK_CUDA2(cudaEventCreate(&start));
+        CHECK_CUDA2(cudaEventCreate(&stop));
+
+        for (int i = 0; i < warmup_time; i++) {
+            sr_bcrs_spmm_kernel_tf32<BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK><<<grid, block>>>(
+              dB_val, dC, dval_block_val, dval_sidx, dval_soff, K, M, Mo, N, nnz_block);
+        }
+        CHECK_CUDA2(cudaDeviceSynchronize());
+
+        CHECK_CUDA2(cudaEventRecord(start));
+        for (int i = 0; i < execute_time; i++) {
+            sr_bcrs_spmm_kernel_tf32<BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK><<<grid, block>>>(
+              dB_val, dC, dval_block_val, dval_sidx, dval_soff, K, M, Mo, N, nnz_block);
+        }
+        CHECK_CUDA2(cudaEventRecord(stop));
+        CHECK_CUDA2(cudaEventSynchronize(stop));
+
+        float milliseconds = 0;
+        CHECK_CUDA2(cudaEventElapsedTime(&milliseconds, start, stop));
+        double mykernel_time = milliseconds / execute_time;
+        printf("mykernel_time: %f ms\n", mykernel_time);
+
+        CHECK_CUDA2(cudaEventDestroy(start));
+        CHECK_CUDA2(cudaEventDestroy(stop));
+    }
+}
 
 template <int TILE_M, int TILE_N, int TILE_K>
 void sr_bcrs_test_tf32(int M,
@@ -74,7 +124,10 @@ void sr_bcrs_test_tf32(int M,
                        int* val_soff,
                        DTYPEAB* B_val,
                        DTYPEAB* val_block_val,
-                       float* C) {
+                       float* C,
+                       bool is_ncu_test,
+                       int warmup_time,
+                       int execute_time) {
     int* dval_sidx;
     int* dval_soff;
     DTYPEAB* dB_val;
@@ -108,9 +161,16 @@ void sr_bcrs_test_tf32(int M,
     const int Mo = DIVUP(M, TILE_M);
     const int nnz_block = val_soff[Mo];
 
-    ncu_test_all<TILE_M, TILE_N, TILE_K>(threadblock_num_x, threadblock_num_y, thread_num, M, N, K,
-                                         Mo, nnz_block, dval_sidx, dval_soff, dB_val,
-                                         dval_block_val, dC);
+    if (!is_ncu_test) {
+        repeat_test<TILE_M, TILE_N, TILE_K>(threadblock_num_x, threadblock_num_y, thread_num, M, N,
+                                            K, Mo, nnz_block, dval_sidx, dval_soff, dB_val,
+                                            dval_block_val, dC, warmup_time, execute_time);
+    }
+
+    // repeat test would cause C_val to accumulate results, so we need to reset it
+    CHECK_CUDA2(cudaMalloc(&dC, sizeof(float) * (row_window_num * TILE_M) * N));
+    ncu_test<TILE_M, TILE_N, TILE_K>(threadblock_num_x, threadblock_num_y, thread_num, M, N, K, Mo,
+                                     nnz_block, dval_sidx, dval_soff, dB_val, dval_block_val, dC);
 
     CHECK_CUDA2(cudaDeviceSynchronize());
     CHECK_CUDA2(cudaGetLastError());
@@ -125,4 +185,7 @@ template void sr_bcrs_test_tf32<32, 64, 32>(int M,
                                             int* val_soff,
                                             DTYPEAB* B_val,
                                             DTYPEAB* val_block_val,
-                                            float* C);
+                                            float* C,
+                                            bool is_ncu_test,
+                                            int warmup_time,
+                                            int execute_time);

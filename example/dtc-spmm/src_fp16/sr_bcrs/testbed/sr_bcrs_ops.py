@@ -19,13 +19,6 @@ from sparsene.op_gen.nvir.nvop import (
     SwizzleLayout,
 )
 from sparsene.op_gen.nvir.plan import apply_pipeline, PipelinePlan
-from sparsene.op_gen.nvir.pipeline.pipeline_planner import (
-    enumerate_pipeline_plans,
-    NeighborDependencyValidator,
-)
-from sparsene.op_gen.nvir.opgraph.graph import construct_graph_from_op_sequence
-
-# TODO: input nnz_block
 
 
 def sr_bcrs():
@@ -74,7 +67,7 @@ def sr_bcrs():
         },
     )
 
-    # dtc program body
+    # sr_bcrs program body
     blk_y_loop_zero_op = ConstantNvOp(
         name="BlkYLoopZeroOp",
         shape=Shape(),
@@ -723,7 +716,6 @@ if __name__ == "__main__":
     sr_bcrs_main_loop_op, sr_bcrs_program = sr_bcrs()
 
     #! stage 0
-
     G2sSparseIndexLoadOp = sr_bcrs_program.find_op_by_name("G2sSparseIndexLoadOp")
 
     #! stage 1
@@ -733,7 +725,6 @@ if __name__ == "__main__":
     G2sMatrixBLoadOp = sr_bcrs_program.find_op_by_name("G2sMatrixBLoadOp")
 
     #! stage 2
-
     S2rAValLoadOp = sr_bcrs_program.find_op_by_name("S2rAValLoadOp")
     S2rBValLoadOp = sr_bcrs_program.find_op_by_name("S2rBValLoadOp")
     CalculateOp = sr_bcrs_program.find_op_by_name("CalculateOp")

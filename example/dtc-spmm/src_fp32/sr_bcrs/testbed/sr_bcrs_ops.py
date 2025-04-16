@@ -19,24 +19,14 @@ from sparsene.op_gen.nvir.nvop import (
     SwizzleLayout,
 )
 from sparsene.op_gen.nvir.plan import apply_pipeline, PipelinePlan
-from sparsene.op_gen.nvir.pipeline.pipeline_planner import (
-    enumerate_pipeline_plans,
-    NeighborDependencyValidator,
-)
-from sparsene.op_gen.nvir.opgraph.graph import construct_graph_from_op_sequence
-
-# TODO: input nnz_block
 
 dtypeAB = "float"
 dtypeC = "float"
 
-MMA_M = 16
-MMA_N = 8
-MMA_K = 8
-
 FRAG_A = 4
 FRAG_B = 2
 FRAG_C = 4
+
 
 def sr_bcrs():
     sr_bcrs_program = NvOpProgram(
@@ -366,39 +356,23 @@ if (lid < get<2>(BLK_MNK{}) / 4) {
                     mem="smem",
                     dtype=dtypeAB,
                     row_major=True,
-                    swizzle=SwizzleLayout(b=2, m=3, s=3),
+                    swizzle=SwizzleLayout(b=2, m=2, s=3),
                 ),
             ),
         ],
         impl=NvOpImpl(
             r"""
-auto load_tile_n = _8{};
+auto load_tile_n = _4{};
 for (int iter_i = lid; iter_i < get<0>(BLK_MNK{}) * get<2>(BLK_MNK{}) / load_tile_n; iter_i += 32) {
     int row = iter_i / (get<2>(BLK_MNK{}) / load_tile_n);
     int col = iter_i % (get<2>(BLK_MNK{}) / load_tile_n);
-    auto thr_tiler_gmem = make_shape(_1{}, _8{});
+    auto thr_tiler_gmem = make_shape(_1{}, _4{});
     auto thr_coord_gmem = make_coord(row, col);
     auto A_val_thr = local_tile(val_block_val(_, _, i), thr_tiler_gmem, thr_coord_gmem);
-    //! without manual swizzle
-    // auto thr_tiler_smem = make_shape(_1{}, _8{});
-    // auto thr_coord_smem = make_coord(row, col);
-    // auto dst = local_tile(tileA_block(_, _, buf_idx), thr_tiler_smem, thr_coord_smem);
-    // copy(Copy_Atom<SM80_CP_ASYNC_CACHEGLOBAL<cute::uint128_t>, half>{}, A_val_thr(0, _), dst(0, _));
     //! manual swizzle
-    half* dst = tileA_block(_, _, buf_idx).data().get() + iter_i * 8;
+    float* dst = tileA_block(_, _, buf_idx).data().get() + iter_i * 4;
     __pipeline_memcpy_async((float4*)dst, (float4*)(A_val_thr(0, _).data().get()), sizeof(float4));
-}
-{//! debug
-    // if (thread0()) {
-    //     printf("i = %d, gmem check A\n", i);
-    //     for (int row = 0; row < get<0>(BLK_MNK{}); row++) {
-    //         for (int col = 0; col < get<2>(BLK_MNK{}); col++) {
-    //             printf("%.0f ", (float)val_block_val(row, col, i));
-    //         } printf("\n");
-    //     }
-    // }
-}
-"""
+}"""
         ),
     )
     sr_bcrs_main_loop_op.append(G2sSparseValBlockValLoadOp)
@@ -436,27 +410,24 @@ for (int iter_i = lid; iter_i < get<0>(BLK_MNK{}) * get<2>(BLK_MNK{}) / load_til
                     mem="smem",
                     dtype=dtypeAB,
                     row_major=True,
-                    swizzle=SwizzleLayout(b=3, m=3, s=3),
+                    swizzle=SwizzleLayout(b=3, m=2, s=3),
                 ),
             ),
         ],
         impl=NvOpImpl(
             r"""
-// auto thr_tiler = make_shape(_8{});
-// auto thr_coord = make_coord(lid);
-__syncthreads();
-auto load_tile_n = _8{};
+auto load_tile_n = _4{};
 for (int iter_i = lid; iter_i < get<2>(BLK_MNK{}) * get<1>(BLK_MNK{}) / load_tile_n; iter_i += 32) {
     int row = iter_i / (get<1>(BLK_MNK{}) / load_tile_n);
     int col = iter_i % (get<1>(BLK_MNK{}) / load_tile_n);
     int sidx = tile_sidx_block(row);
-    auto thr_tiler_gmem = make_shape(_1{}, _8{});
+    auto thr_tiler_gmem = make_shape(_1{}, _4{});
     auto thr_coord_gmem = make_coord(sidx, col);
     auto B_val_thr = local_tile(B_val, thr_tiler_gmem, thr_coord_gmem);
-    auto thr_tiler_smem = make_shape(_1{}, _8{});
+    auto thr_tiler_smem = make_shape(_1{}, _4{});
     auto thr_coord_smem = make_coord(row, col);
     auto dst = local_tile(tileB_block(_, _, buf_idx), thr_tiler_smem, thr_coord_smem);
-    copy(Copy_Atom<SM80_CP_ASYNC_CACHEGLOBAL<cute::uint128_t>, half>{}, B_val_thr(0, _), dst(0, _));   
+    copy(Copy_Atom<SM80_CP_ASYNC_CACHEGLOBAL<cute::uint128_t>, float>{}, B_val_thr(0, _), dst(0, _));   
 }"""
         ),
         mem_type=("g", "s"),
@@ -495,24 +466,14 @@ for (int iter_i = lid; iter_i < get<2>(BLK_MNK{}) * get<1>(BLK_MNK{}) / load_til
         ],
         impl=NvOpImpl(
             r"""
-__syncthreads();
-//! debug tile A
-if (thread0()) {
-    // printf("tile A block\n");
-    // for (int i = 0; i < get<0>(BLK_MNK{}); i++) {
-    //     for (int j = 0; j < get<2>(BLK_MNK{}); j++) {
-    //         printf("%.0f ", (float)tileA_block(i, j));
-    //     } printf("\n");
-    // }
-} 
-//> m16n8k16
+//> m16n8k8
 for (int m_iter = 0; m_iter < get<0>(BLK_MMA_MNK{}); m_iter++) {
     for (int k_iter = 0; k_iter < get<2>(BLK_MMA_MNK{}); k_iter++) {
         int row = m_iter * get<0>(MMA_MNK{}) + lid % 16;
         int col = lid / 16;
         ldmatrix_m8n8k8_x4(
             (uint32_t*)(REGA(_, make_coord(m_iter, k_iter), buf_idx).data()),
-            (void*)(&tileA_block(row, col * 8 + k_iter * get<2>(MMA_MNK{})))
+            (void*)(&tileA_block(row, col * 4 + k_iter * get<2>(MMA_MNK{})))
         );
     }
 }
@@ -554,26 +515,17 @@ for (int m_iter = 0; m_iter < get<0>(BLK_MMA_MNK{}); m_iter++) {
         ],
         impl=NvOpImpl(
             r"""
-__syncthreads();
-if (thread0()) {
-    // printf("tileB_block\n");
-    // for (int i = 0; i < get<2>(BLK_MNK{}); i++) {
-    //     for (int j = 0; j < 16; j++) {
-    //         printf("%.0f ", (float)tileB_block(i, j));
-    //     } printf("\n");
-    // }
-}
 for (int n_iter = 0; n_iter < get<1>(BLK_MMA_MNK{}); n_iter++) {
     for (int k_iter = 0; k_iter < get<2>(BLK_MMA_MNK{}); k_iter++) {
-        int row_b = lid % 16 + k_iter * get<2>(MMA_MNK{});
-        int col_b = n_iter;
-        // Tensor tileB_tensor = local_tile(tileB_block, make_shape());
-        ldmatrix_m8n8k8_x2_trans(
+        int row_b = lid / 2 + k_iter * get<2>(MMA_MNK{});
+        int col_b = lid % 2;
+        ldmatrix_m8n8k8_x2(
             (uint32_t*)(REGB(_, make_coord(k_iter, n_iter), buf_idx).data()),
-            (void*)(&tileB_block(row_b, col_b * 8))
+            (void*)(&tileB_block(row_b, col_b * 4 + n_iter * 8))
         );
+        REGB(_0{}, make_coord(k_iter, n_iter), buf_idx) = __shfl_sync(0xffffffff, REGB(_0{}, make_coord(k_iter, n_iter), buf_idx), lid / 4 + lid % 4 * 8);
+        REGB(_1{}, make_coord(k_iter, n_iter), buf_idx) = __shfl_sync(0xffffffff, REGB(_1{}, make_coord(k_iter, n_iter), buf_idx), lid / 4 + lid % 4 * 8);
     }
-    
 }
 """
         ),
@@ -637,28 +589,19 @@ for (int n_iter = 0; n_iter < get<1>(BLK_MMA_MNK{}); n_iter++) {
         ],
         impl=NvOpImpl(
             r"""
-// __syncthreads();
-if (blockIdx.x == 0 && blockIdx.y == 0) {
-    // for (int n_iter = 0; n_iter < 2; n_iter++) {
-    //     for (int k_iter = 0; k_iter < get<2>(BLK_MMA_MNK{}); k_iter++) {
-    //         printf("[%d,%d][%d]check n_iter=%d,k_iter=%d,REGB(%.0f %.0f)(%.0f %.0f)\n",
-    //             blockIdx.x, blockIdx.y, lid,
-    //             n_iter, k_iter,
-    //             (float)REGB(0, make_coord(k_iter, n_iter)),
-    //             (float)REGB(1, make_coord(k_iter, n_iter)),
-    //             (float)REGB(2, make_coord(k_iter, n_iter)),
-    //             (float)REGB(3, make_coord(k_iter, n_iter))
-    //         );
-    //     }
-    // }
-}
 for (int m_iter = 0; m_iter < get<0>(BLK_MMA_MNK{}); m_iter++) {
     for (int n_iter = 0; n_iter < get<1>(BLK_MMA_MNK{}); n_iter++) {
         for (int k_iter = 0; k_iter < get<2>(BLK_MMA_MNK{}); k_iter++) {
-            mma_m16n8k16_fp32(
-                REGC(_, make_coord(m_iter, n_iter)).data(), 
-                (uint32_t*)(REGA(_, make_coord(m_iter, k_iter)).data()), 
-                REGB(_, make_coord(k_iter, n_iter)).data());
+            uint32_t frag_A[4];
+            uint32_t frag_B[2];
+            asm("cvt.rna.tf32.f32  %0, %1;\n" : "=r"(frag_A[0]) : "f"(REGA(0, make_coord(m_iter, k_iter))));
+            asm("cvt.rna.tf32.f32  %0, %1;\n" : "=r"(frag_A[1]) : "f"(REGA(1, make_coord(m_iter, k_iter))));
+            asm("cvt.rna.tf32.f32  %0, %1;\n" : "=r"(frag_A[2]) : "f"(REGA(2, make_coord(m_iter, k_iter))));
+            asm("cvt.rna.tf32.f32  %0, %1;\n" : "=r"(frag_A[3]) : "f"(REGA(3, make_coord(m_iter, k_iter))));
+            asm("cvt.rna.tf32.f32  %0, %1;\n" : "=r"(frag_B[0]) : "f"(REGB(0, make_coord(k_iter, n_iter))));
+            asm("cvt.rna.tf32.f32  %0, %1;\n" : "=r"(frag_B[1]) : "f"(REGB(1, make_coord(k_iter, n_iter))));
+
+            mma_m16n8k8_fp32_tf32_tf32_fp32(REGC(_, make_coord(m_iter, n_iter)).data(), frag_A, frag_B);
         }
     }
 }
@@ -733,7 +676,6 @@ if __name__ == "__main__":
     sr_bcrs_main_loop_op, sr_bcrs_program = sr_bcrs()
 
     #! stage 0
-
     G2sSparseIndexLoadOp = sr_bcrs_program.find_op_by_name("G2sSparseIndexLoadOp")
 
     #! stage 1
@@ -743,7 +685,6 @@ if __name__ == "__main__":
     G2sMatrixBLoadOp = sr_bcrs_program.find_op_by_name("G2sMatrixBLoadOp")
 
     #! stage 2
-
     S2rAValLoadOp = sr_bcrs_program.find_op_by_name("S2rAValLoadOp")
     S2rBValLoadOp = sr_bcrs_program.find_op_by_name("S2rBValLoadOp")
     CalculateOp = sr_bcrs_program.find_op_by_name("CalculateOp")

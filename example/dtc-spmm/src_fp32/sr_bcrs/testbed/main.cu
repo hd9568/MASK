@@ -36,7 +36,10 @@ extern void sr_bcrs_test_tf32(int M,
                               int* val_soff,
                               DTYPEAB* B_val,
                               DTYPEAB* val_block_val,
-                              float* C);
+                              float* C,
+                              bool is_ncu_test,
+                              int warmup_time,
+                              int execute_time);
 
 void initVector(DTYPEAB* vec, int length, float sparsity) {
     if (sparsity < 0.0f || sparsity > 1.0f)
@@ -120,9 +123,9 @@ void cusparse_spmm_all(DTYPEAB* cu_ValA,
     // Create sparse matrix A in CSR format
     CHECK_CUSPARSE(cusparseCreateCsr(&matA, A_num_rows, A_num_cols, nnz, dA_rpt, dA_cid, dA_val,
                                      CUSPARSE_INDEX_32I, CUSPARSE_INDEX_32I,
-                                     CUSPARSE_INDEX_BASE_ZERO, CUDA_R_16F));
+                                     CUSPARSE_INDEX_BASE_ZERO, CUDA_R_32F));
     CHECK_CUSPARSE(
-      cusparseCreateDnMat(&matB, B_num_rows, B_num_cols, ldb, dB, CUDA_R_16F, CUSPARSE_ORDER_ROW))
+      cusparseCreateDnMat(&matB, B_num_rows, B_num_cols, ldb, dB, CUDA_R_32F, CUSPARSE_ORDER_ROW))
     CHECK_CUSPARSE(
       cusparseCreateDnMat(&matC, C_num_rows, C_num_cols, ldc, dC, CUDA_R_32F, CUSPARSE_ORDER_ROW));
     // allocate an external buffer if needed
@@ -222,7 +225,7 @@ void convertToSRBCRS(int M,
     memset(val_block_val, 0, sizeof(DTYPEAB) * total_TCBlock_num * TILE_M * TILE_K);
 
     auto swizzle_layout = composition(
-      Swizzle<2, 3, 3>{}, make_layout(make_shape(TILE_M, TILE_K), make_stride(TILE_K, 1)));
+      Swizzle<2, 2, 3>{}, make_layout(make_shape(TILE_M, TILE_K), make_stride(TILE_K, 1)));
     for (int i_row_window = 0; i_row_window < row_window_num; i_row_window++) {
         int TC_block_offset = val_soff[i_row_window];
         int* tmp_val_sidx = val_sidx + TC_block_offset * TILE_K;
@@ -270,7 +273,7 @@ void convertToSRBCRS(int M,
         }
     }
     sr_bcrs_test_tf32<TILE_M, TILE_N, TILE_K>(M, N, K, total_TCBlock_num, val_sidx, val_soff, B,
-                                              val_block_val, C);
+                                              val_block_val, C, is_ncu_test, warmup_time, execute_time);
 }
 
 int main(int argc, char** argv) {

@@ -743,7 +743,9 @@ if __name__ == "__main__":
             new_loop, new_sr_bcrs_program = sr_bcrs()
             apply_pipeline(new_loop, plan)
             with open(plans_dir / f"plan_{idx}.inc", "w") as f_kernel:
-                f_kernel.write(NvIrCodeGenerator().dump_nvop_program(new_sr_bcrs_program))
+                f_kernel.write(
+                    NvIrCodeGenerator().dump_nvop_program(new_sr_bcrs_program)
+                )
             f_plans.write(f"{idx},{plan}\n")
 
     print("Possible plans:", len(plans))
