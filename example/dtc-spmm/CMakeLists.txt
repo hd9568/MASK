@@ -70,6 +70,7 @@ add_subdirectory(${SRCDIR_FP16}/row_majorB_vs_bind_reorder/)
 
 add_subdirectory(${SRCDIR_FP16}/flash_llm_vs_bind_reorder/)
 add_subdirectory(${SRCDIR_FP16}/flash_llm_vs_bind_reorder_multi_warp/)
+add_subdirectory(${SRCDIR_FP16}/sr_bcrs/)
 
 # SRC_FP32 directory
 set(SRCDIR_FP32 ${CMAKE_CURRENT_SOURCE_DIR}/src_fp32)
