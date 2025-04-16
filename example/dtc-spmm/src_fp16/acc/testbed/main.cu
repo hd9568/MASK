@@ -34,27 +34,33 @@ template <class dtypeA,
           int Mma_N,
           int Mma_K>
 extern void acc_spmm_test(int M,
-                             int N,
-                             int K,
-                             dtypeB* B_val,
-                             dtypeC* C_val,
-                             int* val_sidx,
-                             int* val_soff,
-                             int* val_mco_off,
-                             dtypeMask* val_mco_mask,
-                             dtypeA* val_mco_val);
+                          int N,
+                          int K,
+                          dtypeB* B_val,
+                          dtypeC* C_val,
+                          int* val_sidx,
+                          int* val_soff,
+                          int* val_mco_off,
+                          dtypeMask* val_mco_mask,
+                          dtypeA* val_mco_val,
+                          bool is_ncu_test,
+                          int warmup_time,
+                          int execute_time);
 
 extern template void
 acc_spmm_test<half, half, float, uint64_t, 16, 64, 16, 16, 8, 16>(int M,
-                                                                     int N,
-                                                                     int K,
-                                                                     half* B_val,
-                                                                     float* C_val,
-                                                                     int* val_sidx,
-                                                                     int* val_soff,
-                                                                     int* val_mco_off,
-                                                                     uint64_t* val_mco_mask,
-                                                                     half* val_mco_val);
+                                                                  int N,
+                                                                  int K,
+                                                                  half* B_val,
+                                                                  float* C_val,
+                                                                  int* val_sidx,
+                                                                  int* val_soff,
+                                                                  int* val_mco_off,
+                                                                  uint64_t* val_mco_mask,
+                                                                  half* val_mco_val,
+                                                                  bool is_ncu_test,
+                                                                  int warmup_time,
+                                                                  int execute_time);
 
 int binarySearch(int* arr, int l, int r, int target) {
     while (l <= r) {
@@ -114,39 +120,22 @@ vector<uint64_t> convertToUInt64Vector(const vector<bool>& bitset) {
     return uint64Vector;
 }
 
-void convertToAcc(
-  int M, int N, int K, int nnz, int* csrPtrA, int* csrColIdxA, half* csrValA, half* B, float* C) {
+void convertToAcc(int M,
+                  int N,
+                  int K,
+                  int nnz,
+                  int* csrPtrA,
+                  int* csrColIdxA,
+                  half* csrValA,
+                  half* B,
+                  float* C,
+                  bool is_ncu_test,
+                  int warmup_time,
+                  int execute_time) {
     using dtypeA = half;
     using dtypeB = half;
     using dtypeC = float;
     using dtypeMask = uint64_t;
-
-    // if (M <= 128 && N <= 128 && K <= 128) { //! debug
-    //     printf("A_compressed:\n");
-    //     for (int row = 0; row < M; row++) {
-    //         for (int x = csrPtrA[row]; x < csrPtrA[row + 1]; x++) {
-    //             int col = csrColIdxA[x];
-    //             float val = (float)csrValA[x];
-    //             printf("%4.1f(%2d) ", val, col);
-    //         }
-    //         printf("\n");
-    //     }
-    //     vector<float> A_restored(M * K);
-    //     for (int i = 0; i < M; i++) {
-    //         for (int x = csrPtrA[i]; x < csrPtrA[i + 1]; x++) {
-    //             int j = csrColIdxA[x];
-    //             A_restored[i * K + j] = (float)csrValA[x];
-    //         }
-    //     }
-    //     printf("M = %d, K = %d\n", M, K);
-    //     printf("A_restored (host):\n");
-    //     for (int i = 0; i < M; i++) {
-    //         for (int j = 0; j < K; j++) {
-    //             printf("%4.1f ", A_restored[i * K + j]);
-    //         }
-    //         printf("\n");
-    //     }
-    // }
 
     // 1. Create ptrs
     dtypeB* B_val;
@@ -164,7 +153,6 @@ void convertToAcc(
     const int Blk_K = 16;
 
     // 2. Convert
-
     auto swizzler =
       cute::composition(cute::Swizzle<1, 3, 3>{}, cute::make_layout(cute::make_shape(Blk_M, Blk_K),
                                                                     cute::make_stride(Blk_K, 1)));
@@ -187,17 +175,6 @@ void convertToAcc(
                 nz_cols[col][row] = val;
             }
         }
-
-        // {//! debug
-        //     printf("nz_cols: \n");
-        //     for (auto& [col, row_vals] : nz_cols) {
-        //         printf("%4d: ", col);
-        //         for (auto& [row, val] : row_vals) {
-        //             printf("%4.1f ", (float)val);
-        //         }
-        //         printf("\n");
-        //     }
-        // }
 
         // construct nz blocks by condensing nz cols
         vector<map<int, dtypeA>> nz_blks;
@@ -225,13 +202,6 @@ void convertToAcc(
 
         // extract bitmasks and values from nz blocks
         for (auto& nz_blk : nz_blks) {
-            // { //! debug
-            //     printf("Pushing ");
-            //     for (auto &[idx, val] : nz_blk) {
-            //         printf("%4.1f ", (float)val);
-            //     }
-            //     printf("into (%d)\n", rw_idx);
-            // }
             vector<bool> bitmask(Blk_M * Blk_K, false);
             vector<dtypeA> vals;
             for (auto& [idx, val] : nz_blk) {
@@ -246,18 +216,6 @@ void convertToAcc(
             nz_blk_val.push_back(vals);
         }
     }
-
-    // { //! debug
-    //     printf("nz_blk_mask.size(): %d\n", nz_blk_mask.size());
-    //     printf("nz_blk_val.size(): %d\n", nz_blk_val.size());
-    //     printf("nz_blk_nz_cols.size(): %d\n", nz_blk_nz_cols.size());
-    //     for (int rw_idx = 0; rw_idx < num_row_windows; rw_idx++) {
-    //         for (auto &nz_col : nz_blk_nz_cols[rw_idx]) {
-    //             printf("%4d ", nz_col);
-    //         }
-    //         printf("\n");
-    //     }
-    // }
 
     // 3. Accumulate offsets and flatten values
     vector<int> vval_soff;
@@ -294,23 +252,10 @@ void convertToAcc(
     val_mco_mask = vval_mco_mask.data();
     val_mco_val = vval_mco_val.data();
 
-    // { //! debug
-    //     printf("val_soff.size(): %d\n", vval_soff.size());
-    //     printf("val_sidx.size(): %d\n", vval_sidx.size());
-    //     printf("val_mco_off.size(): %d\n", vval_mco_off.size());
-    //     printf("val_mco_mask.size(): %d\n", vval_mco_mask.size());
-    //     printf("val_mco_val.size(): %d\n", vval_mco_val.size());
-    // }
-
     // 4. Call the kernel
-    // { //! debug
-    //     printf("Calling acc_spmm_test\n");
-    // }
     acc_spmm_test<dtypeA, dtypeB, dtypeC, dtypeMask, 16, 64, 16, 16, 8, 16>(
-      M, N, K, B_val, C_val, val_sidx, val_soff, val_mco_off, val_mco_mask, val_mco_val);
-    // { //! debug
-    //     printf("acc_spmm_test done\n");
-    // }
+      M, N, K, B_val, C_val, val_sidx, val_soff, val_mco_off, val_mco_mask, val_mco_val,
+      is_ncu_test, warmup_time, execute_time);
 }
 
 void verify_new(float* C_cpu, float* C_cuda, int M, int N) {
@@ -425,8 +370,12 @@ int main(int argc, char** argv) {
     int K = 1024;
     float sparsity = 0.9;
     int mtx_flag = 1;
+    int is_ncu_test = 0;
+    int warmup_time = 100;
+    int execute_time = 1000;
     parseInput(argc, argv, filename, "-filename", N, "-N", M, "-M", K, "-K", mtx_flag, "-mtx_flag",
-               sparsity, "-sparsity");
+               sparsity, "-sparsity", is_ncu_test, "-ncu", warmup_time, "-warmup",
+               execute_time, "-repeat");
 
     cout << "Filename: " << filename << endl;
     cout << "N: " << N << endl;
@@ -484,7 +433,8 @@ int main(int argc, char** argv) {
     initVector(B, K * N, 0);
 
     float* C_cuda = (float*)malloc(sizeof(float) * M * N);
-    convertToAcc(M, N, K, nnz, csrPtrA, csrColIdxA, csrValA, B, C_cuda);
+    convertToAcc(M, N, K, nnz, csrPtrA, csrColIdxA, csrValA, B, C_cuda, (bool)is_ncu_test,
+                 warmup_time, execute_time);
 
     // host check
     float* C_cpu = (float*)malloc(sizeof(float) * M * N);
