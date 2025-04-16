@@ -52,6 +52,8 @@ void ncu_test_all(
     using MMA_MNK = decltype(mma_mnk);
     constexpr auto blk_mma_mnk = make_shape(Int<TC_BLOCK_M / 16>{}, Int<TILE_B / 8>{}, Int<TC_BLOCK_K / 8>{});
     using BLK_MMA_MNK = decltype(blk_mma_mnk);
+    constexpr auto warp_mnk = make_shape(_1{}, _1{}, _1{});
+    using WARP_MNK = decltype(warp_mnk);
 
     using tile_sidx_size = Int<TC_BLOCK_K>;
     // constexpr auto TC_BLOCK_K_PAD = TC_BLOCK_K / 8 % 2 == 0 ? TC_BLOCK_K + 8 : TC_BLOCK_K;
@@ -67,7 +69,7 @@ void ncu_test_all(
 
     //! (shift1 = 1, shift2 = 1)
     dtc_spmm_kernel_fp32_val_idx_bind_stage2<
-        BLK_MNK, MMA_MNK, BLK_MMA_MNK, 
+        BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK, 
         tile_coo_val_size, tile_coo_val_size_no_pad, tile_sidx_size
     ><<<grid, block>>>(dB_val, dC, dval_coo_idx, dval_coo_off, dval_coo_val, dval_sidx, dval_soff, 
                        K, M, Mo, N, nnz, nnz_block);

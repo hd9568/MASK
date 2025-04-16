@@ -61,11 +61,13 @@ void ncu_test(int threadblock_num_x,
     constexpr auto blk_mma_mnk =
       make_shape(Int<Tile_M / Mma_M>{}, Int<Tile_N / Mma_N>{}, Int<Tile_K / Mma_K>{});
     using BLK_MMA_MNK = decltype(blk_mma_mnk);
+    constexpr auto warp_mnk = make_shape(_1{}, _1{}, _1{});
+    using WARP_MNK = decltype(warp_mnk);
 
     using nmask_per_tile = Int<Tile_M * Tile_N / 64>;
     using tile_mco_val_size = Int<Tile_M * Tile_N>;
 
-    bitbsr_spmm_kernel_tf32tf32fp32<BLK_MNK, MMA_MNK, BLK_MMA_MNK, nmask_per_tile,
+    bitbsr_spmm_kernel_tf32tf32fp32<BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK, nmask_per_tile,
                                     tile_mco_val_size>
       <<<grid, block>>>(dB_val, dC_val, dval_mco_mask, dval_mco_off, dval_mco_val, dval_sidx,
                         dval_soff, K, M, Mo, N, nnz_aligned, nnz_block);
@@ -109,6 +111,8 @@ void repeat_test(int threadblock_num_x,
     constexpr auto blk_mma_mnk =
       make_shape(Int<Tile_M / Mma_M>{}, Int<Tile_N / Mma_N>{}, Int<Tile_K / Mma_K>{});
     using BLK_MMA_MNK = decltype(blk_mma_mnk);
+    constexpr auto warp_mnk = make_shape(_1{}, _1{}, _1{});
+    using WARP_MNK = decltype(warp_mnk);
 
     using nmask_per_tile = Int<Tile_M * Tile_N / 64>;
     using tile_mco_val_size = Int<Tile_M * Tile_N>;
@@ -116,7 +120,7 @@ void repeat_test(int threadblock_num_x,
     struct timeval t1, t2;
     {
         for (int i = 0; i < warmup_time; i++) {
-            bitbsr_spmm_kernel_tf32tf32fp32<BLK_MNK, MMA_MNK, BLK_MMA_MNK, nmask_per_tile,
+            bitbsr_spmm_kernel_tf32tf32fp32<BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK, nmask_per_tile,
                                             tile_mco_val_size>
               <<<grid, block>>>(dB_val, dC_val, dval_mco_mask, dval_mco_off, dval_mco_val,
                                 dval_sidx, dval_soff, K, M, Mo, N, nnz_aligned, nnz_block);
@@ -124,7 +128,7 @@ void repeat_test(int threadblock_num_x,
         CHECK_CUDA2(cudaDeviceSynchronize());
         gettimeofday(&t1, NULL);
         for (int i = 0; i < execute_time; i++) {
-            bitbsr_spmm_kernel_tf32tf32fp32<BLK_MNK, MMA_MNK, BLK_MMA_MNK, nmask_per_tile,
+            bitbsr_spmm_kernel_tf32tf32fp32<BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK, nmask_per_tile,
                                             tile_mco_val_size>
               <<<grid, block>>>(dB_val, dC_val, dval_mco_mask, dval_mco_off, dval_mco_val,
                                 dval_sidx, dval_soff, K, M, Mo, N, nnz_aligned, nnz_block);
