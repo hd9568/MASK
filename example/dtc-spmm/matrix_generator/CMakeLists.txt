@@ -38,7 +38,7 @@ include_directories(${CUTLASS_INCLUDE_DIR} ${CUTLASS_COMMON_DIR} ${CUTLASS_UTIL_
 
 file(GLOB_RECURSE SRC_CUDA_FILES ${SRCDIR}/*.cu)
 
-add_executable(gen ${CMAKE_SOURCE_DIR}/main.cu ${SRC_CUDA_FILES})
+add_executable(gen ${PROJECT_SOURCE_DIR}/main.cu ${SRC_CUDA_FILES})
 
 target_compile_options(gen PRIVATE ${CUDA_NVCC_FLAGS} -I${SRCDIR} -I${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(gen PRIVATE -lcusparse -lcublas)

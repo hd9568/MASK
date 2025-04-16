@@ -37,44 +37,44 @@ file(GLOB_RECURSE SRC_CUDA_FILES ${SRCDIR}/*.cu)
 # list(REMOVE_ITEM SRC_CUDA_FILES ${EXCLUDE_FILES})
 
 # SRC_FP16 directory
-set(SRCDIR_FP16 ${CMAKE_CURRENT_SOURCE_DIR}/src_fp16)
+# set(SRCDIR_FP16 ${CMAKE_CURRENT_SOURCE_DIR}/src_fp16)
 
-#> col major B
-add_subdirectory(${SRCDIR_FP16}/col_majorB/)
+# #> col major B
+# add_subdirectory(${SRCDIR_FP16}/col_majorB/)
 # file(GLOB_RECURSE SRC_FP16_COLMAJORB_FILES ${SRCDIR_FP16}/col_majorB/*.cu)
 # add_executable(dtc_half_col_majorB ${SRC_CUDA_FILES} ${SRC_FP16_COLMAJORB_FILES})
 # target_compile_options(dtc_half_col_majorB PRIVATE ${CUDA_NVCC_FLAGS} -I${SRCDIR})
 # target_link_libraries(dtc_half_col_majorB PRIVATE ${CUDA_LIBS})
 
 
-#> row major B
-file(GLOB_RECURSE SRC_FP16_ROWMAJORB_FILES ${SRCDIR_FP16}/row_majorB/*.cu)
-add_executable(dtc_half_row_majorB ${SRC_CUDA_FILES} ${SRC_FP16_ROWMAJORB_FILES})
-target_compile_options(dtc_half_row_majorB PRIVATE ${CUDA_NVCC_FLAGS} -I${SRCDIR})
-target_link_libraries(dtc_half_row_majorB PRIVATE ${CUDA_LIBS})
+# #> row major B
+# file(GLOB_RECURSE SRC_FP16_ROWMAJORB_FILES ${SRCDIR_FP16}/row_majorB/*.cu)
+# add_executable(dtc_half_row_majorB ${SRC_CUDA_FILES} ${SRC_FP16_ROWMAJORB_FILES})
+# target_compile_options(dtc_half_row_majorB PRIVATE ${CUDA_NVCC_FLAGS} -I${SRCDIR})
+# target_link_libraries(dtc_half_row_majorB PRIVATE ${CUDA_LIBS})
 
 
-#> row major B val sidx bind
-file(GLOB_RECURSE SRC_FP16_ROWMAJORB_VS_BIND_FILES ${SRCDIR_FP16}/row_majorB_vs_bind/*.cu)
-add_executable(dtc_half_row_majorB_vs_bind ${SRC_CUDA_FILES} ${SRC_FP16_ROWMAJORB_VS_BIND_FILES})
-target_compile_options(dtc_half_row_majorB_vs_bind PRIVATE ${CUDA_NVCC_FLAGS} -I${SRCDIR})
-target_link_libraries(dtc_half_row_majorB_vs_bind PRIVATE ${CUDA_LIBS})
+# #> row major B val sidx bind
+# file(GLOB_RECURSE SRC_FP16_ROWMAJORB_VS_BIND_FILES ${SRCDIR_FP16}/row_majorB_vs_bind/*.cu)
+# add_executable(dtc_half_row_majorB_vs_bind ${SRC_CUDA_FILES} ${SRC_FP16_ROWMAJORB_VS_BIND_FILES})
+# target_compile_options(dtc_half_row_majorB_vs_bind PRIVATE ${CUDA_NVCC_FLAGS} -I${SRCDIR})
+# target_link_libraries(dtc_half_row_majorB_vs_bind PRIVATE ${CUDA_LIBS})
 
 
 #> row major B val sidx bind reorder
-add_subdirectory(${SRCDIR_FP16}/row_majorB_vs_bind_reorder/)
+# add_subdirectory(${SRCDIR_FP16}/row_majorB_vs_bind_reorder/)
 # file(GLOB_RECURSE SRC_FP16_ROWMAJORB_VS_BIND_REORDER_FILES ${SRCDIR_FP16}/row_majorB_vs_bind_reorder/*.cu)
 # add_executable(dtc_half_row_majorB_vs_bind_reorder ${SRC_CUDA_FILES} ${SRC_FP16_ROWMAJORB_VS_BIND_REORDER_FILES})
 # target_compile_options(dtc_half_row_majorB_vs_bind_reorder PRIVATE ${CUDA_NVCC_FLAGS} -I${SRCDIR})
 # target_link_libraries(dtc_half_row_majorB_vs_bind_reorder PRIVATE ${CUDA_LIBS})
 
-add_subdirectory(${SRCDIR_FP16}/flash_llm_vs_bind_reorder/)
-add_subdirectory(${SRCDIR_FP16}/flash_llm_vs_bind_reorder_multi_warp/)
-add_subdirectory(${SRCDIR_FP16}/sr_bcrs/)
+# add_subdirectory(${SRCDIR_FP16}/flash_llm_vs_bind_reorder/)
+# add_subdirectory(${SRCDIR_FP16}/flash_llm_vs_bind_reorder_multi_warp/)
+# add_subdirectory(${SRCDIR_FP16}/sr_bcrs/)
 
-# SRC_FP32 directory
-set(SRCDIR_FP32 ${CMAKE_CURRENT_SOURCE_DIR}/src_fp32)
-add_subdirectory(${SRCDIR_FP32}/row_majorB_vs_bind_reorder/)
+# # SRC_FP32 directory
+# set(SRCDIR_FP32 ${CMAKE_CURRENT_SOURCE_DIR}/src_fp32)
+# add_subdirectory(${SRCDIR_FP32}/row_majorB_vs_bind_reorder/)
 
 # file(GLOB_RECURSE SRC_FP32_CUDA_FILES ${SRCDIR_FP32}/*.cu)
 # add_executable(dtc_float ${SRC_CUDA_FILES} ${SRC_FP32_CUDA_FILES})
@@ -82,13 +82,13 @@ add_subdirectory(${SRCDIR_FP32}/row_majorB_vs_bind_reorder/)
 # target_link_libraries(dtc_float PRIVATE ${CUDA_LIBS})
 # target_compile_definitions(dtc_float PRIVATE f32)
 
-# SRC_FP64 directory
-set(SRCDIR_FP64 ${CMAKE_CURRENT_SOURCE_DIR}/src_fp64)
-file(GLOB_RECURSE SRC_FP64_CUDA_FILES ${SRCDIR_FP64}/*.cu)
-add_executable(dtc_double ${SRC_CUDA_FILES} ${SRC_FP64_CUDA_FILES})
-target_compile_options(dtc_double PRIVATE ${CUDA_NVCC_FLAGS})
-target_link_libraries(dtc_double PRIVATE ${CUDA_LIBS})
-target_compile_definitions(dtc_double PRIVATE f64)
+# # SRC_FP64 directory
+# set(SRCDIR_FP64 ${CMAKE_CURRENT_SOURCE_DIR}/src_fp64)
+# file(GLOB_RECURSE SRC_FP64_CUDA_FILES ${SRCDIR_FP64}/*.cu)
+# add_executable(dtc_double ${SRC_CUDA_FILES} ${SRC_FP64_CUDA_FILES})
+# target_compile_options(dtc_double PRIVATE ${CUDA_NVCC_FLAGS})
+# target_link_libraries(dtc_double PRIVATE ${CUDA_LIBS})
+# target_compile_definitions(dtc_double PRIVATE f64)
 
 add_compile_options("$<$<COMPILE_LANGUAGE:CUDA>:-lineinfo>")
 
@@ -105,4 +105,29 @@ add_compile_options("$<$<COMPILE_LANGUAGE:CUDA>:-lineinfo>")
 # target_compile_options(myhalf PRIVATE ${CUDA_NVCC_FLAGS})
 # target_link_libraries(myhalf PRIVATE ${CUDA_LIBS})
 
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/src_fp16/acc/testbed/)
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/src_fp16/dtc/testbed/)
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/src_fp16/bitbsr/testbed/)
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/src_fp16/sr_bcrs/testbed/)
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/src_fp16/cusparse/testbed/)
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/src_fp32/acc/testbed/)
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/src_fp32/dtc/testbed/)
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/src_fp32/bitbsr/testbed/)
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/src_fp32/sr_bcrs/testbed/)
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/src_fp32/cusparse/testbed/)
+
+
+add_custom_target(demos DEPENDS 
+    demo-acc-fp16 
+    demo-acc-tf32 
+    demo-bitbsr-fp16 
+    demo-bitbsr-tf32 
+    demo-cusp-fp16 
+    demo-cusp-tf32 
+    demo-dtc-fp16 
+    demo-dtc-tf32 
+    demo-srbcrs-fp16 
+    demo-srbcrs-tf32
+)

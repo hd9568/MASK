@@ -38,11 +38,11 @@ include_directories(${CUTLASS_INCLUDE_DIR} ${CUTLASS_COMMON_DIR} ${CUTLASS_UTIL_
 
 file(GLOB_RECURSE SRC_CUDA_FILES ${SRCDIR}/*.cu)
 
-add_executable(demo ${CMAKE_SOURCE_DIR}/main.cu ${SRC_CUDA_FILES})
+add_executable(demo-cusp-fp16 ${PROJECT_SOURCE_DIR}/main.cu ${SRC_CUDA_FILES})
 
-target_compile_options(demo PRIVATE ${CUDA_NVCC_FLAGS} -I${SRCDIR} -I${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(demo PRIVATE -lcusparse -lcublas)
-target_include_directories(demo PRIVATE 
+target_compile_options(demo-cusp-fp16 PRIVATE ${CUDA_NVCC_FLAGS} -I${SRCDIR} -I${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(demo-cusp-fp16 PRIVATE -lcusparse -lcublas)
+target_include_directories(demo-cusp-fp16 PRIVATE 
     ${CUTLASS_INCLUDE_DIR}
     ${CUTLASS_COMMON_DIR}
     ${CUTLASS_UTIL_DIR}
