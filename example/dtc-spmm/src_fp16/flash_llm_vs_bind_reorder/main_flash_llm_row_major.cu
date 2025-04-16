@@ -18,6 +18,10 @@
 using namespace std;
 using namespace cute;
 
+#define BLK_M 64
+#define BLK_N 128
+#define BLK_K 32
+
 #define OFFSET_ROW(row, col, lda) ((row) * (lda) + (col))
 #define OFFSET_COL(row, col, lda) ((col) * (lda) + (row))
 
@@ -54,7 +58,6 @@ void initVector(half* vec, int length, float sparsity) {
     }
 }
 
-#define ROW_WINDOW_M 16
 #define TC_BLOCK_K 16
 #define TC_BLOCK_M 16
 
@@ -178,9 +181,9 @@ int flashLLMPreprocess_full_matrixA(
     uint32_t** Compressed_A,    // CPU PTR
     int** TileOffsets           // CPU PTR
 ) {
-    const int TILE_M                       = 32;
-    const int TILE_K                       = 32;
-    const int TILE_N                       = 64;
+    const int TILE_M                       = BLK_M;
+    const int TILE_N                       = BLK_N;
+    const int TILE_K                       = BLK_K;
     const int VECTOR_SIZE                  = 4;
     const int PADDING_SIZE_FOR_TILEOFFSETS = 2;
 
@@ -252,6 +255,9 @@ int flashLLMPreprocess_full_matrixA(
                         //! swizzle cute
                         auto coord = make_coord(row, col);
                         auto idx = swizzle_layout(coord);
+                        if (row >= 64) {
+                            // printf("m = %d, n = %d, idx = %d\n", m, n, idx);
+                        }
                         *short_ptr = static_cast<short>(idx);
                         //
                         TileNZCount++;
@@ -305,7 +311,7 @@ void test(int M, int N, int K, bool check) {
     
     memset(A, 0, sizeof(half) * M * K);
     memset(B, 0, sizeof(half) * K * N);
-    float sparsity = 0.5;
+    float sparsity = 0.9;
     initVector(B, K * N);
     initVector(A, M * K, sparsity);
     
@@ -374,7 +380,8 @@ void test(int M, int N, int K, bool check) {
     printf("NumOffsets: %d, NNZ: %d\n", NumOffsets, NNZ);
     // flashLLMPreprocess_full_matrixA(A, )
     // convertToMETCF(M, N, K, nnz, csrPtrA, csrColIdxA, csrValA, B, C_cuda);
-    flash_llm_test<32, 32, 32>(M, N, K, NumOffsets, NNZ, TileOffsets, Compressed_A, B, C_cuda);
+    // flash_llm_test<64, 128, 32>(M, N, K, NumOffsets, NNZ, TileOffsets, Compressed_A, B, C_cuda);
+    flash_llm_test<BLK_M, BLK_N, BLK_K>(M, N, K, NumOffsets, NNZ, TileOffsets, Compressed_A, B, C_cuda);
     //host check
     if (check) {
         float* C_cpu = (float*)malloc(sizeof(float) * M * N);
@@ -437,7 +444,7 @@ int main(int argc, char** argv) {
         // test(32, 32, 32, true);
         // printf("==============================(%d,%d,%d)\n", 16, 32, 16);
         // test(16, 32, 16, true);
-        printf("==============================\n");
+        printf("==============================\n"); 
     }
 
     return 0;

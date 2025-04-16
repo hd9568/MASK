@@ -18,13 +18,16 @@ void ncu_test_all(
     using MMA_MNK = decltype(mma_mnk);
     constexpr auto blk_mma_mnk = make_shape(Int<TILE_M / 16>{}, Int<TILE_N / 8>{}, Int<TILE_K / 16>{});
     using BLK_MMA_MNK = decltype(blk_mma_mnk);
+    constexpr auto warp_mnk = make_shape(_1{}, _1{}, _1{});
+    using WARP_MNK = decltype(warp_mnk);
+
 
     constexpr auto compressed_A_reg_size_ins = make_shape(Int<(TILE_M * TILE_K + 32 - 1) / 32>{});
     using compressed_A_reg_size = decltype(compressed_A_reg_size_ins);
     constexpr auto tile_val_idx_bind_size_ins = make_shape(Int<get<0>(BLK_MNK{}) * get<2>(BLK_MNK{})>{});
     using tile_val_idx_bind_size = decltype(tile_val_idx_bind_size_ins);
 
-    flash_llm_spmm_kernel_sstage_rstage<BLK_MNK, MMA_MNK, BLK_MMA_MNK, compressed_A_reg_size, tile_val_idx_bind_size>
+    flash_llm_spmm_kernel_sstage_rstage<BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK, compressed_A_reg_size, tile_val_idx_bind_size>
     <<<grid, block>>>(dB_val, dC, dCompressed_A, dTileOffsets, K, M, N, NumOffsets, NNZ);
 }
 
@@ -79,7 +82,7 @@ void flash_llm_test(
     CHECK_CUDA2(cudaMemcpy(C, dC, sizeof(float) * M * N, cudaMemcpyDeviceToHost));
 }
 
-template void flash_llm_test<32, 32, 32>(
+template void flash_llm_test<64, 128, 32>(
     int M, int N, int K,
     int NumOffsets,
     int NNZ,

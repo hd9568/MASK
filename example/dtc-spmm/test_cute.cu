@@ -396,7 +396,27 @@ int main() {
 	}
 	{	// suppose tile N = 16 (无冲突)
 		auto a = Layout<Shape<_16, _2>, Stride<_2, _1>>{};
+		auto b = composition(Swizzle<1, 0, 1>{}, Layout<Shape<_16, _2>, Stride<_2, _1>>{});
+		printf("Layout a: "); print(a); printf("\n");
+		printf("Layout b: "); print(b); printf("\n");
+		
+		print_layout_local(b);
+		printf("%14s: %d\n", "cosize(layout)", (int)cosize(b));
+		// printf("size = %d\n", cosize(b));
+	}
+	{	// suppose tile N = 16 (无冲突)
+		auto a = Layout<Shape<_16, _2>, Stride<_2, _1>>{};
 		auto b = composition(Swizzle<2, 0, 2>{}, Layout<Shape<_16, _2>, Stride<_2, _1>>{});
+		printf("Layout a: "); print(a); printf("\n");
+		printf("Layout b: "); print(b); printf("\n");
+		
+		print_layout_local(b);
+		printf("%14s: %d\n", "cosize(layout)", (int)cosize(b));
+		// printf("size = %d\n", cosize(b));
+	}
+	{	// suppose tile N = 128 (无冲突)
+		auto a = Layout<Shape<_16, _16>, Stride<_16, _1>>{};
+		auto b = composition(Swizzle<3, 0, 4>{}, Layout<Shape<_16, _16>, Stride<_16, _1>>{});
 		printf("Layout a: "); print(a); printf("\n");
 		printf("Layout b: "); print(b); printf("\n");
 		

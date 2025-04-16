@@ -83,12 +83,12 @@ class ParamShape(ShapeEle):
 
 @dataclass
 class MnkShape(ShapeEle):
-    param: Literal["BLK_MNK", "MMA_MNK", "BLK_MMA_MNK"]
+    param: Literal["BLK_MNK", "MMA_MNK", "BLK_MMA_MNK", "WARP_MNK"]
     mnk: Literal["m", "n", "k"]
 
     def __init__(
         self,
-        param: Literal["BLK_MNK", "MMA_MNK", "BLK_MMA_MNK"],
+        param: Literal["BLK_MNK", "MMA_MNK", "BLK_MMA_MNK", "WARP_MNK"],
         mnk: Literal["m", "n", "k"],
     ):
         self.param = param
@@ -433,6 +433,7 @@ class ConstantNvOp(NvOp):
             ],
             impl=NvOpImpl(code_template=""),
             op_type=NvOpType.UNKNOWN,
+            parameters=kwargs.get('parameters', {}), 
         )
         self.value = value
 

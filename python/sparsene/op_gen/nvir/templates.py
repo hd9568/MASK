@@ -108,7 +108,7 @@ this->_r = r;
 {pipeline_dispatch}
 """
 
-PIPELINED_FOR_LOOP_NVOP_DEF_SKELETON = """template <class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK{visible_op_type_template_params}{non_owning_tensor_type_template_params}{io_dtype_template_params}{parameter_template_params}>
+PIPELINED_FOR_LOOP_NVOP_DEF_SKELETON = """template <class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class WARP_MNK{visible_op_type_template_params}{non_owning_tensor_type_template_params}{io_dtype_template_params}{parameter_template_params}>
 class {op_name} {{
 public:
     // Inputs
@@ -142,7 +142,7 @@ public:
     }}
 }};"""
 
-BLK_IDX_FOR_LOOP_NVOP_DEF_SKELETON = """template <class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK{visible_op_type_template_params}{parameter_template_params}>
+BLK_IDX_FOR_LOOP_NVOP_DEF_SKELETON = """template <class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class WARP_MNK{visible_op_type_template_params}{parameter_template_params}>
 class {op_name} {{
 public:
     // Inputs
@@ -171,7 +171,7 @@ public:
     }}
 }};"""
 
-SEQUENTIAL_FOR_LOOP_NVOP_DEF_SKELETON = """template <class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK{visible_op_type_template_params}{non_owning_tensor_type_template_params}{io_dtype_template_params}{parameter_template_params}>
+SEQUENTIAL_FOR_LOOP_NVOP_DEF_SKELETON = """template <class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class WARP_MNK{visible_op_type_template_params}{non_owning_tensor_type_template_params}{io_dtype_template_params}{parameter_template_params}>
 class {op_name} {{
 public:
     // Inputs
@@ -206,7 +206,7 @@ public:
     }}
 }};"""
 
-CONSTANT_NVOP_CLASS_DEF_SKELETON = """template <{nbuf_type}class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK{parameter_types}{io_dtypes}>
+CONSTANT_NVOP_CLASS_DEF_SKELETON = """template <{nbuf_type}class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class WARP_MNK{parameter_types}{io_dtypes}>
 class {op_name} {{
 public:
     // No Inputs
@@ -229,7 +229,7 @@ public:
     }}
 }};"""
 
-GMEM_TENSOR_NVOP_CLASS_DEF_SKELETON = """template <class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK{parameter_types}{io_dtypes}>
+GMEM_TENSOR_NVOP_CLASS_DEF_SKELETON = """template <class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class WARP_MNK{parameter_types}{io_dtypes}>
 class {op_name} {{
 public:
     // Outputs
@@ -254,7 +254,7 @@ public:
 {get_output_method}
 }};"""
 
-GLOBAL_FUNCTION_SKELETON = """template <class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK{parameter_types}>
+GLOBAL_FUNCTION_SKELETON = """template <class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class WARP_MNK{parameter_types}>
 __global__ void {kernel_name}(
 {gmem_ptrs},
 {varlens}
@@ -317,13 +317,13 @@ using namespace cute;
 // GLOBAL FUNCTION
 {global_function}"""
 
-GMEM_TENSOR_NVOP_CREATE_SKELETON = """using {op_name}_t = {op_name}<BLK_MNK, MMA_MNK, BLK_MMA_MNK>;
+GMEM_TENSOR_NVOP_CREATE_SKELETON = """using {op_name}_t = {op_name}<BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK>;
 {op_name}_t {op_name}_v{{tid, lid, wid{varlen_modes_constructor_args}, d{tensor_name}}};"""
 
-CONSTANT_NVOP_CREATE_SKELETON = """using {op_name}_t = {op_name}<BLK_MNK, MMA_MNK, BLK_MMA_MNK>;
+CONSTANT_NVOP_CREATE_SKELETON = """using {op_name}_t = {op_name}<BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK>;
 using {op_name}_layout_o0 = typename {op_name}_t::Layout_o0;
 {dtype} {op_name}_tensor_o0[cosize_v<{op_name}_layout_o0>];
 {op_name}_t {op_name}_v{{tid, lid, wid, {op_name}_tensor_o0}};"""
 
-FOR_LOOP_NVOP_CREATE_SKELETON = """using {op_name}_t = {op_name}<BLK_MNK, MMA_MNK, BLK_MMA_MNK{visible_op_type_template_args}{non_owning_tensor_type_template_args}>;
+FOR_LOOP_NVOP_CREATE_SKELETON = """using {op_name}_t = {op_name}<BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK{visible_op_type_template_args}{non_owning_tensor_type_template_args}>;
 {op_name}_t {op_name}_v{{tid, lid, wid{visible_op_as_args}{non_owning_tensor_as_args}}};"""

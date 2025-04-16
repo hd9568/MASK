@@ -36,6 +36,9 @@ using namespace cute;
 #define OFFSET_ROW(row, col, lda) ((row) * (lda) + (col))
 #define OFFSET_COL(row, col, lda) ((col) * (lda) + (row))
 
+#define DIVUP(a, b) (((a) - 1) / (b) + 1)
+#define ALIGN(a,b) (DIVUP(a,b)*(b))
+
 __device__ __forceinline__ void ldmatrix_m8n8k8_x4(uint32_t* fragment, void* ptr) {
     uint32_t values_tile_int_ptr = static_cast<uint32_t>(__cvta_generic_to_shared(ptr));
     asm volatile(
@@ -96,7 +99,7 @@ __device__ __forceinline__ void unpack_half_short(uint32_t packed, half& h, shor
 }
 
 
-template <class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class TO0 = float>
+template <class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class WARP_MNK, class TO0 = float>
 class B_valOp {
 public:
     // Outputs
@@ -118,7 +121,7 @@ public:
     B_val(logical_divide(make_tensor(make_gmem_ptr(dB_val), make_layout(make_shape(K, N), make_stride(N, _1{}))), make_shape(_1{}, get<1>(BLK_MNK{})))(_, make_coord(_, blockIdx.y))) {}
 
     // output
-    template<size_t output_idx>
+    template<int output_idx>
     CUTE_DEVICE auto output() {
         if constexpr (output_idx == 0) {
             return B_val;
@@ -126,7 +129,7 @@ public:
     }
 };
 
-template <class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class TO0 = float>
+template <class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class WARP_MNK, class TO0 = float>
 class C_valOp {
 public:
     // Outputs
@@ -148,7 +151,7 @@ public:
     C_val(logical_divide(make_tensor(make_gmem_ptr(dC_val), make_shape(N, M)), select<1, 0>(BLK_MNK{}))(make_coord(_, blockIdx.y), make_coord(_, blockIdx.x))) {}
 
     // output
-    template<size_t output_idx>
+    template<int output_idx>
     CUTE_DEVICE auto output() {
         if constexpr (output_idx == 0) {
             return C_val;
@@ -156,7 +159,7 @@ public:
     }
 };
 
-template <class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class TO0 = int>
+template <class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class WARP_MNK, class TO0 = int>
 class val_coo_idxOp {
 public:
     // Outputs
@@ -178,7 +181,7 @@ public:
     val_coo_idx(make_tensor(make_gmem_ptr(dval_coo_idx), make_shape(nnz))) {}
 
     // output
-    template<size_t output_idx>
+    template<int output_idx>
     CUTE_DEVICE auto output() {
         if constexpr (output_idx == 0) {
             return val_coo_idx;
@@ -186,7 +189,7 @@ public:
     }
 };
 
-template <class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class TO0 = int>
+template <class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class WARP_MNK, class TO0 = int>
 class val_coo_offOp {
 public:
     // Outputs
@@ -208,7 +211,7 @@ public:
     val_coo_off(make_tensor(make_gmem_ptr(dval_coo_off), make_shape(Int<2>{}, nnz_block))) {}
 
     // output
-    template<size_t output_idx>
+    template<int output_idx>
     CUTE_DEVICE auto output() {
         if constexpr (output_idx == 0) {
             return val_coo_off;
@@ -216,7 +219,7 @@ public:
     }
 };
 
-template <class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class TO0 = float>
+template <class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class WARP_MNK, class TO0 = float>
 class val_coo_valOp {
 public:
     // Outputs
@@ -238,7 +241,7 @@ public:
     val_coo_val(make_tensor(make_gmem_ptr(dval_coo_val), make_shape(nnz))) {}
 
     // output
-    template<size_t output_idx>
+    template<int output_idx>
     CUTE_DEVICE auto output() {
         if constexpr (output_idx == 0) {
             return val_coo_val;
@@ -246,7 +249,7 @@ public:
     }
 };
 
-template <class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class tile_sidx_size = Int<8>, class TO0 = int>
+template <class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class WARP_MNK, class tile_sidx_size = Int<8>, class TO0 = int>
 class val_sidxOp {
 public:
     // Outputs
@@ -268,7 +271,7 @@ public:
     val_sidx(make_tensor(make_gmem_ptr(dval_sidx), make_shape(tile_sidx_size{}, nnz_block))) {}
 
     // output
-    template<size_t output_idx>
+    template<int output_idx>
     CUTE_DEVICE auto output() {
         if constexpr (output_idx == 0) {
             return val_sidx;
@@ -276,7 +279,7 @@ public:
     }
 };
 
-template <class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class TO0 = int>
+template <class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class WARP_MNK, class TO0 = int>
 class val_soffOp {
 public:
     // Outputs
@@ -298,7 +301,7 @@ public:
     val_soff(make_tensor(make_gmem_ptr(dval_soff), make_shape(Mo))) {}
 
     // output
-    template<size_t output_idx>
+    template<int output_idx>
     CUTE_DEVICE auto output() {
         if constexpr (output_idx == 0) {
             return val_soff;
@@ -306,7 +309,7 @@ public:
     }
 };
 
-template <class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class TO0 = int>
+template <class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class WARP_MNK, class TO0 = int>
 class BlkYLoopZeroOp {
 public:
     // No Inputs
@@ -327,7 +330,7 @@ public:
     : tid(tid), lid(lid), wid(wid), BlkYLoopZeroOp_out(make_tensor(make_rmem_ptr(BlkYLoopZeroOp_out), Layout_o0{})) {}
 
     // output
-    template<size_t output_idx>
+    template<int output_idx>
     CUTE_DEVICE auto output() {
         if constexpr (output_idx == 0) {
             return BlkYLoopZeroOp_out;
@@ -341,7 +344,7 @@ public:
     }
 };
 
-template <class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class TO0 = int>
+template <class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class WARP_MNK, class TO0 = int>
 class BlockDimYOp {
 public:
     // No Inputs
@@ -362,7 +365,7 @@ public:
     : tid(tid), lid(lid), wid(wid), BlockDimYOp_out(make_tensor(make_rmem_ptr(BlockDimYOp_out), Layout_o0{})) {}
 
     // output
-    template<size_t output_idx>
+    template<int output_idx>
     CUTE_DEVICE auto output() {
         if constexpr (output_idx == 0) {
             return BlockDimYOp_out;
@@ -376,7 +379,7 @@ public:
     }
 };
 
-template <class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class TO0 = int>
+template <class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class WARP_MNK, class TO0 = int>
 class BlkXLoopZeroOp {
 public:
     // No Inputs
@@ -397,7 +400,7 @@ public:
     : tid(tid), lid(lid), wid(wid), BlkXLoopZeroOp_out(make_tensor(make_rmem_ptr(BlkXLoopZeroOp_out), Layout_o0{})) {}
 
     // output
-    template<size_t output_idx>
+    template<int output_idx>
     CUTE_DEVICE auto output() {
         if constexpr (output_idx == 0) {
             return BlkXLoopZeroOp_out;
@@ -411,7 +414,7 @@ public:
     }
 };
 
-template <class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class TO0 = int>
+template <class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class WARP_MNK, class TO0 = int>
 class BlockDimXOp {
 public:
     // No Inputs
@@ -432,7 +435,7 @@ public:
     : tid(tid), lid(lid), wid(wid), BlockDimXOp_out(make_tensor(make_rmem_ptr(BlockDimXOp_out), Layout_o0{})) {}
 
     // output
-    template<size_t output_idx>
+    template<int output_idx>
     CUTE_DEVICE auto output() {
         if constexpr (output_idx == 0) {
             return BlockDimXOp_out;
@@ -446,7 +449,7 @@ public:
     }
 };
 
-template<class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class TI0 = int, class TI1 = int, class TO0 = int, class TO1 = int>
+template<class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class WARP_MNK, class TI0 = int, class TI1 = int, class TO0 = int, class TO1 = int>
 class G2rSparseOffsetLoadOp {
 public:
     // Inputs
@@ -477,7 +480,7 @@ public:
     CUTE_DEVICE G2rSparseOffsetLoadOp(int tid, int lid, int wid, TO0 *l, TO1 *r, int mode_i0_0)
     : tid(tid), lid(lid), wid(wid), shape_i0(make_shape(mode_i0_0)), l(make_tensor(make_rmem_ptr(l), Layout_o0{})), r(make_tensor(make_rmem_ptr(r), Layout_o1{})) {}
 
-    template<size_t output_idx>
+    template<int output_idx>
     CUTE_DEVICE auto output() {
         if constexpr (output_idx == 0) {
             return l;
@@ -493,7 +496,7 @@ public:
     }
 };
 
-template <class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class TO0 = float>
+template <class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class WARP_MNK, class TO0 = float>
 class ZerosOp {
 public:
     // No Inputs
@@ -514,7 +517,7 @@ public:
     : tid(tid), lid(lid), wid(wid), ZerosOp_out(make_tensor(make_rmem_ptr(ZerosOp_out), Layout_o0{})) {}
 
     // output
-    template<size_t output_idx>
+    template<int output_idx>
     CUTE_DEVICE auto output() {
         if constexpr (output_idx == 0) {
             return ZerosOp_out;
@@ -528,7 +531,7 @@ public:
     }
 };
 
-template<class NBUF, class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class tile_sidx_size = Int<8>, class TI0 = int, class TI1 = int, class TO0 = int>
+template<class NBUF, class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class WARP_MNK, class tile_sidx_size = Int<8>, class TI0 = int, class TI1 = int, class TO0 = int>
 class G2sSparseIndexLoadOp {
 public:
     // Inputs
@@ -552,21 +555,21 @@ public:
     CUTE_DEVICE G2sSparseIndexLoadOp(int tid, int lid, int wid, TO0 *tile_sidx_block, int mode_i0_0)
     : tid(tid), lid(lid), wid(wid), shape_i0(make_shape(tile_sidx_size{}, mode_i0_0)), tile_sidx_block(make_tensor(make_smem_ptr(tile_sidx_block), Layout_o0{})) {}
 
-    template<size_t output_idx, size_t buf_idx>
+    template<int output_idx, int buf_idx>
     CUTE_DEVICE auto output() {
         if constexpr (output_idx == 0) {
             return tile_sidx_block(_, buf_idx);
         }
     }
     
-    template<size_t output_idx>
+    template<int output_idx>
     CUTE_DEVICE auto output() {
         if constexpr (output_idx == 0) {
             return tile_sidx_block;
         }
     }
 
-    template<size_t buf_idx, class Tensor_i0, typename = void>
+    template<int buf_idx, class Tensor_i0, typename = void>
     CUTE_DEVICE void f(Tensor_i0 val_sidx, TI1 i) {
         CUTE_STATIC_ASSERT_V((get<0>(shape_i0) == size<0>(shape(val_sidx))));
         if (lid < 2) {
@@ -579,7 +582,7 @@ public:
     }
 };
 
-template<class NBUF, class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class tile_coo_val_size_no_pad = Int<128>, class TI0 = int, class TI1 = int, class TI2 = int, class TO0 = int, class TO1 = int>
+template<class NBUF, class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class WARP_MNK, class tile_coo_val_size_no_pad = Int<128>, class TI0 = int, class TI1 = int, class TI2 = int, class TO0 = int, class TO1 = int>
 class G2sSparseCooIdxLoadOp {
 public:
     // Inputs
@@ -613,7 +616,7 @@ public:
     CUTE_DEVICE G2sSparseCooIdxLoadOp(int tid, int lid, int wid, TO0 *coo_range_reg, TO1 *tileA_coo_idx, int mode_i0_0, int mode_i1_0)
     : tid(tid), lid(lid), wid(wid), shape_i0(make_shape(Int<2>{}, mode_i0_0)), shape_i1(make_shape(mode_i1_0)), coo_range_reg(make_tensor(make_rmem_ptr(coo_range_reg), Layout_o0{})), tileA_coo_idx(make_tensor(make_smem_ptr(tileA_coo_idx), Layout_o1{})) {}
 
-    template<size_t output_idx, size_t buf_idx>
+    template<int output_idx, int buf_idx>
     CUTE_DEVICE auto output() {
         if constexpr (output_idx == 0) {
             return coo_range_reg(_, buf_idx);
@@ -622,7 +625,7 @@ public:
         }
     }
     
-    template<size_t output_idx>
+    template<int output_idx>
     CUTE_DEVICE auto output() {
         if constexpr (output_idx == 0) {
             return coo_range_reg;
@@ -631,7 +634,7 @@ public:
         }
     }
 
-    template<size_t buf_idx, class Tensor_i0, class Tensor_i1, typename = void>
+    template<int buf_idx, class Tensor_i0, class Tensor_i1, typename = void>
     CUTE_DEVICE void f(Tensor_i0 val_coo_off, Tensor_i1 val_coo_idx, TI2 i) {
         CUTE_STATIC_ASSERT_V((get<0>(shape_i0) == size<0>(shape(val_coo_off))));
         int ll = val_coo_off(0, i);
@@ -649,7 +652,7 @@ public:
     }
 };
 
-template<class NBUF, class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class tile_coo_val_size_no_pad = Int<128>, class TI0 = int, class TI1 = float, class TI2 = int, class TO0 = float>
+template<class NBUF, class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class WARP_MNK, class tile_coo_val_size_no_pad = Int<128>, class TI0 = int, class TI1 = float, class TI2 = int, class TO0 = float>
 class G2sSparseCooValLoadOp {
 public:
     // Inputs
@@ -676,21 +679,21 @@ public:
     CUTE_DEVICE G2sSparseCooValLoadOp(int tid, int lid, int wid, TO0 *tileA_coo_val, int mode_i0_0, int mode_i1_0)
     : tid(tid), lid(lid), wid(wid), shape_i0(make_shape(Int<2>{}, mode_i0_0)), shape_i1(make_shape(mode_i1_0)), tileA_coo_val(make_tensor(make_smem_ptr(tileA_coo_val), Layout_o0{})) {}
 
-    template<size_t output_idx, size_t buf_idx>
+    template<int output_idx, int buf_idx>
     CUTE_DEVICE auto output() {
         if constexpr (output_idx == 0) {
             return tileA_coo_val(_, buf_idx);
         }
     }
     
-    template<size_t output_idx>
+    template<int output_idx>
     CUTE_DEVICE auto output() {
         if constexpr (output_idx == 0) {
             return tileA_coo_val;
         }
     }
 
-    template<size_t buf_idx, class Tensor_i0, class Tensor_i1, typename = void>
+    template<int buf_idx, class Tensor_i0, class Tensor_i1, typename = void>
     CUTE_DEVICE void f(Tensor_i0 val_coo_off, Tensor_i1 val_coo_val, TI2 i) {
         CUTE_STATIC_ASSERT_V((get<0>(shape_i0) == size<0>(shape(val_coo_off))));
         int ll = val_coo_off(0, i);
@@ -707,7 +710,7 @@ public:
     }
 };
 
-template<class NBUF, class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class TI0 = float, class TI1 = int, class TO0 = float>
+template<class NBUF, class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class WARP_MNK, class TI0 = float, class TI1 = int, class TO0 = float>
 class G2sMatrixBLoadOp {
 public:
     // Inputs
@@ -733,21 +736,21 @@ public:
     CUTE_DEVICE G2sMatrixBLoadOp(int tid, int lid, int wid, TO0 *tileB_block, int mode_i0_0, int mode_i0_1)
     : tid(tid), lid(lid), wid(wid), shape_i0(make_shape(mode_i0_0, mode_i0_1)), tileB_block(make_tensor(make_smem_ptr(tileB_block), Layout_o0{})) {}
 
-    template<size_t output_idx, size_t buf_idx>
+    template<int output_idx, int buf_idx>
     CUTE_DEVICE auto output() {
         if constexpr (output_idx == 0) {
             return tileB_block(_, _, buf_idx);
         }
     }
     
-    template<size_t output_idx>
+    template<int output_idx>
     CUTE_DEVICE auto output() {
         if constexpr (output_idx == 0) {
             return tileB_block;
         }
     }
 
-    template<size_t buf_idx, class Tensor_i0, class Tensor_i1, typename = void>
+    template<int buf_idx, class Tensor_i0, class Tensor_i1, typename = void>
     CUTE_DEVICE void f(Tensor_i0 B_val, Tensor_i1 tile_sidx_block) {
         CUTE_STATIC_ASSERT_V((get<0>(shape_i1) == size<0>(shape(tile_sidx_block))));
         // auto thr_tiler = make_shape(_4{});
@@ -769,7 +772,7 @@ public:
     }
 };
 
-template<class NBUF, class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class tile_coo_val_size_no_pad = Int<128>, class tile_coo_val_size = Int<128>, class TI0 = int, class TI1 = float, class TI2 = int, class TO0 = float>
+template<class NBUF, class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class WARP_MNK, class tile_coo_val_size_no_pad = Int<128>, class tile_coo_val_size = Int<128>, class TI0 = int, class TI1 = float, class TI2 = int, class TO0 = float>
 class S2sRestoreMatrixAOp {
 public:
     // Inputs
@@ -796,21 +799,21 @@ public:
     CUTE_DEVICE S2sRestoreMatrixAOp(int tid, int lid, int wid, TO0 *tile_coo_restore_val_block)
     : tid(tid), lid(lid), wid(wid), tile_coo_restore_val_block(make_tensor(make_smem_ptr(tile_coo_restore_val_block), Layout_o0{})) {}
 
-    template<size_t output_idx, size_t buf_idx>
+    template<int output_idx, int buf_idx>
     CUTE_DEVICE auto output() {
         if constexpr (output_idx == 0) {
             return tile_coo_restore_val_block(_, _, buf_idx);
         }
     }
     
-    template<size_t output_idx>
+    template<int output_idx>
     CUTE_DEVICE auto output() {
         if constexpr (output_idx == 0) {
             return tile_coo_restore_val_block;
         }
     }
 
-    template<size_t buf_idx, class Tensor_i0, class Tensor_i1, typename = void>
+    template<int buf_idx, class Tensor_i0, class Tensor_i1, typename = void>
     CUTE_DEVICE void f(Tensor_i0 tileA_coo_idx, Tensor_i1 tileA_coo_val, TI2 nnz_num) {
         CUTE_STATIC_ASSERT_V((get<0>(shape_i0) == size<0>(shape(tileA_coo_idx))));
         CUTE_STATIC_ASSERT_V((get<0>(shape_i1) == size<0>(shape(tileA_coo_val))));
@@ -821,14 +824,17 @@ public:
         for (int i_restore = lid; i_restore < nnz_num; i_restore += 32) {
             float value = tileA_coo_val(i_restore);
             int idx = tileA_coo_idx(i_restore);
-            int row = idx / 8;
-            int col = idx % 8;
-            tile_coo_restore_val_block(row, col, buf_idx) = value;
+            //! without manual swizzle
+            // int row = idx / 8;
+            // int col = idx % 8;
+            // tile_coo_restore_val_block(row, col, buf_idx) = value;
+            //! manual swizzle
+            *((float*)tile_coo_restore_val_block(_, _, buf_idx).data().get() + idx) = value;
         }
     }
 };
 
-template<class NBUF, class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class TI0 = float, class TO0 = float>
+template<class NBUF, class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class WARP_MNK, class TI0 = float, class TO0 = float>
 class S2rAValLoadOp {
 public:
     // Inputs
@@ -851,21 +857,21 @@ public:
     CUTE_DEVICE S2rAValLoadOp(int tid, int lid, int wid, TO0 *REGA)
     : tid(tid), lid(lid), wid(wid), REGA(make_tensor(make_rmem_ptr(REGA), Layout_o0{})) {}
 
-    template<size_t output_idx, size_t buf_idx>
+    template<int output_idx, int buf_idx>
     CUTE_DEVICE auto output() {
         if constexpr (output_idx == 0) {
             return REGA(_, _, buf_idx);
         }
     }
     
-    template<size_t output_idx>
+    template<int output_idx>
     CUTE_DEVICE auto output() {
         if constexpr (output_idx == 0) {
             return REGA;
         }
     }
 
-    template<size_t buf_idx, class Tensor_i0, typename = void>
+    template<int buf_idx, class Tensor_i0, typename = void>
     CUTE_DEVICE void f(Tensor_i0 tile_coo_restore_val_block) {
         CUTE_STATIC_ASSERT_V((get<0>(shape_i0) == size<0>(shape(tile_coo_restore_val_block))));
         CUTE_STATIC_ASSERT_V((get<1>(shape_i0) == size<1>(shape(tile_coo_restore_val_block))));
@@ -880,7 +886,7 @@ public:
     }
 };
 
-template<class NBUF, class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class TI0 = float, class TO0 = float>
+template<class NBUF, class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class WARP_MNK, class TI0 = float, class TO0 = float>
 class S2rBValLoadOp {
 public:
     // Inputs
@@ -903,21 +909,21 @@ public:
     CUTE_DEVICE S2rBValLoadOp(int tid, int lid, int wid, TO0 *REGB)
     : tid(tid), lid(lid), wid(wid), REGB(make_tensor(make_rmem_ptr(REGB), Layout_o0{})) {}
 
-    template<size_t output_idx, size_t buf_idx>
+    template<int output_idx, int buf_idx>
     CUTE_DEVICE auto output() {
         if constexpr (output_idx == 0) {
             return REGB(_, _, buf_idx);
         }
     }
     
-    template<size_t output_idx>
+    template<int output_idx>
     CUTE_DEVICE auto output() {
         if constexpr (output_idx == 0) {
             return REGB;
         }
     }
 
-    template<size_t buf_idx, class Tensor_i0, typename = void>
+    template<int buf_idx, class Tensor_i0, typename = void>
     CUTE_DEVICE void f(Tensor_i0 tileB_block) {
         CUTE_STATIC_ASSERT_V((get<0>(shape_i0) == size<0>(shape(tileB_block))));
         CUTE_STATIC_ASSERT_V((get<1>(shape_i0) == size<1>(shape(tileB_block))));
@@ -945,7 +951,7 @@ public:
     }
 };
 
-template<class NBUF, class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class Tensor_o0, class TI0 = float, class TI1 = float, class TO0 = float>
+template<class NBUF, class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class WARP_MNK, class Tensor_o0, class TI0 = float, class TI1 = float, class TO0 = float>
 class CalculateOp {
 public:
     // Inputs
@@ -967,21 +973,21 @@ public:
     CUTE_DEVICE CalculateOp(int tid, int lid, int wid, Tensor_o0 REGC)
     : tid(tid), lid(lid), wid(wid), REGC(REGC) {}
 
-    template<size_t output_idx, size_t buf_idx>
+    template<int output_idx, int buf_idx>
     CUTE_DEVICE auto output() {
         if constexpr (output_idx == 0) {
             return REGC;
         }
     }
     
-    template<size_t output_idx>
+    template<int output_idx>
     CUTE_DEVICE auto output() {
         if constexpr (output_idx == 0) {
             return REGC;
         }
     }
 
-    template<size_t buf_idx, class Tensor_i0, class Tensor_i1, typename = void>
+    template<int buf_idx, class Tensor_i0, class Tensor_i1, typename = void>
     CUTE_DEVICE void f(Tensor_i0 REGA, Tensor_i1 REGB) {
         CUTE_STATIC_ASSERT_V((get<0>(shape_i0) == size<0>(shape(REGA))));
         CUTE_STATIC_ASSERT_V((get<1>(shape_i0) == size<1>(shape(REGA))));
@@ -1004,7 +1010,7 @@ public:
     }
 };
 
-template <class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class T_B_valOp, class T_C_valOp, class T_val_coo_idxOp, class T_val_coo_offOp, class T_val_coo_valOp, class T_val_sidxOp, class T_val_soffOp, class T_BlkYLoopZeroOp, class T_BlockDimYOp, class T_BlkXLoopZeroOp, class T_BlockDimXOp, class T_G2rSparseOffsetLoadOp, class T_ZerosOp, class T_G2sSparseIndexLoadOp, class T_G2sSparseCooIdxLoadOp, class T_G2sSparseCooValLoadOp, class T_G2sMatrixBLoadOp, class T_S2sRestoreMatrixAOp, class T_S2rAValLoadOp, class T_S2rBValLoadOp, class T_CalculateOp, class Tensor_o0, class TI0 = int, class TI1 = int, class TO0 = float>
+template <class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class WARP_MNK, class T_B_valOp, class T_C_valOp, class T_val_coo_idxOp, class T_val_coo_offOp, class T_val_coo_valOp, class T_val_sidxOp, class T_val_soffOp, class T_BlkYLoopZeroOp, class T_BlockDimYOp, class T_BlkXLoopZeroOp, class T_BlockDimXOp, class T_G2rSparseOffsetLoadOp, class T_ZerosOp, class T_G2sSparseIndexLoadOp, class T_G2sSparseCooIdxLoadOp, class T_G2sSparseCooValLoadOp, class T_G2sMatrixBLoadOp, class T_S2sRestoreMatrixAOp, class T_S2rAValLoadOp, class T_S2rBValLoadOp, class T_CalculateOp, class Tensor_o0, class TI0 = int, class TI1 = int, class TO0 = float>
 class DtcMainLoopOp {
 public:
     // Inputs
@@ -1812,7 +1818,7 @@ public:
         }
     }
 
-    template<size_t output_idx>
+    template<int output_idx>
     CUTE_DEVICE auto output() {
         if constexpr (output_idx == 0) {
             return REGC;
@@ -1828,7 +1834,7 @@ public:
     }
 };
 
-template<class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class Tensor_o0, class TI0 = float, class TO0 = float>
+template<class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class WARP_MNK, class Tensor_o0, class TI0 = float, class TO0 = float>
 class R2gCValStoreOp {
 public:
     // Inputs
@@ -1847,7 +1853,7 @@ public:
     CUTE_DEVICE R2gCValStoreOp(int tid, int lid, int wid, Tensor_o0 C_val)
     : tid(tid), lid(lid), wid(wid), C_val(C_val) {}
 
-    template<size_t output_idx>
+    template<int output_idx>
     CUTE_DEVICE auto output() {
         if constexpr (output_idx == 0) {
             return C_val;
@@ -1871,7 +1877,7 @@ public:
     }
 };
 
-template <class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class T_B_valOp, class T_C_valOp, class T_val_coo_idxOp, class T_val_coo_offOp, class T_val_coo_valOp, class T_val_sidxOp, class T_val_soffOp, class T_BlkYLoopZeroOp, class T_BlockDimYOp, class T_BlkXLoopZeroOp, class T_BlockDimXOp, class T_G2rSparseOffsetLoadOp, class T_ZerosOp, class T_DtcMainLoopOp, class T_R2gCValStoreOp>
+template <class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class WARP_MNK, class T_B_valOp, class T_C_valOp, class T_val_coo_idxOp, class T_val_coo_offOp, class T_val_coo_valOp, class T_val_sidxOp, class T_val_soffOp, class T_BlkYLoopZeroOp, class T_BlockDimYOp, class T_BlkXLoopZeroOp, class T_BlockDimXOp, class T_G2rSparseOffsetLoadOp, class T_ZerosOp, class T_DtcMainLoopOp, class T_R2gCValStoreOp>
 class dtc_spmm_kernel_blk_x_loop {
 public:
     // Inputs
@@ -1925,7 +1931,7 @@ public:
     }
 };
 
-template <class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class T_B_valOp, class T_C_valOp, class T_val_coo_idxOp, class T_val_coo_offOp, class T_val_coo_valOp, class T_val_sidxOp, class T_val_soffOp, class T_BlkYLoopZeroOp, class T_BlockDimYOp, class T_BlkXLoopZeroOp, class T_BlockDimXOp, class T_dtc_spmm_kernel_blk_x_loop>
+template <class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class WARP_MNK, class T_B_valOp, class T_C_valOp, class T_val_coo_idxOp, class T_val_coo_offOp, class T_val_coo_valOp, class T_val_sidxOp, class T_val_soffOp, class T_BlkYLoopZeroOp, class T_BlockDimYOp, class T_BlkXLoopZeroOp, class T_BlockDimXOp, class T_dtc_spmm_kernel_blk_x_loop>
 class dtc_spmm_kernel_blk_y_loop {
 public:
     // Inputs
@@ -1968,7 +1974,7 @@ public:
 };
 
 // GLOBAL FUNCTION
-template <class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class tile_coo_val_size, class tile_coo_val_size_no_pad, class tile_sidx_size>
+template <class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class WARP_MNK, class tile_coo_val_size, class tile_coo_val_size_no_pad, class tile_sidx_size>
 __global__ void dtc_spmm_kernel_fp32_val_idx_bind_stage2(
     float *dB_val,
     float *dC_val,
@@ -1983,37 +1989,37 @@ __global__ void dtc_spmm_kernel_fp32_val_idx_bind_stage2(
     const int lid = tid % 32;
     const int wid = tid / 32;
 
-    using B_valOp_t = B_valOp<BLK_MNK, MMA_MNK, BLK_MMA_MNK>;
+    using B_valOp_t = B_valOp<BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK>;
     B_valOp_t B_valOp_v{tid, lid, wid, K, N, dB_val};
-    using C_valOp_t = C_valOp<BLK_MNK, MMA_MNK, BLK_MMA_MNK>;
+    using C_valOp_t = C_valOp<BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK>;
     C_valOp_t C_valOp_v{tid, lid, wid, N, M, dC_val};
-    using val_coo_idxOp_t = val_coo_idxOp<BLK_MNK, MMA_MNK, BLK_MMA_MNK>;
+    using val_coo_idxOp_t = val_coo_idxOp<BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK>;
     val_coo_idxOp_t val_coo_idxOp_v{tid, lid, wid, nnz, dval_coo_idx};
-    using val_coo_offOp_t = val_coo_offOp<BLK_MNK, MMA_MNK, BLK_MMA_MNK>;
+    using val_coo_offOp_t = val_coo_offOp<BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK>;
     val_coo_offOp_t val_coo_offOp_v{tid, lid, wid, nnz_block, dval_coo_off};
-    using val_coo_valOp_t = val_coo_valOp<BLK_MNK, MMA_MNK, BLK_MMA_MNK>;
+    using val_coo_valOp_t = val_coo_valOp<BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK>;
     val_coo_valOp_t val_coo_valOp_v{tid, lid, wid, nnz, dval_coo_val};
-    using val_sidxOp_t = val_sidxOp<BLK_MNK, MMA_MNK, BLK_MMA_MNK>;
+    using val_sidxOp_t = val_sidxOp<BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK>;
     val_sidxOp_t val_sidxOp_v{tid, lid, wid, nnz_block, dval_sidx};
-    using val_soffOp_t = val_soffOp<BLK_MNK, MMA_MNK, BLK_MMA_MNK>;
+    using val_soffOp_t = val_soffOp<BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK>;
     val_soffOp_t val_soffOp_v{tid, lid, wid, Mo, dval_soff};
-    using BlkYLoopZeroOp_t = BlkYLoopZeroOp<BLK_MNK, MMA_MNK, BLK_MMA_MNK>;
+    using BlkYLoopZeroOp_t = BlkYLoopZeroOp<BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK>;
     using BlkYLoopZeroOp_layout_o0 = typename BlkYLoopZeroOp_t::Layout_o0;
     int BlkYLoopZeroOp_tensor_o0[cosize_v<BlkYLoopZeroOp_layout_o0>];
     BlkYLoopZeroOp_t BlkYLoopZeroOp_v{tid, lid, wid, BlkYLoopZeroOp_tensor_o0};
-    using BlockDimYOp_t = BlockDimYOp<BLK_MNK, MMA_MNK, BLK_MMA_MNK>;
+    using BlockDimYOp_t = BlockDimYOp<BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK>;
     using BlockDimYOp_layout_o0 = typename BlockDimYOp_t::Layout_o0;
     int BlockDimYOp_tensor_o0[cosize_v<BlockDimYOp_layout_o0>];
     BlockDimYOp_t BlockDimYOp_v{tid, lid, wid, BlockDimYOp_tensor_o0};
-    using BlkXLoopZeroOp_t = BlkXLoopZeroOp<BLK_MNK, MMA_MNK, BLK_MMA_MNK>;
+    using BlkXLoopZeroOp_t = BlkXLoopZeroOp<BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK>;
     using BlkXLoopZeroOp_layout_o0 = typename BlkXLoopZeroOp_t::Layout_o0;
     int BlkXLoopZeroOp_tensor_o0[cosize_v<BlkXLoopZeroOp_layout_o0>];
     BlkXLoopZeroOp_t BlkXLoopZeroOp_v{tid, lid, wid, BlkXLoopZeroOp_tensor_o0};
-    using BlockDimXOp_t = BlockDimXOp<BLK_MNK, MMA_MNK, BLK_MMA_MNK>;
+    using BlockDimXOp_t = BlockDimXOp<BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK>;
     using BlockDimXOp_layout_o0 = typename BlockDimXOp_t::Layout_o0;
     int BlockDimXOp_tensor_o0[cosize_v<BlockDimXOp_layout_o0>];
     BlockDimXOp_t BlockDimXOp_v{tid, lid, wid, BlockDimXOp_tensor_o0};
-    using G2rSparseOffsetLoadOp_t = G2rSparseOffsetLoadOp<BLK_MNK, MMA_MNK, BLK_MMA_MNK>;
+    using G2rSparseOffsetLoadOp_t = G2rSparseOffsetLoadOp<BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK>;
     using G2rSparseOffsetLoadOp_layout_o0 = typename G2rSparseOffsetLoadOp_t::Layout_o0;
     using G2rSparseOffsetLoadOp_layout_o1 = typename G2rSparseOffsetLoadOp_t::Layout_o1;
     int G2rSparseOffsetLoadOp_tensor_o0[cosize_v<G2rSparseOffsetLoadOp_layout_o0>];
@@ -2023,11 +2029,11 @@ __global__ void dtc_spmm_kernel_fp32_val_idx_bind_stage2(
         G2rSparseOffsetLoadOp_tensor_o0, G2rSparseOffsetLoadOp_tensor_o1, 
         Mo,
     };
-    using ZerosOp_t = ZerosOp<BLK_MNK, MMA_MNK, BLK_MMA_MNK>;
+    using ZerosOp_t = ZerosOp<BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK>;
     using ZerosOp_layout_o0 = typename ZerosOp_t::Layout_o0;
     float ZerosOp_tensor_o0[cosize_v<ZerosOp_layout_o0>];
     ZerosOp_t ZerosOp_v{tid, lid, wid, ZerosOp_tensor_o0};
-    using G2sSparseIndexLoadOp_t = G2sSparseIndexLoadOp<Int<2>, BLK_MNK, MMA_MNK, BLK_MMA_MNK>;
+    using G2sSparseIndexLoadOp_t = G2sSparseIndexLoadOp<Int<2>, BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK>;
     using G2sSparseIndexLoadOp_layout_o0 = typename G2sSparseIndexLoadOp_t::Layout_o0;
     __shared__ int G2sSparseIndexLoadOp_tensor_o0[cosize_v<G2sSparseIndexLoadOp_layout_o0>];
     G2sSparseIndexLoadOp_t G2sSparseIndexLoadOp_v{
@@ -2035,7 +2041,7 @@ __global__ void dtc_spmm_kernel_fp32_val_idx_bind_stage2(
         G2sSparseIndexLoadOp_tensor_o0, 
         nnz_block,
     };
-    using G2sSparseCooIdxLoadOp_t = G2sSparseCooIdxLoadOp<Int<2>, BLK_MNK, MMA_MNK, BLK_MMA_MNK>;
+    using G2sSparseCooIdxLoadOp_t = G2sSparseCooIdxLoadOp<Int<2>, BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK>;
     using G2sSparseCooIdxLoadOp_layout_o1 = typename G2sSparseCooIdxLoadOp_t::Layout_o1;
     __shared__ int G2sSparseCooIdxLoadOp_tensor_o1[cosize_v<G2sSparseCooIdxLoadOp_layout_o1>];
     using G2sSparseCooIdxLoadOp_layout_o0 = typename G2sSparseCooIdxLoadOp_t::Layout_o0;
@@ -2045,7 +2051,7 @@ __global__ void dtc_spmm_kernel_fp32_val_idx_bind_stage2(
         G2sSparseCooIdxLoadOp_tensor_o0, G2sSparseCooIdxLoadOp_tensor_o1, 
         nnz_block, nnz,
     };
-    using G2sSparseCooValLoadOp_t = G2sSparseCooValLoadOp<Int<2>, BLK_MNK, MMA_MNK, BLK_MMA_MNK>;
+    using G2sSparseCooValLoadOp_t = G2sSparseCooValLoadOp<Int<2>, BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK>;
     using G2sSparseCooValLoadOp_layout_o0 = typename G2sSparseCooValLoadOp_t::Layout_o0;
     __shared__ float G2sSparseCooValLoadOp_tensor_o0[cosize_v<G2sSparseCooValLoadOp_layout_o0>];
     G2sSparseCooValLoadOp_t G2sSparseCooValLoadOp_v{
@@ -2053,7 +2059,7 @@ __global__ void dtc_spmm_kernel_fp32_val_idx_bind_stage2(
         G2sSparseCooValLoadOp_tensor_o0, 
         nnz_block, nnz,
     };
-    using G2sMatrixBLoadOp_t = G2sMatrixBLoadOp<Int<2>, BLK_MNK, MMA_MNK, BLK_MMA_MNK>;
+    using G2sMatrixBLoadOp_t = G2sMatrixBLoadOp<Int<2>, BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK>;
     using G2sMatrixBLoadOp_layout_o0 = typename G2sMatrixBLoadOp_t::Layout_o0;
     __shared__ float G2sMatrixBLoadOp_tensor_o0[cosize_v<G2sMatrixBLoadOp_layout_o0>];
     G2sMatrixBLoadOp_t G2sMatrixBLoadOp_v{
@@ -2061,42 +2067,42 @@ __global__ void dtc_spmm_kernel_fp32_val_idx_bind_stage2(
         G2sMatrixBLoadOp_tensor_o0, 
         K, N,
     };
-    using S2sRestoreMatrixAOp_t = S2sRestoreMatrixAOp<Int<2>, BLK_MNK, MMA_MNK, BLK_MMA_MNK>;
+    using S2sRestoreMatrixAOp_t = S2sRestoreMatrixAOp<Int<2>, BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK>;
     using S2sRestoreMatrixAOp_layout_o0 = typename S2sRestoreMatrixAOp_t::Layout_o0;
     __shared__ float S2sRestoreMatrixAOp_tensor_o0[cosize_v<S2sRestoreMatrixAOp_layout_o0>];
     S2sRestoreMatrixAOp_t S2sRestoreMatrixAOp_v{
         tid, lid, wid, 
         S2sRestoreMatrixAOp_tensor_o0,
     };
-    using S2rAValLoadOp_t = S2rAValLoadOp<Int<2>, BLK_MNK, MMA_MNK, BLK_MMA_MNK>;
+    using S2rAValLoadOp_t = S2rAValLoadOp<Int<2>, BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK>;
     using S2rAValLoadOp_layout_o0 = typename S2rAValLoadOp_t::Layout_o0;
     float S2rAValLoadOp_tensor_o0[cosize_v<S2rAValLoadOp_layout_o0>];
     S2rAValLoadOp_t S2rAValLoadOp_v{
         tid, lid, wid, 
         S2rAValLoadOp_tensor_o0,
     };
-    using S2rBValLoadOp_t = S2rBValLoadOp<Int<2>, BLK_MNK, MMA_MNK, BLK_MMA_MNK>;
+    using S2rBValLoadOp_t = S2rBValLoadOp<Int<2>, BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK>;
     using S2rBValLoadOp_layout_o0 = typename S2rBValLoadOp_t::Layout_o0;
     float S2rBValLoadOp_tensor_o0[cosize_v<S2rBValLoadOp_layout_o0>];
     S2rBValLoadOp_t S2rBValLoadOp_v{
         tid, lid, wid, 
         S2rBValLoadOp_tensor_o0,
     };
-    using CalculateOp_t = CalculateOp<Int<2>, BLK_MNK, MMA_MNK, BLK_MMA_MNK, std::decay_t<decltype(ZerosOp_v.template output<0>())>>;
+    using CalculateOp_t = CalculateOp<Int<2>, BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK, std::decay_t<decltype(ZerosOp_v.template output<0>())>>;
     CalculateOp_t CalculateOp_v{
         tid, lid, wid, 
         ZerosOp_v.template output<0>(),
     };
-    using DtcMainLoopOp_t = DtcMainLoopOp<BLK_MNK, MMA_MNK, BLK_MMA_MNK, B_valOp_t, C_valOp_t, val_coo_idxOp_t, val_coo_offOp_t, val_coo_valOp_t, val_sidxOp_t, val_soffOp_t, BlkYLoopZeroOp_t, BlockDimYOp_t, BlkXLoopZeroOp_t, BlockDimXOp_t, G2rSparseOffsetLoadOp_t, ZerosOp_t, G2sSparseIndexLoadOp_t, G2sSparseCooIdxLoadOp_t, G2sSparseCooValLoadOp_t, G2sMatrixBLoadOp_t, S2sRestoreMatrixAOp_t, S2rAValLoadOp_t, S2rBValLoadOp_t, CalculateOp_t, std::decay_t<decltype(CalculateOp_v.template output<0>())>>;
+    using DtcMainLoopOp_t = DtcMainLoopOp<BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK, B_valOp_t, C_valOp_t, val_coo_idxOp_t, val_coo_offOp_t, val_coo_valOp_t, val_sidxOp_t, val_soffOp_t, BlkYLoopZeroOp_t, BlockDimYOp_t, BlkXLoopZeroOp_t, BlockDimXOp_t, G2rSparseOffsetLoadOp_t, ZerosOp_t, G2sSparseIndexLoadOp_t, G2sSparseCooIdxLoadOp_t, G2sSparseCooValLoadOp_t, G2sMatrixBLoadOp_t, S2sRestoreMatrixAOp_t, S2rAValLoadOp_t, S2rBValLoadOp_t, CalculateOp_t, std::decay_t<decltype(CalculateOp_v.template output<0>())>>;
     DtcMainLoopOp_t DtcMainLoopOp_v{tid, lid, wid, B_valOp_v, C_valOp_v, val_coo_idxOp_v, val_coo_offOp_v, val_coo_valOp_v, val_sidxOp_v, val_soffOp_v, BlkYLoopZeroOp_v, BlockDimYOp_v, BlkXLoopZeroOp_v, BlockDimXOp_v, G2rSparseOffsetLoadOp_v, ZerosOp_v, G2sSparseIndexLoadOp_v, G2sSparseCooIdxLoadOp_v, G2sSparseCooValLoadOp_v, G2sMatrixBLoadOp_v, S2sRestoreMatrixAOp_v, S2rAValLoadOp_v, S2rBValLoadOp_v, CalculateOp_v, CalculateOp_v.template output<0>()};
-    using R2gCValStoreOp_t = R2gCValStoreOp<BLK_MNK, MMA_MNK, BLK_MMA_MNK, std::decay_t<decltype(C_valOp_v.template output<0>())>>;
+    using R2gCValStoreOp_t = R2gCValStoreOp<BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK, std::decay_t<decltype(C_valOp_v.template output<0>())>>;
     R2gCValStoreOp_t R2gCValStoreOp_v{
         tid, lid, wid, 
         C_valOp_v.template output<0>(),
     };
-    using dtc_spmm_kernel_blk_x_loop_t = dtc_spmm_kernel_blk_x_loop<BLK_MNK, MMA_MNK, BLK_MMA_MNK, B_valOp_t, C_valOp_t, val_coo_idxOp_t, val_coo_offOp_t, val_coo_valOp_t, val_sidxOp_t, val_soffOp_t, BlkYLoopZeroOp_t, BlockDimYOp_t, BlkXLoopZeroOp_t, BlockDimXOp_t, G2rSparseOffsetLoadOp_t, ZerosOp_t, DtcMainLoopOp_t, R2gCValStoreOp_t>;
+    using dtc_spmm_kernel_blk_x_loop_t = dtc_spmm_kernel_blk_x_loop<BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK, B_valOp_t, C_valOp_t, val_coo_idxOp_t, val_coo_offOp_t, val_coo_valOp_t, val_sidxOp_t, val_soffOp_t, BlkYLoopZeroOp_t, BlockDimYOp_t, BlkXLoopZeroOp_t, BlockDimXOp_t, G2rSparseOffsetLoadOp_t, ZerosOp_t, DtcMainLoopOp_t, R2gCValStoreOp_t>;
     dtc_spmm_kernel_blk_x_loop_t dtc_spmm_kernel_blk_x_loop_v{tid, lid, wid, B_valOp_v, C_valOp_v, val_coo_idxOp_v, val_coo_offOp_v, val_coo_valOp_v, val_sidxOp_v, val_soffOp_v, BlkYLoopZeroOp_v, BlockDimYOp_v, BlkXLoopZeroOp_v, BlockDimXOp_v, G2rSparseOffsetLoadOp_v, ZerosOp_v, DtcMainLoopOp_v, R2gCValStoreOp_v};
-    using dtc_spmm_kernel_blk_y_loop_t = dtc_spmm_kernel_blk_y_loop<BLK_MNK, MMA_MNK, BLK_MMA_MNK, B_valOp_t, C_valOp_t, val_coo_idxOp_t, val_coo_offOp_t, val_coo_valOp_t, val_sidxOp_t, val_soffOp_t, BlkYLoopZeroOp_t, BlockDimYOp_t, BlkXLoopZeroOp_t, BlockDimXOp_t, dtc_spmm_kernel_blk_x_loop_t>;
+    using dtc_spmm_kernel_blk_y_loop_t = dtc_spmm_kernel_blk_y_loop<BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK, B_valOp_t, C_valOp_t, val_coo_idxOp_t, val_coo_offOp_t, val_coo_valOp_t, val_sidxOp_t, val_soffOp_t, BlkYLoopZeroOp_t, BlockDimYOp_t, BlkXLoopZeroOp_t, BlockDimXOp_t, dtc_spmm_kernel_blk_x_loop_t>;
     dtc_spmm_kernel_blk_y_loop_t dtc_spmm_kernel_blk_y_loop_v{tid, lid, wid, B_valOp_v, C_valOp_v, val_coo_idxOp_v, val_coo_offOp_v, val_coo_valOp_v, val_sidxOp_v, val_soffOp_v, BlkYLoopZeroOp_v, BlockDimYOp_v, BlkXLoopZeroOp_v, BlockDimXOp_v, dtc_spmm_kernel_blk_x_loop_v};
 
     BlkYLoopZeroOp_v.template f<>();
