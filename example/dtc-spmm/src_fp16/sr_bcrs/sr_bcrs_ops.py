@@ -364,6 +364,16 @@ for (int iter_i = lid; iter_i < get<0>(BLK_MNK{}) * get<2>(BLK_MNK{}) / load_til
     auto dst = local_tile(tileA_block(_, _, buf_idx), thr_tiler_smem, thr_coord_smem);
     copy(Copy_Atom<SM80_CP_ASYNC_CACHEGLOBAL<cute::uint128_t>, half>{}, A_val_thr(0, _), dst(0, _));
 }
+{//! debug
+    // if (thread0()) {
+    //     printf("i = %d, gmem check A\n", i);
+    //     for (int row = 0; row < 16; row++) {
+    //         for (int col = 0; col < 16; col++) {
+    //             printf("%.0f ", (float)val_block_val(row, col, i));
+    //         } printf("\n");
+    //     }
+    // }
+}
 """
         )
     )
@@ -457,6 +467,15 @@ for (int iter_i = lid; iter_i < get<2>(BLK_MNK{}) * get<1>(BLK_MNK{}) / load_til
         impl=NvOpImpl(
             r"""
 __syncthreads();
+//! debug tile A
+// if (thread0()) {
+//     printf("tile A block\n");
+//     for (int i = 0; i < 16; i++) {
+//         for (int j = 0; j < 16; j++) {
+//             printf("%.0f ", (float)tileA_block(i, j));
+//         } printf("\n");
+//     }
+// } 
 //> m16n8k16
 int row = lid % 16;
 int col = lid / 16;
@@ -497,6 +516,14 @@ ldmatrix_m8n8k8_x4(
         ],
         impl=NvOpImpl(r"""
 __syncthreads();
+if (thread0()) {
+    // printf("tileB_block\n");
+    // for (int i = 0; i < 16; i++) {
+    //     for (int j = 0; j < 16; j++) {
+    //         printf("%.0f ", (float)tileB_block(i, j));
+    //     } printf("\n");
+    // }
+}
 for (int n_iter = 0; n_iter < get<1>(BLK_MMA_MNK{}); n_iter++) {
     int row_b = lid % 16;
     int col_b = n_iter;
@@ -632,10 +659,10 @@ if __name__ == "__main__":
     #! stage 0
     
     G2sSparseIndexLoadOp = sr_bcrs_program.find_op_by_name("G2sSparseIndexLoadOp")
-    G2sSparseValBlockValLoadOp = sr_bcrs_program.find_op_by_name("G2sSparseValBlockValLoadOp")
+    
 
     #! stage 1
-
+    G2sSparseValBlockValLoadOp = sr_bcrs_program.find_op_by_name("G2sSparseValBlockValLoadOp")
     G2sMatrixBLoadOp = sr_bcrs_program.find_op_by_name("G2sMatrixBLoadOp")
 
     #! stage 2
@@ -646,10 +673,10 @@ if __name__ == "__main__":
 
     s0 = NvOpSequence(
         G2sSparseIndexLoadOp,
-        G2sSparseValBlockValLoadOp,
     )
 
     s1 = NvOpSequence(
+        G2sSparseValBlockValLoadOp,
         G2sMatrixBLoadOp,
     )
 

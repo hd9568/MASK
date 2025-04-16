@@ -251,11 +251,25 @@ void convertToSRBCRS(
                 float value = (float)csrValA[j];
                 int condensed_pos = binarySearch(nnz_col, col_start_pos, nnz_col_num - 1, col);
                 col_start_pos = condensed_pos + 1;
-                tmp_val_block_val[OFFSET_ROW(i_row, condensed_pos % TC_BLOCK_K, TC_BLOCK_K)] = (half)value;
+                tmp_val_block_val[(condensed_pos / TC_BLOCK_K) * TC_BLOCK_M * TC_BLOCK_K + OFFSET_ROW(i_row, condensed_pos % TC_BLOCK_K, TC_BLOCK_K)] = (half)value;
             }
         }
+        //! debug
+        {
+            // printf("check s_off\n");
+            // for (int i = 0; i < tc_block_num; i++) {
+            //     printf("%d ", val_soff[i]);
+            // } printf("\n");
+            // for (int tc_block_ptr = 0; tc_block_ptr < tc_block_num; tc_block_ptr++) {
+            //     printf("tc_block i = %d, j = %d\n", i_row_window, tc_block_ptr);
+            //     for (int i = 0; i < 16; i++) {
+            //         for (int j = 0; j < 16; j++) {
+            //             printf("%.0f ", (float)tmp_val_block_val[tc_block_ptr * TC_BLOCK_M * TC_BLOCK_K + OFFSET_ROW(i, j, TC_BLOCK_K)]);
+            //         } printf("\n");
+            //     }
+            // }
+        }
     }
-
     //! launch kernel
     sr_bcrs_test_fp16<64>(M, N, K, total_TCBlock_num, val_sidx, val_soff, B, val_block_val, C);
 }
@@ -272,7 +286,8 @@ int main(int argc, char** argv) {
     cout << "Filename: " << filename << endl;
     cout << "N: " << N << endl;
 
-    int rowA, colA;
+    int rowA = M;
+    int colA = K;
     int nnz = 0;
     int isSymmetricA;
     int* csrPtrA;
@@ -377,5 +392,5 @@ int main(int argc, char** argv) {
 
     printf("check nan: cusp %.1f mykernel %.1f\n", C_cpu[0], C_cuda[0]);
     return 0;
-    
+      
 }

@@ -91,7 +91,7 @@ void sr_bcrs_test_fp16(
     CHECK_CUDA2(cudaMemcpy(dval_sidx, val_sidx, sizeof(int) * TCBlock_num * TC_BLOCK_K, cudaMemcpyHostToDevice));
     CHECK_CUDA2(cudaMemcpy(dval_soff, val_soff, sizeof(int) * (row_window_num + 1), cudaMemcpyHostToDevice));
     CHECK_CUDA2(cudaMemcpy(dB_val, B_val, sizeof(half) * K * N, cudaMemcpyHostToDevice));
-    CHECK_CUDA2(cudaMemcpy(dval_block_val, val_block_val, sizeof(half) * ROW_WINDOW_M * TC_BLOCK_K, cudaMemcpyHostToDevice));
+    CHECK_CUDA2(cudaMemcpy(dval_block_val, val_block_val, sizeof(half) * ROW_WINDOW_M * TC_BLOCK_K * TCBlock_num, cudaMemcpyHostToDevice));
     CHECK_CUDA2(cudaMemset(dC, 0, sizeof(float) * (row_window_num * ROW_WINDOW_M) * N));
 
     int threadblock_num_x = row_window_num;
