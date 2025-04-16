@@ -856,9 +856,9 @@ if __name__ == "__main__":
 
     apply_pipeline(
         dtc_main_loop_op,
-        PipelinePlan([s0, s1, s2], [1, 1]),
+        PipelinePlan([s0, s1, s2], [1, 2]),
     )
 
     script_dir = Path(__file__).parent
-    with open(script_dir / "kernel-gen.inc", "w") as f:
+    with open(script_dir / "kernel.inc", "w") as f:
         f.write(NvIrCodeGenerator().dump_nvop_program(dtc_program))
