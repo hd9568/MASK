@@ -25,3 +25,5 @@ example/bin/*-tf32
 example/bin/*.log
 example/bin/*list*.txt
 example/dtc-spmm/matrix_generator/generated_matrices
+
+exp/*list*.txt
