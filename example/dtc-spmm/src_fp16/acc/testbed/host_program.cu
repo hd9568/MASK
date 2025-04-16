@@ -221,7 +221,7 @@ void acc_spmm_test(int M,
 
     CHECK_CUDA2(cudaDeviceSynchronize());
     CHECK_CUDA2(cudaGetLastError());
-    CHECK_CUDA2(cudaMemcpy(C_val, dC_val, sizeof(dtypeC) * M_ALIGNED * N, cudaMemcpyDeviceToHost));
+    CHECK_CUDA2(cudaMemcpy(C_val, dC_val, sizeof(dtypeC) * M * N, cudaMemcpyDeviceToHost));
 }
 
 template void
