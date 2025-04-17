@@ -29,3 +29,5 @@ example/dtc-spmm/matrix_generator/generated_matrices
 exp/*list*.txt
 exp/*list*.txt
 example/dtc-spmm/matrix_generator/generated_matrices
+
+baseline

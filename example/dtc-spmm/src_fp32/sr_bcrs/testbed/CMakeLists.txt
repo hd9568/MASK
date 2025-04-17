@@ -64,10 +64,10 @@ foreach(PLAN_FILE ${PLAN_FILES})
     # Add an executable target for this plan
     add_executable(${PLAN_NAME} ${GENERATED_HOST_PROGRAM} ${SRC_CUDA_FILES} ${PROJECT_SOURCE_DIR}/main.cu)
 
-    target_compile_options(${PLAN_NAME} PRIVATE ${CUDA_NVCC_FLAGS} -I${SRCDIR} -I${CMAKE_CURRENT_SOURCE_DIR})
-    target_link_libraries(${PLAN_NAME} PRIVATE -lcusparse -lcublas)
-    target_compile_definitions(${PLAN_NAME} PRIVATE f32)
-    target_include_directories(${PLAN_NAME} PRIVATE 
+    target_compile_options(srbcrs-${PLAN_NAME}-tf32 PRIVATE ${CUDA_NVCC_FLAGS} -I${SRCDIR} -I${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(srbcrs-${PLAN_NAME}-tf32 PRIVATE -lcusparse -lcublas)
+    target_compile_definitions(srbcrs-${PLAN_NAME}-tf32 PRIVATE f32)
+    target_include_directories(srbcrs-${PLAN_NAME}-tf32 PRIVATE 
         ${CUTLASS_INCLUDE_DIR}
         ${CUTLASS_COMMON_DIR}
         ${CUTLASS_UTIL_DIR}
@@ -93,6 +93,18 @@ target_compile_options(demo-srbcrs-16x8-tf32 PRIVATE ${CUDA_NVCC_FLAGS} -I${SRCD
 target_link_libraries(demo-srbcrs-16x8-tf32 PRIVATE -lcusparse -lcublas)
 target_compile_definitions(demo-srbcrs-16x8-tf32 PRIVATE f32)
 target_include_directories(demo-srbcrs-16x8-tf32 PRIVATE 
+    ${CUTLASS_INCLUDE_DIR}
+    ${CUTLASS_COMMON_DIR}
+    ${CUTLASS_UTIL_DIR}
+    ${SRCDIR}
+)
+
+add_executable(demo-srbcrs-16x8-spmv-tf32 ${PROJECT_SOURCE_DIR}/host_program_16x8_spmv.cu ${PROJECT_SOURCE_DIR}/main_16x8_spmv.cu ${SRC_CUDA_FILES})
+
+target_compile_options(demo-srbcrs-16x8-spmv-tf32 PRIVATE ${CUDA_NVCC_FLAGS} -I${SRCDIR} -I${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(demo-srbcrs-16x8-spmv-tf32 PRIVATE -lcusparse -lcublas)
+target_compile_definitions(demo-srbcrs-16x8-spmv-tf32 PRIVATE f32)
+target_include_directories(demo-srbcrs-16x8-spmv-tf32 PRIVATE 
     ${CUTLASS_INCLUDE_DIR}
     ${CUTLASS_COMMON_DIR}
     ${CUTLASS_UTIL_DIR}
