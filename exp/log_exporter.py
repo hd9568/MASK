@@ -10,7 +10,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("-i", type=str)
     parser.add_argument("-o", type=str, default=f"log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json")
-    parser.add_argument("-g", type=str, default="H800")
+    parser.add_argument("-g", type=str, default="4090")
     args = parser.parse_args()
 
     data = {}
