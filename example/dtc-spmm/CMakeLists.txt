@@ -130,4 +130,6 @@ add_custom_target(demos DEPENDS
     demo-dtc-tf32 
     demo-srbcrs-fp16 
     demo-srbcrs-tf32
+    demo-srbcrs-16x16-fp16
+    demo-srbcrs-16x8-tf32
 )
