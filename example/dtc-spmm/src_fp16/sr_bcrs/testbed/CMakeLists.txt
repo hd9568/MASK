@@ -84,3 +84,14 @@ target_include_directories(demo-srbcrs-fp16 PRIVATE
     ${CUTLASS_UTIL_DIR}
     ${SRCDIR}
 )
+
+add_executable(demo-srbcrs-16x16-fp16 ${PROJECT_SOURCE_DIR}/host_program_16x16.cu ${PROJECT_SOURCE_DIR}/main_16x16.cu ${SRC_CUDA_FILES})
+
+target_compile_options(demo-srbcrs-16x16-fp16 PRIVATE ${CUDA_NVCC_FLAGS} -I${SRCDIR} -I${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(demo-srbcrs-16x16-fp16 PRIVATE -lcusparse -lcublas)
+target_include_directories(demo-srbcrs-16x16-fp16 PRIVATE 
+    ${CUTLASS_INCLUDE_DIR}
+    ${CUTLASS_COMMON_DIR}
+    ${CUTLASS_UTIL_DIR}
+    ${SRCDIR}
+)
