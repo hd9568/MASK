@@ -62,11 +62,11 @@ foreach(PLAN_FILE ${PLAN_FILES})
     )
 
     # Add an executable target for this plan
-    add_executable(${PLAN_NAME} ${GENERATED_HOST_PROGRAM} ${SRC_CUDA_FILES} ${PROJECT_SOURCE_DIR}/main.cu)
+    add_executable(dtc-${PLAN_NAME}-fp16 ${GENERATED_HOST_PROGRAM} ${SRC_CUDA_FILES} ${PROJECT_SOURCE_DIR}/main.cu)
 
-    target_compile_options(${PLAN_NAME} PRIVATE ${CUDA_NVCC_FLAGS} -I${SRCDIR} -I${CMAKE_CURRENT_SOURCE_DIR})
-    target_link_libraries(${PLAN_NAME} PRIVATE -lcusparse -lcublas)
-    target_include_directories(${PLAN_NAME} PRIVATE 
+    target_compile_options(dtc-${PLAN_NAME}-fp16 PRIVATE ${CUDA_NVCC_FLAGS} -I${SRCDIR} -I${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(dtc-${PLAN_NAME}-fp16 PRIVATE -lcusparse -lcublas)
+    target_include_directories(dtc-${PLAN_NAME}-fp16 PRIVATE 
         ${CUTLASS_INCLUDE_DIR}
         ${CUTLASS_COMMON_DIR}
         ${CUTLASS_UTIL_DIR}

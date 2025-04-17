@@ -1,0 +1,10 @@
+/work/sparsene/exp/bin/acc-fp16
+/work/sparsene/exp/bin/bitbsr-fp16
+/work/sparsene/exp/bin/srbcrs-fp16
+/work/sparsene/exp/bin/dtc-fp16
+/work/sparsene/exp/bin/cusp-fp16
+/work/sparsene/exp/bin/srbcrs-tf32
+/work/sparsene/exp/bin/acc-tf32
+/work/sparsene/exp/bin/dtc-tf32
+/work/sparsene/exp/bin/bitbsr-tf32
+/work/sparsene/exp/bin/cusp-tf32
