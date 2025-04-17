@@ -62,11 +62,11 @@ foreach(PLAN_FILE ${PLAN_FILES})
     )
 
     # Add an executable target for this plan
-    add_executable(${PLAN_NAME} ${GENERATED_HOST_PROGRAM} ${SRC_CUDA_FILES} ${PROJECT_SOURCE_DIR}/main.cu)
+    add_executable(acc-${PLAN_NAME}-fp16 ${GENERATED_HOST_PROGRAM} ${SRC_CUDA_FILES} ${PROJECT_SOURCE_DIR}/main.cu)
 
-    target_compile_options(${PLAN_NAME} PRIVATE ${CUDA_NVCC_FLAGS} -I${SRCDIR} -I${CMAKE_CURRENT_SOURCE_DIR})
-    target_link_libraries(${PLAN_NAME} PRIVATE -lcusparse -lcublas)
-    target_include_directories(${PLAN_NAME} PRIVATE 
+    target_compile_options(acc-${PLAN_NAME}-fp16 PRIVATE ${CUDA_NVCC_FLAGS} -I${SRCDIR} -I${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(acc-${PLAN_NAME}-fp16 PRIVATE -lcusparse -lcublas)
+    target_include_directories(acc-${PLAN_NAME}-fp16 PRIVATE 
         ${CUTLASS_INCLUDE_DIR}
         ${CUTLASS_COMMON_DIR}
         ${CUTLASS_UTIL_DIR}
@@ -79,6 +79,17 @@ add_executable(demo-acc-fp16 ${PROJECT_SOURCE_DIR}/host_program.cu ${PROJECT_SOU
 target_compile_options(demo-acc-fp16 PRIVATE ${CUDA_NVCC_FLAGS} -I${SRCDIR} -I${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(demo-acc-fp16 PRIVATE -lcusparse -lcublas)
 target_include_directories(demo-acc-fp16 PRIVATE 
+    ${CUTLASS_INCLUDE_DIR}
+    ${CUTLASS_COMMON_DIR}
+    ${CUTLASS_UTIL_DIR}
+    ${SRCDIR}
+)
+
+add_executable(demo-acc-spmv-fp16 ${PROJECT_SOURCE_DIR}/host_program_spmv.cu ${PROJECT_SOURCE_DIR}/main_spmv.cu ${SRC_CUDA_FILES})
+
+target_compile_options(demo-acc-spmv-fp16 PRIVATE ${CUDA_NVCC_FLAGS} -I${SRCDIR} -I${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(demo-acc-spmv-fp16 PRIVATE -lcusparse -lcublas)
+target_include_directories(demo-acc-spmv-fp16 PRIVATE 
     ${CUTLASS_INCLUDE_DIR}
     ${CUTLASS_COMMON_DIR}
     ${CUTLASS_UTIL_DIR}

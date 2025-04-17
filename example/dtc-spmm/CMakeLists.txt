@@ -121,15 +121,25 @@ add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/src_fp32/cusparse/testbed/)
 
 add_custom_target(demos DEPENDS 
     demo-acc-fp16 
+    demo-acc-spmv-fp16 
     demo-acc-tf32 
+    demo-acc-spmv-tf32 
     demo-bitbsr-fp16 
+    demo-bitbsr-spmv-fp16 
     demo-bitbsr-tf32 
+    demo-bitbsr-spmv-tf32 
     demo-cusp-fp16 
+    demo-cusp-spmv-fp16 
     demo-cusp-tf32 
+    demo-cusp-spmv-tf32 
     demo-dtc-fp16 
+    demo-dtc-spmv-fp16 
     demo-dtc-tf32 
+    demo-dtc-spmv-tf32 
     demo-srbcrs-fp16 
-    demo-srbcrs-tf32
+    demo-srbcrs-tf32 
     demo-srbcrs-16x16-fp16
+    demo-srbcrs-16x16-spmv-fp16
     demo-srbcrs-16x8-tf32
+    demo-srbcrs-16x8-spmv-tf32
 )

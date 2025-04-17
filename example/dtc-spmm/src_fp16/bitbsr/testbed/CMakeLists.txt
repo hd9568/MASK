@@ -84,3 +84,14 @@ target_include_directories(demo-bitbsr-fp16 PRIVATE
     ${CUTLASS_UTIL_DIR}
     ${SRCDIR}
 )
+
+add_executable(demo-bitbsr-spmv-fp16 ${PROJECT_SOURCE_DIR}/host_program_spmv.cu ${PROJECT_SOURCE_DIR}/main_spmv.cu ${SRC_CUDA_FILES})
+
+target_compile_options(demo-bitbsr-spmv-fp16 PRIVATE ${CUDA_NVCC_FLAGS} -I${SRCDIR} -I${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(demo-bitbsr-spmv-fp16 PRIVATE -lcusparse -lcublas)
+target_include_directories(demo-bitbsr-spmv-fp16 PRIVATE 
+    ${CUTLASS_INCLUDE_DIR}
+    ${CUTLASS_COMMON_DIR}
+    ${CUTLASS_UTIL_DIR}
+    ${SRCDIR}
+)
