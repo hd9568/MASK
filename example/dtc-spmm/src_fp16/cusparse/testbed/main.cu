@@ -13,13 +13,13 @@
 #include "common.h"
 #include "utils.h"
 
-#define CHECK_CUDA2(func)                                              \
-    {                                                                  \
-        cudaError_t status = (func);                                   \
-        if (status != cudaSuccess) {                                   \
-            printf("CUDA API failed at line %d with error: %s (%d)\n", \
-                   __LINE__, cudaGetErrorString(status), status);      \
-        }                                                              \
+#define CHECK_CUDA2(func)                                                                          \
+    {                                                                                              \
+        cudaError_t status = (func);                                                               \
+        if (status != cudaSuccess) {                                                               \
+            printf("CUDA API failed at line %d with error: %s (%d)\n", __LINE__,                   \
+                   cudaGetErrorString(status), status);                                            \
+        }                                                                                          \
     }
 
 using namespace std;
@@ -42,17 +42,17 @@ void initVector(half* vec, int length, float sparsity) {
 }
 
 void cusparse_spmm(half* cu_ValA,
-                       int* cu_RowPtrA,
-                       int* cu_ColIdxA,
-                       half* cu_B,
-                       float* cu_C,
-                       int M,
-                       int N,
-                       int K,
-                       int nnz,
-                       bool is_ncu_test,
-                       int warmup_time,
-                       int execute_time) {
+                   int* cu_RowPtrA,
+                   int* cu_ColIdxA,
+                   half* cu_B,
+                   float* cu_C,
+                   int M,
+                   int N,
+                   int K,
+                   int nnz,
+                   bool is_ncu_test,
+                   int warmup_time,
+                   int execute_time) {
     int A_num_rows = M;
     int A_num_cols = K;
     int B_num_rows = K;
@@ -110,34 +110,35 @@ void cusparse_spmm(half* cu_ValA,
       matB, &beta, matC, CUDA_R_32F, CUSPARSE_SPMM_ALG_DEFAULT, dBuffer))
 
     if (!is_ncu_test) {
-         struct timeval t1, t2;
-    {
-        for (int i = 0; i < warmup_time; i++) {
+        struct timeval t1, t2;
+        {
+            for (int i = 0; i < warmup_time; i++) {
                 // execute SpMM
-    CHECK_CUSPARSE(cusparseSpMM(handle, CUSPARSE_OPERATION_NON_TRANSPOSE,
-                                CUSPARSE_OPERATION_NON_TRANSPOSE, &alpha, matA, matB, &beta, matC,
-                                CUDA_R_32F, CUSPARSE_SPMM_ALG_DEFAULT, dBuffer))
+                CHECK_CUSPARSE(cusparseSpMM(
+                  handle, CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_OPERATION_NON_TRANSPOSE,
+                  &alpha, matA, matB, &beta, matC, CUDA_R_32F, CUSPARSE_SPMM_ALG_DEFAULT, dBuffer))
+            }
+            CHECK_CUDA2(cudaDeviceSynchronize());
+            gettimeofday(&t1, NULL);
+            for (int i = 0; i < execute_time; i++) {
+                // execute SpMM
+                CHECK_CUSPARSE(cusparseSpMM(
+                  handle, CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_OPERATION_NON_TRANSPOSE,
+                  &alpha, matA, matB, &beta, matC, CUDA_R_32F, CUSPARSE_SPMM_ALG_DEFAULT, dBuffer))
+            }
+            CHECK_CUDA2(cudaDeviceSynchronize());
+            gettimeofday(&t2, NULL);
+            double mykernel_time =
+              ((t2.tv_sec - t1.tv_sec) * 1000.0 + (t2.tv_usec - t1.tv_usec) / 1000.0) /
+              execute_time;
+            printf("mykernel_time: %f ms\n", mykernel_time);
         }
-        CHECK_CUDA2(cudaDeviceSynchronize());
-        gettimeofday(&t1, NULL);
-        for (int i = 0; i < execute_time; i++) {
-              // execute SpMM
-    CHECK_CUSPARSE(cusparseSpMM(handle, CUSPARSE_OPERATION_NON_TRANSPOSE,
-                                CUSPARSE_OPERATION_NON_TRANSPOSE, &alpha, matA, matB, &beta, matC,
-                                CUDA_R_32F, CUSPARSE_SPMM_ALG_DEFAULT, dBuffer))
-        }
-        CHECK_CUDA2(cudaDeviceSynchronize());
-        gettimeofday(&t2, NULL);
-        double mykernel_time =
-          ((t2.tv_sec - t1.tv_sec) * 1000.0 + (t2.tv_usec - t1.tv_usec) / 1000.0) / execute_time;
-        printf("mykernel_time: %f ms\n", mykernel_time);
-    }
 
     } else {
-    // execute SpMM
-    CHECK_CUSPARSE(cusparseSpMM(handle, CUSPARSE_OPERATION_NON_TRANSPOSE,
-                                CUSPARSE_OPERATION_NON_TRANSPOSE, &alpha, matA, matB, &beta, matC,
-                                CUDA_R_32F, CUSPARSE_SPMM_ALG_DEFAULT, dBuffer))
+        // execute SpMM
+        CHECK_CUSPARSE(cusparseSpMM(handle, CUSPARSE_OPERATION_NON_TRANSPOSE,
+                                    CUSPARSE_OPERATION_NON_TRANSPOSE, &alpha, matA, matB, &beta,
+                                    matC, CUDA_R_32F, CUSPARSE_SPMM_ALG_DEFAULT, dBuffer))
         CHECK_CUDA2(cudaDeviceSynchronize());
     }
 
@@ -228,7 +229,7 @@ int main(int argc, char** argv) {
     initVector(B, K * N, 0);
 
     cusparse_spmm(csrValA, csrPtrA, csrColIdxA, B, nullptr, M, N, K, nnz, (bool)is_ncu_test,
-                 warmup_time, execute_time);
+                  warmup_time, execute_time);
 
     return 0;
 }

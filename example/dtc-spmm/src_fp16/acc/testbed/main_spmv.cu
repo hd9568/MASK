@@ -49,18 +49,18 @@ extern void acc_spmm_test(int M,
 
 extern template void
 acc_spmm_test<half, half, float, uint64_t, 16, 8, 16, 16, 8, 16>(int M,
-                                                                  int N,
-                                                                  int K,
-                                                                  half* B_val,
-                                                                  float* C_val,
-                                                                  int* val_sidx,
-                                                                  int* val_soff,
-                                                                  int* val_mco_off,
-                                                                  uint64_t* val_mco_mask,
-                                                                  half* val_mco_val,
-                                                                  bool is_ncu_test,
-                                                                  int warmup_time,
-                                                                  int execute_time);
+                                                                 int N,
+                                                                 int K,
+                                                                 half* B_val,
+                                                                 float* C_val,
+                                                                 int* val_sidx,
+                                                                 int* val_soff,
+                                                                 int* val_mco_off,
+                                                                 uint64_t* val_mco_mask,
+                                                                 half* val_mco_val,
+                                                                 bool is_ncu_test,
+                                                                 int warmup_time,
+                                                                 int execute_time);
 
 int binarySearch(int* arr, int l, int r, int target) {
     while (l <= r) {
@@ -374,8 +374,8 @@ int main(int argc, char** argv) {
     int warmup_time = 100;
     int execute_time = 1000;
     parseInput(argc, argv, filename, "-filename", N, "-N", M, "-M", K, "-K", mtx_flag, "-mtx_flag",
-               sparsity, "-sparsity", is_ncu_test, "-ncu", warmup_time, "-warmup",
-               execute_time, "-repeat");
+               sparsity, "-sparsity", is_ncu_test, "-ncu", warmup_time, "-warmup", execute_time,
+               "-repeat");
 
     cout << "Filename: " << filename << endl;
     cout << "N: " << N << endl;

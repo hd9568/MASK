@@ -49,3 +49,15 @@ target_include_directories(demo-cusp-tf32 PRIVATE
     ${CUTLASS_UTIL_DIR}
     ${SRCDIR}
 )
+
+add_executable(demo-cusp-spmv-tf32 ${PROJECT_SOURCE_DIR}/main_spmv.cu ${SRC_CUDA_FILES})
+
+target_compile_options(demo-cusp-spmv-tf32 PRIVATE ${CUDA_NVCC_FLAGS} -I${SRCDIR} -I${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(demo-cusp-spmv-tf32 PRIVATE -lcusparse -lcublas)
+target_compile_definitions(demo-cusp-spmv-tf32 PRIVATE f32)
+target_include_directories(demo-cusp-spmv-tf32 PRIVATE 
+    ${CUTLASS_INCLUDE_DIR}
+    ${CUTLASS_COMMON_DIR}
+    ${CUTLASS_UTIL_DIR}
+    ${SRCDIR}
+)

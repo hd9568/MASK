@@ -20,7 +20,7 @@
 #include "cutlass/util/print_error.hpp"
 
 // #include "example/dtc-spmm/src_fp16/row_majorB_vs_bind_reorder/kernel-gen.inc"
-#include "kernel.inc"
+#include "kernel_16x8_spmv.inc"
 
 #define DTYPEAB float
 

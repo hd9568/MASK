@@ -20,7 +20,7 @@
 #include "cutlass/util/helper_cuda.hpp"
 #include "cutlass/util/print_error.hpp"
 
-#include "kernel.inc"
+#include "kernel_spmv.inc"
 
 using namespace cute;
 using namespace std;
@@ -214,7 +214,7 @@ void dtc_spmm_test_val_sidx_bind_reorder(int M,
     CHECK_CUDA2(cudaMemcpy(C, dC, sizeof(float) * M * N, cudaMemcpyDeviceToHost));
 }
 
-template void dtc_spmm_test_val_sidx_bind_reorder<16>(int M,
+template void dtc_spmm_test_val_sidx_bind_reorder<8>(int M,
                                                       int N,
                                                       int K,
                                                       int TCBlock_num,

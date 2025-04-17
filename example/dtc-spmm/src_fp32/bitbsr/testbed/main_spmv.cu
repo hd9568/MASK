@@ -155,7 +155,7 @@ void convertToBitBSR(int M,
     // 2. Convert
 
     auto swizzler =
-      cute::composition(cute::Swizzle<1, 3, 3>{}, cute::make_layout(cute::make_shape(Blk_M, Blk_K),
+      cute::composition(cute::Swizzle<1, 2, 3>{}, cute::make_layout(cute::make_shape(Blk_M, Blk_K),
                                                                     cute::make_stride(Blk_K, 1)));
     int num_row_windows = DIVUP(M, Blk_M);
 
