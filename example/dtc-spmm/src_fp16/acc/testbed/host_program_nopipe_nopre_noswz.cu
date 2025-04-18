@@ -20,7 +20,7 @@
 #include "cutlass/util/helper_cuda.hpp"
 #include "cutlass/util/print_error.hpp"
 
-#include "kernel.inc"
+#include "kernel_nopipe_nopre_noswz.inc"
 
 using namespace cute;
 using namespace std;

@@ -106,3 +106,37 @@ target_include_directories(demo-srbcrs-16x16-spmv-fp16 PRIVATE
     ${CUTLASS_UTIL_DIR}
     ${SRCDIR}
 )
+
+# Ablation targets
+add_executable(demo-srbcrs-nopipe-fp16 ${PROJECT_SOURCE_DIR}/host_program_nopipe.cu ${PROJECT_SOURCE_DIR}/main_nopipe.cu ${SRC_CUDA_FILES})
+
+target_compile_options(demo-srbcrs-nopipe-fp16 PRIVATE ${CUDA_NVCC_FLAGS} -I${SRCDIR} -I${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(demo-srbcrs-nopipe-fp16 PRIVATE -lcusparse -lcublas)
+target_include_directories(demo-srbcrs-nopipe-fp16 PRIVATE 
+    ${CUTLASS_INCLUDE_DIR}
+    ${CUTLASS_COMMON_DIR}
+    ${CUTLASS_UTIL_DIR}
+    ${SRCDIR}
+)
+
+add_executable(demo-srbcrs-nopipe-nopre-fp16 ${PROJECT_SOURCE_DIR}/host_program_nopipe_nopre.cu ${PROJECT_SOURCE_DIR}/main_nopipe_nopre.cu ${SRC_CUDA_FILES})
+
+target_compile_options(demo-srbcrs-nopipe-nopre-fp16 PRIVATE ${CUDA_NVCC_FLAGS} -I${SRCDIR} -I${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(demo-srbcrs-nopipe-nopre-fp16 PRIVATE -lcusparse -lcublas)
+target_include_directories(demo-srbcrs-nopipe-nopre-fp16 PRIVATE 
+    ${CUTLASS_INCLUDE_DIR}
+    ${CUTLASS_COMMON_DIR}
+    ${CUTLASS_UTIL_DIR}
+    ${SRCDIR}
+)
+
+add_executable(demo-srbcrs-nopipe-nopre-noswz-fp16 ${PROJECT_SOURCE_DIR}/host_program_nopipe_nopre_noswz.cu ${PROJECT_SOURCE_DIR}/main_nopipe_nopre_noswz.cu ${SRC_CUDA_FILES})
+
+target_compile_options(demo-srbcrs-nopipe-nopre-noswz-fp16 PRIVATE ${CUDA_NVCC_FLAGS} -I${SRCDIR} -I${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(demo-srbcrs-nopipe-nopre-noswz-fp16 PRIVATE -lcusparse -lcublas)
+target_include_directories(demo-srbcrs-nopipe-nopre-noswz-fp16 PRIVATE 
+    ${CUTLASS_INCLUDE_DIR}
+    ${CUTLASS_COMMON_DIR}
+    ${CUTLASS_UTIL_DIR}
+    ${SRCDIR}
+)

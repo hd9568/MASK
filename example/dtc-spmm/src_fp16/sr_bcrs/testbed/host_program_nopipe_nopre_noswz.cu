@@ -20,7 +20,7 @@
 #include "cutlass/util/print_error.hpp"
 
 // #include "example/dtc-spmm/src_fp16/row_majorB_vs_bind_reorder/kernel-gen.inc"
-#include "kernel.inc"
+#include "kernel_nopipe_nopre_noswz.inc"
 
 #define ROW_WINDOW_M 16
 #define TC_BLOCK_K 16

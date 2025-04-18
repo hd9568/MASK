@@ -752,5 +752,5 @@ if __name__ == "__main__":
     )
 
     script_dir = Path(__file__).parent
-    with open(script_dir / "kernel.inc", "w") as f:
+    with open(script_dir / "kernel_nopipe_nopre.inc", "w") as f:
         f.write(NvIrCodeGenerator().dump_nvop_program(dtc_program))
