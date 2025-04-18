@@ -117,12 +117,15 @@ add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/src_fp32/dtc/testbed/)
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/src_fp32/bitbsr/testbed/)
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/src_fp32/sr_bcrs/testbed/)
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/src_fp32/cusparse/testbed/)
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/src_fp32/acc-ldg/testbed/)
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/src_fp32/dtc-ldg/testbed/)
 
 
 add_custom_target(demos DEPENDS 
     demo-acc-fp16 
     demo-acc-spmv-fp16 
     demo-acc-tf32 
+    demo-acc-ldg-tf32 
     demo-acc-spmv-tf32 
     demo-bitbsr-fp16 
     demo-bitbsr-spmv-fp16 
@@ -135,6 +138,7 @@ add_custom_target(demos DEPENDS
     demo-dtc-fp16 
     demo-dtc-spmv-fp16 
     demo-dtc-tf32 
+    demo-dtc-ldg-tf32 
     demo-dtc-spmv-tf32 
     demo-srbcrs-fp16 
     demo-srbcrs-tf32 

@@ -75,24 +75,12 @@ foreach(PLAN_FILE ${PLAN_FILES})
     )
 endforeach()
 
-add_executable(demo-acc-tf32 ${PROJECT_SOURCE_DIR}/host_program.cu ${PROJECT_SOURCE_DIR}/main.cu ${SRC_CUDA_FILES})
+add_executable(demo-acc-ldg-tf32 ${PROJECT_SOURCE_DIR}/host_program.cu ${PROJECT_SOURCE_DIR}/main.cu ${SRC_CUDA_FILES})
 
-target_compile_options(demo-acc-tf32 PRIVATE ${CUDA_NVCC_FLAGS} -I${SRCDIR} -I${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(demo-acc-tf32 PRIVATE -lcusparse -lcublas)
-target_compile_definitions(demo-acc-tf32 PRIVATE f32)
-target_include_directories(demo-acc-tf32 PRIVATE 
-    ${CUTLASS_INCLUDE_DIR}
-    ${CUTLASS_COMMON_DIR}
-    ${CUTLASS_UTIL_DIR}
-    ${SRCDIR}
-)
-
-add_executable(demo-acc-spmv-tf32 ${PROJECT_SOURCE_DIR}/host_program_spmv.cu ${PROJECT_SOURCE_DIR}/main_spmv.cu ${SRC_CUDA_FILES})
-
-target_compile_options(demo-acc-spmv-tf32 PRIVATE ${CUDA_NVCC_FLAGS} -I${SRCDIR} -I${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(demo-acc-spmv-tf32 PRIVATE -lcusparse -lcublas)
-target_compile_definitions(demo-acc-spmv-tf32 PRIVATE f32)
-target_include_directories(demo-acc-spmv-tf32 PRIVATE 
+target_compile_options(demo-acc-ldg-tf32 PRIVATE ${CUDA_NVCC_FLAGS} -I${SRCDIR} -I${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(demo-acc-ldg-tf32 PRIVATE -lcusparse -lcublas)
+target_compile_definitions(demo-acc-ldg-tf32 PRIVATE f32)
+target_include_directories(demo-acc-ldg-tf32 PRIVATE 
     ${CUTLASS_INCLUDE_DIR}
     ${CUTLASS_COMMON_DIR}
     ${CUTLASS_UTIL_DIR}

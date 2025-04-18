@@ -247,14 +247,14 @@ r(0) = val_soff(i + 1);"""
     acc_blk_x_loop_op.append(acc_main_loop_op)
 
     # main_loop body
-    G2sSparseIndexLoadOp = NvOp(
-        name="G2sSparseIndexLoadOp",
+    G2rSparseIndexLoadOp = NvOp(
+        name="G2rSparseIndexLoadOp",
         inputs=[
             NvOpInput(
                 idx=0,
                 name="val_sidx",
                 tensor=NvOpTensor(
-                    shape=Shape(VarlenShape("nnz_block")),
+                    shape=Shape(MnkShape("BLK_MNK", "k"), VarlenShape("nnz_block")),
                     mem="gmem", dtype="int",
                     source=acc_program.gmem_tensor_ops["val_sidx"].outputs[0],
                 ),
@@ -272,25 +272,23 @@ r(0) = val_soff(i + 1);"""
         outputs=[
             NvOpOutput(
                 idx=0,
-                name="tile_sidx_block",
+                name="tile_sidx",
                 tensor=NvOpTensor(
-                    shape=Shape(MnkShape("BLK_MNK", "k")),
-                    mem="smem",
+                    shape=Shape(IntShape(2)),
+                    mem="rmem",
                     dtype="int",
                 ),
             ),
         ],
         impl=NvOpImpl(
-            r"""if (lid * 4 < get<2>(BLK_MNK{})) {
-    auto thr_tiler = make_shape(Int<4>{});
-    auto thr_coord = make_coord(lid);
-    auto src = local_tile(val_sidx(_, i), thr_tiler, thr_coord);
-    auto dst = local_tile(tile_sidx_block(_, buf_idx), thr_tiler, thr_coord);
-    copy(Copy_Atom<SM80_CP_ASYNC_CACHEGLOBAL<cute::uint128_t>, int>{}, src, dst);
-}"""),
-        mem_type=("g", "s"),
+            r"""
+    int row_b = lid % 4;
+    tile_sidx(0, buf_idx) = val_sidx(row_b, i);
+    tile_sidx(1, buf_idx) = val_sidx(row_b + 4, i);
+"""),
+        mem_type=("g", "r"),
     )
-    acc_main_loop_op.append(G2sSparseIndexLoadOp)
+    acc_main_loop_op.append(G2rSparseIndexLoadOp)
 
     G2rSparseMcoOffLoadOp = NvOp(
         name="G2rSparseMcoOffLoadOp",
@@ -442,7 +440,7 @@ for (int i_load = lid; i_load * 4 + ll < rr; i_load += 32) {
     )
     acc_main_loop_op.append(G2sSparseMcoValLoadOp)
 
-    G2sMatrixBLoadOp = NvOp(
+    G2rMatrixBLoadOp = NvOp(
         name="G2rMatrixBLoadOp",
         inputs=[
             NvOpInput(
@@ -457,44 +455,34 @@ for (int i_load = lid; i_load * 4 + ll < rr; i_load += 32) {
             ),
             NvOpInput(
                 idx=1,
-                name="tile_sidx_block",
+                name="tile_sidx",
                 tensor=NvOpTensor(
-                    shape=Shape(MnkShape("BLK_MNK", "k")),
-                    mem="smem",
+                    shape=Shape(IntShape(2)),
+                    mem="rmem",
                     dtype="int",
-                    source=G2sSparseIndexLoadOp.outputs[0],
+                    source=G2rSparseIndexLoadOp.outputs[0],
                 ),
             ),
         ],
         outputs=[
             NvOpOutput(
-                idx=0,
-                name="tileB_block",
+                idx=0, name="REGB",
                 tensor=NvOpTensor(
-                    shape=Shape(MnkShape("BLK_MNK", "k"), MnkShape("BLK_MNK", "n")),
-                    mem="smem",
-                    dtype=DTYPE_B,
-                    row_major=True,
-                    swizzle=SwizzleLayout(b=3, m=2, s=3),
-                ),
-            ),
+                    shape=Shape(IntShape(NFRAG_B), MnkShape("BLK_MMA_MNK", "n")),
+                    mem="rmem",
+                    dtype=DTYPE_B)),
         ],
-        impl=NvOpImpl(r"""auto load_tile_n = _4{};
-for (int iter_i = lid; iter_i < get<2>(BLK_MNK{}) * get<1>(BLK_MNK{}) / load_tile_n; iter_i += 32) {
-    int row = iter_i / (get<1>(BLK_MNK{}) / load_tile_n);
-    int col = iter_i % (get<1>(BLK_MNK{}) / load_tile_n);
-    int sidx = tile_sidx_block(row);
-    auto thr_tiler_gmem = make_shape(_1{}, _4{});
-    auto thr_coord_gmem = make_coord(sidx, col);
-    auto B_val_thr = local_tile(B_val, thr_tiler_gmem, thr_coord_gmem);
-    auto thr_tiler_smem = make_shape(_1{}, _4{});
-    auto thr_coord_smem = make_coord(row, col);
-    auto dst = local_tile(tileB_block(_, _, buf_idx), thr_tiler_smem, thr_coord_smem);
-    copy(Copy_Atom<SM80_CP_ASYNC_CACHEGLOBAL<cute::uint128_t>, float>{}, B_val_thr(0, _), dst(0, _));   
+        impl=NvOpImpl(r"""
+for (int n_iter = 0; n_iter < get<1>(BLK_MMA_MNK{}); n_iter++) {
+    int sidx0 = tile_sidx(0);
+    int sidx1 = tile_sidx(1);
+    int col_b = lid / 4;
+    REGB(_0{}, n_iter, buf_idx) = B_val(sidx0, col_b + n_iter * 8);
+    REGB(_1{}, n_iter, buf_idx) = B_val(sidx1, col_b + n_iter * 8);
 }"""),
-        mem_type=("g", "s"),
+        mem_type=("g", "r"),
     )
-    acc_main_loop_op.append(G2sMatrixBLoadOp)
+    acc_main_loop_op.append(G2rMatrixBLoadOp)
 
     S2sRestoreMatrixAOp = NvOp(
         name="S2sRestoreMatrixAOp",
@@ -600,38 +588,38 @@ ldmatrix_m8n8k8_x4(
     )
     acc_main_loop_op.append(S2rAValLoadOp)
 
-    S2rBValLoadOp = NvOp(
-        name="S2rBValLoadOp",
-        inputs=[
-            NvOpInput(
-                idx=0, name="tileB_block",
-                tensor=NvOpTensor(
-                    shape=Shape(MnkShape("BLK_MNK", "k"), MnkShape("BLK_MNK", "n")),
-                    mem="smem",
-                    dtype=DTYPE_B,
-                    source=G2sMatrixBLoadOp.outputs[0])),
-        ],
-        outputs=[
-            NvOpOutput(
-                idx=0, name="REGB",
-                tensor=NvOpTensor(
-                    shape=Shape(IntShape(NFRAG_B), MnkShape("BLK_MMA_MNK", "n")),
-                    mem="rmem",
-                    dtype=DTYPE_B)),
-        ],
-        impl=NvOpImpl(r"""for (int n_iter = 0; n_iter < get<1>(BLK_MMA_MNK{}); n_iter++) {
-    int row_b = lid / 2;
-    int col_b = lid % 2;
-    ldmatrix_m8n8k8_x2(
-        (uint32_t*)(REGB(_, n_iter, buf_idx).data()),
-        (void*)(&tileB_block(row_b, col_b * 4 + n_iter * 8))
-    );
-    REGB(_0{}, n_iter, buf_idx) = __shfl_sync(0xffffffff, REGB(_0{}, n_iter, buf_idx), lid / 4 + lid % 4 * 8);
-    REGB(_1{}, n_iter, buf_idx) = __shfl_sync(0xffffffff, REGB(_1{}, n_iter, buf_idx), lid / 4 + lid % 4 * 8);
-}"""),
-        mem_type=("s", "r"),
-    )
-    acc_main_loop_op.append(S2rBValLoadOp)
+#     S2rBValLoadOp = NvOp(
+#         name="S2rBValLoadOp",
+#         inputs=[
+#             NvOpInput(
+#                 idx=0, name="tileB_block",
+#                 tensor=NvOpTensor(
+#                     shape=Shape(MnkShape("BLK_MNK", "k"), MnkShape("BLK_MNK", "n")),
+#                     mem="smem",
+#                     dtype=DTYPE_B,
+#                     source=G2sMatrixBLoadOp.outputs[0])),
+#         ],
+#         outputs=[
+#             NvOpOutput(
+#                 idx=0, name="REGB",
+#                 tensor=NvOpTensor(
+#                     shape=Shape(IntShape(NFRAG_B), MnkShape("BLK_MMA_MNK", "n")),
+#                     mem="rmem",
+#                     dtype=DTYPE_B)),
+#         ],
+#         impl=NvOpImpl(r"""for (int n_iter = 0; n_iter < get<1>(BLK_MMA_MNK{}); n_iter++) {
+#     int row_b = lid / 2;
+#     int col_b = lid % 2;
+#     ldmatrix_m8n8k8_x2(
+#         (uint32_t*)(REGB(_, n_iter, buf_idx).data()),
+#         (void*)(&tileB_block(row_b, col_b * 4 + n_iter * 8))
+#     );
+#     REGB(_0{}, n_iter, buf_idx) = __shfl_sync(0xffffffff, REGB(_0{}, n_iter, buf_idx), lid / 4 + lid % 4 * 8);
+#     REGB(_1{}, n_iter, buf_idx) = __shfl_sync(0xffffffff, REGB(_1{}, n_iter, buf_idx), lid / 4 + lid % 4 * 8);
+# }"""),
+#         mem_type=("s", "r"),
+#     )
+#     acc_main_loop_op.append(S2rBValLoadOp)
 
     CalculateOp = NvOp(
         name="CalculateOp",
@@ -649,7 +637,7 @@ ldmatrix_m8n8k8_x4(
                 tensor=NvOpTensor(
                     shape=Shape(IntShape(NFRAG_B), MnkShape("BLK_MMA_MNK", "n")),
                     mem="rmem", dtype=DTYPE_B,
-                    source=S2rBValLoadOp.outputs[0])),
+                    source=G2rMatrixBLoadOp.outputs[0])),
         ],
         outputs=[
             NvOpOutput(
@@ -742,18 +730,17 @@ if __name__ == "__main__":
     acc_main_loop_op, acc_program = acc()
 
     s0 = NvOpSequence(
-        acc_program.find_op_by_name("G2sSparseIndexLoadOp"),
+        acc_program.find_op_by_name("G2rSparseIndexLoadOp"),
         acc_program.find_op_by_name("G2rSparseMcoOffLoadOp"),
         acc_program.find_op_by_name("G2rSparseMcoMaskLoadOp"),
         acc_program.find_op_by_name("G2sSparseMcoValLoadOp"),
     )
     s1 = NvOpSequence(
-        acc_program.find_op_by_name("G2sMatrixBLoadOp"),
         acc_program.find_op_by_name("S2sRestoreMatrixAOp"),
+        acc_program.find_op_by_name("G2rMatrixBLoadOp"),
     )
     s2 = NvOpSequence(
         acc_program.find_op_by_name("S2rAValLoadOp"),
-        acc_program.find_op_by_name("S2rBValLoadOp"),
         acc_program.find_op_by_name("CalculateOp"),
     )
 
