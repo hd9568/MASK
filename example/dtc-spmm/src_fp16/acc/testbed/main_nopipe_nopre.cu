@@ -153,9 +153,12 @@ void convertToAcc(int M,
     const int Blk_K = 16;
 
     // 2. Convert
+    // auto swizzler =
+    //   cute::composition(cute::Swizzle<1, 3, 3>{}, cute::make_layout(cute::make_shape(Blk_M, Blk_K),
+    //                                             cute::make_stride(Blk_K, 1)));
     auto swizzler =
-      cute::composition(cute::Swizzle<1, 3, 3>{}, cute::make_layout(cute::make_shape(Blk_M, Blk_K),
-                                                                    cute::make_stride(Blk_K, 1)));
+            cute::make_layout(cute::make_shape(Blk_M, Blk_K),
+            cute::make_stride(Blk_K, 1));
     int num_row_windows = DIVUP(M, Blk_M);
 
     vector<vector<int>> nz_blk_nz_cols(num_row_windows);
@@ -184,7 +187,10 @@ void convertToAcc(int M,
             nz_blk_nz_cols[rw_idx].push_back(col);
             auto& current_blk = nz_blks.back();
             for (auto& [row, val] : row_vals) {
+                //! manual swizzle
                 int idx = swizzler(cute::make_coord(row % Blk_M, condensed_col % Blk_K));
+                //! no pre
+                // int idx = (row % Blk_M) * Blk_K + condensed_col % Blk_K;
                 current_blk[idx] = val;
             }
             condensed_col++;

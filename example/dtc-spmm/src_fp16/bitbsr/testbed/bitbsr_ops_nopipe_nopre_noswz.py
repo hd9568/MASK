@@ -431,7 +431,8 @@ for (int i_load = lid; i_load * 8 + ll < rr; i_load += 32) {
     auto thr_coord = make_coord(i_load);
     auto src = local_tile(input, thr_tiler, thr_coord);
     auto dst = local_tile(tile_mco_val(_, buf_idx), thr_tiler, thr_coord);
-    copy(Copy_Atom<SM80_CP_ASYNC_CACHEGLOBAL<cute::uint128_t>, half>{}, src, dst);
+    // copy(Copy_Atom<SM80_CP_ASYNC_CACHEGLOBAL<cute::uint128_t>, half>{}, src, dst);
+    *((uint128_t*)dst.data().get()) = *((uint128_t*)src.data().get());
 }"""),
         mem_type=("g", "s"),
         parameters={
@@ -473,7 +474,7 @@ for (int i_load = lid; i_load * 8 + ll < rr; i_load += 32) {
                     mem="smem",
                     dtype=DTYPE_B,
                     row_major=True,
-                    swizzle=SwizzleLayout(b=3, m=3, s=3),
+                    # swizzle=SwizzleLayout(b=3, m=3, s=3),
                 ),
             ),
         ],
@@ -489,7 +490,8 @@ for (int tileK_iter_inner = 0; tileK_iter_inner < 4; tileK_iter_inner++) {
     auto thr_tiler_smem = make_shape(_1{}, _8{});
     auto thr_coord_smem = make_coord(row, col);
     auto dst = local_tile(tileB_block(_, _, buf_idx), thr_tiler_smem, thr_coord_smem);
-    copy(Copy_Atom<SM80_CP_ASYNC_CACHEGLOBAL<cute::uint128_t>, half>{}, B_val_thr(0, _), dst(0, _));
+    // copy(Copy_Atom<SM80_CP_ASYNC_CACHEGLOBAL<cute::uint128_t>, half>{}, B_val_thr(0, _), dst(0, _));
+    *((uint128_t*)dst(0, _).data().get()) = *((uint128_t*)B_val_thr(0, _).data().get());
 }"""),
         mem_type=("g", "s"),
     )
@@ -528,7 +530,7 @@ for (int tileK_iter_inner = 0; tileK_iter_inner < 4; tileK_iter_inner++) {
                     mem="smem",
                     dtype=DTYPE_A,
                     row_major=True,
-                    swizzle=SwizzleLayout(b=1, m=3, s=3),
+                    # swizzle=SwizzleLayout(b=1, m=3, s=3),
                 ),
             ),
         ],
@@ -541,10 +543,14 @@ for (int i_mask = 0; i_mask < nmask_per_tile{}; i_mask++) {
             local_idx = __popcll(mask << (63 - local_vid));
         }
         int vid = i_mask * 64 + local_vid;
+        int row = vid / get<2>(BLK_MNK{});
+        int col = vid % get<2>(BLK_MNK{});
         if (local_idx == 0) {
-            *((half*)tile_mco_restore_val_block(_, _, buf_idx).data().get() + vid) = 0;
+            // *((half*)tile_mco_restore_val_block(_, _, buf_idx).data().get() + vid) = 0;
+            tile_mco_restore_val_block(row, col, buf_idx) = 0;
         } else {
-            *((half*)tile_mco_restore_val_block(_, _, buf_idx).data().get() + vid) = tile_mco_val(off + local_idx - 1);
+            // *((half*)tile_mco_restore_val_block(_, _, buf_idx).data().get() + vid) = tile_mco_val(off + local_idx - 1);
+            tile_mco_restore_val_block(row, col, buf_idx) = tile_mco_val(off + local_idx - 1);
         }
     }
     off += __popcll(mask);
@@ -676,6 +682,15 @@ ldmatrix_m8n8k8_x4(
     bitbsr_main_loop_op.append(CalculateOp)
     bitbsr_main_loop_op.set_loop_result(0, CalculateOp.outputs[0])
 
+    EmptyOp = NvOp(
+        name="EmptyOp",
+        inputs=[],
+        outputs=[],
+        impl=NvOpImpl(r""""""),
+        memtype=("r", "r"),
+    )
+    bitbsr_main_loop_op.append(EmptyOp)
+
     R2gCValStoreOp = NvOp(
         name="R2gCValStoreOp",
         inputs=[
@@ -738,23 +753,23 @@ if __name__ == "__main__":
         bitbsr_program.find_op_by_name("G2rSparseIndexLoadOp"),
         bitbsr_program.find_op_by_name("G2rSparseMcoOffLoadOp"),
         bitbsr_program.find_op_by_name("G2rSparseMcoMaskLoadOp"),
-        bitbsr_program.find_op_by_name("G2sSparseMcoValLoadOp"),
-    )
-    s1 = NvOpSequence(
         bitbsr_program.find_op_by_name("G2sMatrixBLoadOp"),
+        bitbsr_program.find_op_by_name("G2sSparseMcoValLoadOp"),
         bitbsr_program.find_op_by_name("S2sRestoreMatrixAOp"),
-    )
-    s2 = NvOpSequence(
         bitbsr_program.find_op_by_name("S2rAValLoadOp"),
         bitbsr_program.find_op_by_name("S2rBValLoadOp"),
         bitbsr_program.find_op_by_name("CalculateOp"),
     )
+    s1 = NvOpSequence(
+        bitbsr_program.find_op_by_name("EmptyOp")
+    )
+    
 
     apply_pipeline(
         bitbsr_main_loop_op,
-        PipelinePlan([s0, s1, s2], [1, 1]),
+        PipelinePlan([s0, s1], [1]),
     )
 
     script_dir = Path(__file__).parent
-    with open(script_dir / "kernel.inc", "w") as f:
+    with open(script_dir / "kernel_nopipe_nopre_noswz.inc", "w") as f:
         f.write(NvIrCodeGenerator().dump_nvop_program(bitbsr_program))

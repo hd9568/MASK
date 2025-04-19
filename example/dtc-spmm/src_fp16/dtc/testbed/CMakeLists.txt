@@ -96,6 +96,39 @@ target_include_directories(demo-dtc-spmv-fp16 PRIVATE
     ${SRCDIR}
 )
 
+add_executable(demo-dtc-nopipe-fp16 ${PROJECT_SOURCE_DIR}/host_program_nopipe.cu ${PROJECT_SOURCE_DIR}/main_nopipe.cu ${SRC_CUDA_FILES})
+
+target_compile_options(demo-dtc-nopipe-fp16 PRIVATE ${CUDA_NVCC_FLAGS} -I${SRCDIR} -I${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(demo-dtc-nopipe-fp16 PRIVATE -lcusparse -lcublas)
+target_include_directories(demo-dtc-nopipe-fp16 PRIVATE 
+    ${CUTLASS_INCLUDE_DIR}
+    ${CUTLASS_COMMON_DIR}
+    ${CUTLASS_UTIL_DIR}
+    ${SRCDIR}
+)
+
+add_executable(demo-dtc-nopipe-nopre-fp16 ${PROJECT_SOURCE_DIR}/host_program_nopipe_nopre.cu ${PROJECT_SOURCE_DIR}/main_nopipe_nopre.cu ${SRC_CUDA_FILES})
+
+target_compile_options(demo-dtc-nopipe-nopre-fp16 PRIVATE ${CUDA_NVCC_FLAGS} -I${SRCDIR} -I${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(demo-dtc-nopipe-nopre-fp16 PRIVATE -lcusparse -lcublas)
+target_include_directories(demo-dtc-nopipe-nopre-fp16 PRIVATE 
+    ${CUTLASS_INCLUDE_DIR}
+    ${CUTLASS_COMMON_DIR}
+    ${CUTLASS_UTIL_DIR}
+    ${SRCDIR}
+)
+
+add_executable(demo-dtc-nopipe-nopre-noswz-fp16 ${PROJECT_SOURCE_DIR}/host_program_nopipe_nopre_noswz.cu ${PROJECT_SOURCE_DIR}/main_nopipe_nopre_noswz.cu ${SRC_CUDA_FILES})
+
+target_compile_options(demo-dtc-nopipe-nopre-noswz-fp16 PRIVATE ${CUDA_NVCC_FLAGS} -I${SRCDIR} -I${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(demo-dtc-nopipe-nopre-noswz-fp16 PRIVATE -lcusparse -lcublas)
+target_include_directories(demo-dtc-nopipe-nopre-noswz-fp16 PRIVATE 
+    ${CUTLASS_INCLUDE_DIR}
+    ${CUTLASS_COMMON_DIR}
+    ${CUTLASS_UTIL_DIR}
+    ${SRCDIR}
+)
+
 add_executable(demo-dtc-nobind-fp16 ${PROJECT_SOURCE_DIR}/host_program_nobind.cu ${PROJECT_SOURCE_DIR}/main_nobind.cu ${SRC_CUDA_FILES})
 
 target_compile_options(demo-dtc-nobind-fp16 PRIVATE ${CUDA_NVCC_FLAGS} -I${SRCDIR} -I${CMAKE_CURRENT_SOURCE_DIR})

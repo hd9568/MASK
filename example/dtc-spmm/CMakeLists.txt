@@ -147,3 +147,27 @@ add_custom_target(demos DEPENDS
     demo-srbcrs-16x8-tf32
     demo-srbcrs-16x8-spmv-tf32
 )
+
+add_custom_target(demo-ablation DEPENDS
+    demo-dtc-fp16
+    demo-dtc-nopipe-fp16
+    demo-dtc-nopipe-nopre-fp16
+    demo-dtc-nopipe-nopre-noswz-fp16
+    demo-acc-fp16
+    demo-acc-nopipe-fp16
+    demo-acc-nopipe-nopre-fp16
+    demo-acc-nopipe-nopre-noswz-fp16
+    demo-bitbsr-fp16
+    demo-bitbsr-nopipe-fp16
+    demo-bitbsr-nopipe-nopre-fp16
+    demo-bitbsr-nopipe-nopre-noswz-fp16
+    demo-srbcrs-fp16
+    demo-srbcrs-nopipe-fp16
+    demo-srbcrs-nopipe-nopre-fp16
+    demo-srbcrs-nopipe-nopre-noswz-fp16
+)
+
+add_custom_target(demo-optexp DEPENDS
+    demo-dtc-fp16
+    demo-dtc-nobind-fp16
+)

@@ -188,9 +188,10 @@ void convertToMETCF(int M,
     }
     val_coo_off[2 * total_TCBlock_num] = cur_pos;
 
-    auto swizzle_layout =
-      composition(Swizzle<1, 3, 3>{},
-                  make_layout(make_shape(ROW_WINDOW_M, TC_BLOCK_K), make_stride(TC_BLOCK_K, 1)));
+    // auto swizzle_layout =
+    //   composition(Swizzle<1, 3, 3>{},
+    //               make_layout(make_shape(ROW_WINDOW_M, TC_BLOCK_K), make_stride(TC_BLOCK_K, 1)));
+    auto swizzle_layout = make_layout(make_shape(ROW_WINDOW_M, TC_BLOCK_K), make_stride(TC_BLOCK_K, 1));
     int* tc_block_nnz_ptr = (int*)malloc(sizeof(int) * (K + TC_BLOCK_K - 1) / TC_BLOCK_K);
     for (int i_row_window = 0; i_row_window < row_window_num; i_row_window++) {
         int TC_block_offset = val_soff[i_row_window];
