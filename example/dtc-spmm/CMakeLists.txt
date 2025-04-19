@@ -170,4 +170,5 @@ add_custom_target(demo-ablation DEPENDS
 add_custom_target(demo-optexp DEPENDS
     demo-dtc-fp16
     demo-dtc-nobind-fp16
+    demo-dtc-noreorder-fp16
 )
