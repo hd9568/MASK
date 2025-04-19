@@ -305,7 +305,8 @@ r(0) = val_soff(i + 1);"""
     auto thr_coord = make_coord(lid);
     auto src = local_tile(val_sidx(_, i), thr_tiler, thr_coord);
     auto dst = local_tile(tile_sidx_block(_, buf_idx), thr_tiler, thr_coord);
-    copy(Copy_Atom<SM80_CP_ASYNC_CACHEGLOBAL<cute::uint128_t>, int>{}, src, dst);
+    // copy(Copy_Atom<SM80_CP_ASYNC_CACHEGLOBAL<cute::uint128_t>, int>{}, src, dst);
+    *((uint128_t*)dst.data().get()) = *((uint128_t*)src.data().get());
 }"""
         ),
         mem_type=("g", "s"),
@@ -382,7 +383,8 @@ for (int i_load = lid; i_load * 4 + ll < rr; i_load += 32) {
     auto thr_coord = make_coord(i_load);
     auto src = local_tile(input, thr_tiler, thr_coord);
     auto dst = local_tile(tileA_coo_val_idx_bind_block(_, buf_idx), thr_tiler, thr_coord);
-    copy(Copy_Atom<SM80_CP_ASYNC_CACHEGLOBAL<cute::uint128_t>, uint32_t>{}, src, dst);
+    // copy(Copy_Atom<SM80_CP_ASYNC_CACHEGLOBAL<cute::uint128_t>, uint32_t>{}, src, dst);
+    *((uint128_t*)dst.data().get()) = *((uint128_t*)src.data().get());
 }"""
         ),
         mem_type=("g", "s"),
@@ -442,7 +444,8 @@ for (int iter_i = lid; iter_i < get<2>(BLK_MNK{}) * get<1>(BLK_MNK{}) / load_til
     auto thr_tiler_smem = make_shape(_1{}, _8{});
     auto thr_coord_smem = make_coord(row, col);
     auto dst = local_tile(tileB_block(_, _, buf_idx), thr_tiler_smem, thr_coord_smem);
-    copy(Copy_Atom<SM80_CP_ASYNC_CACHEGLOBAL<cute::uint128_t>, half>{}, B_val_thr(0, _), dst(0, _));   
+    // copy(Copy_Atom<SM80_CP_ASYNC_CACHEGLOBAL<cute::uint128_t>, half>{}, B_val_thr(0, _), dst(0, _));   
+    *((uint128_t*)dst(0, _).data().get()) = *((uint128_t*)B_val_thr(0, _).data().get());
 }"""
         ),
         mem_type=("g", "s"),
@@ -495,7 +498,10 @@ for (int i_restore = lid; i_restore < nnz_num; i_restore += 32) {
     half value;
     short idx;
     unpack_half_short(val_idx_bind, value, idx);
-    *((half*)tile_coo_restore_val_block(_, _, buf_idx).data().get() + idx) = value;
+    int row = idx / get<2>(BLK_MNK{});
+    int col = idx % get<2>(BLK_MNK{});
+    // *((half*)tile_coo_restore_val_block(_, _, buf_idx).data().get() + idx) = value;
+    tile_coo_restore_val_block(row, col, buf_idx) = value;
 }"""
         ),
         mem_type=("s", "s"),
@@ -654,6 +660,15 @@ ldmatrix_m8n8k8_x4(
     dtc_main_loop_op.append(CalculateOp)
     dtc_main_loop_op.set_loop_result(0, CalculateOp.outputs[0])
 
+    EmptyOp = NvOp(
+        name="EmptyOp",
+        inputs=[],
+        outputs=[],
+        impl=NvOpImpl(r""""""),
+        memtype=("r", "r"),
+    )
+    dtc_main_loop_op.append(EmptyOp)
+
     r2g_c_val_store_op = NvOp(
         name="R2gCValStoreOp",
         inputs=[
@@ -735,20 +750,21 @@ if __name__ == "__main__":
     s0 = NvOpSequence(
         G2sSparseIndexLoadOp,
         G2sSparseCooEncLoadOp,
-    )
-    s1 = NvOpSequence(
         G2sMatrixBLoadOp,
         S2sRestoreMatrixAOp,
-    )
-    s2 = NvOpSequence(
         S2rAValLoadOp,
         S2rBValLoadOp,
         CalculateOp,
     )
+    s1 = NvOpSequence(
+        dtc_program.find_op_by_name("EmptyOp")
+    
+    )
+        
 
     apply_pipeline(
         dtc_main_loop_op,
-        PipelinePlan([s0, s1, s2], [1, 1]),
+        PipelinePlan([s0, s1], [1]),
     )
 
     script_dir = Path(__file__).parent

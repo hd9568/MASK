@@ -273,13 +273,13 @@ void convertToSRBCRS(int M,
                 int condensed_pos = binarySearch(nnz_col, col_start_pos, nnz_col_num - 1, col);
                 col_start_pos = condensed_pos + 1;
                 //! without manual swizzle
-                // tmp_val_block_val[
-                //     (condensed_pos / TILE_K) * TILE_M * TILE_K +
-                //     OFFSET_ROW(i_row, condensed_pos % TILE_K, TILE_K)] = (half)value;
+                tmp_val_block_val[
+                    (condensed_pos / TILE_K) * TILE_M * TILE_K +
+                    OFFSET_ROW(i_row, condensed_pos % TILE_K, TILE_K)] = (half)value;
                 //! manual swizzle
-                auto coord = make_coord(i_row, condensed_pos % TILE_K);
-                auto idx = swizzle_layout(coord);
-                tmp_val_block_val[(condensed_pos / TILE_K) * TILE_M * TILE_K + idx] = (half)value;
+                // auto coord = make_coord(i_row, condensed_pos % TILE_K);
+                // auto idx = swizzle_layout(coord);
+                // tmp_val_block_val[(condensed_pos / TILE_K) * TILE_M * TILE_K + idx] = (half)value;
             }
         }
         //! debug

@@ -285,7 +285,8 @@ r(0) = val_soff(i + 1);"""
     auto thr_coord = make_coord(lid);
     auto src = local_tile(val_sidx(_, i), thr_tiler, thr_coord);
     auto dst = local_tile(tile_sidx_block(_, buf_idx), thr_tiler, thr_coord);
-    copy(Copy_Atom<SM80_CP_ASYNC_CACHEGLOBAL<cute::uint128_t>, int>{}, src, dst);
+    // copy(Copy_Atom<SM80_CP_ASYNC_CACHEGLOBAL<cute::uint128_t>, int>{}, src, dst);
+    *((uint128_t*)dst.data().get()) = *((uint128_t*)src.data().get());
 }"""),
         mem_type=("g", "s"),
     )
@@ -436,7 +437,8 @@ for (int i_load = lid; i_load * 8 + ll < rr; i_load += 32) {
     auto thr_coord = make_coord(i_load);
     auto src = local_tile(input, thr_tiler, thr_coord);
     auto dst = local_tile(tile_mco_val(_, buf_idx), thr_tiler, thr_coord);
-    copy(Copy_Atom<SM80_CP_ASYNC_CACHEGLOBAL<cute::uint128_t>, half>{}, src, dst);
+    // copy(Copy_Atom<SM80_CP_ASYNC_CACHEGLOBAL<cute::uint128_t>, half>{}, src, dst);
+    *((uint128_t*)dst.data().get()) = *((uint128_t*)src.data().get());
 }"""),
         mem_type=("g", "s"),
         parameters={
@@ -494,7 +496,8 @@ for (int tileK_iter_inner = 0; tileK_iter_inner < 4; tileK_iter_inner++) {
     auto thr_tiler_smem = make_shape(_1{}, _8{});
     auto thr_coord_smem = make_coord(row, col);
     auto dst = local_tile(tileB_block(_, _, buf_idx), thr_tiler_smem, thr_coord_smem);
-    copy(Copy_Atom<SM80_CP_ASYNC_CACHEGLOBAL<cute::uint128_t>, half>{}, B_val_thr(0, _), dst(0, _));
+    // copy(Copy_Atom<SM80_CP_ASYNC_CACHEGLOBAL<cute::uint128_t>, half>{}, B_val_thr(0, _), dst(0, _));
+    *((uint128_t*)dst(0, _).data().get()) = *((uint128_t*)B_val_thr(0, _).data().get());
 }"""),
         mem_type=("g", "s"),
     )
@@ -546,10 +549,19 @@ for (int i_mask = 0; i_mask < nmask_per_tile{}; i_mask++) {
             local_idx = __popcll(mask << (63 - local_vid));
         }
         int vid = i_mask * 64 + local_vid;
+        //! no pre
+        int row = vid / 16;
+        int col = vid % 16;
         if (local_idx == 0) {
-            *((half*)tile_mco_restore_val_block(_, _, buf_idx).data().get() + vid) = 0;
+            //! swizzle pre
+            // *((half*)tile_mco_restore_val_block(_, _, buf_idx).data().get() + vid) = 0;
+            //! no pre
+            tile_mco_restore_val_block(row, col, buf_idx) = 0;
         } else {
-            *((half*)tile_mco_restore_val_block(_, _, buf_idx).data().get() + vid) = tile_mco_val(off + local_idx - 1);
+            //! swizzle pre
+            // *((half*)tile_mco_restore_val_block(_, _, buf_idx).data().get() + vid) = tile_mco_val(off + local_idx - 1);
+            //! no pre
+            tile_mco_restore_val_block(row, col, buf_idx) = tile_mco_val(off + local_idx - 1);
         }
     }
     off += __popcll(mask);
@@ -681,6 +693,15 @@ ldmatrix_m8n8k8_x4(
     acc_main_loop_op.append(CalculateOp)
     acc_main_loop_op.set_loop_result(0, CalculateOp.outputs[0])
 
+    EmptyOp = NvOp(
+        name="EmptyOp",
+        inputs=[],
+        outputs=[],
+        impl=NvOpImpl(r""""""),
+        memtype=("r", "r"),
+    )
+    acc_main_loop_op.append(EmptyOp)
+
     R2gCValStoreOp = NvOp(
         name="R2gCValStoreOp",
         inputs=[
@@ -744,20 +765,19 @@ if __name__ == "__main__":
         acc_program.find_op_by_name("G2rSparseMcoOffLoadOp"),
         acc_program.find_op_by_name("G2rSparseMcoMaskLoadOp"),
         acc_program.find_op_by_name("G2sSparseMcoValLoadOp"),
-    )
-    s1 = NvOpSequence(
         acc_program.find_op_by_name("G2sMatrixBLoadOp"),
         acc_program.find_op_by_name("S2sRestoreMatrixAOp"),
-    )
-    s2 = NvOpSequence(
         acc_program.find_op_by_name("S2rAValLoadOp"),
         acc_program.find_op_by_name("S2rBValLoadOp"),
         acc_program.find_op_by_name("CalculateOp"),
     )
+    s1 = NvOpSequence(
+        acc_program.find_op_by_name("EmptyOp")
+    )
 
     apply_pipeline(
         acc_main_loop_op,
-        PipelinePlan([s0, s1, s2], [1, 1]),
+        PipelinePlan([s0, s1], [1]),
     )
 
     script_dir = Path(__file__).parent

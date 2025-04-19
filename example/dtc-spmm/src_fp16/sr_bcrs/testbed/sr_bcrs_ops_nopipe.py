@@ -304,7 +304,8 @@ if (lid < get<2>(BLK_MNK{}) / 4) {
     auto thr_coord = make_coord(lid);
     auto src = local_tile(val_sidx(_, i), thr_tiler, thr_coord);
     auto dst = local_tile(tile_sidx_block(_, buf_idx), thr_tiler, thr_coord);
-    copy(Copy_Atom<SM80_CP_ASYNC_CACHEGLOBAL<cute::uint128_t>, int>{}, src, dst);
+    // copy(Copy_Atom<SM80_CP_ASYNC_CACHEGLOBAL<cute::uint128_t>, int>{}, src, dst);
+    *((uint128_t*)dst.data().get()) = *((uint128_t*)src.data().get());
 }
 """
         ),
@@ -369,7 +370,8 @@ for (int iter_i = lid; iter_i < get<0>(BLK_MNK{}) * get<2>(BLK_MNK{}) / load_til
     // copy(Copy_Atom<SM80_CP_ASYNC_CACHEGLOBAL<cute::uint128_t>, half>{}, A_val_thr(0, _), dst(0, _));
     //! manual swizzle
     half* dst = tileA_block(_, _, buf_idx).data().get() + iter_i * 8;
-    __pipeline_memcpy_async((float4*)dst, (float4*)(A_val_thr(0, _).data().get()), sizeof(float4));
+    // __pipeline_memcpy_async((float4*)dst, (float4*)(A_val_thr(0, _).data().get()), sizeof(float4));
+    *((uint128_t*)dst) = *((uint128_t*)A_val_thr(0, _).data().get());
 }
 {//! debug
     // if (thread0()) {
@@ -439,7 +441,8 @@ for (int iter_i = lid; iter_i < get<2>(BLK_MNK{}) * get<1>(BLK_MNK{}) / load_til
     auto thr_tiler_smem = make_shape(_1{}, _8{});
     auto thr_coord_smem = make_coord(row, col);
     auto dst = local_tile(tileB_block(_, _, buf_idx), thr_tiler_smem, thr_coord_smem);
-    copy(Copy_Atom<SM80_CP_ASYNC_CACHEGLOBAL<cute::uint128_t>, half>{}, B_val_thr(0, _), dst(0, _));   
+    // copy(Copy_Atom<SM80_CP_ASYNC_CACHEGLOBAL<cute::uint128_t>, half>{}, B_val_thr(0, _), dst(0, _));   
+    *((uint128_t*)dst(0, _).data().get()) = *((uint128_t*)B_val_thr(0, _).data().get());
 }"""
         ),
         mem_type=("g", "s"),
@@ -652,6 +655,15 @@ for (int m_iter = 0; m_iter < get<0>(BLK_MMA_MNK{}); m_iter++) {
     sr_bcrs_main_loop_op.append(CalculateOp)
     sr_bcrs_main_loop_op.set_loop_result(0, CalculateOp.outputs[0])
 
+    EmptyOp = NvOp(
+        name="EmptyOp",
+        inputs=[],
+        outputs=[],
+        impl=NvOpImpl(r""""""),
+        memtype=("r", "r"),
+    )
+    sr_bcrs_main_loop_op.append(EmptyOp)
+
     r2g_c_val_store_op = NvOp(
         name="R2gCValStoreOp",
         inputs=[
@@ -731,22 +743,22 @@ if __name__ == "__main__":
 
     s0 = NvOpSequence(
         G2sSparseIndexLoadOp,
-    )
-
-    s1 = NvOpSequence(
         G2sSparseValBlockValLoadOp,
         G2sMatrixBLoadOp,
-    )
-
-    s2 = NvOpSequence(
         S2rAValLoadOp,
         S2rBValLoadOp,
         CalculateOp,
     )
 
+    s1 = NvOpSequence(
+        sr_bcrs_program.find_op_by_name("EmptyOp")
+    )
+
+        
+
     apply_pipeline(
         sr_bcrs_main_loop_op,
-        PipelinePlan([s0, s1, s2], [1, 1]),
+        PipelinePlan([s0, s1], [1]),
     )
 
     script_dir = Path(__file__).parent
