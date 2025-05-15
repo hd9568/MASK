@@ -811,4 +811,6 @@ if __name__ == "__main__":
         PipelinePlan([s0, s1, s2], [1, 1]),
     )
 
-    print(NvIrCodeGenerator().dump_nvop_program(flash_llm_program))
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    with open(os.path.join(script_dir, "kernel-gen.inc"), "w") as f:
+        f.write(NvIrCodeGenerator().dump_nvop_program(flash_llm_program))

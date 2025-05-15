@@ -22,14 +22,20 @@ set(CUTLASS_UTIL_DIR ${CMAKE_SOURCE_DIR}/cutlass/tools/util/include)
 
 include_directories(${CUTLASS_INCLUDE_DIR} ${CUTLASS_COMMON_DIR} ${CUTLASS_UTIL_DIR} ${SRCDIR})
 
-# 编译 dtc-spmm-gen.cu 和 dtc-spmm.cu 为对象文件
+file(GLOB_RECURSE SRC_CUDA_FILES ${SRCDIR}/*.cu)
+
 add_library(flash_llm_gen_multi_warp_obj OBJECT flash-llm-gen.cu kernel-gen.inc)
 target_compile_options(flash_llm_gen_multi_warp_obj PRIVATE ${CUDA_NVCC_FLAGS})
-# 生成可执行文件 gen_col_majorB
-file(GLOB_RECURSE SRC_CUDA_FILES ${SRCDIR}/*.cu)
 add_executable(flash_llm_half_row_majorB_vs_bind_reorder_mw main_flash_llm_row_major.cu ${SRC_CUDA_FILES}
     $<TARGET_OBJECTS:flash_llm_gen_multi_warp_obj>
 )
-
 target_compile_options(flash_llm_half_row_majorB_vs_bind_reorder_mw PRIVATE ${CUDA_NVCC_FLAGS} -I${SRCDIR})
 target_link_libraries(flash_llm_half_row_majorB_vs_bind_reorder_mw PRIVATE -lcusparse -lcublas)
+
+add_library(flash_llm_gen_multi_warp_obj_nofuse OBJECT flash-llm-gen-nofuse.cu kernel-gen-nofuse.inc)
+target_compile_options(flash_llm_gen_multi_warp_obj_nofuse PRIVATE ${CUDA_NVCC_FLAGS})
+add_executable(flash_llm_half_row_majorB_vs_bind_reorder_mw_nofuse main_flash_llm_row_major_nofuse.cu ${SRC_CUDA_FILES}
+    $<TARGET_OBJECTS:flash_llm_gen_multi_warp_obj_nofuse>
+)
+target_compile_options(flash_llm_half_row_majorB_vs_bind_reorder_mw_nofuse PRIVATE ${CUDA_NVCC_FLAGS} -I${SRCDIR})
+target_link_libraries(flash_llm_half_row_majorB_vs_bind_reorder_mw_nofuse PRIVATE -lcusparse -lcublas)

@@ -1,4 +1,5 @@
 import abc
+import time
 from sparsene.op_gen.nvir.opgraph.graph import OpGraph, construct_graph_from_op_sequence
 from itertools import product
 from typing import Dict
@@ -105,6 +106,7 @@ def enumerate_pipeline_plans(
     min_shift: int = 1,
     max_shift: int = 3,
 ) -> List[PipelinePlan]:
+    start_time = time.time()
     assert not isinstance(
         for_loop_op.body, NvOpPipeline
     )  # The for loop should not be pipelined yet
@@ -145,4 +147,7 @@ def enumerate_pipeline_plans(
                 plan = PipelinePlan(stages, shifts)
                 plans.append(plan)
 
+    end_time = time.time()
+    elapsed_ms = (end_time - start_time) * 1000
+    print(f"enumerate_pipeline_plans took {elapsed_ms:.2f} ms")
     return plans

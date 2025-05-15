@@ -1,0 +1,201 @@
+{
+    "4090": {
+        "fp16": {
+            "pwtk.mtx": {
+                "64": {
+                    "dtc": [
+                        0.134927
+                    ],
+                    "dtc-nobind": [
+                        0.145955
+                    ],
+                    "dtc-noreorder": [
+                        0.134079
+                    ]
+                }
+            },
+            "rma10.mtx": {
+                "64": {
+                    "dtc": [
+                        0.04458
+                    ],
+                    "dtc-nobind": [
+                        0.046826
+                    ],
+                    "dtc-noreorder": [
+                        0.044392
+                    ]
+                }
+            },
+            "shipsec1.mtx": {
+                "64": {
+                    "dtc": [
+                        0.113115
+                    ],
+                    "dtc-nobind": [
+                        0.118955
+                    ],
+                    "dtc-noreorder": [
+                        0.112784
+                    ]
+                }
+            },
+            "scircuit.mtx": {
+                "64": {
+                    "dtc": [
+                        0.108877
+                    ],
+                    "dtc-nobind": [
+                        0.106324
+                    ],
+                    "dtc-noreorder": [
+                        0.108833
+                    ]
+                }
+            },
+            "conf5_4-8x8-10.mtx": {
+                "64": {
+                    "dtc": [
+                        0.063538
+                    ],
+                    "dtc-nobind": [
+                        0.064772
+                    ],
+                    "dtc-noreorder": [
+                        0.06344
+                    ]
+                }
+            },
+            "mc2depi.mtx": {
+                "64": {
+                    "dtc": [
+                        0.433853
+                    ],
+                    "dtc-nobind": [
+                        0.435184
+                    ],
+                    "dtc-noreorder": [
+                        0.433965
+                    ]
+                }
+            },
+            "webbase-1M.mtx": {
+                "64": {
+                    "dtc": [
+                        0.82837
+                    ],
+                    "dtc-nobind": [
+                        0.799291
+                    ],
+                    "dtc-noreorder": [
+                        0.828233
+                    ]
+                }
+            },
+            "mac_econ_fwd500.mtx": {
+                "64": {
+                    "dtc": [
+                        0.112723
+                    ],
+                    "dtc-nobind": [
+                        0.113838
+                    ],
+                    "dtc-noreorder": [
+                        0.11282
+                    ]
+                }
+            },
+            "pdb1HYS.mtx": {
+                "64": {
+                    "dtc": [
+                        0.049368
+                    ],
+                    "dtc-nobind": [
+                        0.053831
+                    ],
+                    "dtc-noreorder": [
+                        0.049168
+                    ]
+                }
+            },
+            "consph.mtx": {
+                "64": {
+                    "dtc": [
+                        0.085154
+                    ],
+                    "dtc-nobind": [
+                        0.086197
+                    ],
+                    "dtc-noreorder": [
+                        0.084744
+                    ]
+                }
+            },
+            "cant.mtx": {
+                "64": {
+                    "dtc": [
+                        0.062527
+                    ],
+                    "dtc-nobind": [
+                        0.067755
+                    ],
+                    "dtc-noreorder": [
+                        0.062169
+                    ]
+                }
+            },
+            "cop20k_A.mtx": {
+                "64": {
+                    "dtc": [
+                        0.087205
+                    ],
+                    "dtc-nobind": [
+                        0.090838
+                    ],
+                    "dtc-noreorder": [
+                        0.087177
+                    ]
+                }
+            },
+            "eu-2005.mtx": {
+                "64": {
+                    "dtc": [
+                        0.791541
+                    ],
+                    "dtc-nobind": [
+                        0.77176
+                    ],
+                    "dtc-noreorder": [
+                        0.792162
+                    ]
+                }
+            },
+            "Si41Ge41H72.mtx": {
+                "64": {
+                    "dtc": [
+                        0.341142
+                    ],
+                    "dtc-nobind": [
+                        0.355143
+                    ],
+                    "dtc-noreorder": [
+                        0.34055
+                    ]
+                }
+            },
+            "Ga41As41H72.mtx": {
+                "64": {
+                    "dtc": [
+                        0.432676
+                    ],
+                    "dtc-nobind": [
+                        0.452718
+                    ],
+                    "dtc-noreorder": [
+                        0.432524
+                    ]
+                }
+            }
+        }
+    }
+}

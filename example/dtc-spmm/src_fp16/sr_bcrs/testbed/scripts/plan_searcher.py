@@ -1,4 +1,5 @@
 from pathlib import Path
+import time
 
 from sparsene.op_gen.nvir.nvop import (
     NvOp,
@@ -22,6 +23,7 @@ from sparsene.op_gen.nvir.plan import apply_pipeline, PipelinePlan
 from sparsene.op_gen.nvir.pipeline.pipeline_planner import (
     enumerate_pipeline_plans,
     NeighborDependencyValidator,
+    BasicValidator,
 )
 from sparsene.op_gen.nvir.opgraph.graph import construct_graph_from_op_sequence
 from sparsene.op_gen.nvir.opgraph.graphviz_visualizer import visualize_op_graph
@@ -719,33 +721,82 @@ for (int i_tileM = 0; i_tileM < get<0>(BLK_MMA_MNK{}); i_tileM++) {
 if __name__ == "__main__":
     from sparsene.op_gen.nvir.codegen import NvIrCodeGenerator
 
-    sr_bcrs_main_loop_op, sr_bcrs_program = sr_bcrs()
+    main_loop_op, program = sr_bcrs()
+    F_program = sr_bcrs
 
-    op_graph = construct_graph_from_op_sequence(sr_bcrs_main_loop_op.body)
-    visualize_op_graph(op_graph, "sr_bcrs.dot")
+    op_graph = construct_graph_from_op_sequence(main_loop_op.body)
+    visualize_op_graph(op_graph, str(Path(__file__).parent / "sr_bcrs.dot"))
 
-    validator = NeighborDependencyValidator(op_graph)
-    plans = enumerate_pipeline_plans(
-        sr_bcrs_main_loop_op,
-        validator,
-        min_nstages=2,
-        max_nstages=3,
+    # 6 ops
+
+    all_plans = enumerate_pipeline_plans(
+        main_loop_op,
+        BasicValidator(op_graph),
+        min_nstages=1,
+        max_nstages=99,
         min_ops_per_stage=1,
-        max_ops_per_stage=3,
+        max_ops_per_stage=99,
+        min_shift=1,
+        max_shift=4,
+    )
+    print("nplans0:", len(all_plans))
+    all_plans = enumerate_pipeline_plans(
+        main_loop_op,
+        BasicValidator(op_graph),
+        min_nstages=3,
+        max_nstages=4,
+        min_ops_per_stage=1,
+        max_ops_per_stage=99,
+        min_shift=1,
+        max_shift=4,
+    )
+    print("nplans1:", len(all_plans))
+    all_plans = enumerate_pipeline_plans(
+        main_loop_op,
+        BasicValidator(op_graph),
+        min_nstages=3,
+        max_nstages=4,
+        min_ops_per_stage=1,
+        max_ops_per_stage=99,
         min_shift=1,
         max_shift=3,
     )
+    print("nplans2:", len(all_plans))
+    all_plans = enumerate_pipeline_plans(
+        main_loop_op,
+        BasicValidator(op_graph),
+        min_nstages=3,
+        max_nstages=4,
+        min_ops_per_stage=1,
+        max_ops_per_stage=4,
+        min_shift=1,
+        max_shift=3,
+    )
+    print("nplans3:", len(all_plans))
+    plans = enumerate_pipeline_plans(
+        main_loop_op,
+        NeighborDependencyValidator(op_graph),
+        min_nstages=3,
+        max_nstages=4,
+        min_ops_per_stage=1,
+        max_ops_per_stage=4,
+        min_shift=1,
+        max_shift=3,
+    )
+    print("Possible plans:", len(plans))
     plans_dir = Path(__file__).parent.parent / "plans"
     plans_dir.mkdir(parents=True, exist_ok=True)
+
+    src_gen_start_time = time.time()
     with open(plans_dir.parent / "plans.txt", "w") as f_plans:
         for idx, plan in enumerate(plans):
-            print(f"Plan {idx}: {plan}")
-            new_loop, new_sr_bcrs_program = sr_bcrs()
+            # print(f"Plan {idx}: {plan}")
+            new_loop, new_program = F_program()
             apply_pipeline(new_loop, plan)
             with open(plans_dir / f"plan_{idx}.inc", "w") as f_kernel:
-                f_kernel.write(
-                    NvIrCodeGenerator().dump_nvop_program(new_sr_bcrs_program)
-                )
+                f_kernel.write(NvIrCodeGenerator().dump_nvop_program(new_program))
             f_plans.write(f"{idx},{plan}\n")
-
-    print("Possible plans:", len(plans))
+    src_gen_end_time = time.time()
+    print(
+        f"Source generation took {(src_gen_end_time - src_gen_start_time) * 1000:.2f} ms"
+    )

@@ -1,0 +1,62 @@
+{
+  "pwtk.mtx": {
+    "dtc": 0.134927,
+    "dtc-nobind": 0.145955
+  },
+  "rma10.mtx": {
+    "dtc": 0.04458,
+    "dtc-nobind": 0.046826
+  },
+  "shipsec1.mtx": {
+    "dtc": 0.113115,
+    "dtc-nobind": 0.118955
+  },
+  "scircuit.mtx": {
+    "dtc": 0.108877,
+    "dtc-nobind": 0.106324
+  },
+  "conf5_4-8x8-10.mtx": {
+    "dtc": 0.063538,
+    "dtc-nobind": 0.064772
+  },
+  "mc2depi.mtx": {
+    "dtc": 0.433853,
+    "dtc-nobind": 0.435184
+  },
+  "webbase-1M.mtx": {
+    "dtc": 0.82837,
+    "dtc-nobind": 0.799291
+  },
+  "mac_econ_fwd500.mtx": {
+    "dtc": 0.112723,
+    "dtc-nobind": 0.113838
+  },
+  "pdb1HYS.mtx": {
+    "dtc": 0.049368,
+    "dtc-nobind": 0.053831
+  },
+  "consph.mtx": {
+    "dtc": 0.085154,
+    "dtc-nobind": 0.086197
+  },
+  "cant.mtx": {
+    "dtc": 0.062527,
+    "dtc-nobind": 0.067755
+  },
+  "cop20k_A.mtx": {
+    "dtc": 0.087205,
+    "dtc-nobind": 0.090838
+  },
+  "eu-2005.mtx": {
+    "dtc": 0.791541,
+    "dtc-nobind": 0.77176
+  },
+  "Si41Ge41H72.mtx": {
+    "dtc": 0.341142,
+    "dtc-nobind": 0.355143
+  },
+  "Ga41As41H72.mtx": {
+    "dtc": 0.432676,
+    "dtc-nobind": 0.452718
+  }
+}

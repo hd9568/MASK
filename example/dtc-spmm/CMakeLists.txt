@@ -120,7 +120,7 @@ add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/src_fp32/cusparse/testbed/)
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/src_fp32/acc-ldg/testbed/)
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/src_fp32/dtc-ldg/testbed/)
 
-
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/src_fp16/flash_llm_vs_bind_reorder_multi_warp/)
 add_custom_target(demos DEPENDS 
     demo-acc-fp16 
     demo-acc-spmv-fp16 
@@ -171,4 +171,9 @@ add_custom_target(demo-optexp DEPENDS
     demo-dtc-fp16
     demo-dtc-nobind-fp16
     demo-dtc-noreorder-fp16
+)
+
+add_custom_target(demo-fuse DEPENDS
+    flash_llm_half_row_majorB_vs_bind_reorder_mw
+    flash_llm_half_row_majorB_vs_bind_reorder_mw_nofuse
 )

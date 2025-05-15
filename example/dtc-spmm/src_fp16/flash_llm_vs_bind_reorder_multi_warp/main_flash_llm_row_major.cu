@@ -33,7 +33,10 @@ extern void flash_llm_test(
     int* TileOffsets,
     uint32_t* Compressed_A,
     half* B_val,
-    float* C
+    float* C,
+    bool is_ncu_test,
+    int warmup_time,
+    int execute_time
 );
 
 void initVector(half* vec, int length) {
@@ -305,7 +308,7 @@ int flashLLMPreprocess_full_matrixA(
     return (M / TILE_M) * (K / TILE_K) + 2;  // number of Elements in array TileOffsets
 }
 
-void test(int M, int N, int K, bool check) {
+void test(int M, int N, int K, bool check, bool is_ncu_test, int warmup_time, int execute_time) {
     half* B = (half*)malloc(sizeof(half) * K * N);
     half* A = (half*)malloc(sizeof(half) * M * K);
     
@@ -381,7 +384,7 @@ void test(int M, int N, int K, bool check) {
     // flashLLMPreprocess_full_matrixA(A, )
     // convertToMETCF(M, N, K, nnz, csrPtrA, csrColIdxA, csrValA, B, C_cuda);
     // flash_llm_test<64, 128, 32>(M, N, K, NumOffsets, NNZ, TileOffsets, Compressed_A, B, C_cuda);
-    flash_llm_test<BLK_M, BLK_N, BLK_K>(M, N, K, NumOffsets, NNZ, TileOffsets, Compressed_A, B, C_cuda);
+    flash_llm_test<BLK_M, BLK_N, BLK_K>(M, N, K, NumOffsets, NNZ, TileOffsets, Compressed_A, B, C_cuda, is_ncu_test, warmup_time, execute_time);
     //host check
     if (check) {
         float* C_cpu = (float*)malloc(sizeof(float) * M * N);
@@ -399,7 +402,10 @@ int main(int argc, char** argv) {
     int K = 1024;
     float sparsity = 0.9;
     int mtx_flag = 1;
-    parseInput(argc, argv, filename, "-filename", N, "-N", M, "-M", K, "-K", mtx_flag, "-mtx_flag", sparsity, "-sparsity");
+    int is_ncu_test = 0;
+    int warmup_time = 100;
+    int execute_time = 1000;
+    parseInput(argc, argv, filename, "-filename", N, "-N", M, "-M", K, "-K", mtx_flag, "-mtx_flag", sparsity, "-sparsity", is_ncu_test, "-ncu", warmup_time, "-warmup", execute_time, "-repeat");
     cout << "Filename: " << filename << endl;
     cout << "N: " << N << endl;
 
@@ -432,8 +438,8 @@ int main(int argc, char** argv) {
     } else {
         // printf("==============================(%d,%d,%d)\n", 2304, 1536, 16384);
         // test(2304, 1536, 16384, false);
-        printf("==============================(%d,%d,%d)\n", 1024, 1024, 1024);
-        test(1024, 1024, 1024, true);
+        // printf("==============================(%d,%d,%d)\n", 1024, 1024, 1024);
+        test(M, N, K, true, (bool) is_ncu_test, warmup_time, execute_time);
         // printf("==============================(%d,%d,%d)\n", 128, 128, 128);
         // test(128, 128, 128, true);
         // printf("==============================(%d,%d,%d)\n", 64, 64, 64);
@@ -444,7 +450,7 @@ int main(int argc, char** argv) {
         // test(32, 32, 32, true);
         // printf("==============================(%d,%d,%d)\n", 16, 32, 16);
         // test(16, 32, 16, true);
-        printf("==============================\n"); 
+        // printf("==============================\n"); 
     }
 
     return 0;
