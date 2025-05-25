@@ -177,3 +177,10 @@ add_custom_target(demo-fuse DEPENDS
     flash_llm_half_row_majorB_vs_bind_reorder_mw
     flash_llm_half_row_majorB_vs_bind_reorder_mw_nofuse
 )
+
+add_custom_target(demo-cusparse DEPENDS
+    demo-cusp-fp16
+    demo-cusp-spmv-fp16
+    demo-cusp-tf32
+    demo-cusp-spmv-tf32
+)

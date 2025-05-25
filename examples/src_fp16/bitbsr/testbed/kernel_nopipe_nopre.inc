@@ -634,6 +634,64 @@ public:
     }
 };
 
+template<class NBUF, class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class WARP_MNK, class TI0 = half, class TI1 = int, class TO0 = half>
+class G2sMatrixBLoadOp {
+public:
+    // Inputs
+    using Shape_i0 = decltype(make_shape(VARLEN, VARLEN));
+    Shape_i0 shape_i0;
+    // Tensor_i0 B_val;
+    // TI1 tile_sidx;
+
+    // Outputs
+    using Shape_o0 = decltype(make_shape(get<2>(BLK_MNK{}), get<1>(BLK_MNK{}), NBUF{}));
+    using Stride_o0 = decltype(make_stride(get<1>(BLK_MNK{}), _1{}, get<2>(BLK_MNK{}) * get<1>(BLK_MNK{})));
+    using Layout_o0 = decltype(composition(Swizzle<3, 3, 3>{}, make_layout(Shape_o0{}, Stride_o0{})));
+    using Tensor_o0 = decltype(make_tensor(make_smem_ptr((TO0*)nullptr), Layout_o0{}));
+    Shape_o0 shape_o0;
+    Layout_o0 layout_o0;
+    Tensor_o0 tileB_block;
+
+    // Hardware parameters
+    int tid, lid, wid;
+
+    CUTE_DEVICE G2sMatrixBLoadOp(int tid, int lid, int wid, TO0 *tileB_block, int mode_i0_0, int mode_i0_1)
+    : tid(tid), lid(lid), wid(wid), shape_i0(make_shape(mode_i0_0, mode_i0_1)), tileB_block(make_tensor(make_smem_ptr(tileB_block), Layout_o0{})) {}
+
+    template<int output_idx, int buf_idx>
+    CUTE_DEVICE auto output() {
+        if constexpr (output_idx == 0) {
+            return tileB_block(_, _, buf_idx);
+        }
+    }
+    
+    template<int output_idx>
+    CUTE_DEVICE auto output() {
+        if constexpr (output_idx == 0) {
+            return tileB_block;
+        }
+    }
+
+    template<int buf_idx, class Tensor_i0, typename = void>
+    CUTE_DEVICE void f(Tensor_i0 B_val, TI1 tile_sidx) {
+        auto thr_tiler = make_shape(_8{});
+        auto thr_coord = make_coord(lid);
+        for (int tileK_iter_inner = 0; tileK_iter_inner < 4; tileK_iter_inner++) {
+            int row = tileK_iter_inner * 4 + lid / 8;
+            int col = lid % 8;
+            int gmem_row = tile_sidx * get<2>(BLK_MNK{}) + row;
+            auto thr_tiler_gmem = make_shape(_1{}, _8{});
+            auto thr_coord_gmem = make_coord(gmem_row, col);
+            auto B_val_thr = local_tile(B_val, thr_tiler_gmem, thr_coord_gmem);
+            auto thr_tiler_smem = make_shape(_1{}, _8{});
+            auto thr_coord_smem = make_coord(row, col);
+            auto dst = local_tile(tileB_block(_, _, buf_idx), thr_tiler_smem, thr_coord_smem);
+            // copy(Copy_Atom<SM80_CP_ASYNC_CACHEGLOBAL<cute::uint128_t>, half>{}, B_val_thr(0, _), dst(0, _));
+            *((uint128_t*)dst(0, _).data().get()) = *((uint128_t*)B_val_thr(0, _).data().get());
+        }
+    }
+};
+
 template<class NBUF, class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class WARP_MNK, class tile_mco_val_size = Int<256>, class TI0 = half, class TI1 = int, class TI2 = int, class TO0 = half>
 class G2sSparseMcoValLoadOp {
 public:
@@ -687,64 +745,8 @@ public:
             auto thr_coord = make_coord(i_load);
             auto src = local_tile(input, thr_tiler, thr_coord);
             auto dst = local_tile(tile_mco_val(_, buf_idx), thr_tiler, thr_coord);
-            copy(Copy_Atom<SM80_CP_ASYNC_CACHEGLOBAL<cute::uint128_t>, half>{}, src, dst);
-        }
-    }
-};
-
-template<class NBUF, class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class WARP_MNK, class TI0 = half, class TI1 = int, class TO0 = half>
-class G2sMatrixBLoadOp {
-public:
-    // Inputs
-    using Shape_i0 = decltype(make_shape(VARLEN, VARLEN));
-    Shape_i0 shape_i0;
-    // Tensor_i0 B_val;
-    // TI1 tile_sidx;
-
-    // Outputs
-    using Shape_o0 = decltype(make_shape(get<2>(BLK_MNK{}), get<1>(BLK_MNK{}), NBUF{}));
-    using Stride_o0 = decltype(make_stride(get<1>(BLK_MNK{}), _1{}, get<2>(BLK_MNK{}) * get<1>(BLK_MNK{})));
-    using Layout_o0 = decltype(composition(Swizzle<3, 3, 3>{}, make_layout(Shape_o0{}, Stride_o0{})));
-    using Tensor_o0 = decltype(make_tensor(make_smem_ptr((TO0*)nullptr), Layout_o0{}));
-    Shape_o0 shape_o0;
-    Layout_o0 layout_o0;
-    Tensor_o0 tileB_block;
-
-    // Hardware parameters
-    int tid, lid, wid;
-
-    CUTE_DEVICE G2sMatrixBLoadOp(int tid, int lid, int wid, TO0 *tileB_block, int mode_i0_0, int mode_i0_1)
-    : tid(tid), lid(lid), wid(wid), shape_i0(make_shape(mode_i0_0, mode_i0_1)), tileB_block(make_tensor(make_smem_ptr(tileB_block), Layout_o0{})) {}
-
-    template<int output_idx, int buf_idx>
-    CUTE_DEVICE auto output() {
-        if constexpr (output_idx == 0) {
-            return tileB_block(_, _, buf_idx);
-        }
-    }
-    
-    template<int output_idx>
-    CUTE_DEVICE auto output() {
-        if constexpr (output_idx == 0) {
-            return tileB_block;
-        }
-    }
-
-    template<int buf_idx, class Tensor_i0, typename = void>
-    CUTE_DEVICE void f(Tensor_i0 B_val, TI1 tile_sidx) {
-        auto thr_tiler = make_shape(_8{});
-        auto thr_coord = make_coord(lid);
-        for (int tileK_iter_inner = 0; tileK_iter_inner < 4; tileK_iter_inner++) {
-            int row = tileK_iter_inner * 4 + lid / 8;
-            int col = lid % 8;
-            int gmem_row = tile_sidx * get<2>(BLK_MNK{}) + row;
-            auto thr_tiler_gmem = make_shape(_1{}, _8{});
-            auto thr_coord_gmem = make_coord(gmem_row, col);
-            auto B_val_thr = local_tile(B_val, thr_tiler_gmem, thr_coord_gmem);
-            auto thr_tiler_smem = make_shape(_1{}, _8{});
-            auto thr_coord_smem = make_coord(row, col);
-            auto dst = local_tile(tileB_block(_, _, buf_idx), thr_tiler_smem, thr_coord_smem);
-            copy(Copy_Atom<SM80_CP_ASYNC_CACHEGLOBAL<cute::uint128_t>, half>{}, B_val_thr(0, _), dst(0, _));
+            // copy(Copy_Atom<SM80_CP_ASYNC_CACHEGLOBAL<cute::uint128_t>, half>{}, src, dst);
+            *((uint128_t*)dst.data().get()) = *((uint128_t*)src.data().get());
         }
     }
 };
@@ -802,10 +804,14 @@ public:
                     local_idx = __popcll(mask << (63 - local_vid));
                 }
                 int vid = i_mask * 64 + local_vid;
+                int row = vid / get<2>(BLK_MNK{});
+                int col = vid % get<2>(BLK_MNK{});
                 if (local_idx == 0) {
-                    *((half*)tile_mco_restore_val_block(_, _, buf_idx).data().get() + vid) = 0;
+                    // *((half*)tile_mco_restore_val_block(_, _, buf_idx).data().get() + vid) = 0;
+                    tile_mco_restore_val_block(row, col, buf_idx) = 0;
                 } else {
-                    *((half*)tile_mco_restore_val_block(_, _, buf_idx).data().get() + vid) = tile_mco_val(off + local_idx - 1);
+                    // *((half*)tile_mco_restore_val_block(_, _, buf_idx).data().get() + vid) = tile_mco_val(off + local_idx - 1);
+                    tile_mco_restore_val_block(row, col, buf_idx) = tile_mco_val(off + local_idx - 1);
                 }
             }
             off += __popcll(mask);
@@ -970,7 +976,38 @@ public:
     }
 };
 
-template <class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class WARP_MNK, class T_B_valOp, class T_C_valOp, class T_val_mco_maskOp, class T_val_mco_offOp, class T_val_mco_valOp, class T_val_sidxOp, class T_val_soffOp, class T_ZeroOp, class T_BlockDimYOp, class T_BlockDimXOp, class T_G2rSparseOffsetLoadOp, class T_ZerosOp, class T_G2rSparseIndexLoadOp, class T_G2rSparseMcoOffLoadOp, class T_G2rSparseMcoMaskLoadOp, class T_G2sSparseMcoValLoadOp, class T_G2sMatrixBLoadOp, class T_S2sRestoreMatrixAOp, class T_S2rAValLoadOp, class T_S2rBValLoadOp, class T_CalculateOp, class Tensor_o0, class TI0 = int, class TI1 = int, class TO0 = float>
+template<class NBUF, class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class WARP_MNK>
+class EmptyOp {
+public:
+    // Inputs
+    
+
+    // Outputs
+    
+
+    // Hardware parameters
+    int tid, lid, wid;
+
+    CUTE_DEVICE EmptyOp(int tid, int lid, int wid)
+    : tid(tid), lid(lid), wid(wid) {}
+
+    template<int output_idx, int buf_idx>
+    CUTE_DEVICE auto output() {
+        
+    }
+    
+    template<int output_idx>
+    CUTE_DEVICE auto output() {
+        
+    }
+
+    template<int buf_idx, typename = void>
+    CUTE_DEVICE void f() {
+        
+    }
+};
+
+template <class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class WARP_MNK, class T_B_valOp, class T_C_valOp, class T_val_mco_maskOp, class T_val_mco_offOp, class T_val_mco_valOp, class T_val_sidxOp, class T_val_soffOp, class T_ZeroOp, class T_BlockDimYOp, class T_BlockDimXOp, class T_G2rSparseOffsetLoadOp, class T_ZerosOp, class T_G2rSparseIndexLoadOp, class T_G2rSparseMcoOffLoadOp, class T_G2rSparseMcoMaskLoadOp, class T_G2sMatrixBLoadOp, class T_G2sSparseMcoValLoadOp, class T_S2sRestoreMatrixAOp, class T_S2rAValLoadOp, class T_S2rBValLoadOp, class T_CalculateOp, class T_EmptyOp, class Tensor_o0, class TI0 = int, class TI1 = int, class TO0 = float>
 class BitBsrMainLoopOp {
 public:
     // Inputs
@@ -1002,25 +1039,23 @@ public:
     T_G2rSparseIndexLoadOp &G2rSparseIndexLoadOp_v;
     T_G2rSparseMcoOffLoadOp &G2rSparseMcoOffLoadOp_v;
     T_G2rSparseMcoMaskLoadOp &G2rSparseMcoMaskLoadOp_v;
-    T_G2sSparseMcoValLoadOp &G2sSparseMcoValLoadOp_v;
     T_G2sMatrixBLoadOp &G2sMatrixBLoadOp_v;
+    T_G2sSparseMcoValLoadOp &G2sSparseMcoValLoadOp_v;
     T_S2sRestoreMatrixAOp &S2sRestoreMatrixAOp_v;
     T_S2rAValLoadOp &S2rAValLoadOp_v;
     T_S2rBValLoadOp &S2rBValLoadOp_v;
     T_CalculateOp &CalculateOp_v;
+    T_EmptyOp &EmptyOp_v;
 
     // Constructor
-    CUTE_DEVICE BitBsrMainLoopOp(int tid, int lid, int wid, T_B_valOp &B_valOp_v, T_C_valOp &C_valOp_v, T_val_mco_maskOp &val_mco_maskOp_v, T_val_mco_offOp &val_mco_offOp_v, T_val_mco_valOp &val_mco_valOp_v, T_val_sidxOp &val_sidxOp_v, T_val_soffOp &val_soffOp_v, T_ZeroOp &ZeroOp_v, T_BlockDimYOp &BlockDimYOp_v, T_BlockDimXOp &BlockDimXOp_v, T_G2rSparseOffsetLoadOp &G2rSparseOffsetLoadOp_v, T_ZerosOp &ZerosOp_v, T_G2rSparseIndexLoadOp &G2rSparseIndexLoadOp_v, T_G2rSparseMcoOffLoadOp &G2rSparseMcoOffLoadOp_v, T_G2rSparseMcoMaskLoadOp &G2rSparseMcoMaskLoadOp_v, T_G2sSparseMcoValLoadOp &G2sSparseMcoValLoadOp_v, T_G2sMatrixBLoadOp &G2sMatrixBLoadOp_v, T_S2sRestoreMatrixAOp &S2sRestoreMatrixAOp_v, T_S2rAValLoadOp &S2rAValLoadOp_v, T_S2rBValLoadOp &S2rBValLoadOp_v, T_CalculateOp &CalculateOp_v, Tensor_o0 REGC)
-    : tid(tid), lid(lid), wid(wid), B_valOp_v(B_valOp_v), C_valOp_v(C_valOp_v), val_mco_maskOp_v(val_mco_maskOp_v), val_mco_offOp_v(val_mco_offOp_v), val_mco_valOp_v(val_mco_valOp_v), val_sidxOp_v(val_sidxOp_v), val_soffOp_v(val_soffOp_v), ZeroOp_v(ZeroOp_v), BlockDimYOp_v(BlockDimYOp_v), BlockDimXOp_v(BlockDimXOp_v), G2rSparseOffsetLoadOp_v(G2rSparseOffsetLoadOp_v), ZerosOp_v(ZerosOp_v), G2rSparseIndexLoadOp_v(G2rSparseIndexLoadOp_v), G2rSparseMcoOffLoadOp_v(G2rSparseMcoOffLoadOp_v), G2rSparseMcoMaskLoadOp_v(G2rSparseMcoMaskLoadOp_v), G2sSparseMcoValLoadOp_v(G2sSparseMcoValLoadOp_v), G2sMatrixBLoadOp_v(G2sMatrixBLoadOp_v), S2sRestoreMatrixAOp_v(S2sRestoreMatrixAOp_v), S2rAValLoadOp_v(S2rAValLoadOp_v), S2rBValLoadOp_v(S2rBValLoadOp_v), CalculateOp_v(CalculateOp_v), REGC(REGC) {}
+    CUTE_DEVICE BitBsrMainLoopOp(int tid, int lid, int wid, T_B_valOp &B_valOp_v, T_C_valOp &C_valOp_v, T_val_mco_maskOp &val_mco_maskOp_v, T_val_mco_offOp &val_mco_offOp_v, T_val_mco_valOp &val_mco_valOp_v, T_val_sidxOp &val_sidxOp_v, T_val_soffOp &val_soffOp_v, T_ZeroOp &ZeroOp_v, T_BlockDimYOp &BlockDimYOp_v, T_BlockDimXOp &BlockDimXOp_v, T_G2rSparseOffsetLoadOp &G2rSparseOffsetLoadOp_v, T_ZerosOp &ZerosOp_v, T_G2rSparseIndexLoadOp &G2rSparseIndexLoadOp_v, T_G2rSparseMcoOffLoadOp &G2rSparseMcoOffLoadOp_v, T_G2rSparseMcoMaskLoadOp &G2rSparseMcoMaskLoadOp_v, T_G2sMatrixBLoadOp &G2sMatrixBLoadOp_v, T_G2sSparseMcoValLoadOp &G2sSparseMcoValLoadOp_v, T_S2sRestoreMatrixAOp &S2sRestoreMatrixAOp_v, T_S2rAValLoadOp &S2rAValLoadOp_v, T_S2rBValLoadOp &S2rBValLoadOp_v, T_CalculateOp &CalculateOp_v, T_EmptyOp &EmptyOp_v, Tensor_o0 REGC)
+    : tid(tid), lid(lid), wid(wid), B_valOp_v(B_valOp_v), C_valOp_v(C_valOp_v), val_mco_maskOp_v(val_mco_maskOp_v), val_mco_offOp_v(val_mco_offOp_v), val_mco_valOp_v(val_mco_valOp_v), val_sidxOp_v(val_sidxOp_v), val_soffOp_v(val_soffOp_v), ZeroOp_v(ZeroOp_v), BlockDimYOp_v(BlockDimYOp_v), BlockDimXOp_v(BlockDimXOp_v), G2rSparseOffsetLoadOp_v(G2rSparseOffsetLoadOp_v), ZerosOp_v(ZerosOp_v), G2rSparseIndexLoadOp_v(G2rSparseIndexLoadOp_v), G2rSparseMcoOffLoadOp_v(G2rSparseMcoOffLoadOp_v), G2rSparseMcoMaskLoadOp_v(G2rSparseMcoMaskLoadOp_v), G2sMatrixBLoadOp_v(G2sMatrixBLoadOp_v), G2sSparseMcoValLoadOp_v(G2sSparseMcoValLoadOp_v), S2sRestoreMatrixAOp_v(S2sRestoreMatrixAOp_v), S2rAValLoadOp_v(S2rAValLoadOp_v), S2rBValLoadOp_v(S2rBValLoadOp_v), CalculateOp_v(CalculateOp_v), EmptyOp_v(EmptyOp_v), REGC(REGC) {}
 
     // Pipeline methods
     // short pipe
     CUTE_DEVICE void short_pipe(int k, int l, int r) {
         if (k == 0) {
             // i = 0
-            
-            
-            // i = 1
             
         }
         else if (k == 1) {
@@ -1037,35 +1072,29 @@ public:
                 val_mco_maskOp_v.template output<0>(),
                 l + 0
             );
+            G2sMatrixBLoadOp_v.template f<0>(
+                B_valOp_v.template output<0>(),
+                G2rSparseIndexLoadOp_v.template output<0, 0>()(0)
+            );
+            __pipeline_commit();
             G2sSparseMcoValLoadOp_v.template f<0>(
                 val_mco_valOp_v.template output<0>(),
                 G2rSparseMcoOffLoadOp_v.template output<0, 0>(),
                 l + 0
             );
             __pipeline_commit();
-            
-            
-            // i = 1
-            G2sMatrixBLoadOp_v.template f<0>(
-                B_valOp_v.template output<0>(),
-                G2rSparseIndexLoadOp_v.template output<0, 0>()(0)
-            );
-            __pipeline_commit();
-            __pipeline_wait_prior(1);
+            __pipeline_wait_prior(0);
             __syncthreads();
             S2sRestoreMatrixAOp_v.template f<0>(
                 G2sSparseMcoValLoadOp_v.template output<0, 0>(),
                 G2rSparseMcoMaskLoadOp_v.template output<0, 0>()
             );
             __pipeline_commit();
-            
-            
-            // i = 2
             __syncthreads();
             S2rAValLoadOp_v.template f<0>(
                 S2sRestoreMatrixAOp_v.template output<0, 0>()
             );
-            __pipeline_wait_prior(1);
+            __pipeline_wait_prior(2);
             __syncthreads();
             S2rBValLoadOp_v.template f<0>(
                 G2sMatrixBLoadOp_v.template output<0, 0>()
@@ -1074,6 +1103,10 @@ public:
                 S2rAValLoadOp_v.template output<0, 0>(),
                 S2rBValLoadOp_v.template output<0, 0>()
             );
+            
+            
+            // i = 1
+            EmptyOp_v.template f<0>();
             
         }
         else if (k == 2) {
@@ -1090,12 +1123,37 @@ public:
                 val_mco_maskOp_v.template output<0>(),
                 l + 0
             );
+            G2sMatrixBLoadOp_v.template f<0>(
+                B_valOp_v.template output<0>(),
+                G2rSparseIndexLoadOp_v.template output<0, 0>()(0)
+            );
+            __pipeline_commit();
             G2sSparseMcoValLoadOp_v.template f<0>(
                 val_mco_valOp_v.template output<0>(),
                 G2rSparseMcoOffLoadOp_v.template output<0, 0>(),
                 l + 0
             );
             __pipeline_commit();
+            __pipeline_wait_prior(0);
+            __syncthreads();
+            S2sRestoreMatrixAOp_v.template f<0>(
+                G2sSparseMcoValLoadOp_v.template output<0, 0>(),
+                G2rSparseMcoMaskLoadOp_v.template output<0, 0>()
+            );
+            __pipeline_commit();
+            __syncthreads();
+            S2rAValLoadOp_v.template f<0>(
+                S2sRestoreMatrixAOp_v.template output<0, 0>()
+            );
+            __pipeline_wait_prior(2);
+            __syncthreads();
+            S2rBValLoadOp_v.template f<0>(
+                G2sMatrixBLoadOp_v.template output<0, 0>()
+            );
+            CalculateOp_v.template f<0>(
+                S2rAValLoadOp_v.template output<0, 0>(),
+                S2rBValLoadOp_v.template output<0, 0>()
+            );
             
             
             // i = 1
@@ -1111,33 +1169,18 @@ public:
                 val_mco_maskOp_v.template output<0>(),
                 l + 1
             );
+            G2sMatrixBLoadOp_v.template f<1>(
+                B_valOp_v.template output<0>(),
+                G2rSparseIndexLoadOp_v.template output<0, 1>()(0)
+            );
+            __pipeline_commit();
             G2sSparseMcoValLoadOp_v.template f<1>(
                 val_mco_valOp_v.template output<0>(),
                 G2rSparseMcoOffLoadOp_v.template output<0, 1>(),
                 l + 1
             );
             __pipeline_commit();
-            G2sMatrixBLoadOp_v.template f<0>(
-                B_valOp_v.template output<0>(),
-                G2rSparseIndexLoadOp_v.template output<0, 0>()(0)
-            );
-            __pipeline_commit();
-            __pipeline_wait_prior(2);
-            __syncthreads();
-            S2sRestoreMatrixAOp_v.template f<0>(
-                G2sSparseMcoValLoadOp_v.template output<0, 0>(),
-                G2rSparseMcoMaskLoadOp_v.template output<0, 0>()
-            );
-            __pipeline_commit();
-            
-            
-            // i = 2
-            G2sMatrixBLoadOp_v.template f<1>(
-                B_valOp_v.template output<0>(),
-                G2rSparseIndexLoadOp_v.template output<0, 1>()(0)
-            );
-            __pipeline_commit();
-            __pipeline_wait_prior(3);
+            __pipeline_wait_prior(0);
             __syncthreads();
             S2sRestoreMatrixAOp_v.template f<1>(
                 G2sSparseMcoValLoadOp_v.template output<0, 1>(),
@@ -1145,26 +1188,10 @@ public:
             );
             __pipeline_commit();
             __syncthreads();
-            S2rAValLoadOp_v.template f<0>(
-                S2sRestoreMatrixAOp_v.template output<0, 0>()
-            );
-            __pipeline_wait_prior(3);
-            __syncthreads();
-            S2rBValLoadOp_v.template f<0>(
-                G2sMatrixBLoadOp_v.template output<0, 0>()
-            );
-            CalculateOp_v.template f<0>(
-                S2rAValLoadOp_v.template output<0, 0>(),
-                S2rBValLoadOp_v.template output<0, 0>()
-            );
-            
-            
-            // i = 3
-            __syncthreads();
             S2rAValLoadOp_v.template f<1>(
                 S2sRestoreMatrixAOp_v.template output<0, 1>()
             );
-            __pipeline_wait_prior(1);
+            __pipeline_wait_prior(2);
             __syncthreads();
             S2rBValLoadOp_v.template f<1>(
                 G2sMatrixBLoadOp_v.template output<0, 1>()
@@ -1173,151 +1200,11 @@ public:
                 S2rAValLoadOp_v.template output<0, 1>(),
                 S2rBValLoadOp_v.template output<0, 1>()
             );
-            
-        }
-        else if (k == 3) {
-            // i = 0
-            G2rSparseIndexLoadOp_v.template f<0>(
-                val_sidxOp_v.template output<0>(),
-                l + 0
-            );
-            G2rSparseMcoOffLoadOp_v.template f<0>(
-                val_mco_offOp_v.template output<0>(),
-                l + 0
-            );
-            G2rSparseMcoMaskLoadOp_v.template f<0>(
-                val_mco_maskOp_v.template output<0>(),
-                l + 0
-            );
-            G2sSparseMcoValLoadOp_v.template f<0>(
-                val_mco_valOp_v.template output<0>(),
-                G2rSparseMcoOffLoadOp_v.template output<0, 0>(),
-                l + 0
-            );
-            __pipeline_commit();
-            
-            
-            // i = 1
-            G2rSparseIndexLoadOp_v.template f<1>(
-                val_sidxOp_v.template output<0>(),
-                l + 1
-            );
-            G2rSparseMcoOffLoadOp_v.template f<1>(
-                val_mco_offOp_v.template output<0>(),
-                l + 1
-            );
-            G2rSparseMcoMaskLoadOp_v.template f<1>(
-                val_mco_maskOp_v.template output<0>(),
-                l + 1
-            );
-            G2sSparseMcoValLoadOp_v.template f<1>(
-                val_mco_valOp_v.template output<0>(),
-                G2rSparseMcoOffLoadOp_v.template output<0, 1>(),
-                l + 1
-            );
-            __pipeline_commit();
-            G2sMatrixBLoadOp_v.template f<0>(
-                B_valOp_v.template output<0>(),
-                G2rSparseIndexLoadOp_v.template output<0, 0>()(0)
-            );
-            __pipeline_commit();
-            __pipeline_wait_prior(2);
-            __syncthreads();
-            S2sRestoreMatrixAOp_v.template f<0>(
-                G2sSparseMcoValLoadOp_v.template output<0, 0>(),
-                G2rSparseMcoMaskLoadOp_v.template output<0, 0>()
-            );
-            __pipeline_commit();
+            EmptyOp_v.template f<0>();
             
             
             // i = 2
-            G2rSparseIndexLoadOp_v.template f<0>(
-                val_sidxOp_v.template output<0>(),
-                l + 2
-            );
-            G2rSparseMcoOffLoadOp_v.template f<0>(
-                val_mco_offOp_v.template output<0>(),
-                l + 2
-            );
-            G2rSparseMcoMaskLoadOp_v.template f<0>(
-                val_mco_maskOp_v.template output<0>(),
-                l + 2
-            );
-            G2sSparseMcoValLoadOp_v.template f<0>(
-                val_mco_valOp_v.template output<0>(),
-                G2rSparseMcoOffLoadOp_v.template output<0, 0>(),
-                l + 2
-            );
-            __pipeline_commit();
-            G2sMatrixBLoadOp_v.template f<1>(
-                B_valOp_v.template output<0>(),
-                G2rSparseIndexLoadOp_v.template output<0, 1>()(0)
-            );
-            __pipeline_commit();
-            __pipeline_wait_prior(4);
-            __syncthreads();
-            S2sRestoreMatrixAOp_v.template f<1>(
-                G2sSparseMcoValLoadOp_v.template output<0, 1>(),
-                G2rSparseMcoMaskLoadOp_v.template output<0, 1>()
-            );
-            __pipeline_commit();
-            __syncthreads();
-            S2rAValLoadOp_v.template f<0>(
-                S2sRestoreMatrixAOp_v.template output<0, 0>()
-            );
-            __pipeline_wait_prior(4);
-            __syncthreads();
-            S2rBValLoadOp_v.template f<0>(
-                G2sMatrixBLoadOp_v.template output<0, 0>()
-            );
-            CalculateOp_v.template f<0>(
-                S2rAValLoadOp_v.template output<0, 0>(),
-                S2rBValLoadOp_v.template output<0, 0>()
-            );
-            
-            
-            // i = 3
-            G2sMatrixBLoadOp_v.template f<0>(
-                B_valOp_v.template output<0>(),
-                G2rSparseIndexLoadOp_v.template output<0, 0>()(0)
-            );
-            __pipeline_commit();
-            __pipeline_wait_prior(3);
-            __syncthreads();
-            S2sRestoreMatrixAOp_v.template f<0>(
-                G2sSparseMcoValLoadOp_v.template output<0, 0>(),
-                G2rSparseMcoMaskLoadOp_v.template output<0, 0>()
-            );
-            __pipeline_commit();
-            __syncthreads();
-            S2rAValLoadOp_v.template f<1>(
-                S2sRestoreMatrixAOp_v.template output<0, 1>()
-            );
-            __pipeline_wait_prior(3);
-            __syncthreads();
-            S2rBValLoadOp_v.template f<1>(
-                G2sMatrixBLoadOp_v.template output<0, 1>()
-            );
-            CalculateOp_v.template f<1>(
-                S2rAValLoadOp_v.template output<0, 1>(),
-                S2rBValLoadOp_v.template output<0, 1>()
-            );
-            
-            
-            // i = 4
-            __syncthreads();
-            S2rAValLoadOp_v.template f<0>(
-                S2sRestoreMatrixAOp_v.template output<0, 0>()
-            );
-            __pipeline_wait_prior(1);
-            __syncthreads();
-            S2rBValLoadOp_v.template f<0>(
-                G2sMatrixBLoadOp_v.template output<0, 0>()
-            );
-            CalculateOp_v.template f<0>(
-                S2rAValLoadOp_v.template output<0, 0>(),
-                S2rBValLoadOp_v.template output<0, 0>()
-            );
+            EmptyOp_v.template f<1>();
             
         }
         
@@ -1341,6 +1228,12 @@ public:
             val_mco_maskOp_v.template output<0>(),
             l + 0
         );
+        // op_call |buf_idx=0| 0 G2sMatrixBLoadOp 
+        G2sMatrixBLoadOp_v.template f<0>(
+            B_valOp_v.template output<0>(),
+            G2rSparseIndexLoadOp_v.template output<0, 0>()(0)
+        );
+        __pipeline_commit();
         // op_call |buf_idx=0| 0 G2sSparseMcoValLoadOp 
         G2sSparseMcoValLoadOp_v.template f<0>(
             val_mco_valOp_v.template output<0>(),
@@ -1348,6 +1241,30 @@ public:
             l + 0
         );
         __pipeline_commit();
+        __pipeline_wait_prior(0);
+        __syncthreads();
+        // op_call |buf_idx=0| 0 S2sRestoreMatrixAOp 
+        S2sRestoreMatrixAOp_v.template f<0>(
+            G2sSparseMcoValLoadOp_v.template output<0, 0>(),
+            G2rSparseMcoMaskLoadOp_v.template output<0, 0>()
+        );
+        __pipeline_commit();
+        __syncthreads();
+        // op_call |buf_idx=0| 0 S2rAValLoadOp 
+        S2rAValLoadOp_v.template f<0>(
+            S2sRestoreMatrixAOp_v.template output<0, 0>()
+        );
+        __pipeline_wait_prior(2);
+        __syncthreads();
+        // op_call |buf_idx=0| 0 S2rBValLoadOp 
+        S2rBValLoadOp_v.template f<0>(
+            G2sMatrixBLoadOp_v.template output<0, 0>()
+        );
+        // op_call |buf_idx=0| 0 CalculateOp 
+        CalculateOp_v.template f<0>(
+            S2rAValLoadOp_v.template output<0, 0>(),
+            S2rBValLoadOp_v.template output<0, 0>()
+        );
         // stage 0..1
         // op_call |buf_idx=1| 1 G2rSparseIndexLoadOp 
         G2rSparseIndexLoadOp_v.template f<1>(
@@ -1364,6 +1281,12 @@ public:
             val_mco_maskOp_v.template output<0>(),
             l + 1
         );
+        // op_call |buf_idx=1| 1 G2sMatrixBLoadOp 
+        G2sMatrixBLoadOp_v.template f<1>(
+            B_valOp_v.template output<0>(),
+            G2rSparseIndexLoadOp_v.template output<0, 1>()(0)
+        );
+        __pipeline_commit();
         // op_call |buf_idx=1| 1 G2sSparseMcoValLoadOp 
         G2sSparseMcoValLoadOp_v.template f<1>(
             val_mco_valOp_v.template output<0>(),
@@ -1371,50 +1294,7 @@ public:
             l + 1
         );
         __pipeline_commit();
-        // op_call |buf_idx=0| 0 G2sMatrixBLoadOp 
-        G2sMatrixBLoadOp_v.template f<0>(
-            B_valOp_v.template output<0>(),
-            G2rSparseIndexLoadOp_v.template output<0, 0>()(0)
-        );
-        __pipeline_commit();
-        __pipeline_wait_prior(2);
-        __syncthreads();
-        // op_call |buf_idx=0| 0 S2sRestoreMatrixAOp 
-        S2sRestoreMatrixAOp_v.template f<0>(
-            G2sSparseMcoValLoadOp_v.template output<0, 0>(),
-            G2rSparseMcoMaskLoadOp_v.template output<0, 0>()
-        );
-        __pipeline_commit();
-        // stage 0..2
-        // op_call |buf_idx=0| 2 G2rSparseIndexLoadOp 
-        G2rSparseIndexLoadOp_v.template f<0>(
-            val_sidxOp_v.template output<0>(),
-            l + 2
-        );
-        // op_call |buf_idx=0| 2 G2rSparseMcoOffLoadOp 
-        G2rSparseMcoOffLoadOp_v.template f<0>(
-            val_mco_offOp_v.template output<0>(),
-            l + 2
-        );
-        // op_call |buf_idx=0| 2 G2rSparseMcoMaskLoadOp 
-        G2rSparseMcoMaskLoadOp_v.template f<0>(
-            val_mco_maskOp_v.template output<0>(),
-            l + 2
-        );
-        // op_call |buf_idx=0| 2 G2sSparseMcoValLoadOp 
-        G2sSparseMcoValLoadOp_v.template f<0>(
-            val_mco_valOp_v.template output<0>(),
-            G2rSparseMcoOffLoadOp_v.template output<0, 0>(),
-            l + 2
-        );
-        __pipeline_commit();
-        // op_call |buf_idx=1| 1 G2sMatrixBLoadOp 
-        G2sMatrixBLoadOp_v.template f<1>(
-            B_valOp_v.template output<0>(),
-            G2rSparseIndexLoadOp_v.template output<0, 1>()(0)
-        );
-        __pipeline_commit();
-        __pipeline_wait_prior(4);
+        __pipeline_wait_prior(0);
         __syncthreads();
         // op_call |buf_idx=1| 1 S2sRestoreMatrixAOp 
         S2sRestoreMatrixAOp_v.template f<1>(
@@ -1423,188 +1303,196 @@ public:
         );
         __pipeline_commit();
         __syncthreads();
-        // op_call |buf_idx=0| 0 S2rAValLoadOp 
-        S2rAValLoadOp_v.template f<0>(
-            S2sRestoreMatrixAOp_v.template output<0, 0>()
+        // op_call |buf_idx=1| 1 S2rAValLoadOp 
+        S2rAValLoadOp_v.template f<1>(
+            S2sRestoreMatrixAOp_v.template output<0, 1>()
         );
-        __pipeline_wait_prior(4);
+        __pipeline_wait_prior(2);
         __syncthreads();
-        // op_call |buf_idx=0| 0 S2rBValLoadOp 
-        S2rBValLoadOp_v.template f<0>(
-            G2sMatrixBLoadOp_v.template output<0, 0>()
+        // op_call |buf_idx=1| 1 S2rBValLoadOp 
+        S2rBValLoadOp_v.template f<1>(
+            G2sMatrixBLoadOp_v.template output<0, 1>()
         );
-        // op_call |buf_idx=0| 0 CalculateOp 
-        CalculateOp_v.template f<0>(
-            S2rAValLoadOp_v.template output<0, 0>(),
-            S2rBValLoadOp_v.template output<0, 0>()
+        // op_call |buf_idx=1| 1 CalculateOp 
+        CalculateOp_v.template f<1>(
+            S2rAValLoadOp_v.template output<0, 1>(),
+            S2rBValLoadOp_v.template output<0, 1>()
         );
+        // op_call |buf_idx=0| 0 EmptyOp 
+        EmptyOp_v.template f<0>();
     }
     
     // loop_step
     CUTE_DEVICE void loop_step(int i, int l, int r) {
         // step 0
-        // op_call |buf_idx=1| i + (0) G2rSparseIndexLoadOp 
-        G2rSparseIndexLoadOp_v.template f<1>(
+        // op_call |buf_idx=0| i + (0) G2rSparseIndexLoadOp 
+        G2rSparseIndexLoadOp_v.template f<0>(
             val_sidxOp_v.template output<0>(),
             l + i + (0)
         );
-        // op_call |buf_idx=1| i + (0) G2rSparseMcoOffLoadOp 
-        G2rSparseMcoOffLoadOp_v.template f<1>(
+        // op_call |buf_idx=0| i + (0) G2rSparseMcoOffLoadOp 
+        G2rSparseMcoOffLoadOp_v.template f<0>(
             val_mco_offOp_v.template output<0>(),
             l + i + (0)
         );
-        // op_call |buf_idx=1| i + (0) G2rSparseMcoMaskLoadOp 
-        G2rSparseMcoMaskLoadOp_v.template f<1>(
+        // op_call |buf_idx=0| i + (0) G2rSparseMcoMaskLoadOp 
+        G2rSparseMcoMaskLoadOp_v.template f<0>(
             val_mco_maskOp_v.template output<0>(),
             l + i + (0)
         );
-        // op_call |buf_idx=1| i + (0) G2sSparseMcoValLoadOp 
-        G2sSparseMcoValLoadOp_v.template f<1>(
-            val_mco_valOp_v.template output<0>(),
-            G2rSparseMcoOffLoadOp_v.template output<0, 1>(),
-            l + i + (0)
-        );
-        __pipeline_commit();
-        // op_call |buf_idx=0| i + (-1) G2sMatrixBLoadOp 
+        // op_call |buf_idx=0| i + (0) G2sMatrixBLoadOp 
         G2sMatrixBLoadOp_v.template f<0>(
             B_valOp_v.template output<0>(),
             G2rSparseIndexLoadOp_v.template output<0, 0>()(0)
         );
         __pipeline_commit();
-        __pipeline_wait_prior(4);
+        // op_call |buf_idx=0| i + (0) G2sSparseMcoValLoadOp 
+        G2sSparseMcoValLoadOp_v.template f<0>(
+            val_mco_valOp_v.template output<0>(),
+            G2rSparseMcoOffLoadOp_v.template output<0, 0>(),
+            l + i + (0)
+        );
+        __pipeline_commit();
+        __pipeline_wait_prior(0);
         __syncthreads();
-        // op_call |buf_idx=0| i + (-1) S2sRestoreMatrixAOp 
+        // op_call |buf_idx=0| i + (0) S2sRestoreMatrixAOp 
         S2sRestoreMatrixAOp_v.template f<0>(
             G2sSparseMcoValLoadOp_v.template output<0, 0>(),
             G2rSparseMcoMaskLoadOp_v.template output<0, 0>()
         );
         __pipeline_commit();
         __syncthreads();
-        // op_call |buf_idx=1| i + (-2) S2rAValLoadOp 
-        S2rAValLoadOp_v.template f<1>(
-            S2sRestoreMatrixAOp_v.template output<0, 1>()
+        // op_call |buf_idx=0| i + (0) S2rAValLoadOp 
+        S2rAValLoadOp_v.template f<0>(
+            S2sRestoreMatrixAOp_v.template output<0, 0>()
         );
-        __pipeline_wait_prior(4);
+        __pipeline_wait_prior(2);
         __syncthreads();
-        // op_call |buf_idx=1| i + (-2) S2rBValLoadOp 
-        S2rBValLoadOp_v.template f<1>(
-            G2sMatrixBLoadOp_v.template output<0, 1>()
+        // op_call |buf_idx=0| i + (0) S2rBValLoadOp 
+        S2rBValLoadOp_v.template f<0>(
+            G2sMatrixBLoadOp_v.template output<0, 0>()
         );
-        // op_call |buf_idx=1| i + (-2) CalculateOp 
-        CalculateOp_v.template f<1>(
-            S2rAValLoadOp_v.template output<0, 1>(),
-            S2rBValLoadOp_v.template output<0, 1>()
+        // op_call |buf_idx=0| i + (0) CalculateOp 
+        CalculateOp_v.template f<0>(
+            S2rAValLoadOp_v.template output<0, 0>(),
+            S2rBValLoadOp_v.template output<0, 0>()
         );
+        // op_call |buf_idx=1| i + (-1) EmptyOp 
+        EmptyOp_v.template f<1>();
         // step 1
-        // op_call |buf_idx=0| i + (1) G2rSparseIndexLoadOp 
-        G2rSparseIndexLoadOp_v.template f<0>(
+        // op_call |buf_idx=1| i + (1) G2rSparseIndexLoadOp 
+        G2rSparseIndexLoadOp_v.template f<1>(
             val_sidxOp_v.template output<0>(),
             l + i + (1)
         );
-        // op_call |buf_idx=0| i + (1) G2rSparseMcoOffLoadOp 
-        G2rSparseMcoOffLoadOp_v.template f<0>(
+        // op_call |buf_idx=1| i + (1) G2rSparseMcoOffLoadOp 
+        G2rSparseMcoOffLoadOp_v.template f<1>(
             val_mco_offOp_v.template output<0>(),
             l + i + (1)
         );
-        // op_call |buf_idx=0| i + (1) G2rSparseMcoMaskLoadOp 
-        G2rSparseMcoMaskLoadOp_v.template f<0>(
+        // op_call |buf_idx=1| i + (1) G2rSparseMcoMaskLoadOp 
+        G2rSparseMcoMaskLoadOp_v.template f<1>(
             val_mco_maskOp_v.template output<0>(),
             l + i + (1)
         );
-        // op_call |buf_idx=0| i + (1) G2sSparseMcoValLoadOp 
-        G2sSparseMcoValLoadOp_v.template f<0>(
-            val_mco_valOp_v.template output<0>(),
-            G2rSparseMcoOffLoadOp_v.template output<0, 0>(),
-            l + i + (1)
-        );
-        __pipeline_commit();
-        // op_call |buf_idx=1| i + (0) G2sMatrixBLoadOp 
+        // op_call |buf_idx=1| i + (1) G2sMatrixBLoadOp 
         G2sMatrixBLoadOp_v.template f<1>(
             B_valOp_v.template output<0>(),
             G2rSparseIndexLoadOp_v.template output<0, 1>()(0)
         );
         __pipeline_commit();
-        __pipeline_wait_prior(4);
+        // op_call |buf_idx=1| i + (1) G2sSparseMcoValLoadOp 
+        G2sSparseMcoValLoadOp_v.template f<1>(
+            val_mco_valOp_v.template output<0>(),
+            G2rSparseMcoOffLoadOp_v.template output<0, 1>(),
+            l + i + (1)
+        );
+        __pipeline_commit();
+        __pipeline_wait_prior(0);
         __syncthreads();
-        // op_call |buf_idx=1| i + (0) S2sRestoreMatrixAOp 
+        // op_call |buf_idx=1| i + (1) S2sRestoreMatrixAOp 
         S2sRestoreMatrixAOp_v.template f<1>(
             G2sSparseMcoValLoadOp_v.template output<0, 1>(),
             G2rSparseMcoMaskLoadOp_v.template output<0, 1>()
         );
         __pipeline_commit();
         __syncthreads();
-        // op_call |buf_idx=0| i + (-1) S2rAValLoadOp 
-        S2rAValLoadOp_v.template f<0>(
-            S2sRestoreMatrixAOp_v.template output<0, 0>()
+        // op_call |buf_idx=1| i + (1) S2rAValLoadOp 
+        S2rAValLoadOp_v.template f<1>(
+            S2sRestoreMatrixAOp_v.template output<0, 1>()
         );
-        __pipeline_wait_prior(4);
+        __pipeline_wait_prior(2);
         __syncthreads();
-        // op_call |buf_idx=0| i + (-1) S2rBValLoadOp 
-        S2rBValLoadOp_v.template f<0>(
-            G2sMatrixBLoadOp_v.template output<0, 0>()
+        // op_call |buf_idx=1| i + (1) S2rBValLoadOp 
+        S2rBValLoadOp_v.template f<1>(
+            G2sMatrixBLoadOp_v.template output<0, 1>()
         );
-        // op_call |buf_idx=0| i + (-1) CalculateOp 
-        CalculateOp_v.template f<0>(
-            S2rAValLoadOp_v.template output<0, 0>(),
-            S2rBValLoadOp_v.template output<0, 0>()
+        // op_call |buf_idx=1| i + (1) CalculateOp 
+        CalculateOp_v.template f<1>(
+            S2rAValLoadOp_v.template output<0, 1>(),
+            S2rBValLoadOp_v.template output<0, 1>()
         );
+        // op_call |buf_idx=0| i + (0) EmptyOp 
+        EmptyOp_v.template f<0>();
     }
     
     // remainder
     CUTE_DEVICE void remains_1(int i, int l, int r) {
         // total remains 1, current 0
-        // op_call |buf_idx=1| i + (0) G2rSparseIndexLoadOp 
-        G2rSparseIndexLoadOp_v.template f<1>(
+        // op_call |buf_idx=0| i + (0) G2rSparseIndexLoadOp 
+        G2rSparseIndexLoadOp_v.template f<0>(
             val_sidxOp_v.template output<0>(),
             l + i + (0)
         );
-        // op_call |buf_idx=1| i + (0) G2rSparseMcoOffLoadOp 
-        G2rSparseMcoOffLoadOp_v.template f<1>(
+        // op_call |buf_idx=0| i + (0) G2rSparseMcoOffLoadOp 
+        G2rSparseMcoOffLoadOp_v.template f<0>(
             val_mco_offOp_v.template output<0>(),
             l + i + (0)
         );
-        // op_call |buf_idx=1| i + (0) G2rSparseMcoMaskLoadOp 
-        G2rSparseMcoMaskLoadOp_v.template f<1>(
+        // op_call |buf_idx=0| i + (0) G2rSparseMcoMaskLoadOp 
+        G2rSparseMcoMaskLoadOp_v.template f<0>(
             val_mco_maskOp_v.template output<0>(),
             l + i + (0)
         );
-        // op_call |buf_idx=1| i + (0) G2sSparseMcoValLoadOp 
-        G2sSparseMcoValLoadOp_v.template f<1>(
-            val_mco_valOp_v.template output<0>(),
-            G2rSparseMcoOffLoadOp_v.template output<0, 1>(),
-            l + i + (0)
-        );
-        __pipeline_commit();
-        // op_call |buf_idx=0| i + (-1) G2sMatrixBLoadOp 
+        // op_call |buf_idx=0| i + (0) G2sMatrixBLoadOp 
         G2sMatrixBLoadOp_v.template f<0>(
             B_valOp_v.template output<0>(),
             G2rSparseIndexLoadOp_v.template output<0, 0>()(0)
         );
         __pipeline_commit();
-        __pipeline_wait_prior(4);
+        // op_call |buf_idx=0| i + (0) G2sSparseMcoValLoadOp 
+        G2sSparseMcoValLoadOp_v.template f<0>(
+            val_mco_valOp_v.template output<0>(),
+            G2rSparseMcoOffLoadOp_v.template output<0, 0>(),
+            l + i + (0)
+        );
+        __pipeline_commit();
+        __pipeline_wait_prior(0);
         __syncthreads();
-        // op_call |buf_idx=0| i + (-1) S2sRestoreMatrixAOp 
+        // op_call |buf_idx=0| i + (0) S2sRestoreMatrixAOp 
         S2sRestoreMatrixAOp_v.template f<0>(
             G2sSparseMcoValLoadOp_v.template output<0, 0>(),
             G2rSparseMcoMaskLoadOp_v.template output<0, 0>()
         );
         __pipeline_commit();
         __syncthreads();
-        // op_call |buf_idx=1| i + (-2) S2rAValLoadOp 
-        S2rAValLoadOp_v.template f<1>(
-            S2sRestoreMatrixAOp_v.template output<0, 1>()
+        // op_call |buf_idx=0| i + (0) S2rAValLoadOp 
+        S2rAValLoadOp_v.template f<0>(
+            S2sRestoreMatrixAOp_v.template output<0, 0>()
         );
-        __pipeline_wait_prior(4);
+        __pipeline_wait_prior(2);
         __syncthreads();
-        // op_call |buf_idx=1| i + (-2) S2rBValLoadOp 
-        S2rBValLoadOp_v.template f<1>(
-            G2sMatrixBLoadOp_v.template output<0, 1>()
+        // op_call |buf_idx=0| i + (0) S2rBValLoadOp 
+        S2rBValLoadOp_v.template f<0>(
+            G2sMatrixBLoadOp_v.template output<0, 0>()
         );
-        // op_call |buf_idx=1| i + (-2) CalculateOp 
-        CalculateOp_v.template f<1>(
-            S2rAValLoadOp_v.template output<0, 1>(),
-            S2rBValLoadOp_v.template output<0, 1>()
+        // op_call |buf_idx=0| i + (0) CalculateOp 
+        CalculateOp_v.template f<0>(
+            S2rAValLoadOp_v.template output<0, 0>(),
+            S2rBValLoadOp_v.template output<0, 0>()
         );
+        // op_call |buf_idx=1| i + (-1) EmptyOp 
+        EmptyOp_v.template f<1>();
     }
     
     CUTE_DEVICE void remainder(int i, int l, int r) {
@@ -1615,105 +1503,15 @@ public:
     
     // empties
     CUTE_DEVICE void empty_after_remain_0(int i, int l, int r) {
-        // stage 1..2
-        // op_call |buf_idx=0| i + (-1) G2sMatrixBLoadOp 
-        G2sMatrixBLoadOp_v.template f<0>(
-            B_valOp_v.template output<0>(),
-            G2rSparseIndexLoadOp_v.template output<0, 0>()(0)
-        );
-        __pipeline_commit();
-        __pipeline_wait_prior(3);
-        __syncthreads();
-        // op_call |buf_idx=0| i + (-1) S2sRestoreMatrixAOp 
-        S2sRestoreMatrixAOp_v.template f<0>(
-            G2sSparseMcoValLoadOp_v.template output<0, 0>(),
-            G2rSparseMcoMaskLoadOp_v.template output<0, 0>()
-        );
-        __pipeline_commit();
-        __syncthreads();
-        // op_call |buf_idx=1| i + (-2) S2rAValLoadOp 
-        S2rAValLoadOp_v.template f<1>(
-            S2sRestoreMatrixAOp_v.template output<0, 1>()
-        );
-        __pipeline_wait_prior(3);
-        __syncthreads();
-        // op_call |buf_idx=1| i + (-2) S2rBValLoadOp 
-        S2rBValLoadOp_v.template f<1>(
-            G2sMatrixBLoadOp_v.template output<0, 1>()
-        );
-        // op_call |buf_idx=1| i + (-2) CalculateOp 
-        CalculateOp_v.template f<1>(
-            S2rAValLoadOp_v.template output<0, 1>(),
-            S2rBValLoadOp_v.template output<0, 1>()
-        );
-        // stage 2..2
-        __syncthreads();
-        // op_call |buf_idx=0| i + (-1) S2rAValLoadOp 
-        S2rAValLoadOp_v.template f<0>(
-            S2sRestoreMatrixAOp_v.template output<0, 0>()
-        );
-        __pipeline_wait_prior(1);
-        __syncthreads();
-        // op_call |buf_idx=0| i + (-1) S2rBValLoadOp 
-        S2rBValLoadOp_v.template f<0>(
-            G2sMatrixBLoadOp_v.template output<0, 0>()
-        );
-        // op_call |buf_idx=0| i + (-1) CalculateOp 
-        CalculateOp_v.template f<0>(
-            S2rAValLoadOp_v.template output<0, 0>(),
-            S2rBValLoadOp_v.template output<0, 0>()
-        );
+        // stage 1..1
+        // op_call |buf_idx=1| i + (-1) EmptyOp 
+        EmptyOp_v.template f<1>();
     }
     
     CUTE_DEVICE void empty_after_remain_1(int i, int l, int r) {
-        // stage 1..2
-        // op_call |buf_idx=1| i + (0) G2sMatrixBLoadOp 
-        G2sMatrixBLoadOp_v.template f<1>(
-            B_valOp_v.template output<0>(),
-            G2rSparseIndexLoadOp_v.template output<0, 1>()(0)
-        );
-        __pipeline_commit();
-        __pipeline_wait_prior(3);
-        __syncthreads();
-        // op_call |buf_idx=1| i + (0) S2sRestoreMatrixAOp 
-        S2sRestoreMatrixAOp_v.template f<1>(
-            G2sSparseMcoValLoadOp_v.template output<0, 1>(),
-            G2rSparseMcoMaskLoadOp_v.template output<0, 1>()
-        );
-        __pipeline_commit();
-        __syncthreads();
-        // op_call |buf_idx=0| i + (-1) S2rAValLoadOp 
-        S2rAValLoadOp_v.template f<0>(
-            S2sRestoreMatrixAOp_v.template output<0, 0>()
-        );
-        __pipeline_wait_prior(3);
-        __syncthreads();
-        // op_call |buf_idx=0| i + (-1) S2rBValLoadOp 
-        S2rBValLoadOp_v.template f<0>(
-            G2sMatrixBLoadOp_v.template output<0, 0>()
-        );
-        // op_call |buf_idx=0| i + (-1) CalculateOp 
-        CalculateOp_v.template f<0>(
-            S2rAValLoadOp_v.template output<0, 0>(),
-            S2rBValLoadOp_v.template output<0, 0>()
-        );
-        // stage 2..2
-        __syncthreads();
-        // op_call |buf_idx=1| i + (0) S2rAValLoadOp 
-        S2rAValLoadOp_v.template f<1>(
-            S2sRestoreMatrixAOp_v.template output<0, 1>()
-        );
-        __pipeline_wait_prior(1);
-        __syncthreads();
-        // op_call |buf_idx=1| i + (0) S2rBValLoadOp 
-        S2rBValLoadOp_v.template f<1>(
-            G2sMatrixBLoadOp_v.template output<0, 1>()
-        );
-        // op_call |buf_idx=1| i + (0) CalculateOp 
-        CalculateOp_v.template f<1>(
-            S2rAValLoadOp_v.template output<0, 1>(),
-            S2rBValLoadOp_v.template output<0, 1>()
-        );
+        // stage 1..1
+        // op_call |buf_idx=0| i + (0) EmptyOp 
+        EmptyOp_v.template f<0>();
     }
     
     CUTE_DEVICE void empty(int i, int l, int r) {
@@ -1730,12 +1528,12 @@ public:
         int l = this->_l;
         int r = this->_r;
         int k = r - l;
-        if (k <= 3) {
+        if (k <= 2) {
             short_pipe(k, l, r);
         } else {
             fill(l, r);
             int i;
-            for (i = 3; i + 2 <= k; i += 2) {
+            for (i = 2; i + 2 <= k; i += 2) {
                 loop_step(i, l, r);
             }
             remainder(i, l, r);
@@ -1974,14 +1772,6 @@ __global__ void bitbsr_spmm_kernel_fp16fp16fp32(
         G2rSparseMcoMaskLoadOp_tensor_o0, 
         nnz_block,
     };
-    using G2sSparseMcoValLoadOp_t = G2sSparseMcoValLoadOp<Int<2>, BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK>;
-    using G2sSparseMcoValLoadOp_layout_o0 = typename G2sSparseMcoValLoadOp_t::Layout_o0;
-    __shared__ half G2sSparseMcoValLoadOp_tensor_o0[cosize_v<G2sSparseMcoValLoadOp_layout_o0>];
-    G2sSparseMcoValLoadOp_t G2sSparseMcoValLoadOp_v{
-        tid, lid, wid, 
-        G2sSparseMcoValLoadOp_tensor_o0, 
-        nnz,
-    };
     using G2sMatrixBLoadOp_t = G2sMatrixBLoadOp<Int<2>, BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK>;
     using G2sMatrixBLoadOp_layout_o0 = typename G2sMatrixBLoadOp_t::Layout_o0;
     __shared__ half G2sMatrixBLoadOp_tensor_o0[cosize_v<G2sMatrixBLoadOp_layout_o0>];
@@ -1989,6 +1779,14 @@ __global__ void bitbsr_spmm_kernel_fp16fp16fp32(
         tid, lid, wid, 
         G2sMatrixBLoadOp_tensor_o0, 
         K, N,
+    };
+    using G2sSparseMcoValLoadOp_t = G2sSparseMcoValLoadOp<Int<2>, BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK>;
+    using G2sSparseMcoValLoadOp_layout_o0 = typename G2sSparseMcoValLoadOp_t::Layout_o0;
+    __shared__ half G2sSparseMcoValLoadOp_tensor_o0[cosize_v<G2sSparseMcoValLoadOp_layout_o0>];
+    G2sSparseMcoValLoadOp_t G2sSparseMcoValLoadOp_v{
+        tid, lid, wid, 
+        G2sSparseMcoValLoadOp_tensor_o0, 
+        nnz,
     };
     using S2sRestoreMatrixAOp_t = S2sRestoreMatrixAOp<Int<2>, BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK>;
     using S2sRestoreMatrixAOp_layout_o0 = typename S2sRestoreMatrixAOp_t::Layout_o0;
@@ -2016,8 +1814,12 @@ __global__ void bitbsr_spmm_kernel_fp16fp16fp32(
         tid, lid, wid, 
         ZerosOp_v.template output<0>(),
     };
-    using BitBsrMainLoopOp_t = BitBsrMainLoopOp<BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK, B_valOp_t, C_valOp_t, val_mco_maskOp_t, val_mco_offOp_t, val_mco_valOp_t, val_sidxOp_t, val_soffOp_t, ZeroOp_t, BlockDimYOp_t, BlockDimXOp_t, G2rSparseOffsetLoadOp_t, ZerosOp_t, G2rSparseIndexLoadOp_t, G2rSparseMcoOffLoadOp_t, G2rSparseMcoMaskLoadOp_t, G2sSparseMcoValLoadOp_t, G2sMatrixBLoadOp_t, S2sRestoreMatrixAOp_t, S2rAValLoadOp_t, S2rBValLoadOp_t, CalculateOp_t, std::decay_t<decltype(CalculateOp_v.template output<0>())>>;
-    BitBsrMainLoopOp_t BitBsrMainLoopOp_v{tid, lid, wid, B_valOp_v, C_valOp_v, val_mco_maskOp_v, val_mco_offOp_v, val_mco_valOp_v, val_sidxOp_v, val_soffOp_v, ZeroOp_v, BlockDimYOp_v, BlockDimXOp_v, G2rSparseOffsetLoadOp_v, ZerosOp_v, G2rSparseIndexLoadOp_v, G2rSparseMcoOffLoadOp_v, G2rSparseMcoMaskLoadOp_v, G2sSparseMcoValLoadOp_v, G2sMatrixBLoadOp_v, S2sRestoreMatrixAOp_v, S2rAValLoadOp_v, S2rBValLoadOp_v, CalculateOp_v, CalculateOp_v.template output<0>()};
+    using EmptyOp_t = EmptyOp<Int<2>, BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK>;
+    EmptyOp_t EmptyOp_v{
+        tid, lid, wid,
+    };
+    using BitBsrMainLoopOp_t = BitBsrMainLoopOp<BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK, B_valOp_t, C_valOp_t, val_mco_maskOp_t, val_mco_offOp_t, val_mco_valOp_t, val_sidxOp_t, val_soffOp_t, ZeroOp_t, BlockDimYOp_t, BlockDimXOp_t, G2rSparseOffsetLoadOp_t, ZerosOp_t, G2rSparseIndexLoadOp_t, G2rSparseMcoOffLoadOp_t, G2rSparseMcoMaskLoadOp_t, G2sMatrixBLoadOp_t, G2sSparseMcoValLoadOp_t, S2sRestoreMatrixAOp_t, S2rAValLoadOp_t, S2rBValLoadOp_t, CalculateOp_t, EmptyOp_t, std::decay_t<decltype(CalculateOp_v.template output<0>())>>;
+    BitBsrMainLoopOp_t BitBsrMainLoopOp_v{tid, lid, wid, B_valOp_v, C_valOp_v, val_mco_maskOp_v, val_mco_offOp_v, val_mco_valOp_v, val_sidxOp_v, val_soffOp_v, ZeroOp_v, BlockDimYOp_v, BlockDimXOp_v, G2rSparseOffsetLoadOp_v, ZerosOp_v, G2rSparseIndexLoadOp_v, G2rSparseMcoOffLoadOp_v, G2rSparseMcoMaskLoadOp_v, G2sMatrixBLoadOp_v, G2sSparseMcoValLoadOp_v, S2sRestoreMatrixAOp_v, S2rAValLoadOp_v, S2rBValLoadOp_v, CalculateOp_v, EmptyOp_v, CalculateOp_v.template output<0>()};
     using R2gCValStoreOp_t = R2gCValStoreOp<BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK, std::decay_t<decltype(C_valOp_v.template output<0>())>>;
     R2gCValStoreOp_t R2gCValStoreOp_v{
         tid, lid, wid, 

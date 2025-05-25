@@ -2,8 +2,6 @@ from collections import OrderedDict
 
 from sparsene.format.format import Direction, Format, coo_atomic_format, df_axis, sv_axis
 
-# df_axis: dense fixed-length axis
-# sv_axis: sparse variable-length axis
 HME_TCF_FORMAT = Format(
     name="HME-TCF",
     axes=[

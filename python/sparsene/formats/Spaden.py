@@ -2,8 +2,6 @@ from collections import OrderedDict
 
 from sparsene.format.format import Direction, Format, mco_atomic_format, df_axis, sv_axis
 
-# df_axis: dense fixed-length axis
-# sv_axis: sparse variable-length axis
 BIT_BSR_FORMAT = Format(
     name="BIT-BSR",
     axes=[

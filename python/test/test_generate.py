@@ -28,7 +28,3 @@ if __name__ == "__main__":
 
     ops = generate_from_computent(computent)
     logger.info(printer.default_printer.dump(ops))
-
-    nvir = generate_nvir(ops)
-    for gmem in nvir.gmem_inouts.values():
-        logger.info(gmem)
