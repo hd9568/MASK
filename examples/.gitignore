@@ -1,0 +1,12 @@
+**/CMakeCache.txt
+**/CMakeFiles
+**/cmake_install.cmake
+**/build
+
+**/plan_exes
+bin/*-fp16
+bin/*-tf32
+bin/*.log
+bin/*list*.txt
+
+matrix_generator/generated_matrices

@@ -13,21 +13,12 @@ logs
 
 python/**/*.pdf
 
-example/dtc-spmm/build/
+example/build/
 
-example/dtc-spmm/report/
+example/report/
 
 .vscode
 
-example/dtc-spmm/**/plan_exes
-example/bin/*-fp16
-example/bin/*-tf32
-example/bin/*.log
-example/bin/*list*.txt
-example/dtc-spmm/matrix_generator/generated_matrices
-
 exp/*list*.txt
-exp/*list*.txt
-example/dtc-spmm/matrix_generator/generated_matrices
 
 baseline
