@@ -191,7 +191,7 @@ public:
     CUTE_DEVICE {op_name}(int tid, int lid, int wid{visible_op_as_params}{non_owning_tensor_as_params})
     : tid(tid), lid(lid), wid(wid){visible_op_inits}{non_owning_tensor_inits} {{}}
 
-{loop_result_outputs}
+{loop_result_outputs_method}
 
     // f
     template<class Tensor_i0, class Tensor_i1>

@@ -544,8 +544,12 @@ def apply_split_transformation(
         array_def.dims[idx_dim] = new_length_outer
         array_def.dims.insert(idx_dim + 1, new_length_inner)
     # 3. Handle schedule
+    print("---------")
+    print(axis_to_split.name)
+    print("---------")
     axis_ref = schedule.find_axis_ref(axis_to_split.name)
     if isinstance(axis_ref, (DenseAxisIterator, SparseAxisIterator)):
+        print("axix_ref is a iterator")
         new_inner_axis_ref = DenseAxisIterator(
             axis=new_axis_inner.name,
             body=axis_ref.body,
@@ -559,6 +563,7 @@ def apply_split_transformation(
             [axis_ref.induction_var, new_inner_axis_ref.induction_var],
         )
     elif isinstance(axis_ref, SparseAxisSlicer):
+        print("axis_ref is a sparse axis slicer")
         new_axis_ref = SparseAxisIterator(
             induction_var=axis_ref.induction_var,
             axis=new_axis_outer.name,
@@ -586,6 +591,7 @@ def apply_split_transformation(
         else:
             schedule = new_axis_ref
     elif isinstance(axis_ref, AtomicFormatOp):
+        print("axis_ref is a atomic format op")
         if axis_ref.axes[0] == axis_to_split.name:
             # axis_ref is the first axis of the atomic format op
             # we need to create a dense axis iterator for the new outer axis
@@ -693,16 +699,19 @@ def apply_swap_transformation(
         )
 
     # 3. Handle schedule
+    print("swap transformation: axis0 is " + axis0_name + " axis1 is " + axis1_name)
     axis0_ref = schedule.find_axis_ref(axis0_name)
     axis1_ref = schedule.find_axis_ref(axis1_name)
     if axis0_ref is None or axis1_ref is None:
         raise ValueError(f"Unknown axis reference: {axis0_ref} or {axis1_ref}")
 
     if axis0_ref is axis1_ref:
+        print("swap transformation: axis0 is axis1")
         assert isinstance(axis0_ref, AtomicFormatOp)
         # they are in the same atomic op, just swap the axes
         axis0_ref.axes = axis0_ref.axes[1], axis0_ref.axes[0]
     elif axis0_ref.get_child() is axis1_ref:
+        print("swap transformation: axis0 's child is axis1")
         assert isinstance(axis0_ref, DenseAxisIterator)
         if isinstance(axis1_ref, DenseAxisIterator):
             # they are in the same dense axis iterator, just swap the axes

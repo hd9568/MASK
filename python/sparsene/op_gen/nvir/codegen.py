@@ -30,6 +30,8 @@ from sparsene.logging import get_logger
 
 import re
 
+import os, sys
+
 logger = get_logger(__name__)
 
 
@@ -418,10 +420,99 @@ class NvIrCodeGenerator:
     def dump_sequential_for_loop_nvop_class_def(
         self, op: ForLoopNvOp, visible_ops: Sequence[NvOp]
     ) -> str:
+        
+        def dump_loop_body() -> str:
+            op_calls = []
+            for bop in op.body.ops:
+                op_calls.append(
+                    self.dump_f_method_call(bop, buf_idx_str="", shift_constant="")
+                )
+            return "\n".join(op_calls)
+
         if op.blk_idx_mapping:
             return self.dump_blk_idx_for_loop_nvop_class_def(op, visible_ops)
+        
+        visible_op_type_template_params = [f"class T_{op.name}" for op in visible_ops]
+        visible_op_type_template_params_str = "".join(f", {param}" for param in visible_op_type_template_params)
 
-        raise NotImplementedError("Sequential for loop is not implemented")
+        non_owning_tensor_type_template_params = [
+            f"class Tensor_o{out.idx}" for out in op.outputs
+        ]
+        non_owning_tensor_type_template_params_str = "".join(f", {param}" for param in non_owning_tensor_type_template_params)
+
+        in_dtypes_strs = [
+            f"class TI{idx} = {inp.tensor.dtype}" for idx, inp in enumerate(op.inputs)
+        ]
+        out_dtypes_strs = [
+            f"class TO{idx} = {out.tensor.dtype}" for idx, out in enumerate(op.outputs)
+        ]
+        io_dtype_template_params_str = "".join(
+            f", {dtype}" for dtype in chain(in_dtypes_strs, out_dtypes_strs)
+        )
+
+        parameter_types_strs = [
+            f"class {param} = Int<{op.parameters[param]}>" for param in op.parameters
+        ]
+        parameter_template_params_str = "".join(
+            f", {param}" for param in parameter_types_strs
+        )
+
+        op_name_str = op.name
+
+        inputs_str = f"// Inputs\n" + "\n".join(
+            map(lambda inp: self.dump_input_decl(inp), op.inputs)
+        )
+        outputs_str = f"// Outputs\n" + "\n".join(
+            map(lambda out: self.dump_output_decl(out), op.outputs)
+        )
+
+        get_output_method_str = self.dump_get_output_method(op)
+
+        visible_op_strs = [f"T_{op.name} &{op.name}_v;" for op in visible_ops]
+        visible_ops_str = "\n".join(visible_op_strs)
+
+        visible_op_as_params_strs = [f"T_{op.name} &{op.name}_v" for op in visible_ops]
+        visible_op_as_params_str = "".join(
+            f", {param}" for param in visible_op_as_params_strs
+        )
+
+        visible_op_init_strs = [f"{op.name}_v({op.name}_v)" for op in visible_ops]
+        visible_op_inits_str = "".join(
+            f", {init_str}" for init_str in visible_op_init_strs
+        )
+
+        get_output_method_str = self.dump_get_output_method(op)
+
+        non_owning_tensor_as_params_strs = [
+            f"Tensor_o{out.idx} {out.name}" for out in op.outputs
+        ]
+        non_owning_tensor_as_params_str = "".join(
+            f", {param}" for param in non_owning_tensor_as_params_strs
+        )
+
+        non_owning_tensor_inits_strs = [f"{out.name}({out.name})" for out in op.outputs]
+        non_owning_tensor_inits_str = "".join(
+            f", {init_str}" for init_str in non_owning_tensor_inits_strs
+        )
+
+        loop_body_str = dump_loop_body()
+
+        return templates.SEQUENTIAL_FOR_LOOP_NVOP_DEF_SKELETON.format(
+            visible_op_type_template_params=visible_op_type_template_params_str,
+            non_owning_tensor_type_template_params=non_owning_tensor_type_template_params_str,
+            io_dtype_template_params=io_dtype_template_params_str,
+            parameter_template_params=parameter_template_params_str,
+            op_name=op_name_str,
+            loop_result_outputs=self._indent_lines(outputs_str),
+            visible_ops=self._indent_lines(visible_ops_str),
+            visible_op_as_params=visible_op_as_params_str,
+            non_owning_tensor_as_params=non_owning_tensor_as_params_str,
+            visible_op_inits=visible_op_inits_str,
+            non_owning_tensor_inits=non_owning_tensor_inits_str,
+            loop_result_outputs_method=self._indent_lines(get_output_method_str),
+            loop_body=self._indent_lines(loop_body_str, 3),
+        )
+        # raise NotImplementedError("Sequential for loop is not implemented")
 
     def dump_f_method(self, op: NvOp) -> str:
         def dump_nested_tuple_access(
@@ -1648,7 +1739,9 @@ class NvIrCodeGenerator:
         def _dump_sequential_for_loop_nvop(
             for_loop_op: ForLoopNvOp, current_level: int
         ) -> None:
+            # print("\t", for_loop_op.name, "_dump_sequential_for_loop_nvop, lines:", sys._getframe().f_lineno)
             for op in for_loop_op.body.ops:
+                # print("\t\t", op.name, "in for loop op, lines:", sys._getframe().f_lineno)
                 _dump_nvop(op, current_level + 1)
             class_defs.append(
                 self.dump_sequential_for_loop_nvop_class_def(
@@ -1666,8 +1759,10 @@ class NvIrCodeGenerator:
             for_loop_op: ForLoopNvOp, current_level: int
         ) -> None:
             assert isinstance(for_loop_op.body, NvOpPipeline)
+            # print("\t", for_loop_op.name, "_dump_paralleled_for_loop_nvop, lines:", sys._getframe().f_lineno)
             for stage in for_loop_op.body.stages:
                 for op in stage.ops:
+                    # print("\t\t", op.name, "op inside for loop, lineno:", sys._getframe().f_lineno)
                     _dump_nvop(op, current_level + 1)
             class_defs.append(
                 self.dump_pipelined_for_loop_nvop_class_def(
@@ -1683,21 +1778,33 @@ class NvIrCodeGenerator:
 
         def _dump_nvop(op: NvOp, current_level: int) -> None:
             if isinstance(op, GmemTensorNvOp):
+                # if op.name == "DtcMainLoopOp":
+                #     print("main loop op is instance GmemTensorNvOp")
                 class_defs.append(self.dump_gmem_tensor_nvop_class_def(op))
             elif isinstance(op, ForLoopNvOp):
                 if isinstance(op.body, NvOpPipeline):
+                    # if op.name == "DtcMainLoopOp":
+                    #     print("main loop op is instance NvOpPipeline")
                     _dump_pipelined_for_loop_nvop(op, current_level)
                 elif isinstance(op.body, NvOpSequence):
+                    # if op.name == "DtcMainLoopOp":
+                    #     print("main loop op is instance NvOpSequence")
                     _dump_sequential_for_loop_nvop(op, current_level)
                 else:
                     raise ValueError(f"Unknown body type: {type(op.body)}")
             elif isinstance(op, ConstantNvOp):
+                # if op.name == "DtcMainLoopOp":
+                #     print("main loop op is instance ConstantNvOp")
                 class_defs.append(self.dump_constant_nvop_class_def(op))
             else:
+                # if op.name == "DtcMainLoopOp":
+                #     print("main loop op is instance Other")
                 class_defs.append(self.dump_nvop_class_def(op))
             visible_ops.setdefault(current_level, []).append(op)
 
         for op in program.ops:
+            # if not isinstance(op, GmemTensorNvOp):
+                # print(op.name, "dump_nvop_class_defs lines:", sys._getframe().f_lineno)
             _dump_nvop(op, 0)
 
         return "\n\n".join(class_defs)

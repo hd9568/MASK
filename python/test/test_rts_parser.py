@@ -1,6 +1,6 @@
 import argparse
 
-from sparsene.formats.DTC_SpMM import DTC_SPMM_FORMAT
+from sparsene.formats.DTC_SpMM import ME_TCF_FORMAT
 from sparsene.formats.HME_TCF import HME_TCF_FORMAT
 from sparsene.formats.Acc_SpMM import BIT_TCF_FORMAT
 from sparsene.formats.Spaden import BIT_BSR_FORMAT
@@ -33,7 +33,7 @@ if __name__ == "__main__":
     # logger.info(rts)
     # logger.info(computent)
 
-    rts = derive_rts(DTC_SPMM_FORMAT)
+    rts = derive_rts(ME_TCF_FORMAT)
     computent = computent_from_rts("dtc_spmm", rts)
     logger.info(rts)
     logger.info(computent)

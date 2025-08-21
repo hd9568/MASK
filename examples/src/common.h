@@ -70,6 +70,7 @@
     if (status != cudaSuccess) {                                               \
         printf("CUDA API failed at line %d with error: %s (%d)\n",             \
                __LINE__, cudaGetErrorString(status), status);                  \
+        exit(-1);                                                              \
     }                                                                          \
 }
 
@@ -79,6 +80,7 @@
     if (status != CUSPARSE_STATUS_SUCCESS) {                                   \
         printf("CUSPARSE API failed at line %d with error: %s (%d)\n",         \
                __LINE__, cusparseGetErrorString(status), status);              \
+        exit(-1);                                                              \
     }                                                                          \
 }
 

@@ -40,40 +40,40 @@ include_directories(${CUTLASS_INCLUDE_DIR} ${CUTLASS_COMMON_DIR} ${CUTLASS_UTIL_
 file(GLOB PLAN_FILES "${PROJECT_SOURCE_DIR}/plans/plan_*.inc")
 file(GLOB_RECURSE SRC_CUDA_FILES ${SRCDIR}/*.cu)
 
-# Generate a target for each plan file
-foreach(PLAN_FILE ${PLAN_FILES})
-    # Extract the base name of the plan file (e.g., plan_0 from plan_0.inc)
-    get_filename_component(PLAN_NAME ${PLAN_FILE} NAME_WE)
+# # Generate a target for each plan file
+# foreach(PLAN_FILE ${PLAN_FILES})
+#     # Extract the base name of the plan file (e.g., plan_0 from plan_0.inc)
+#     get_filename_component(PLAN_NAME ${PLAN_FILE} NAME_WE)
 
-    # Define the output host_program.cu for this plan
-    set(GENERATED_HOST_PROGRAM ${CMAKE_BINARY_DIR}/${PLAN_NAME}_host_program.cu)
+#     # Define the output host_program.cu for this plan
+#     set(GENERATED_HOST_PROGRAM ${CMAKE_BINARY_DIR}/${PLAN_NAME}_host_program.cu)
 
-    # Generate the modified host_program.cu
-    add_custom_command(
-        OUTPUT ${GENERATED_HOST_PROGRAM}
-        COMMAND ${CMAKE_COMMAND} -E echo "Generating ${GENERATED_HOST_PROGRAM} for plan ${PLAN_NAME}"
-        COMMAND python "${PROJECT_SOURCE_DIR}/scripts/replace_in_file.py"
-            "${PROJECT_SOURCE_DIR}/host_program.cu"
-            "#include \"kernel.inc\""
-            "#include \"plans/${PLAN_NAME}.inc\""
-            "${GENERATED_HOST_PROGRAM}"
-        DEPENDS ${PROJECT_SOURCE_DIR}/host_program.cu ${PLAN_FILE}
-        VERBATIM
-    )
+#     # Generate the modified host_program.cu
+#     add_custom_command(
+#         OUTPUT ${GENERATED_HOST_PROGRAM}
+#         COMMAND ${CMAKE_COMMAND} -E echo "Generating ${GENERATED_HOST_PROGRAM} for plan ${PLAN_NAME}"
+#         COMMAND python "${PROJECT_SOURCE_DIR}/scripts/replace_in_file.py"
+#             "${PROJECT_SOURCE_DIR}/host_program.cu"
+#             "#include \"kernel.inc\""
+#             "#include \"plans/${PLAN_NAME}.inc\""
+#             "${GENERATED_HOST_PROGRAM}"
+#         DEPENDS ${PROJECT_SOURCE_DIR}/host_program.cu ${PLAN_FILE}
+#         VERBATIM
+#     )
 
-    # Add an executable target for this plan
-    add_executable(dtc-${PLAN_NAME}-tf32 ${GENERATED_HOST_PROGRAM} ${SRC_CUDA_FILES} ${PROJECT_SOURCE_DIR}/main.cu)
+#     # Add an executable target for this plan
+#     add_executable(dtc-${PLAN_NAME}-tf32 ${GENERATED_HOST_PROGRAM} ${SRC_CUDA_FILES} ${PROJECT_SOURCE_DIR}/main.cu)
 
-    target_compile_options(dtc-${PLAN_NAME}-tf32 PRIVATE ${CUDA_NVCC_FLAGS} -I${SRCDIR} -I${CMAKE_CURRENT_SOURCE_DIR})
-    target_link_libraries(dtc-${PLAN_NAME}-tf32 PRIVATE -lcusparse -lcublas)
-    target_compile_definitions(dtc-${PLAN_NAME}-tf32 PRIVATE f32)
-    target_include_directories(dtc-${PLAN_NAME}-tf32 PRIVATE 
-        ${CUTLASS_INCLUDE_DIR}
-        ${CUTLASS_COMMON_DIR}
-        ${CUTLASS_UTIL_DIR}
-        ${SRCDIR}
-    )
-endforeach()
+#     target_compile_options(dtc-${PLAN_NAME}-tf32 PRIVATE ${CUDA_NVCC_FLAGS} -I${SRCDIR} -I${CMAKE_CURRENT_SOURCE_DIR})
+#     target_link_libraries(dtc-${PLAN_NAME}-tf32 PRIVATE -lcusparse -lcublas)
+#     target_compile_definitions(dtc-${PLAN_NAME}-tf32 PRIVATE f32)
+#     target_include_directories(dtc-${PLAN_NAME}-tf32 PRIVATE 
+#         ${CUTLASS_INCLUDE_DIR}
+#         ${CUTLASS_COMMON_DIR}
+#         ${CUTLASS_UTIL_DIR}
+#         ${SRCDIR}
+#     )
+# endforeach()
 
 add_executable(demo-dtc-tf32 ${PROJECT_SOURCE_DIR}/host_program.cu ${PROJECT_SOURCE_DIR}/main.cu ${SRC_CUDA_FILES})
 
@@ -87,14 +87,38 @@ target_include_directories(demo-dtc-tf32 PRIVATE
     ${SRCDIR}
 )
 
-add_executable(demo-dtc-spmv-tf32 ${PROJECT_SOURCE_DIR}/host_program_spmv.cu ${PROJECT_SOURCE_DIR}/main_spmv.cu ${SRC_CUDA_FILES})
+add_executable(demo-dtc-multi-binding-tf32 ${PROJECT_SOURCE_DIR}/host_program_multi_binding.cu ${PROJECT_SOURCE_DIR}/main_multi_binding.cu ${SRC_CUDA_FILES})
 
-target_compile_options(demo-dtc-spmv-tf32 PRIVATE ${CUDA_NVCC_FLAGS} -I${SRCDIR} -I${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(demo-dtc-spmv-tf32 PRIVATE -lcusparse -lcublas)
-target_compile_definitions(demo-dtc-spmv-tf32 PRIVATE f32)
-target_include_directories(demo-dtc-spmv-tf32 PRIVATE 
+target_compile_options(demo-dtc-multi-binding-tf32 PRIVATE ${CUDA_NVCC_FLAGS} -I${SRCDIR} -I${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(demo-dtc-multi-binding-tf32 PRIVATE -lcusparse -lcublas)
+target_compile_definitions(demo-dtc-multi-binding-tf32 PRIVATE f32)
+target_include_directories(demo-dtc-multi-binding-tf32 PRIVATE 
     ${CUTLASS_INCLUDE_DIR}
     ${CUTLASS_COMMON_DIR}
     ${CUTLASS_UTIL_DIR}
     ${SRCDIR}
 )
+
+add_executable(demo-dtc-strict-lb-tf32 ${PROJECT_SOURCE_DIR}/host_program_strict_lb.cu ${PROJECT_SOURCE_DIR}/main_strict_lb.cu ${SRC_CUDA_FILES})
+
+target_compile_options(demo-dtc-strict-lb-tf32 PRIVATE ${CUDA_NVCC_FLAGS} -I${SRCDIR} -I${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(demo-dtc-strict-lb-tf32 PRIVATE -lcusparse -lcublas)
+target_compile_definitions(demo-dtc-strict-lb-tf32 PRIVATE f32)
+target_include_directories(demo-dtc-strict-lb-tf32 PRIVATE 
+    ${CUTLASS_INCLUDE_DIR}
+    ${CUTLASS_COMMON_DIR}
+    ${CUTLASS_UTIL_DIR}
+    ${SRCDIR}
+)
+
+# add_executable(demo-dtc-spmv-tf32 ${PROJECT_SOURCE_DIR}/host_program_spmv.cu ${PROJECT_SOURCE_DIR}/main_spmv.cu ${SRC_CUDA_FILES})
+
+# target_compile_options(demo-dtc-spmv-tf32 PRIVATE ${CUDA_NVCC_FLAGS} -I${SRCDIR} -I${CMAKE_CURRENT_SOURCE_DIR})
+# target_link_libraries(demo-dtc-spmv-tf32 PRIVATE -lcusparse -lcublas)
+# target_compile_definitions(demo-dtc-spmv-tf32 PRIVATE f32)
+# target_include_directories(demo-dtc-spmv-tf32 PRIVATE 
+#     ${CUTLASS_INCLUDE_DIR}
+#     ${CUTLASS_COMMON_DIR}
+#     ${CUTLASS_UTIL_DIR}
+#     ${SRCDIR}
+# )

@@ -8,6 +8,8 @@ from sparsene.op_gen.opir.generate import generate_from_computent
 from sparsene.op_gen.nvir.generate import generate_nvir
 from sparsene.logging import get_logger, set_logging_level_for_all
 
+from sparsene.formats.ROW_REORDER_SR_BCRS import ROW_REORDER_SR_BCRS_FORMAT
+
 
 def parse_args():
     args = argparse.ArgumentParser()
@@ -23,8 +25,17 @@ if __name__ == "__main__":
 
     rts = derive_rts(ME_TCF_FORMAT)
     computent = computent_from_rts("me_tcf", rts)
+    
+    # rts = derive_rts(ROW_REORDER_SR_BCRS_FORMAT)
+    # logger.info(rts)
+    # computent = computent_from_rts("row_reorder_sr_bcrs", rts)
+    
     logger.info(rts)
     logger.info(computent)
 
     ops = generate_from_computent(computent)
-    logger.info(printer.default_printer.dump(ops))
+    print(ops)
+    # logger.info(printer.default_printer.dump(ops))
+    print(1)
+    print(printer.default_printer.dump(ops))
+    print(2)

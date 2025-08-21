@@ -29,14 +29,14 @@ def sr_bcrs():
                 shape=Shape(VarlenShape("K"), VarlenShape("N")),
                 name="B_val",
                 dtype="half",
-                tensor_str="logical_divide(make_tensor(make_gmem_ptr(dB_val), make_layout(make_shape(K, N), make_stride(N, _1{}))), make_shape(_1{}, get<1>(BLK_MNK{})))(_, make_coord(_, blockIdx.y))",
+                tensor_str="logical_divide(make_tensor(make_gmem_ptr(dB_val), make_layout(make_shape(K, N), make_stride(N, _1{}))), make_shape(_1{}, get<1>(BLK_MNK{})))(_, make_coord(_, blockIdx.x))",
                 tensor_type_str="decltype(logical_divide(make_tensor(make_gmem_ptr((TO0*)nullptr), make_layout(make_shape(VARLEN, VARLEN), make_stride(VARLEN, _1{}))), make_shape(_1{}, get<1>(BLK_MNK{})))(_, make_coord(_, VARLEN)))",
             ),
             "C_val": GmemInout(
                 shape=Shape(VarlenShape("N"), VarlenShape("M")),
                 name="C_val",
                 dtype="float",
-                tensor_str="logical_divide(make_tensor(make_gmem_ptr(dC_val), make_shape(N, M)), select<1, 0>(BLK_MNK{}))(make_coord(_, blockIdx.y), make_coord(_, blockIdx.x))",
+                tensor_str="logical_divide(make_tensor(make_gmem_ptr(dC_val), make_shape(N, M)), select<1, 0>(BLK_MNK{}))(make_coord(_, blockIdx.x), make_coord(_, blockIdx.y))",
                 tensor_type_str="decltype(logical_divide(make_tensor(make_gmem_ptr((TO0*)nullptr), make_shape(VARLEN, VARLEN)), select<1, 0>(BLK_MNK{}))(make_coord(_, VARLEN), make_coord(_, VARLEN)))",
             ),
             "val_sidx": GmemInout(
@@ -68,59 +68,13 @@ def sr_bcrs():
     )
 
     # sr_bcrs program body
-    blk_y_loop_zero_op = ConstantNvOp(
-        name="BlkYLoopZeroOp",
-        shape=Shape(),
-        dtype="int",
-        value=0,
-    )
-    sr_bcrs_program.append_op(blk_y_loop_zero_op)
-
-    BlockDimY_op = ConstantNvOp(
-        name="BlockDimYOp",
-        shape=Shape(),
-        dtype="int",
-        value="blockDim.y",
-    )
-    sr_bcrs_program.append_op(BlockDimY_op)
-
-    sr_bcrs_blk_y_loop_op = ForLoopNvOp(
-        name="sr_bcrs_blk_y_loop",
-        blk_idx_mapping="y",
-        loop_l=NvOpInput(
-            idx=0,
-            name="l",
-            tensor=NvOpTensor(
-                shape=Shape(),
-                mem="rmem",
-                dtype="int",
-                source=blk_y_loop_zero_op.outputs[0],
-            ),
-        ),
-        loop_r=NvOpInput(
-            idx=1,
-            name="r",
-            tensor=NvOpTensor(
-                shape=Shape(),
-                mem="rmem",
-                dtype="int",
-                source=BlockDimY_op.outputs[0],
-            ),
-        ),
-        loop_result=[],
-        body=NvOpSequence(),
-        iter_args={},
-    )
-    sr_bcrs_program.append_op(sr_bcrs_blk_y_loop_op)
-
-    #! blk_y_loop body
     blk_x_loop_zero_op = ConstantNvOp(
         name="BlkXLoopZeroOp",
         shape=Shape(),
         dtype="int",
         value=0,
     )
-    sr_bcrs_blk_y_loop_op.append(blk_x_loop_zero_op)
+    sr_bcrs_program.append_op(blk_x_loop_zero_op)
 
     BlockDimX_op = ConstantNvOp(
         name="BlockDimXOp",
@@ -128,7 +82,7 @@ def sr_bcrs():
         dtype="int",
         value="blockDim.x",
     )
-    sr_bcrs_blk_y_loop_op.append(BlockDimX_op)
+    sr_bcrs_program.append_op(BlockDimX_op)
 
     sr_bcrs_blk_x_loop_op = ForLoopNvOp(
         name="sr_bcrs_blk_x_loop",
@@ -157,7 +111,53 @@ def sr_bcrs():
         body=NvOpSequence(),
         iter_args={},
     )
-    sr_bcrs_blk_y_loop_op.append(sr_bcrs_blk_x_loop_op)
+    sr_bcrs_program.append_op(sr_bcrs_blk_x_loop_op)
+
+    #! blk_x_loop body
+    blk_y_loop_zero_op = ConstantNvOp(
+        name="BlkYLoopZeroOp",
+        shape=Shape(),
+        dtype="int",
+        value=0,
+    )
+    sr_bcrs_blk_x_loop_op.append(blk_y_loop_zero_op)
+
+    BlockDimY_op = ConstantNvOp(
+        name="BlockDimYOp",
+        shape=Shape(),
+        dtype="int",
+        value="blockDim.y",
+    )
+    sr_bcrs_blk_x_loop_op.append(BlockDimY_op)
+
+    sr_bcrs_blk_y_loop_op = ForLoopNvOp(
+        name="sr_bcrs_blk_y_loop",
+        blk_idx_mapping="y",
+        loop_l=NvOpInput(
+            idx=0,
+            name="l",
+            tensor=NvOpTensor(
+                shape=Shape(),
+                mem="rmem",
+                dtype="int",
+                source=blk_y_loop_zero_op.outputs[0],
+            ),
+        ),
+        loop_r=NvOpInput(
+            idx=1,
+            name="r",
+            tensor=NvOpTensor(
+                shape=Shape(),
+                mem="rmem",
+                dtype="int",
+                source=BlockDimY_op.outputs[0],
+            ),
+        ),
+        loop_result=[],
+        body=NvOpSequence(),
+        iter_args={},
+    )
+    sr_bcrs_blk_x_loop_op.append(sr_bcrs_blk_y_loop_op)
 
     #! blk_x_loop body
     g2r_sparse_offset_load_op = NvOp(
@@ -180,7 +180,7 @@ def sr_bcrs():
                     shape=Shape(),
                     mem="rmem",
                     dtype="int",
-                    source="blockIdx.x",
+                    source="blockIdx.y",
                 ),
             ),
         ],
@@ -202,7 +202,7 @@ r(0) = val_soff(i + 1);"""
         ),
         mem_type=("g", "r"),
     )
-    sr_bcrs_blk_x_loop_op.append(g2r_sparse_offset_load_op)
+    sr_bcrs_blk_y_loop_op.append(g2r_sparse_offset_load_op)
 
     ZerosOp = ConstantNvOp(
         name="ZerosOp",
@@ -216,7 +216,7 @@ r(0) = val_soff(i + 1);"""
         dtype="float",
         value=0,
     )
-    sr_bcrs_blk_x_loop_op.append(ZerosOp)
+    sr_bcrs_blk_y_loop_op.append(ZerosOp)
 
     sr_bcrs_main_loop_op = ForLoopNvOp(
         name="SRBCRSMainLoopOp",
@@ -259,7 +259,7 @@ r(0) = val_soff(i + 1);"""
         body=NvOpSequence(),
         iter_args={},
     )
-    sr_bcrs_blk_x_loop_op.append(sr_bcrs_main_loop_op)
+    sr_bcrs_blk_y_loop_op.append(sr_bcrs_main_loop_op)
 
     #! main loop body
     G2sSparseIndexLoadOp = NvOp(
@@ -621,11 +621,11 @@ for (int n_iter = 0; n_iter < get<1>(BLK_MMA_MNK{}); n_iter++) {
         impl=NvOpImpl(
             r"""
 // __syncthreads();
-if (blockIdx.x == 0 && blockIdx.y == 0) {
+if (blockIdx.y == 0 && blockIdx.x == 0) {
     // for (int n_iter = 0; n_iter < 2; n_iter++) {
     //     for (int k_iter = 0; k_iter < get<2>(BLK_MMA_MNK{}); k_iter++) {
     //         printf("[%d,%d][%d]check n_iter=%d,k_iter=%d,REGB(%.0f %.0f)(%.0f %.0f)\n",
-    //             blockIdx.x, blockIdx.y, lid,
+    //             blockIdx.y, blockIdx.x, lid,
     //             n_iter, k_iter,
     //             (float)REGB(0, make_coord(k_iter, n_iter)),
     //             (float)REGB(1, make_coord(k_iter, n_iter)),

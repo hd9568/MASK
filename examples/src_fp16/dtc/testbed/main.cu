@@ -116,6 +116,7 @@ void convertToMETCF(int M,
     int* nnz_col = (int*)malloc(sizeof(int) * K);
     vector<vector<int>> vec_nnz_per_tc_block(row_window_num);
     int nnz_pad = 0;
+    int max_TCBlock_num = 0;
     for (int i_row_window = 0; i_row_window < row_window_num; i_row_window++) {
         val_soff[i_row_window] = total_TCBlock_num;
         memset(nnz_col, 0, sizeof(int) * K);
@@ -137,6 +138,7 @@ void convertToMETCF(int M,
             }
         }
         total_TCBlock_num += (nnz_col_num + TC_BLOCK_K - 1) / TC_BLOCK_K;
+        max_TCBlock_num = max(max_TCBlock_num, (nnz_col_num + TC_BLOCK_K - 1) / TC_BLOCK_K);
         int TCBlock_num = (nnz_col_num + TC_BLOCK_K - 1) / TC_BLOCK_K;
         nnz_per_tc_block.resize(TCBlock_num, 0);
         for (int i_row = 0; i_row < ROW_WINDOW_M; i_row++) {
@@ -158,7 +160,8 @@ void convertToMETCF(int M,
     }
     val_soff[row_window_num] = total_TCBlock_num;
     printf("total_TCBlock_num = %d, nnz = %d, nnz_pad=%d\n", total_TCBlock_num, nnz, nnz_pad);
-
+    // printf("max tc block num = %d, row window 0 tc block num = %d\n", max_TCBlock_num, val_soff[1] - val_soff[0]);
+    // printf("row_window 444 tc block num = %d, start= %d to %d\n", val_soff[445] - val_soff[444], val_soff[444], val_soff[445]);
     //> val_sidx -> 每个 TC Block 中非零列对应的column index
     int* val_sidx = (int*)malloc(sizeof(int) * total_TCBlock_num * TC_BLOCK_K);
     memset(val_sidx, 0, sizeof(int) * total_TCBlock_num * TC_BLOCK_K);
@@ -217,6 +220,15 @@ void convertToMETCF(int M,
         for (int i_tc_block_col = 0; i_tc_block_col < nnz_col_num; i_tc_block_col++) {
             tmp_val_sidx[i_tc_block_col] = nnz_col[i_tc_block_col];
         }
+        // if (i_row_window == 444) {
+        //     for (int i_tc_block_col = 0; i_tc_block_col < tc_block_num * TC_BLOCK_K; i_tc_block_col++) {
+        //         int sidx = 0;
+        //         if (i_tc_block_col < nnz_col_num) {
+        //             sidx = nnz_col[i_tc_block_col];
+        //         }
+        //         printf("i_tc_block_col=%d,sidx=%d,tmp_val_sidx=%d\n", i_tc_block_col, sidx, tmp_val_sidx[i_tc_block_col]);
+        //     }
+        // }
         memset(tc_block_nnz_ptr, 0, sizeof(int) * (K + TC_BLOCK_K - 1) / TC_BLOCK_K);
         for (int i_tc_block = 0; i_tc_block < tc_block_num; i_tc_block++) {
             tc_block_nnz_ptr[i_tc_block] = nnz_per_tc_block[i_tc_block];
@@ -318,11 +330,14 @@ void convertToMETCF(int M,
 }
 
 void verify_new(float* C_cpu, float* C_cuda, int M, int N) {
+    int flag = 0;
     for (int i = 0; i < M; i++) {
         for (int j = 0; j < N; j++) {
             float cusparse_val = C_cpu[OFFSET_ROW(i, j, N)];
             float mykernel_val = C_cuda[OFFSET_ROW(i, j, N)];
             if (fabs(cusparse_val - mykernel_val) > 0.01) {
+                flag ++;
+                if (flag < 200)
                 printf("Error(%d, %d): cusp(%.1f) mykernel(%.1f)\n", i, j, cusparse_val,
                        mykernel_val);
             }

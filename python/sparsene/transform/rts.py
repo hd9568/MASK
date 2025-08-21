@@ -87,6 +87,9 @@ def derive_rts(format: Format) -> TransformationSequence:
                 seq.prepend(SpawnTransformation())
 
         axes = format.axes.copy()
+        logger.debug("begin print axes")
+        print_axes(axes)
+        logger.debug("end print axes")
 
         # densify
         _densify(axes)

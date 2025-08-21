@@ -116,9 +116,9 @@ public:
     // Constructor
     CUTE_DEVICE B_valOp(int tid, int lid, int wid, int K, int N, TO0 *dB_val)
     : tid(tid), lid(lid), wid(wid),
-    shape_o0(logical_divide(make_tensor(make_gmem_ptr(dB_val), make_layout(make_shape(K, N), make_stride(N, _1{}))), make_shape(_1{}, get<1>(BLK_MNK{})))(_, make_coord(_, blockIdx.y)).shape()),
-    layout_o0(logical_divide(make_tensor(make_gmem_ptr(dB_val), make_layout(make_shape(K, N), make_stride(N, _1{}))), make_shape(_1{}, get<1>(BLK_MNK{})))(_, make_coord(_, blockIdx.y)).layout()),
-    B_val(logical_divide(make_tensor(make_gmem_ptr(dB_val), make_layout(make_shape(K, N), make_stride(N, _1{}))), make_shape(_1{}, get<1>(BLK_MNK{})))(_, make_coord(_, blockIdx.y))) {}
+    shape_o0(logical_divide(make_tensor(make_gmem_ptr(dB_val), make_layout(make_shape(K, N), make_stride(N, _1{}))), make_shape(_1{}, get<1>(BLK_MNK{})))(_, make_coord(_, blockIdx.x)).shape()),
+    layout_o0(logical_divide(make_tensor(make_gmem_ptr(dB_val), make_layout(make_shape(K, N), make_stride(N, _1{}))), make_shape(_1{}, get<1>(BLK_MNK{})))(_, make_coord(_, blockIdx.x)).layout()),
+    B_val(logical_divide(make_tensor(make_gmem_ptr(dB_val), make_layout(make_shape(K, N), make_stride(N, _1{}))), make_shape(_1{}, get<1>(BLK_MNK{})))(_, make_coord(_, blockIdx.x))) {}
 
     // output
     template<int output_idx>
@@ -146,9 +146,9 @@ public:
     // Constructor
     CUTE_DEVICE C_valOp(int tid, int lid, int wid, int M, int N, TO0 *dC_val)
     : tid(tid), lid(lid), wid(wid),
-    shape_o0(logical_divide(make_tensor(make_gmem_ptr(dC_val), make_layout(make_shape(M, N), make_stride(N, _1{}))), select<0, 1>(BLK_MNK{}))(make_coord(_, blockIdx.x), make_coord(_, blockIdx.y)).shape()),
-    layout_o0(logical_divide(make_tensor(make_gmem_ptr(dC_val), make_layout(make_shape(M, N), make_stride(N, _1{}))), select<0, 1>(BLK_MNK{}))(make_coord(_, blockIdx.x), make_coord(_, blockIdx.y)).layout()),
-    C_val(logical_divide(make_tensor(make_gmem_ptr(dC_val), make_layout(make_shape(M, N), make_stride(N, _1{}))), select<0, 1>(BLK_MNK{}))(make_coord(_, blockIdx.x), make_coord(_, blockIdx.y))) {}
+    shape_o0(logical_divide(make_tensor(make_gmem_ptr(dC_val), make_layout(make_shape(M, N), make_stride(N, _1{}))), select<0, 1>(BLK_MNK{}))(make_coord(_, blockIdx.y), make_coord(_, blockIdx.x)).shape()),
+    layout_o0(logical_divide(make_tensor(make_gmem_ptr(dC_val), make_layout(make_shape(M, N), make_stride(N, _1{}))), select<0, 1>(BLK_MNK{}))(make_coord(_, blockIdx.y), make_coord(_, blockIdx.x)).layout()),
+    C_val(logical_divide(make_tensor(make_gmem_ptr(dC_val), make_layout(make_shape(M, N), make_stride(N, _1{}))), select<0, 1>(BLK_MNK{}))(make_coord(_, blockIdx.y), make_coord(_, blockIdx.x))) {}
 
     // output
     template<int output_idx>
@@ -1882,7 +1882,7 @@ public:
     CUTE_DEVICE void body() {
         G2rSparseOffsetLoadOp_v.template f<>(
             val_soffOp_v.template output<0>(),
-            blockIdx.x
+            blockIdx.y
         );
         ZerosOp_v.template f<>();
         AccMainLoopOp_v.template f<>(
@@ -1897,7 +1897,7 @@ public:
     // f
     template<typename = void>
     CUTE_DEVICE void f() {
-        this->_idx = blockIdx.x;
+        this->_idx = blockIdx.y;
         body();
     }
 };
@@ -1936,7 +1936,7 @@ public:
     // f
     template<typename = void>
     CUTE_DEVICE void f() {
-        this->_idx = blockIdx.y;
+        this->_idx = blockIdx.x;
         body();
     }
 };

@@ -48,18 +48,20 @@ foreach(PLAN_FILE ${PLAN_FILES})
     # Define the output host_program.cu for this plan
     set(GENERATED_HOST_PROGRAM ${CMAKE_BINARY_DIR}/${PLAN_NAME}_host_program.cu)
 
-    # Generate the modified host_program.cu
-    add_custom_command(
-        OUTPUT ${GENERATED_HOST_PROGRAM}
-        COMMAND ${CMAKE_COMMAND} -E echo "Generating ${GENERATED_HOST_PROGRAM} for plan ${PLAN_NAME}"
-        COMMAND python "${PROJECT_SOURCE_DIR}/scripts/replace_in_file.py"
-            "${PROJECT_SOURCE_DIR}/host_program.cu"
-            "#include \"kernel.inc\""
-            "#include \"plans/${PLAN_NAME}.inc\""
-            "${GENERATED_HOST_PROGRAM}"
-        DEPENDS ${PROJECT_SOURCE_DIR}/host_program.cu ${PLAN_FILE}
-        VERBATIM
-    )
+    # Generate the modified host_program.cu (only if not exist)
+    if (NOT EXISTS ${CMAKE_BINARY_DIR}/${PLAN_NAME}_host_program.cu)
+        add_custom_command(
+            OUTPUT ${GENERATED_HOST_PROGRAM}
+            COMMAND ${CMAKE_COMMAND} -E echo "Generating ${GENERATED_HOST_PROGRAM} for plan ${PLAN_NAME}"
+            COMMAND python "${PROJECT_SOURCE_DIR}/scripts/replace_in_file.py"
+                "${PROJECT_SOURCE_DIR}/host_program.cu"
+                "#include \"kernel.inc\""
+                "#include \"plans/${PLAN_NAME}.inc\""
+                "${GENERATED_HOST_PROGRAM}"
+            DEPENDS ${PROJECT_SOURCE_DIR}/host_program.cu ${PLAN_FILE}
+            VERBATIM
+        )
+    endif()
 
     # Add an executable target for this plan
     add_executable(dtc-${PLAN_NAME}-fp16 ${GENERATED_HOST_PROGRAM} ${SRC_CUDA_FILES} ${PROJECT_SOURCE_DIR}/main.cu)

@@ -339,12 +339,22 @@ class Printer:
 
     def dump_ops(self, ops: Sequence[Op], indent_level: int = 0) -> str:
         # Only split when there's a newline in the output
+        #! change to this way
+        body = "\n".join([
+            self._indent_lines(self.dump_op(op, indent_level + 1), indent_level + 1)
+            for op in ops
+        ])
         return self._indent_lines(
-            f"[\n"
-            f"{'\n'.join([self._indent_lines(self.dump_op(op, indent_level + 1), indent_level + 1) for op in ops])}\n"
-            f"]",
+            f"[\n{body}\n]",
             indent_level,
         )
+        #! wrong at python 3.10.12
+        # return self._indent_lines(
+        #     f"[\n"
+        #     f"{'\n'.join([self._indent_lines(self.dump_op(op, indent_level + 1), indent_level + 1) for op in ops])}\n"
+        #     f"]",
+        #     indent_level,
+        # )
 
     def dump(self, obj: Any, indent_level: int = 0) -> str:
         if isinstance(obj, Op):
