@@ -120,6 +120,282 @@ vector<uint64_t> convertToUInt64Vector(const vector<bool>& bitset) {
     return uint64Vector;
 }
 
+std::string extractMatrixName(const std::string& file_path) {
+    // 使用 C++17 filesystem 处理路径
+    std::filesystem::path p(file_path);
+    std::string filename = p.stem().string(); // 去掉扩展名 .mtx
+    return filename;
+}
+
+int loadCheckpoint(
+    string file_path, 
+    int M, int K, int Blk_M, int Blk_K,
+    vector<int>& vval_soff, 
+    vector<int>& vval_sidx, 
+    vector<int>& vval_mco_off,
+    vector<uint64_t>& vval_mco_mask,
+    vector<float>& vval_mco_val
+) {
+    string checkpoint_filename = extractMatrixName(file_path) + "M" + to_string(M) + "K" + to_string(K) + "Blk_M" + to_string(Blk_M) + "Blk_K" + to_string(Blk_K);
+    std::ifstream inputFile("/workspace/sparsene/examples/src_fp32/acc/testbed/mtx_cache/" + checkpoint_filename, std::ios::binary);
+    if (!inputFile.is_open()) {
+        return 0;
+    }
+
+    int Mo = DIVUP(M, Blk_M);
+
+    inputFile.seekg(0, std::ios::end);
+    std::streampos fileSize = inputFile.tellg();
+    inputFile.seekg(0, std::ios::beg);
+    
+    if (sizeof(int) * 2 > fileSize) {
+        std::cerr << "Error: nnz_block(int) and nnz_aligned(int) is greater than fileSize." << std::endl;
+        return 0;
+    }
+
+    //> get nnz_block
+    int nnz_block;
+    inputFile.read(reinterpret_cast<char*>(&nnz_block), sizeof(int));
+    //> get nnz_aligned
+    int nnz_aligned;
+    inputFile.read(reinterpret_cast<char*>(&nnz_aligned), sizeof(int));
+    
+    //> nmask_per_tile
+    int nmask_per_tile = Blk_M * Blk_K / 64;
+    
+    //> check filesize
+    if (
+        
+        sizeof(int) * (Mo + 1) + // sizeof val_soff
+        sizeof(int) * (nnz_block * Blk_K) + // sizeof val_sidx
+        sizeof(int) * (nnz_block + 1) + // sizeof val_mco_off
+        sizeof(uint64_t) * (nmask_per_tile * nnz_block) + // sizeof val_mco_mask
+        sizeof(float) * (nnz_aligned) > // sizeof val_mco_val
+        fileSize
+    ) {
+        std::cerr << "Error: val_soff + val_sidx + val_mco_off + val_mco_mask + val_mco_val is greater than fileSize." << std::endl;
+        return 0;
+    }
+    vval_soff.resize(Mo + 1);
+    vval_sidx.resize(nnz_block * Blk_K);
+    vval_mco_off.resize(nnz_block + 1);
+    vval_mco_mask.resize(nmask_per_tile * nnz_block);
+    vval_mco_val.resize(nnz_aligned);
+    
+    //> read vectors
+    inputFile.read(reinterpret_cast<char*>(vval_soff.data()), sizeof(int) * (Mo + 1));
+    inputFile.read(reinterpret_cast<char*>(vval_sidx.data()), sizeof(int) * (nnz_block * Blk_K));
+    inputFile.read(reinterpret_cast<char*>(vval_mco_off.data()), sizeof(int) * (nnz_block + 1));
+    inputFile.read(reinterpret_cast<char*>(vval_mco_mask.data()), sizeof(uint64_t) * (nmask_per_tile * nnz_block));
+    inputFile.read(reinterpret_cast<char*>(vval_mco_val.data()), sizeof(float) * (nnz_aligned));
+
+    //> final
+    if (inputFile.fail()) {
+        std::cerr << "Failed to read data from file." << std::endl;
+        return 0;
+    } else {
+        std::cout << "Data read successfully from file: " << "/workspace/sparsene/examples/src_fp32/acc/testbed/mtx_cache/" + checkpoint_filename << std::endl;
+    }
+    return 1;
+}
+
+int storeCheckpoint(
+    string file_path,
+    int M, int K, int Blk_M, int Blk_K,
+    vector<int>& vval_soff, 
+    vector<int>& vval_sidx, 
+    vector<int>& vval_mco_off,
+    vector<uint64_t>& vval_mco_mask,
+    vector<float>& vval_mco_val
+) {
+    string checkpoint_filename = extractMatrixName(file_path) + "M" + to_string(M) + "K" + to_string(K) + "Blk_M" + to_string(Blk_M) + "Blk_K" + to_string(Blk_K);
+    std::ofstream outputFile("/workspace/sparsene/examples/src_fp32/acc/testbed/mtx_cache/" + checkpoint_filename, std::ios::binary);
+    if (!outputFile.is_open()) {
+        std::cerr << "Fail to open file: " << "/workspace/sparsene/examples/src_fp32/acc/testbed/mtx_cache/" + checkpoint_filename << std::endl;
+        return 0;
+    }
+    int Mo = DIVUP(M, Blk_M);
+    int nnz_block = vval_soff[Mo];
+    int nnz_aligned = ALIGN(vval_mco_off[nnz_block], 8);
+    int nmask_per_tile = Blk_M * Blk_K / 64;
+    assert(vval_soff.size() >= (Mo + 1));
+    assert(vval_sidx.size() >= (nnz_block * Blk_K));
+    assert(vval_mco_off.size() >= (nnz_block + 1));
+    assert(vval_mco_mask.size() >= (nmask_per_tile * nnz_block));
+    printf("val_mco_val size = %d, nnz_aligned = %d\n", vval_mco_val.size(), nnz_aligned);
+    assert(vval_mco_val.size() >= nnz_aligned);
+
+    outputFile.write(reinterpret_cast<char*>(&nnz_block), sizeof(int));
+    outputFile.write(reinterpret_cast<char*>(&nnz_aligned), sizeof(int));
+
+    outputFile.write(reinterpret_cast<char*>(vval_soff.data()), sizeof(int) * (Mo + 1));
+    outputFile.write(reinterpret_cast<char*>(vval_sidx.data()), sizeof(int) * (nnz_block * Blk_K));
+    outputFile.write(reinterpret_cast<char*>(vval_mco_off.data()), sizeof(int) * (nnz_block + 1));
+    outputFile.write(reinterpret_cast<char*>(vval_mco_mask.data()), sizeof(uint64_t) * (nmask_per_tile * nnz_block));
+    outputFile.write(reinterpret_cast<char*>(vval_mco_val.data()), sizeof(float) * (nnz_aligned));
+    if (outputFile.fail()) {
+        std::cerr << "Failed to write data to file." << std::endl;
+        exit(-1);
+    } else {
+        std::cout << "Data written successfully to file: " << "/workspace/sparsene/examples/src_fp32/acc/testbed/mtx_cache/" + checkpoint_filename << std::endl;
+    }
+    return 1;
+}
+
+void convertToAcc(int M,
+                  int N,
+                  int K,
+                  int nnz,
+                  int* csrPtrA,
+                  int* csrColIdxA,
+                  float* csrValA,
+                  float* B,
+                  float* C,
+                  bool is_ncu_test,
+                  int warmup_time,
+                  int execute_time,
+                  string file_path) {
+    using dtypeA = float;
+    using dtypeB = float;
+    using dtypeC = float;
+    using dtypeMask = uint64_t;
+
+    dtypeB* B_val = B;
+    dtypeC* C_val = C;
+
+    const int Blk_M = 16;
+    const int Blk_K = 8;
+
+    // -------------------------
+    // 尝试加载 checkpoint
+    // -------------------------
+    vector<int> vval_soff;
+    vector<int> vval_sidx;
+    vector<int> vval_mco_off;
+    vector<uint64_t> vval_mco_mask;
+    vector<dtypeA> vval_mco_val;
+
+    int loaded = loadCheckpoint(file_path, M, K, Blk_M, Blk_K, vval_soff, vval_sidx, vval_mco_off, vval_mco_mask, vval_mco_val);
+    // int loaded = 0;
+
+    if (!loaded) {
+        std::cout << "No checkpoint found, start preprocessing...\n";
+
+        // -------------------------
+        // 原有数据转换逻辑
+        // -------------------------
+        auto swizzler =
+          cute::composition(cute::Swizzle<1, 2, 3>{}, cute::make_layout(cute::make_shape(Blk_M, Blk_K),
+                                                                        cute::make_stride(Blk_K, 1)));
+        int num_row_windows = DIVUP(M, Blk_M);
+
+        vector<vector<int>> nz_blk_nz_cols(num_row_windows);
+        vector<vector<uint64_t>> nz_blk_mask;
+        vector<vector<dtypeA>> nz_blk_val;
+
+        for (int rw_idx = 0; rw_idx < num_row_windows; rw_idx++) {
+            int row_start = rw_idx * Blk_M;
+            int row_end = min(row_start + Blk_M, M);
+
+            map<int, map<int, dtypeA>> nz_cols;
+            for (int row = row_start; row < row_end; row++) {
+                for (int j = csrPtrA[row]; j < csrPtrA[row + 1]; j++) {
+                    int col = csrColIdxA[j];
+                    dtypeA val = csrValA[j];
+                    nz_cols[col][row] = val;
+                }
+            }
+
+            vector<map<int, dtypeA>> nz_blks;
+            nz_blks.emplace_back();
+            int condensed_col = 0;
+            for (auto& [col, row_vals] : nz_cols) {
+                nz_blk_nz_cols[rw_idx].push_back(col);
+                auto& current_blk = nz_blks.back();
+                for (auto& [row, val] : row_vals) {
+                    int idx = swizzler(cute::make_coord(row % Blk_M, condensed_col % Blk_K));
+                    current_blk[idx] = val;
+                }
+                condensed_col++;
+                if (condensed_col == Blk_K) {
+                    nz_blks.emplace_back();
+                    condensed_col = 0;
+                }
+            }
+            if (nz_blks.back().size() == 0) {
+                nz_blks.pop_back();
+            }
+            while (nz_blk_nz_cols[rw_idx].size() % Blk_K != 0) {
+                nz_blk_nz_cols[rw_idx].push_back(nz_blk_nz_cols[rw_idx].back());
+            }
+
+            for (auto& nz_blk : nz_blks) {
+                vector<bool> bitmask(Blk_M * Blk_K, false);
+                vector<dtypeA> vals;
+                for (auto& [idx, val] : nz_blk) {
+                    bitmask[idx] = true;
+                    vals.push_back(val);
+                }
+                nz_blk_mask.push_back(convertToUInt64Vector(bitmask));
+                while (vals.size() % 4 != 0) {
+                    vals.push_back(float(0.0f));
+                }
+                nz_blk_val.push_back(vals);
+            }
+        }
+
+        // flatten
+        int soff_acc = 0;
+        int mco_off_acc = 0;
+        int blk_ptr = 0;
+        for (int rw_idx = 0; rw_idx < num_row_windows; rw_idx++) {
+            vval_soff.push_back(soff_acc);
+            vval_sidx.insert(vval_sidx.end(), nz_blk_nz_cols[rw_idx].begin(),
+                             nz_blk_nz_cols[rw_idx].end());
+            int n_blks = DIVUP(nz_blk_nz_cols[rw_idx].size(), Blk_K);
+            soff_acc += n_blks;
+            for (int i = 0; i < n_blks; i++) {
+                vval_mco_off.push_back(mco_off_acc);
+                vval_mco_val.insert(vval_mco_val.end(), nz_blk_val[blk_ptr].begin(),
+                                    nz_blk_val[blk_ptr].end());
+                mco_off_acc += nz_blk_val[blk_ptr].size();
+                vval_mco_mask.insert(vval_mco_mask.end(), nz_blk_mask[blk_ptr].begin(),
+                                     nz_blk_mask[blk_ptr].end());
+                blk_ptr++;
+            }
+        }
+        vval_soff.push_back(soff_acc);
+        vval_mco_off.push_back(mco_off_acc);
+
+        int Mo = DIVUP(M, Blk_M);
+        int nnz_block = vval_soff[Mo];
+        int nnz_aligned = ALIGN(vval_mco_off[nnz_block], 8);
+        assert(nnz_aligned >= vval_mco_val.size());
+        if (nnz_aligned >= vval_mco_val.size()) {
+            vval_mco_val.resize(nnz_aligned);
+        } 
+        
+
+        // -------------------------
+        // 存储 checkpoint
+        // -------------------------
+        storeCheckpoint(file_path, M, K, Blk_M, Blk_K, vval_soff, vval_sidx, vval_mco_off, vval_mco_mask, vval_mco_val);
+    }
+
+    // -------------------------
+    // 执行 kernel
+    // -------------------------
+    acc_spmm_test<dtypeA, dtypeB, dtypeC, dtypeMask, 16, 64, 8, 16, 8, 8>(
+      M, N, K, B_val, C_val,
+      vval_sidx.data(),
+      vval_soff.data(),
+      vval_mco_off.data(),
+      vval_mco_mask.data(),
+      vval_mco_val.data(),
+      is_ncu_test, warmup_time, execute_time);
+}
+
+
 void convertToAcc(int M,
                   int N,
                   int K,
@@ -161,6 +437,8 @@ void convertToAcc(int M,
     vector<vector<int>> nz_blk_nz_cols(num_row_windows);
     vector<vector<uint64_t>> nz_blk_mask;
     vector<vector<dtypeA>> nz_blk_val;
+
+    //! load checkpoint()
 
     for (int rw_idx = 0; rw_idx < num_row_windows; rw_idx++) {
         int row_start = rw_idx * Blk_M;
@@ -252,6 +530,8 @@ void convertToAcc(int M,
     val_mco_mask = vval_mco_mask.data();
     val_mco_val = vval_mco_val.data();
 
+    //! store checkpoint
+
     // 4. Call the kernel
     acc_spmm_test<dtypeA, dtypeB, dtypeC, dtypeMask, 16, 64, 8, 16, 8, 8>(
       M, N, K, B_val, C_val, val_sidx, val_soff, val_mco_off, val_mco_mask, val_mco_val,
@@ -259,11 +539,14 @@ void convertToAcc(int M,
 }
 
 void verify_new(float* C_cpu, float* C_cuda, int M, int N) {
+    int flag = 0;
     for (int i = 0; i < M; i++) {
         for (int j = 0; j < N; j++) {
             float cusparse_val = C_cpu[OFFSET_ROW(i, j, N)];
             float mykernel_val = C_cuda[OFFSET_ROW(i, j, N)];
             if (fabs(cusparse_val - mykernel_val) > 0.01) {
+                flag++;
+                if (flag < 200)
                 printf("Error(%d, %d): cusp(%.1f) mykernel(%.1f)\n", i, j, cusparse_val,
                        mykernel_val);
             }
@@ -431,7 +714,7 @@ int main(int argc, char** argv) {
 
     float* C_cuda = (float*)malloc(sizeof(float) * M * N);
     convertToAcc(M, N, K, nnz, csrPtrA, csrColIdxA, csrValA, B, C_cuda, (bool)is_ncu_test,
-                 warmup_time, execute_time);
+                 warmup_time, execute_time, filename);
 
     // host check
     float* C_cpu = (float*)malloc(sizeof(float) * M * N);

@@ -70,6 +70,17 @@ void ncu_test(int threadblock_num_x,
     acc_spmm_kernel_tf32tf32fp32<BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK, nmask_per_tile, tile_mco_val_size>
       <<<grid, block>>>(dB_val, dC_val, dval_mco_mask, dval_mco_off, dval_mco_val, dval_sidx,
                         dval_soff, K, M, Mo, N, nnz_aligned, nnz_block);
+    int blockSize = 32;
+    int maxBlocksPerSM;
+
+    cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+        &maxBlocksPerSM,
+        acc_spmm_kernel_tf32tf32fp32<BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK, nmask_per_tile, tile_mco_val_size>,
+        blockSize,
+        0 // no dynamic shared mem
+    );
+
+    printf("active block num: %d\n", maxBlocksPerSM);
 }
 
 template <class dtypeA,
