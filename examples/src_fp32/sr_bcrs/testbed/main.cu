@@ -59,11 +59,14 @@ void initVector(DTYPEAB* vec, int length, float sparsity) {
 }
 
 void verify_new(float* C_cpu, float* C_cuda, int M, int N) {
+    int flag = 0;
     for (int i = 0; i < M; i++) {
         for (int j = 0; j < N; j++) {
             float cusparse_val = C_cpu[OFFSET_ROW(i, j, N)];
             float mykernel_val = C_cuda[OFFSET_ROW(i, j, N)];
             if (fabs(cusparse_val - mykernel_val) > 0.01) {
+                flag++;
+                if (flag < 200)
                 printf("Error(%d, %d): cusp(%.1f) mykernel(%.1f)\n", i, j, cusparse_val,
                        mykernel_val);
             }

@@ -100,7 +100,7 @@ void repeat_test(int threadblock_num_x,
                  dtypeA* dval_mco_val,
                  int warmup_time,
                  int execute_time) {
-    dim3 grid(threadblock_num_x, threadblock_num_y);
+    dim3 grid(threadblock_num_y, threadblock_num_x);
     dim3 block(thread_num);
 
     constexpr auto blk_mnk = make_shape(Int<Tile_M>{}, Int<Tile_N>{}, Int<Tile_K>{});
@@ -206,12 +206,12 @@ void acc_spmm_test(int M,
     int threadblock_num_y = N / Tile_N;
     int thread_num = 32;
 
-    // if (!is_ncu_test) {
-    //     repeat_test<dtypeA, dtypeB, dtypeC, dtypeMask, Tile_M, Tile_N, Tile_K, Mma_M, Mma_N, Mma_K>(
-    //       threadblock_num_x, threadblock_num_y, thread_num, M, N, K, Mo, nnz_aligned, nnz_block,
-    //       dB_val, dC_val, dval_sidx, dval_soff, dval_mco_mask, dval_mco_off, dval_mco_val,
-    //       warmup_time, execute_time);
-    // }
+    if (!is_ncu_test) {
+        repeat_test<dtypeA, dtypeB, dtypeC, dtypeMask, Tile_M, Tile_N, Tile_K, Mma_M, Mma_N, Mma_K>(
+          threadblock_num_x, threadblock_num_y, thread_num, M, N, K, Mo, nnz_aligned, nnz_block,
+          dB_val, dC_val, dval_sidx, dval_soff, dval_mco_mask, dval_mco_off, dval_mco_val,
+          warmup_time, execute_time);
+    }
 
     // repeat test would cause C_val to accumulate results, so we need to reset it
     CHECK_CUDA2(cudaMemset(dC_val, 0, sizeof(dtypeC) * M_ALIGNED * N));
