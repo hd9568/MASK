@@ -1995,7 +1995,7 @@ __global__ void bitbsr_spmm_kernel_fp16fp16fp32(
     ZerosOp_t ZerosOp_v{tid, lid, wid, ZerosOp_tensor_o0};
     using G2sSparseIndexLoadOp_t = G2sSparseIndexLoadOp<Int<2>, BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK>;
     using G2sSparseIndexLoadOp_layout_o0 = typename G2sSparseIndexLoadOp_t::Layout_o0;
-    __shared__  int G2sSparseIndexLoadOp_tensor_o0[cosize_v<G2sSparseIndexLoadOp_layout_o0>];
+    __shared__ int G2sSparseIndexLoadOp_tensor_o0[cosize_v<G2sSparseIndexLoadOp_layout_o0>];
     G2sSparseIndexLoadOp_t G2sSparseIndexLoadOp_v{
         tid, lid, wid, 
         G2sSparseIndexLoadOp_tensor_o0, 

@@ -127,7 +127,7 @@ void multi_binding_load_balance(
             int parts = min((int)ceil(x / avg), max_splits);
             int base = x / parts;
             int remainder = x % parts;
-            printf("x = %d, parts = %d, avg = %lf\n", x, parts, avg);
+            // printf("x = %d, parts = %d, avg = %lf\n", x, parts, avg);
             // mark split
             row_window_split[row_window_i] = 1;
             // split this row window and mark binding
