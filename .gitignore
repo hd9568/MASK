@@ -22,3 +22,13 @@ example/report/
 exp/*list*.txt
 
 baseline
+
+example/
+
+examples/reports/
+
+examples/ncu-rep/*
+
+examples/src_fp32/acc/testbed/scripts/motivation_scripts/plan_fig/*
+
+*.checkpoint

@@ -8,6 +8,9 @@ from scipy.stats import kendalltau, spearmanr, pearsonr
 from sklearn.metrics import ndcg_score
 import json
 
+# random.seed(111)  # 设置随机种子
+import time
+
 def find_rank_mismatches(true_times, pred_times):
     true_dict = dict(true_times)
     pred_dict = dict(pred_times)
@@ -538,13 +541,14 @@ with open(json_file, "r") as f:
 
 
 true_dict = dict(true_times)
-
+true_times.sort(key=lambda x: x[1])
 
 
 all_plan_filepath = "/workspace/sparsene/examples/src_fp32/acc/testbed/scripts/filtered_plans.txt"
 # all_plan_filepath = "/workspace/sparsene/examples/src_fp32/acc/testbed/plans.txt"
 # ================== 收集模拟器预测时间 ==================
 pred_times = []
+start = time.time()
 with open(all_plan_filepath, "r") as f:
     for line in f:
         line = line.strip()
@@ -583,9 +587,13 @@ with open(all_plan_filepath, "r") as f:
 
         # print(f"{plan_number}, {t_end}")
         pred_times.append((plan_number, t_end))
-
+end = time.time()
+print(f"耗时: {end - start:.6f} 秒")
 # 排序（预测时间从小到大）
 pred_times.sort(key=lambda x: x[1])
+
+for i in range(50):
+    print(pred_times[i][0], end=',')
 
 def pretty_print_metrics(metrics: dict):
     for k, v in metrics.items():
@@ -608,12 +616,42 @@ def pretty_print_metrics(metrics: dict):
 
 
 # ================== 评估 ==================
+metrics = evaluate_ranking_new(true_times, pred_times, topk=200)
+print("相似度指标 k = 200:")
+pretty_print_metrics(metrics)
 metrics = evaluate_ranking_new(true_times, pred_times, topk=50)
+print("相似度指标 k = 50:")
+pretty_print_metrics(metrics)
+metrics = evaluate_ranking_new(true_times, pred_times, topk=20)
+print("相似度指标 k = 20:")
+pretty_print_metrics(metrics)
+metrics = evaluate_ranking_new(true_times, pred_times, topk=10)
 print("相似度指标：")
 pretty_print_metrics(metrics)
 
+
+print("=" * 50, "random", "=" * 50)
+arr = [i for i in range(len(pred_times))]
+random.shuffle(arr)  # 原地打乱
+random_times = []
+for i in arr:
+    random_times.append((arr[i], i))
+metrics = evaluate_ranking_new(true_times, random_times, topk=200)
+print("相似度指标 k = 200:")
+pretty_print_metrics(metrics)
+metrics = evaluate_ranking_new(true_times, random_times, topk=50)
+print("相似度指标 k = 50:")
+pretty_print_metrics(metrics)
+metrics = evaluate_ranking_new(true_times, random_times, topk=20)
+print("相似度指标 k = 20:")
+pretty_print_metrics(metrics)
+metrics = evaluate_ranking_new(true_times, random_times, topk=10)
+print("相似度指标：")
+pretty_print_metrics(metrics)
+
+
 mismatches = find_rank_mismatches(true_times, pred_times)
-print(mismatches)
+# print(mismatches)
 
 
 # print("=" * 50 + "half eval" + "=" * 50)
