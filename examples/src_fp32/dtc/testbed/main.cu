@@ -88,18 +88,352 @@ void initVector(float* vec, int length, float sparsity) {
     }
 }
 
-void convertToMETCF(int M,
-                    int N,
-                    int K,
-                    int nnz,
-                    int* csrPtrA,
-                    int* csrColIdxA,
-                    float* csrValA,
-                    float* B,
-                    float* C,
-                    bool is_ncu_test,
-                    int warmup_time,
-                    int execute_time) {
+// int loadCheckpoint(
+//     string file_path,
+//     int M, int K, 
+//     int& total_TCBlock_num,
+//     int& nnz_pad,
+//     vector<int>& val_sidx,
+//     vector<int>& val_soff,
+//     vector<int>& val_coo_idx,
+//     vector<float>& val_coo_val,
+//     vector<int>& val_coo_off
+// ) {
+
+// }
+
+// int storeCheckpoint(
+//     string file_path,
+//     int M, int K, 
+//     int& total_TCBlock_num,
+//     int& nnz_pad,
+//     vector<int>& val_sidx,
+//     vector<int>& val_soff,
+//     vector<int>& val_coo_idx,
+//     vector<float>& val_coo_val,
+//     vector<int>& val_coo_off
+// ) {
+
+// }
+
+std::string extractMatrixName(const std::string& file_path) {
+    // 使用 C++17 filesystem 处理路径
+    std::filesystem::path p(file_path);
+    std::string filename = p.stem().string(); // 去掉扩展名 .mtx
+    return filename;
+}
+
+// -------------------------
+// storeCheckpoint for ME-TCF
+// -------------------------
+int storeCheckpoint(
+    string file_path,
+    int M, int K,
+    vector<int>& val_sidx,
+    vector<int>& val_soff,
+    vector<int>& val_coo_idx,
+    vector<float>& val_coo_val,
+    vector<int>& val_coo_off,
+    int& total_TCBlock_num,
+    int& nnz_pad
+) {
+    string checkpoint_filename = extractMatrixName(file_path) + 
+                                 "_M" + to_string(M) + 
+                                 "_K" + to_string(K) + 
+                                 "_METCF.checkpoint";
+    string full_path = "/workspace/sparsene/examples/src_fp32/dtc/testbed/mtx_cache/" + checkpoint_filename;
+
+    std::ofstream outputFile(full_path, std::ios::binary);
+    if (!outputFile.is_open()) {
+        std::cerr << "Fail to open file: " << full_path << std::endl;
+        return 0;
+    }
+
+    // 写入基础信息
+    outputFile.write(reinterpret_cast<char*>(&total_TCBlock_num), sizeof(int));
+    outputFile.write(reinterpret_cast<char*>(&nnz_pad), sizeof(int));
+
+    // 写入数组数据
+    outputFile.write(reinterpret_cast<char*>(val_soff.data()), sizeof(int) * val_soff.size());
+    outputFile.write(reinterpret_cast<char*>(val_sidx.data()), sizeof(int) * val_sidx.size());
+    outputFile.write(reinterpret_cast<char*>(val_coo_off.data()), sizeof(int) * val_coo_off.size());
+    outputFile.write(reinterpret_cast<char*>(val_coo_idx.data()), sizeof(int) * val_coo_idx.size());
+    outputFile.write(reinterpret_cast<char*>(val_coo_val.data()), sizeof(float) * val_coo_val.size());
+
+    if (outputFile.fail()) {
+        std::cerr << "Failed to write checkpoint to file." << std::endl;
+        return 0;
+    }
+
+    std::cout << "Checkpoint written successfully to: " << full_path << std::endl;
+    outputFile.close();
+    return 1;
+}
+
+// -------------------------
+// loadCheckpoint for ME-TCF
+// -------------------------
+int loadCheckpoint(
+    string file_path,
+    int M, int K,
+    vector<int>& val_sidx,
+    vector<int>& val_soff,
+    vector<int>& val_coo_idx,
+    vector<float>& val_coo_val,
+    vector<int>& val_coo_off,
+    int& total_TCBlock_num,
+    int& nnz_pad
+) {
+    string checkpoint_filename = extractMatrixName(file_path) + 
+                                 "_M" + to_string(M) + 
+                                 "_K" + to_string(K) + 
+                                 "_METCF.checkpoint";
+    string full_path = "/workspace/sparsene/examples/src_fp32/dtc/testbed/mtx_cache/" + checkpoint_filename;
+
+    std::ifstream inputFile(full_path, std::ios::binary);
+    if (!inputFile.is_open()) {
+        return 0; // file not exist
+    }
+
+    // 读取基础信息
+    inputFile.read(reinterpret_cast<char*>(&total_TCBlock_num), sizeof(int));
+    inputFile.read(reinterpret_cast<char*>(&nnz_pad), sizeof(int));
+
+    int row_window_num = (M + ROW_WINDOW_M - 1) / ROW_WINDOW_M;
+
+    // resize vectors
+    val_soff.resize(row_window_num + 1);
+    val_sidx.resize(total_TCBlock_num * TC_BLOCK_K);
+    val_coo_off.resize(2 * total_TCBlock_num + 1);
+    val_coo_idx.resize(nnz_pad);
+    val_coo_val.resize(nnz_pad);
+
+    // 读取数组
+    inputFile.read(reinterpret_cast<char*>(val_soff.data()), sizeof(int) * val_soff.size());
+    inputFile.read(reinterpret_cast<char*>(val_sidx.data()), sizeof(int) * val_sidx.size());
+    inputFile.read(reinterpret_cast<char*>(val_coo_off.data()), sizeof(int) * val_coo_off.size());
+    inputFile.read(reinterpret_cast<char*>(val_coo_idx.data()), sizeof(int) * val_coo_idx.size());
+    inputFile.read(reinterpret_cast<char*>(val_coo_val.data()), sizeof(float) * val_coo_val.size());
+
+    if (inputFile.fail()) {
+        std::cerr << "Failed to read checkpoint from file." << std::endl;
+        return 0;
+    }
+
+    std::cout << "Checkpoint loaded successfully from: " << full_path << std::endl;
+    inputFile.close();
+    return 1;
+}
+
+
+
+void convertToMETCF(
+    int M,
+    int N,
+    int K,
+    int nnz,
+    int* csrPtrA,
+    int* csrColIdxA,
+    float* csrValA,
+    float* B,
+    float* C,
+    bool is_ncu_test,
+    int warmup_time,
+    int execute_time,
+    string file_path
+) {
+    using dtypeB = float;
+    using dtypeC = float;
+
+    dtypeB* B_val = B;
+    dtypeC* C_val = C;
+
+    // const int ROW_WINDOW_M = 16;  // 根据原来的定义
+    // const int TC_BLOCK_K = 8;
+
+    // -------------------------
+    // 尝试加载 checkpoint
+    // -------------------------
+    vector<int> val_soff;
+    vector<int> val_sidx;
+    vector<int> val_coo_off;
+    vector<int> val_coo_idx;
+    vector<float> val_coo_val;
+    int total_TCBlock_num = 0;
+    int nnz_pad = 0;
+
+    int loaded = loadCheckpoint(file_path, M, K, val_sidx, val_soff, val_coo_idx, val_coo_val, val_coo_off, total_TCBlock_num, nnz_pad);
+    // int loaded = 0;
+    if (!loaded) {
+        // -------------------------
+        // 没有 checkpoint，需要重新计算
+        // -------------------------
+        int row_window_num = (M + ROW_WINDOW_M - 1) / ROW_WINDOW_M;
+        vector<vector<int>> vec_nnz_per_tc_block(row_window_num);
+        int* nnz_col = new int[K];
+        memset(nnz_col, 0, sizeof(int) * K);
+
+        total_TCBlock_num = 0;
+        nnz_pad = 0;
+
+        // 1. 计算 total_TCBlock_num 和 nnz_pad
+        for (int i_row_window = 0; i_row_window < row_window_num; i_row_window++) {
+            val_soff.push_back(total_TCBlock_num);
+            memset(nnz_col, 0, sizeof(int) * K);
+            vector<int>& nnz_per_tc_block = vec_nnz_per_tc_block[i_row_window];
+
+            for (int i_row = 0; i_row < ROW_WINDOW_M; i_row++) {
+                int row = i_row_window * ROW_WINDOW_M + i_row;
+                if (row >= M) continue;
+                for (int j = csrPtrA[row]; j < csrPtrA[row + 1]; j++) {
+                    nnz_col[csrColIdxA[j]] = 1;
+                }
+            }
+
+            int nnz_col_num = 0;
+            for (int i = 0, j = 0; i < K; i++) {
+                if (nnz_col[i] == 1) {
+                    nnz_col[j++] = i;
+                    nnz_col_num++;
+                }
+            }
+
+            int TCBlock_num = (nnz_col_num + TC_BLOCK_K - 1) / TC_BLOCK_K;
+            nnz_per_tc_block.resize(TCBlock_num, 0);
+
+            for (int i_row = 0; i_row < ROW_WINDOW_M; i_row++) {
+                int row = i_row_window * ROW_WINDOW_M + i_row;
+                if (row >= M) continue;
+                for (int j = csrPtrA[row]; j < csrPtrA[row + 1]; j++) {
+                    int col = csrColIdxA[j];
+                    int condensed_col = binarySearch(nnz_col, 0, nnz_col_num - 1, col);
+                    int tc_block_id = condensed_col / TC_BLOCK_K;
+                    nnz_per_tc_block[tc_block_id]++;
+                }
+            }
+
+            for (int i_tc_block = 0; i_tc_block < TCBlock_num; i_tc_block++) {
+                int nnz_block = nnz_per_tc_block[i_tc_block];
+                nnz_pad += (nnz_block + 8 - 1) / 8 * 8;
+            }
+
+            total_TCBlock_num += TCBlock_num;
+        }
+        val_soff.push_back(total_TCBlock_num);
+        delete[] nnz_col;
+
+        // 2. 分配数组
+        val_sidx.resize(total_TCBlock_num * TC_BLOCK_K, 0);
+        val_coo_off.resize(total_TCBlock_num * 2 + 1, 0);
+        val_coo_idx.resize(nnz_pad, 0);
+        val_coo_val.resize(nnz_pad, 0);
+
+        // 3. prefix sum 与 coo_off 填充
+        int cur_pos = 0;
+        int i_tc_block_ptr = 0;
+        for (int i_row_window = 0; i_row_window < row_window_num; i_row_window++) {
+            vector<int>& nnz_per_tc_block = vec_nnz_per_tc_block[i_row_window];
+            for (int i_tc_block = 0; i_tc_block < nnz_per_tc_block.size(); i_tc_block++) {
+                int tmp = nnz_per_tc_block[i_tc_block];
+                nnz_per_tc_block[i_tc_block] = cur_pos;
+                val_coo_off[i_tc_block_ptr * 2] = cur_pos;
+                val_coo_off[i_tc_block_ptr * 2 + 1] = cur_pos + tmp;
+                i_tc_block_ptr++;
+                cur_pos += (tmp + 8 - 1) / 8 * 8;
+            }
+            nnz_per_tc_block.push_back(cur_pos);
+        }
+        val_coo_off[2 * total_TCBlock_num] = cur_pos;
+
+        // 4. 构建 val_sidx, val_coo_idx, val_coo_val
+        auto swizzle_layout =
+            composition(Swizzle<1, 2, 3>{},
+                        make_layout(make_shape(ROW_WINDOW_M, TC_BLOCK_K), make_stride(TC_BLOCK_K, 1)));
+        int* tc_block_nnz_ptr = new int[(K + TC_BLOCK_K - 1) / TC_BLOCK_K];
+
+        for (int i_row_window = 0; i_row_window < row_window_num; i_row_window++) {
+            int TC_block_offset = val_soff[i_row_window];
+            int* tmp_val_sidx = val_sidx.data() + TC_block_offset * TC_BLOCK_K;
+            memset(tc_block_nnz_ptr, 0, sizeof(int) * (K + TC_BLOCK_K - 1) / TC_BLOCK_K);
+
+            nnz_col = new int[K];
+            memset(nnz_col, 0, sizeof(int) * K);
+            vector<int>& nnz_per_tc_block = vec_nnz_per_tc_block[i_row_window];
+
+            for (int i_row = 0; i_row < ROW_WINDOW_M; i_row++) {
+                int row = i_row_window * ROW_WINDOW_M + i_row;
+                if (row >= M) continue;
+                for (int j = csrPtrA[row]; j < csrPtrA[row + 1]; j++) {
+                    nnz_col[csrColIdxA[j]] = 1;
+                }
+            }
+
+            int nnz_col_num = 0;
+            for (int i = 0, j = 0; i < K; i++) {
+                if (nnz_col[i] == 1) {
+                    nnz_col[j++] = i;
+                    nnz_col_num++;
+                }
+            }
+
+            int tc_block_num = (nnz_col_num + TC_BLOCK_K - 1) / TC_BLOCK_K;
+            for (int i_tc_block_col = 0; i_tc_block_col < nnz_col_num; i_tc_block_col++) {
+                tmp_val_sidx[i_tc_block_col] = nnz_col[i_tc_block_col];
+            }
+
+            for (int i_tc_block = 0; i_tc_block < tc_block_num; i_tc_block++) {
+                tc_block_nnz_ptr[i_tc_block] = nnz_per_tc_block[i_tc_block];
+            }
+
+            for (int i_row = 0; i_row < ROW_WINDOW_M; i_row++) {
+                int row = i_row_window * ROW_WINDOW_M + i_row;
+                int col_start_pos = 0;
+                if (row >= M) continue;
+                for (int j = csrPtrA[row]; j < csrPtrA[row + 1]; j++) {
+                    int col = csrColIdxA[j];
+                    float value = (float)csrValA[j];
+                    int condensed_pos = binarySearch(nnz_col, col_start_pos, nnz_col_num - 1, col);
+                    col_start_pos = condensed_pos + 1;
+                    int tc_block_id = condensed_pos / TC_BLOCK_K;
+                    val_coo_val[tc_block_nnz_ptr[tc_block_id]] = value;
+                    auto coord = make_coord(i_row, condensed_pos % TC_BLOCK_K);
+                    int swizzled_idx = swizzle_layout(coord);
+                    val_coo_idx[tc_block_nnz_ptr[tc_block_id]] = swizzled_idx;
+                    tc_block_nnz_ptr[tc_block_id]++;
+                }
+            }
+            delete[] nnz_col;
+        }
+
+        delete[] tc_block_nnz_ptr;
+
+        // 5. 保存 checkpoint
+        storeCheckpoint(file_path, M, K, val_sidx, val_soff, val_coo_idx, val_coo_val, val_coo_off, total_TCBlock_num, nnz_pad);
+    }
+
+    // 6. 调用 kernel
+    dtc_spmm_test_val_sidx_bind_reorder<64>(
+        M, N, K, total_TCBlock_num, nnz_pad, val_sidx.data(), val_soff.data(),
+        B_val, val_coo_idx.data(), val_coo_val.data(), val_coo_off.data(),
+        C_val, is_ncu_test, warmup_time, execute_time);
+}
+
+
+
+void convertToMETCF(
+    int M,
+    int N,
+    int K,
+    int nnz,
+    int* csrPtrA,
+    int* csrColIdxA,
+    float* csrValA,
+    float* B,
+    float* C,
+    bool is_ncu_test,
+    int warmup_time,
+    int execute_time
+) {
     // convert to ME-TCF
     int row_window_num = (M + ROW_WINDOW_M - 1) / ROW_WINDOW_M;
     int* val_soff = (int*)malloc(sizeof(int) * (row_window_num + 1));
@@ -256,11 +590,14 @@ void convertToMETCF(int M,
 }
 
 void verify_new(float* C_cpu, float* C_cuda, int M, int N) {
+    int flag = 0;
     for (int i = 0; i < M; i++) {
         for (int j = 0; j < N; j++) {
             float cusparse_val = C_cpu[OFFSET_ROW(i, j, N)];
             float mykernel_val = C_cuda[OFFSET_ROW(i, j, N)];
             if (fabs(cusparse_val - mykernel_val) > 0.01) {
+                flag++;
+                if (flag < 200)
                 printf("Error(%d, %d): cusp(%.1f) mykernel(%.1f)\n", i, j, cusparse_val,
                        mykernel_val);
             }
@@ -428,7 +765,7 @@ int main(int argc, char** argv) {
 
     float* C_cuda = (float*)malloc(sizeof(float) * M * N);
     convertToMETCF(M, N, K, nnz, csrPtrA, csrColIdxA, csrValA, B, C_cuda, (bool)is_ncu_test,
-                   warmup_time, execute_time);
+                   warmup_time, execute_time, filename);
 
     // host check
     float* C_cpu = (float*)malloc(sizeof(float) * M * N);
