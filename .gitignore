@@ -38,3 +38,9 @@ examples/src_fp16/dtc/testbed/scripts/draw_timeline/*
 **/mtx_cache/*
 
 motivation/TCBlockNum/*
+
+examples/**/testbed/build/*
+
+examples/**/testbed/build_new/*
+
+examples/**/testbed/plans_new/*
