@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import List, Optional
 from abc import ABC, abstractmethod
-from sympy import Symbol, Expr, Number
+from sympy import Symbol, Expr, Number, Function
 
 
 class Direction(Enum):
@@ -56,6 +56,9 @@ class Axis:
 
     def is_sv(self) -> bool:
         return self.is_sparse and self.is_varlen
+
+    def set_varlen(self):
+        self.length = Function("varlen")(self.length)
 
     def __str__(self, indent_width: int = 4) -> str:
         return (
@@ -256,6 +259,12 @@ def coo_atomic_format(
                 is_sparse=False,
                 is_varlen=False,
             ),
+            Axis(
+                name=f"{x_name}_{y_name}_coo",
+                direction=Direction.COL if col_major else Direction.ROW,
+                is_sparse=True,
+                is_varlen=True,
+            )
         ],
     )
 
@@ -264,7 +273,7 @@ def mco_atomic_format(
     x_name: str, y_name: str, col_major: bool = False
 ) -> AtomicFormat:
     return McoAtomicFormat(
-        name="coo",
+        name="mco",
         axes=[
             Axis(
                 name=x_name,
@@ -277,6 +286,12 @@ def mco_atomic_format(
                 direction=Direction.ROW if col_major else Direction.COL,
                 is_sparse=False,
                 is_varlen=False,
+            ),
+            Axis(
+                name=f"{x_name}_{y_name}_mco",
+                direction=Direction.COL if col_major else Direction.ROW,
+                is_sparse=True,
+                is_varlen=True,
             ),
         ],
     )
