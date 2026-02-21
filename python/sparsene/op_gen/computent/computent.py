@@ -1118,19 +1118,79 @@ def apply_cooize_transformation(
     update_st_array_def(array_defs)
 
     # 3. Handle schedule
+    # axis_ref = schedule.find_axis_ref(axis_x)
+    # assert axis_ref is schedule.find_axis_ref(axis_y)
+    # assert isinstance(axis_ref, AtomicFormatOp)
+    # assert axis_ref.type == AtomicFormatType.DENSE
+
+    # new_axis_ref = AtomicFormatOp(
+    #     axes=(axis_x, axis_y),
+    #     axes_len=(axis_ref.axes_len[0], axis_ref.axes_len[1]),
+    #     type=AtomicFormatType.COO,
+    #     args=[
+    #         ArrayRef(array=coo_len_def.name, indices=[]),
+    #         ArrayRef(array=coo_idx_def.name, indices=[]),
+    #         ArrayRef(array=coo_val_def.name, indices=[]),
+    #         next(
+    #             filter(
+    #                 lambda arg: isinstance(arg, ArrayRef) and arg.array == "B_val",
+    #                 axis_ref.args,
+    #             )
+    #         ),
+    #     ],
+    #     parent=axis_ref.get_parent(),
+    # )
+
+    # parent_axis_ref = axis_ref.get_parent()
+    # if parent_axis_ref is not None:
+    #     assert isinstance(parent_axis_ref, AxisVisitor)
+    #     parent_axis_ref.body = new_axis_ref
+    # else:
+    #     logger.warning(
+    #         f"No parent axis reference found for {axis_ref} during cooize transformation. "
+    #         f"Make sure this is what you want."
+    #     )
+    #     schedule = new_axis_ref
+
+    
+    
     axis_ref = schedule.find_axis_ref(axis_x)
     assert axis_ref is schedule.find_axis_ref(axis_y)
     assert isinstance(axis_ref, AtomicFormatOp)
     assert axis_ref.type == AtomicFormatType.DENSE
 
+    # --- 核心修改：提取并继承索引 ---
+    # 1. 在原 AtomicFormatOp 的参数中找到原始的 val 引用（即非 B_val 的那个）
+    # 我们使用 val_def.name 来精准匹配
+    orig_val_arg = next(
+        filter(
+            lambda arg: isinstance(arg, ArrayRef) and arg.array == val_def.name,
+            axis_ref.args,
+        )
+    )
+    
+    # 2. 提取外层索引。由于 AtomicFormatOp 处理的是最后两个维度，
+    # 对应的索引通常是 [..., _, _]。我们需要保留前面的部分（如 [i1, i2]）
+    # 这里使用切片去掉最后两个位置
+    inherited_indices = list(orig_val_arg.indices[:-2])
+    
+    # 3. 构造新的 COO AtomicFormatOp
     new_axis_ref = AtomicFormatOp(
         axes=(axis_x, axis_y),
         axes_len=(axis_ref.axes_len[0], axis_ref.axes_len[1]),
         type=AtomicFormatType.COO,
         args=[
-            ArrayRef(array=coo_len_def.name, indices=[]),
-            ArrayRef(array=coo_idx_def.name, indices=[]),
-            ArrayRef(array=coo_val_def.name, indices=[]),
+            # coo_len 只需要外层索引：val_coo_len[i1, i2]
+            ArrayRef(array=coo_len_def.name, indices=inherited_indices),
+            
+            # coo_idx 和 coo_val 需要外层索引 + 一个 COO 轴的占位符 "_"
+            # val_coo_idx[i1, i2, _]
+            ArrayRef(array=coo_idx_def.name, indices=inherited_indices + ["_"]),
+            
+            # val_coo_val[i1, i2, _]
+            ArrayRef(array=coo_val_def.name, indices=inherited_indices + ["_"]),
+            
+            # 保持 B_val 不变
             next(
                 filter(
                     lambda arg: isinstance(arg, ArrayRef) and arg.array == "B_val",
@@ -1140,20 +1200,17 @@ def apply_cooize_transformation(
         ],
         parent=axis_ref.get_parent(),
     )
+    # -----------------------------
 
     parent_axis_ref = axis_ref.get_parent()
     if parent_axis_ref is not None:
         assert isinstance(parent_axis_ref, AxisVisitor)
         parent_axis_ref.body = new_axis_ref
     else:
-        logger.warning(
-            f"No parent axis reference found for {axis_ref} during cooize transformation. "
-            f"Make sure this is what you want."
-        )
+        # 如果没有父节点，说明当前节点就是根，直接更新 schedule 引用
         schedule = new_axis_ref
 
     return schedule, array_defs, new_format
-
 
 def apply_mcoize_transformation(
     schedule: Schedule,
@@ -1215,20 +1272,73 @@ def apply_mcoize_transformation(
     update_st_array_def(array_defs)
 
     # 3. Handle schedule
+    # axis_ref = schedule.find_axis_ref(axis_x)
+    # assert axis_ref is schedule.find_axis_ref(axis_y)
+    # assert isinstance(axis_ref, AtomicFormatOp)
+    # assert axis_ref.type == AtomicFormatType.DENSE
+
+    # new_axis_ref = AtomicFormatOp(
+    #     axes=(axis_x, axis_y),
+    #     type=AtomicFormatType.MCO,
+    #     axes_len=(axis_ref.axes_len[0], axis_ref.axes_len[1]),
+    #     args=[
+    #         # TODO: ArrayRef改成Expr
+    #         ArrayRef(array=mco_len_def.name, indices=[]),
+    #         ArrayRef(array=mco_mask_def.name, indices=[]),
+    #         ArrayRef(array=mco_val_def.name, indices=[]),
+    #         next(
+    #             filter(
+    #                 lambda arg: isinstance(arg, ArrayRef) and arg.array == "B_val",
+    #                 axis_ref.args,
+    #             )
+    #         ),
+    #     ],
+    #     parent=axis_ref.get_parent(),
+    # )
+
+    # parent_axis_ref = axis_ref.get_parent()
+    # if parent_axis_ref is not None:
+    #     assert isinstance(parent_axis_ref, AxisVisitor)
+    #     parent_axis_ref.body = new_axis_ref
+    # else:
+    #     logger.warning(
+    #         f"No parent axis reference found for {axis_ref} during cooize transformation. "
+    #         f"Make sure this is what you want."
+    #     )
+    #     schedule = new_axis_ref
+
     axis_ref = schedule.find_axis_ref(axis_x)
     assert axis_ref is schedule.find_axis_ref(axis_y)
     assert isinstance(axis_ref, AtomicFormatOp)
     assert axis_ref.type == AtomicFormatType.DENSE
 
+    # --- 核心修改：提取并继承索引 ---
+    # 1. 在原 AtomicFormatOp 参数中定位原始 val 的引用 (依据 val_def.name)
+    orig_val_arg = next(
+        filter(
+            lambda arg: isinstance(arg, ArrayRef) and arg.array == val_def.name,
+            axis_ref.args,
+        )
+    )
+    
+    # 2. 提取外层索引前缀。去掉最后两个 "_" 占位符
+    # 例如：从 [i3, i4, _, _] 提取出 [i3, i4]
+    inherited_indices = list(orig_val_arg.indices[:-2])
+    
+    # 3. 构造新的 MCO AtomicFormatOp
     new_axis_ref = AtomicFormatOp(
         axes=(axis_x, axis_y),
         type=AtomicFormatType.MCO,
         axes_len=(axis_ref.axes_len[0], axis_ref.axes_len[1]),
         args=[
-            # TODO: ArrayRef改成Expr
-            ArrayRef(array=mco_len_def.name, indices=[]),
-            ArrayRef(array=mco_mask_def.name, indices=[]),
-            ArrayRef(array=mco_val_def.name, indices=[]),
+            # mco_len 和 mco_mask 仅保留外层索引: [i3, i4]
+            ArrayRef(array=mco_len_def.name, indices=inherited_indices),
+            ArrayRef(array=mco_mask_def.name, indices=inherited_indices),
+            
+            # mco_val 增加合并后的 MCO 轴占位符: [i3, i4, _]
+            ArrayRef(array=mco_val_def.name, indices=inherited_indices + ["_"]),
+            
+            # 保持 B_val 引用及其复杂的索引逻辑不变
             next(
                 filter(
                     lambda arg: isinstance(arg, ArrayRef) and arg.array == "B_val",
@@ -1238,18 +1348,16 @@ def apply_mcoize_transformation(
         ],
         parent=axis_ref.get_parent(),
     )
+    # -----------------------------
 
     parent_axis_ref = axis_ref.get_parent()
     if parent_axis_ref is not None:
         assert isinstance(parent_axis_ref, AxisVisitor)
         parent_axis_ref.body = new_axis_ref
     else:
-        logger.warning(
-            f"No parent axis reference found for {axis_ref} during cooize transformation. "
-            f"Make sure this is what you want."
-        )
+        # 如果没有父节点，说明是顶层，更新 schedule 引用
         schedule = new_axis_ref
-
+    
     return schedule, array_defs, new_format
 
 
