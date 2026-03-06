@@ -7,7 +7,7 @@ BIT_TCF_FORMAT = Format(
     axes=[
         df_axis("X_o", Direction.ROW, length="M"),
         sv_axis("Y_s", Direction.COL, length="K"),
-        df_axis("X_i", Direction.ROW, length="BLK_K"),
+        df_axis("X_i", Direction.ROW, length="BLK_M"),
     ],
     child=Format(
         axes=[
