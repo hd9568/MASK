@@ -3,7 +3,7 @@ from abc import ABC, abstractmethod
 from typing import overload
 from copy import deepcopy
 import copy
-from sympy import Array, Function, Symbol
+from sympy import Array, Function, Symbol, Expr, Indexed
 from sympy import IndexedBase, Idx, symbols, Integer
 from sparsene.utils.source import indent
 from dataclasses import dataclass, field
@@ -207,7 +207,22 @@ def update_array_ref_recursive(arg: Variable, new_axis_ref, array_defs, axis_to_
         while len(arg.indices) <= target_idx_origin:
             arg.indices.append("_")
         old_idx = arg.indices[target_idx_origin]
-        arg.indices[target_idx_origin] = str(new_axis_ref.induction_var + " * " + str(split_size) + " + " + str(old_idx))
+
+        # arg.indices[target_idx_origin] = str(new_axis_ref.induction_var + " * " + str(split_size) + " + " + str(old_idx))
+        iv = Symbol(new_axis_ref.induction_var)
+        sz = Integer(split_size) if isinstance(split_size, int) else Symbol(str(split_size))
+
+        if old_idx == "_":
+            base = Symbol("_")
+        elif isinstance(old_idx, str):
+            # 如果原本是字符串，可以尝试解析成 Sympy 表达式
+            from sympy import sympify
+            base = sympify(old_idx)
+        else:
+            base = old_idx
+
+        arg.indices[target_idx_origin] = iv * sz + base
+        # print(type(arg.indices[target_idx_origin]), "updated index:", arg.indices[target_idx_origin])
 
     # 3. 递归处理 indices 中的嵌套对象 (处理 B_val[val_sidx[...]] 的关键)
     for index in arg.indices:
@@ -624,6 +639,17 @@ def apply_sparsify_transformation(
                 new_array_defs.replace(
                     [array_def.name], [sparse_val_def, sparse_len_def]
                 )
+        elif array_def.type == ArrayType.C_VAL:
+            sparse_c_def = ArrayDef(
+                name=array_def.name,
+                axes=array_def.axes[: idx] + [axis.name] + array_def.axes[idx + 1 : ],
+                dims=array_def.dims[: idx] + [axis.length] + array_def.dims[idx + 1 : ],
+                type=ArrayType.C_VAL,
+                datatype=array_def.datatype
+            )
+            new_array_defs.add(sparse_c_def)
+            # 记录下新的 C 定义，方便后续 schedule 处理
+            # target_c_val_name = sparse_c_def.name
 
     update_st_array_def(new_array_defs)
 
@@ -702,27 +728,55 @@ def apply_sparsify_transformation(
                 arg.indices = new_indices
             # case2: B_val
             elif arg.array == matrix_B_val_name:
+                from sympy import sympify
+                def to_sympy_expr(item):
+                    """将字符串、ArrayRef 或现有 Expr 统一转换为 SymPy Expr"""
+                    # 1. 处理基础类型
+                    if isinstance(item, str):
+                        return Symbol(item)
+                    if isinstance(item, (int, float)):
+                        return sympify(item)
+                    if isinstance(item, Expr):
+                        return item
+
+                    # 2. 处理 ArrayRef 对象
+                    if hasattr(item, 'array') and hasattr(item, 'indices'):
+                        base = IndexedBase(item.array)
+                        
+                        # 使用 for 循环逐个转换索引项，构建一个新的列表
+                        sym_indices = []
+                        for idx in item.indices:
+                            # 递归调用，确保嵌套的 ArrayRef 也能被转换
+                            converted_idx = to_sympy_expr(idx)
+                            sym_indices.append(converted_idx)
+                        
+                        # 核心修改点：
+                        # 在 SymPy 中，base[tuple_obj] 等价于 base[i, j, k]
+                        # 这样就避免了使用 *sym_indices 这种解包语法
+                        return base[tuple(sym_indices)]
+
+                    return sympify(item)
                 def replace_symbol_in_arg(arg: ArrayRef, old_var: str, new_var_obj: any):
-                    """
-                    在 ArrayRef 的 indices 中寻找 old_var，并将其替换为 new_var_obj 的字符串表示
-                    """
-                    new_var_str = str(new_var_obj) # 得到 "val_sidx[i11, i12]"
+                    target_sym = Symbol(old_var)
                     
+                    # 将要替换进去的对象（sidx_ref）转换为 SymPy 原生 Indexed 表达式
+                    replacement_expr = to_sympy_expr(new_var_obj)
+
                     for i in range(len(arg.indices)):
                         idx_item = arg.indices[i]
                         
-                        if isinstance(idx_item, ArrayRef):
-                            # 递归处理嵌套
+                        if hasattr(idx_item, 'array'): # 如果是嵌套的 ArrayRef
                             replace_symbol_in_arg(idx_item, old_var, new_var_obj)
-                        elif isinstance(idx_item, str):
-                            # 核心替换逻辑：
-                            # 如果是精确匹配，直接替换对象
-                            if idx_item == old_var:
-                                arg.indices[i] = new_var_obj
-                            # 如果是复合表达式字符串，如 "i12 * BLK_K + _"
-                            elif old_var in idx_item:
-                                # 进行字符串级别的子串替换
-                                arg.indices[i] = idx_item.replace(old_var, new_var_str)
+                        else:
+                            # 1. 将当前索引（如 "BLK_K*i12 + _"）转为 SymPy 表达式
+                            expr = sympify(idx_item) if isinstance(idx_item, str) else idx_item
+                            
+                            # 2. 检查是否包含目标变量
+                            if target_sym in expr.free_symbols:
+                                # 3. 此时 replacement_expr 是 Indexed 类型，subs 不会报错
+                                new_expr = expr.subs(target_sym, replacement_expr)
+                                arg.indices[i] = new_expr
+                print("before replacement, B_val arg indices:", arg.indices, "looking for var:", curr_var, type(curr_var), type(sidx_ref))
                 replace_symbol_in_arg(arg, curr_var, sidx_ref)
         # parent_axis_ref = axis_ref.get_parent()
         # if parent_axis_ref is not None:

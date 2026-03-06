@@ -108,7 +108,7 @@ class ArrayRef:
         return f"{self.array}[{index_str}]"
 
 
-Variable = ArrayRef | str
+Variable = ArrayRef | str | Expr
 
 class ArrayType(Enum):
     VAL = 0

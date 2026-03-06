@@ -23,10 +23,15 @@ from sparsene.op_gen.opir.op_ir import (
     ConstantOp,
     ForLoopOp,
     ArrayRefOp,
+    LoadOp,
     Value,
     IntType,
     MetaOp,
     ExternalSymbolOp,
+    AddOp,
+    MulOp,
+    DivOp,
+    PowOp,
     op_builder,
     Type,
     ArrayType,
@@ -43,9 +48,15 @@ from sparsene.op_gen.opir.ops import (
     ValSidxLoadOp,
     BValLoadOp,
     CooAtomicValRestoreOp,
+    McoAtomicFormatLoadMaskOp,
+    McoAtomicFormatLoadValOp,
+    McoAtomicValRestoreOp,
     MmaOp,
     CValStoreOp,
 )
+from sympy import Symbol, Indexed, Expr, Integer, Rational
+from sparsene.format.format import Direction
+
 
 
 def datatype_to_type(datatype: DataType) -> Type:
@@ -62,6 +73,30 @@ def get_array_type(array_def: ArrayDef) -> Type:
     dims = list(array_def.dims)
     return ArrayType(dims, datatype_to_type(array_def.datatype))
 
+def generate_dispatch(
+    schedule: Schedule,
+    array_defs: ArrayDefCollection,
+    format: Format,
+    current_c_tile: Optional[Value],
+    parent_schedule: Optional[Schedule] = None,
+) -> Value:
+    """统一调度分发器，返回更新后的 C Tile Value"""
+    if isinstance(schedule, DenseAxisIterator):
+        return generate_from_dense_axis_iterator(
+            schedule, array_defs, format, current_c_tile, parent_schedule
+        )
+    elif isinstance(schedule, SparseAxisIterator):
+        return generate_from_sparse_axis_iterator(
+            schedule, array_defs, format, current_c_tile, parent_schedule
+        )
+    elif isinstance(schedule, AtomicFormatOp):
+        assert current_c_tile is not None, "Atomic format op should receive a C tile from parent schedule"
+        # 注意：Atomic 直接返回计算后的结果，不需要 parent_schedule
+        return generate_from_atomic_format_op(
+            schedule, array_defs, format, current_c_tile
+        )
+    else:
+        raise ValueError(f"Unsupported schedule type for dispatch: {type(schedule)}")
 
 def generate_from_computent(computent: Computent) -> MetaOp:
     computent_op = op_builder.build(MetaOp)
@@ -74,9 +109,10 @@ def generate_from_computent(computent: Computent) -> MetaOp:
         if isinstance(schedule, DenseAxisIterator):
             generate_from_dense_axis_iterator(schedule, array_defs, format)
         elif isinstance(schedule, SparseAxisIterator):
-            raise NotImplementedError(
-                "Sparse axis iterator as root schedule is not implemented"
-            )
+            generate_from_sparse_axis_iterator(schedule, array_defs, format)
+            # raise NotImplementedError(
+            #     "Sparse axis iterator as root schedule is not implemented"
+            # )
         elif isinstance(schedule, SparseAxisSlicer):
             raise NotImplementedError(
                 "Sparse axis slicer as root schedule is not implemented"
@@ -90,12 +126,14 @@ def generate_from_computent(computent: Computent) -> MetaOp:
     return computent_op
 
 
+# TODO 再讲一下这里的 active_tile, current_c_tile, 分别是干啥的
 def generate_from_dense_axis_iterator(
     schedule: DenseAxisIterator,
     array_defs: ArrayDefCollection,
     format: Format,
+    current_c_tile: Optional[Value] = None,
     parent_schedule: Optional[Schedule] = None,
-) -> None:
+) -> Value:
     l = op_builder.build(ConstantOp, 0, IntType(), name_hint="zero").result
     r = op_builder.build(
         ConstantOp,
@@ -104,102 +142,391 @@ def generate_from_dense_axis_iterator(
         name_hint="num_row_win",
     ).result
 
+    # print("(debug)dense axis iterator: r = ", format.get_axis(schedule.axis).length)
+
+    #> 空间轴切片（空间轴就是 Direction.ROW，与空间轴相对的是规约轴）
+    active_tile = current_c_tile
+    is_reduction = format.get_axis(schedule.axis).direction == Direction.COL
+    print(f"(debug)generate_from_dense_axis_iterator: axis={schedule.axis}, is_reduction={is_reduction}, current_c_tile={current_c_tile}")
+    print(f"(debug)schedule.induction_var: {schedule.induction_var}")
+    
+
+    #> 所有循环都要考虑传递C以及支持SSA规约
+    iter_args = {"C_tile_in": current_c_tile} if current_c_tile else {}
+
     for_loop_op = op_builder.build(
         ForLoopOp,
         induction_var=schedule.induction_var,
         range=(l, r),
+        iter_args=iter_args,
     )
 
     with op_builder.op_scope(for_loop_op):
         op_builder.add_symbol(schedule.induction_var, for_loop_op.get_induction_var())
-        if isinstance(schedule.body, DenseAxisIterator):
-            raise NotImplementedError(
-                "Dense axis iterator as body of dense axis iterator is not implemented"
-            )
-        elif isinstance(schedule.body, SparseAxisIterator):
-            generate_from_sparse_axis_iterator(
-                schedule.body,
-                array_defs,
-                format,
-                for_loop_op.get_induction_var(),
-                schedule,
-            )
-        elif isinstance(schedule.body, SparseAxisSlicer):
-            raise NotImplementedError(
-                "Sparse axis slicer as body of dense axis iterator is not implemented"
-            )
-        elif isinstance(schedule.body, AtomicFormatOp):
-            raise NotImplementedError(
-                "Atomic format op as body of dense axis iterator is not implemented"
-            )
-        else:
-            raise ValueError(f"Unsupported schedule type: {type(schedule.body)}")
+        
+        if not is_reduction and active_tile is not None:
+            # 如果当前的轴不是规约轴，并且传入了一个c_tile
+            # 需要从传入的c_tile中切出一块给子循环
+            # 比如[BLK_M, N] -> [BLK_M_I, N]
+            active_tile = op_builder.build(
+                ArrayRefOp,
+                active_tile,
+                # [Symbol(schedule.induction_var)],
+                [op_builder.lookup_symbol(schedule.induction_var, IntType(), )],
+                name_hint=f"c_sub_tile",
+            ).result
+        
+        #> 内部逻辑
+        inner_c_tile = for_loop_op.get_iter_arg(0) if iter_args else None
 
+        #> 递归调用分发
+        updated_sub_tile = generate_dispatch(schedule.body, array_defs, format, active_tile, schedule)
+
+        #> 如果是空间轴切片，内部返回sub_tile，需要把sub_tile写回parent tile
+        # if not is_reduction and current_c_tile is not None:
+        #      # C_val_store(updated_sub_tile, inner_c_tile[i])
+        #      op_builder.build(CValStoreOp, mem="R2S",operands=[updated_sub_tile, inner_c_tile, op_builder.lookup_symbol(schedule.induction_var)])
+        #      op_builder.build(LoopResultOp, inner_c_tile) 
+        # else:
+        #      # 如果是归约轴或直接计算，直接返回内部结果
+        #      op_builder.build(LoopResultOp, updated_sub_tile)
+        if iter_args:
+            if not is_reduction:
+                if updated_sub_tile is not None and current_c_tile is not None:
+                    op_builder.build(CValStoreOp, mem="R2S",operands=[updated_sub_tile, inner_c_tile, op_builder.lookup_symbol(schedule.induction_var)])
+                op_builder.build(LoopResultOp, inner_c_tile) 
+            else:
+                op_builder.build(LoopResultOp, updated_sub_tile)
+                
+    # return for_loop_op.result
+    if iter_args:
+        return for_loop_op.result
+    return None
+        # if isinstance(schedule.body, DenseAxisIterator):
+        #     raise NotImplementedError(
+        #         "Dense axis iterator as body of dense axis iterator is not implemented"
+        #     )
+        # elif isinstance(schedule.body, SparseAxisIterator):
+        #     generate_from_sparse_axis_iterator(
+        #         schedule.body,
+        #         array_defs,
+        #         format,
+        #         current_c_tile,
+        #         schedule,
+        #     )
+        # elif isinstance(schedule.body, SparseAxisSlicer):
+        #     raise NotImplementedError(
+        #         "Sparse axis slicer as body of dense axis iterator is not implemented"
+        #     )
+        # elif isinstance(schedule.body, AtomicFormatOp):
+        #     raise NotImplementedError(
+        #         "Atomic format op as body of dense axis iterator is not implemented"
+        #     )
+        # else:
+        #     raise ValueError(f"Unsupported schedule type: {type(schedule.body)}")
+
+
+def translate_sympy_to_ir(expr: Expr, array_defs: ArrayDefCollection) -> Value:
+    """将 SymPy 表达式递归转换为 OpIR 指令"""
+    if str(expr) == "_":
+        return Value(type=None, name_hint="_")
+
+    if isinstance(expr, (Integer, int)):
+        return op_builder.build(ConstantOp, int(expr), IntType()).result
+    
+    if isinstance(expr, Rational):
+        num = op_builder.build(ConstantOp, int(expr.p), IntType()).result
+        den = op_builder.build(ConstantOp, int(expr.q), IntType()).result
+        return op_builder.build(DivOp, num, den).result
+
+    if isinstance(expr, Symbol):
+        # 从符号表中查找对应的 Induction Variable 或全局变量
+        return op_builder.lookup_symbol(str(expr), IntType())
+    
+    if isinstance(expr, Indexed):
+        # 处理 val_len[i1] 这种数组加载
+        base_name = str(expr.base)
+        indices = [translate_sympy_to_ir(idx, array_defs) for idx in expr.indices]
+        array_val = op_builder.lookup_symbol(base_name, get_array_type(array_defs[base_name]))
+        return op_builder.build(LoadOp, array_val, indices).result
+
+    # 处理算术运算
+    if expr.is_Add:
+        args = [translate_sympy_to_ir(a, array_defs) for a in expr.args]
+        res = args[0]
+        for a in args[1:]:
+            res = op_builder.build(AddOp, res, a).result
+        return res
+        # # 1. 识别并分离占位符 "_"
+        # has_placeholder = any(str(a) == "_" for a in expr.args)
+        
+        # if has_placeholder:
+        #     # 2. 提取所有非 "_" 的项到一个列表
+        #     non_placeholder_args = []
+        #     for a in expr.args:
+        #         if str(a) != "_":
+        #             non_placeholder_args.append(a)
+            
+        #     # 3. 处理没有偏移量的情况 (只有 _)
+        #     if len(non_placeholder_args) == 0:
+        #         return Value(type=None, name_hint="_")
+            
+        #     # 4. 手动处理多项相加，避免使用 Add(*...)
+        #     # 首先转换第一项
+        #     base_offset_val = translate_sympy_to_ir(non_placeholder_args[0], array_defs)
+            
+        #     # 如果有多项，逐一构建 AddOp 指令
+        #     for i in range(1, len(non_placeholder_args)):
+        #         next_val = translate_sympy_to_ir(non_placeholder_args[i], array_defs)
+        #         # 每一步相加都生成一个 IR 算子结果
+        #         base_offset_val = op_builder.build(AddOp, base_offset_val, next_val).result
+            
+        #     # 5. 标记最终的累加结果为切片起点
+        #     base_offset_val.name_hint = "slice_offset" 
+        #     return base_offset_val
+    if expr.is_Mul:
+        #> 原始 Mul 处理逻辑，但是 sympy 将 a/b 解析成 a * (b^-1)，生成的opIR中先做 1/b，结果再乘以a
+        # args = [translate_sympy_to_ir(a, array_defs) for a in expr.args]
+        # res = args[0]
+        # for a in args[1:]:
+        #     res = op_builder.build(MulOp, res, a).result
+        # return res
+        #> 修改 Mul 逻辑，a/b 直接生成 a/b
+        numerators = []
+        denominators = []
+        
+        for arg in expr.args:
+            # 检查是否是除法项: b**-1
+            if arg.is_Pow and arg.exp == -1:
+                denominators.append(arg.base)
+            # 检查是否有理数的分母项: Rational(1, 32) -> 分子1, 分母32
+            elif isinstance(arg, Rational):
+                if arg.p != 1: numerators.append(Integer(arg.p))
+                denominators.append(Integer(arg.q))
+            else:
+                numerators.append(arg)
+        
+        # 构建分子部分的 IR
+        if not numerators:
+            res_num = op_builder.build(ConstantOp, 1, IntType()).result
+        else:
+            res_num = translate_sympy_to_ir(numerators[0], array_defs)
+            for n in numerators[1:]:
+                res_num = op_builder.build(MulOp, res_num, translate_sympy_to_ir(n, array_defs)).result
+        
+        # 如果没有分母，直接返回分子的乘积
+        if not denominators:
+            return res_num
+            
+        # 构建分母部分的 IR
+        res_den = translate_sympy_to_ir(denominators[0], array_defs)
+        for d in denominators[1:]:
+            res_den = op_builder.build(MulOp, res_den, translate_sympy_to_ir(d, array_defs)).result
+            
+        # 生成最终的除法：(n1 * n2 * ...) / (d1 * d2 * ...)
+        # 这样在 GPU 上就会先算分子乘积，再除以 BLK_K，保留了精度
+        return op_builder.build(DivOp, res_num, res_den).result
+    if expr.is_Pow: # 处理除法的一部分
+        base_val = translate_sympy_to_ir(expr.base, array_defs)
+        if expr.exp == -1:
+            # 1 / base
+            one = op_builder.build(ConstantOp, 1, IntType()).result
+            return op_builder.build(DivOp, one, base_val).result
+        else:
+            exp_val = translate_sympy_to_ir(expr.exp, array_defs)
+            return op_builder.build(PowOp, base_val, exp_val).result
+        pass # 简化处理，通常处理 Mul(a, Pow(b, -1))
+    
+    # 特殊处理除法 (例如 val_len/BLK_K)
+    if expr.func.__name__ == 'Mul': # 检查是否包含 Rational 或 Pow(-1)
+        # 简单实现：如果是 a / b
+        # ... 这里可以根据 Sympy 结构进一步细化
+        pass
+    print(expr)
+    raise NotImplementedError(f"Sympy expression {expr} translation not implemented.")
+
+def collect_spatial_shapes(node: Schedule, format: Format) -> List[any]:
+    """
+    向下扫描 schedule 树，收集所有属于空间维度（X轴/ROW）的轴长度
+    """
+    shapes = []
+    curr = node
+
+    while curr is not None:
+        if isinstance(curr, (DenseAxisIterator, SparseAxisIterator)):
+            axis_obj = format.get_axis(curr.axis)
+            if axis_obj.direction == Direction.ROW:
+                shapes.append(axis_obj.length)
+            curr = curr.body
+        elif isinstance(curr, AtomicFormatOp):
+            # AtomicFormatOp 可能包含多个轴，检查每个轴
+            for axis in curr.axes:
+                axis_obj = format.get_axis(axis)
+                if axis_obj.direction == Direction.ROW:
+                    shapes.append(axis_obj.length)
+            break  # AtomicFormatOp 是叶节点，停止扫描
+        else:
+            break
+    return shapes
 
 def generate_from_sparse_axis_iterator(
     schedule: SparseAxisIterator,
     array_defs: ArrayDefCollection,
     format: Format,
-    offset_index: Value,
+    current_c_tile: Optional[Value] = None,
+    # offset_index: Value,
     parent_schedule: Optional[Schedule] = None,
-) -> None:
-    soff = op_builder.lookup_symbol(
-        schedule.offset_array, get_array_type(array_defs[schedule.offset_array])
+) -> Value:
+    #> 1. 循环边界计算[l, r)
+    zero = op_builder.build(ConstantOp, 0, IntType(), name_hint="zero").result
+    upper_bound = translate_sympy_to_ir(schedule.splen, array_defs)
+    # soff = op_builder.lookup_symbol(
+    #     schedule.offset_array, get_array_type(array_defs[schedule.offset_array])
+    # )
+
+    # l, r = op_builder.build(
+    #     SparseOffsetLoadOp, "G2R", [soff, offset_index], name_hint=["l", "r"]
+    # ).results
+
+    #> 2. 确定是否需要规约 C （当前轴是否在规约轴方向，通过direction判断
+    is_reduction = format.get_axis(schedule.axis).direction == Direction.COL
+
+    #> 3. 如果是规约轴，且没有传入 C_tile，需要初始化（例如最外层的 Y 循环）
+    iter_args = {}
+    if is_reduction:
+        if current_c_tile is None:
+            spatial_shapes = collect_spatial_shapes(schedule.body, format)
+            assert len(spatial_shapes) > 0, "At least one spatial shape should be collected for reduction axis"
+            c_def = array_defs["C_val"] # 获取 C 数组定义的末尾维度
+            n_length = c_def.dims[-1]
+            
+            tile_shape = spatial_shapes + [n_length] # 组合成最终形状 [BLK_M_I, N]
+            
+            current_c_tile = op_builder.build(ConstantOp, 0, ArrayType(tile_shape, FloatType()), name_hint="zero_tile").result
+    #     iter_args["C_tile_in"] = current_c_tile
+    # assert current_c_tile is not None, "current_c_tile should be initialized at this point"
+    iter_args = {"C_in": current_c_tile} if current_c_tile else {}
+    print("(debug)generate_from_sparse_axis_iterator: iter_args = ", iter_args)
+    for_loop_op = op_builder.build(
+        ForLoopOp,
+        induction_var=schedule.induction_var,
+        range=(zero, upper_bound),
+        iter_args=iter_args,
+        name_hint=f"loop_{schedule.induction_var}" if iter_args else None,
     )
 
-    l, r = op_builder.build(
-        SparseOffsetLoadOp, "G2R", [soff, offset_index], name_hint=["l", "r"]
-    ).results
+    with op_builder.op_scope(for_loop_op):
+        op_builder.add_symbol(schedule.induction_var, for_loop_op.get_induction_var())
+        
+        # 取得传入循环内部的 C Tile 引用
+        # next_c_tile = for_loop_op.get_iter_arg(0) if is_reduction else current_c_tile
+        next_c_tile = for_loop_op.get_iter_arg(0) if iter_args else None # TODO WHY
 
-    if isinstance(schedule.body, AtomicFormatOp):
-        C_val_tile = op_builder.build(
-            ConstantOp,
-            0,
-            ArrayType(
-                [format.get_axis(axis).length for axis in schedule.body.axes],
-                FloatType(),
-            ),
-            name_hint="zero_tile",
+        # 5. 递归生成 Body
+        # res_val = None
+        # if isinstance(schedule.body, AtomicFormatOp):
+        #     res_val = generate_from_atomic_format_op(schedule.body, array_defs, format, next_c_tile)
+        # elif isinstance(schedule.body, DenseAxisIterator):
+        #     res_val = generate_from_dense_axis_iterator(schedule.body, array_defs, format, next_c_tile, schedule)
+        # elif isinstance(schedule.body, SparseAxisIterator):
+        #     res_val = generate_from_sparse_axis_iterator(schedule.body, array_defs, format, next_c_tile, schedule)
+        # elif isinstance(schedule.body, SparseAxisSlicer):
+        #     raise NotImplementedError(
+        #         "Sparse axis slicer as body of sparse axis iterator is not implemented"
+        #     )
+        updated_tile = generate_dispatch(schedule.body, array_defs, format, next_c_tile, schedule)
+        # 6. 如果是归约循环，必须返回更新后的 Tile
+        if iter_args:
+            op_builder.build(LoopResultOp, updated_tile)
+    #! 原来是这样写的：
+    # # 7. 循环结束后的写回逻辑
+    # # 如果是归约循环且处于某种边界（例如写回全局内存），调用 StoreOp
+    # if is_reduction and not isinstance(parent_schedule, (SparseAxisIterator, DenseAxisIterator)):
+    #     # 这里的判断逻辑可以根据 parent_schedule 是否也是 Y 轴来决定是写回全局还是交给上一层
+    #     op_builder.build(CValStoreOp, operands=[for_loop_op.result])
+    #! 修改成这样了，为什么？
+    # 5. 顶层写回逻辑
+    # 如果 parent_schedule 不是迭代器，说明已经回到最外层，执行最终 Store
+    # if current_c_tile is not None and not isinstance(parent_schedule, (DenseAxisIterator, SparseAxisIterator)):
+    #     op_builder.build(CValStoreOp, mem="R2S", operands=[for_loop_op.result])
+    #TODO Sparse 写回逻辑
+    # 只有规约轴会产生累加结果
+    if is_reduction and for_loop_op.num_results > 0:
+        updated_c_tile = for_loop_op.get_results()[0]
+
+        # 确定是否写回：如果父节点不是规约轴，说明这一层的累加已经完成了
+        parent_is_reduction = (
+            isinstance(parent_schedule, (DenseAxisIterator, SparseAxisIterator)) and 
+            format.get_axis(parent_schedule.axis).direction == Direction.COL
         )
 
-        for_loop_op = op_builder.build(
-            ForLoopOp,
-            induction_var=schedule.induction_var,
-            range=(l, r),
-            iter_args={
-                "C_val_tile": C_val_tile.get_result(),
-            },
-            name_hint=["C_val_tile_result"],
-        )
+        if not parent_is_reduction:
+            # 执行物理写回
+            indices = []
+            if isinstance(parent_schedule, (DenseAxisIterator, SparseAxisIterator)):
+                indices.append(op_builder.lookup_symbol(parent_schedule.induction_var))
 
-        with op_builder.op_scope(for_loop_op):
-            op_builder.add_symbol(
-                schedule.induction_var, for_loop_op.get_induction_var()
+            op_builder.build(
+                CValStoreOp, 
+                mem="R2S", 
+                operands=[updated_c_tile] + indices # 将累加完的 Tile 存入 C[i11]
             )
-            op_result = generate_from_atomic_format_op(
-                schedule.body, array_defs, format, for_loop_op.get_iter_arg(0)
-            )
-            op_builder.build(LoopResultOp, op_result.defining_op)
-    elif isinstance(schedule.body, DenseAxisIterator):
-        raise NotImplementedError(
-            "Dense axis iterator as body of sparse axis iterator is not implemented"
-        )
-    elif isinstance(schedule.body, SparseAxisIterator):
-        raise NotImplementedError(
-            "Sparse axis iterator as body of sparse axis iterator is not implemented"
-        )
-    elif isinstance(schedule.body, SparseAxisSlicer):
-        raise NotImplementedError(
-            "Sparse axis slicer as body of sparse axis iterator is not implemented"
-        )
-    else:
-        raise ValueError(f"Unsupported schedule type: {type(schedule.body)}")
 
-    op_builder.build(
-        CValStoreOp,
-        mem="R2S",
-        operands=[for_loop_op.result],
-    )
+    # return for_loop_op.result
+    if iter_args:
+        return for_loop_op.result
+    return None
+
+
+    # if isinstance(schedule.body, AtomicFormatOp):
+    #     C_val_tile = op_builder.build(
+    #         ConstantOp,
+    #         0,
+    #         ArrayType(
+    #             [format.get_axis(axis).length for axis in schedule.body.axes],
+    #             FloatType(),
+    #         ),
+    #         name_hint="zero_tile",
+    #     )
+
+    #     for_loop_op = op_builder.build(
+    #         ForLoopOp,
+    #         induction_var=schedule.induction_var,
+    #         range=(l, r),
+    #         iter_args={
+    #             "C_val_tile": C_val_tile.get_result(),
+    #         },
+    #         name_hint=["C_val_tile_result"],
+    #     )
+
+    #     with op_builder.op_scope(for_loop_op):
+    #         op_builder.add_symbol(
+    #             schedule.induction_var, for_loop_op.get_induction_var()
+    #         )
+    #         op_result = generate_from_atomic_format_op(
+    #             schedule.body, array_defs, format, for_loop_op.get_iter_arg(0)
+    #         )
+    #         op_builder.build(LoopResultOp, op_result.defining_op)
+    # elif isinstance(schedule.body, DenseAxisIterator):
+    #     raise NotImplementedError(
+    #         "Dense axis iterator as body of sparse axis iterator is not implemented"
+    #     )
+    # elif isinstance(schedule.body, SparseAxisIterator):
+    #     raise NotImplementedError(
+    #         "Sparse axis iterator as body of sparse axis iterator is not implemented"
+    #     )
+    # elif isinstance(schedule.body, SparseAxisSlicer):
+    #     raise NotImplementedError(
+    #         "Sparse axis slicer as body of sparse axis iterator is not implemented"
+    #     )
+    # else:
+    #     raise ValueError(f"Unsupported schedule type: {type(schedule.body)}")
+
+    # op_builder.build(
+    #     CValStoreOp,
+    #     mem="R2S",
+    #     operands=[for_loop_op.result],
+    # )
 
 
 def generate_from_sparse_axis_slicer(
@@ -257,6 +584,12 @@ def build_array_ref_indices(
                 format,
                 name_hint=f"{name_hint}_sidx_{i}" if name_hint else None,
             )
+        elif isinstance(index, Expr):
+            index_result = translate_sympy_to_ir(index, array_defs)
+        #> 下划线参与的数据访存中，如果出现下划线，就会产生 %_ = external @_: int
+        elif index == "_":
+            # 直接创建一个裸 Value，不让 op_builder 生成任何 Op
+            index_result = Value(type=IntType(), name_hint="_")
         else:
             index_result = op_builder.lookup_symbol(
                 index,
@@ -283,6 +616,8 @@ def build_array_ref(
         indices,
         name_hint=name_hint,
     )
+
+    print(f"(debug)build_array_ref: array={array}, indices={indices}, result={array_ref_op.result}")
     return array_ref_op.result
 
 
@@ -298,8 +633,14 @@ def generate_from_coo_atomic_format_op(
     assert isinstance(schedule.args[1], ArrayRef)
     assert isinstance(schedule.args[2], ArrayRef)
     assert isinstance(schedule.args[3], ArrayRef)
+    print("Generating COO atomic format op with args: ", schedule.args)
 
-    off_array = op_builder.lookup_symbol(
+    #> ori off_array
+    # off_array = op_builder.lookup_symbol(
+    #     schedule.args[0].array, get_array_type(array_defs[schedule.args[0].array])
+    # )
+    #> current len_array
+    len_array = op_builder.lookup_symbol(
         schedule.args[0].array, get_array_type(array_defs[schedule.args[0].array])
     )
     idx_array = op_builder.lookup_symbol(
@@ -315,29 +656,80 @@ def generate_from_coo_atomic_format_op(
 
     assert isinstance(B_val_tile.type, ArrayType)
     assert isinstance(C_val_tile.type, ArrayType)
+    #> origin coo processing logic
+    # ll, rr = op_builder.build(
+    #     CooAtomicFormatLoadOffOp,
+    #     mem="G2R",
+    #     operands=[
+    #         off_array,
+    #         *build_array_ref_indices(schedule.args[0], array_defs, format),
+    #     ],
+    #     name_hint=["ll", "rr"],
+    # ).results
 
-    ll, rr = op_builder.build(
-        CooAtomicFormatLoadOffOp,
-        mem="G2R",
-        operands=[
-            off_array,
-            *build_array_ref_indices(schedule.args[0], array_defs, format),
-        ],
-        name_hint=["ll", "rr"],
-    ).results
+    # print(C_val_tile)
+    # print(B_val_tile)
 
-    coo_idx, coo_range = op_builder.build(
+    # coo_idx, coo_range = op_builder.build(
+    #     CooAtomicFormatLoadIdxOp,
+    #     mem="G2R",
+    #     operands=[
+    #         idx_array,
+    #         *build_array_ref_indices(schedule.args[1], array_defs, format),
+    #         ll,
+    #         rr,
+    #     ],
+    #     out_shape=C_val_tile.type.dims[0] * B_val_tile.type.dims[0],  # type: ignore
+    #     name_hint=["coo_idx", "coo_range"],
+    # ).results
+
+    # coo_val = op_builder.build(
+    #     CooAtomicFormatLoadValOp,
+    #     mem="G2S",
+    #     operands=[
+    #         val_array,
+    #         *build_array_ref_indices(schedule.args[2], array_defs, format),
+    #         ll,
+    #         rr,
+    #     ],
+    #     out_shape=C_val_tile.type.dims[0] * B_val_tile.type.dims[0],  # type: ignore
+    #     name_hint="coo_val",
+    # ).result
+
+    # A_val_tile = op_builder.build(
+    #     CooAtomicValRestoreOp,
+    #     mem="S2R",
+    #     operands=[
+    #         coo_val,
+    #         coo_idx,
+    #         coo_range,
+    #     ],
+    #     out_shape=(C_val_tile.type.dims[0], B_val_tile.type.dims[0]),
+    #     name_hint="A_val_tile",
+    # ).result
+
+    # C_val_tile = op_builder.build(
+    #     MmaOp, "R2R", [A_val_tile, B_val_tile, C_val_tile], name_hint="C_val_tile"
+    # ).result
+    #> current coo processing logic. using len array instead of off array
+    coo_len = op_builder.build(
+        LoadOp,
+        len_array,
+        build_array_ref_indices(schedule.args[0], array_defs, format),
+        name_hint="coo_len"
+    ).result
+
+    idx_tile_shape = C_val_tile.type.dims[0] * B_val_tile.type.dims[0]
+    coo_idx = op_builder.build(
         CooAtomicFormatLoadIdxOp,
         mem="G2R",
         operands=[
             idx_array,
             *build_array_ref_indices(schedule.args[1], array_defs, format),
-            ll,
-            rr,
         ],
-        out_shape=C_val_tile.type.dims[0] * B_val_tile.type.dims[0],  # type: ignore
-        name_hint=["coo_idx", "coo_range"],
-    ).results
+        out_shape=idx_tile_shape,
+        name_hint="coo_idx",
+    ).result
 
     coo_val = op_builder.build(
         CooAtomicFormatLoadValOp,
@@ -345,10 +737,8 @@ def generate_from_coo_atomic_format_op(
         operands=[
             val_array,
             *build_array_ref_indices(schedule.args[2], array_defs, format),
-            ll,
-            rr,
         ],
-        out_shape=C_val_tile.type.dims[0] * B_val_tile.type.dims[0],  # type: ignore
+        out_shape=idx_tile_shape,
         name_hint="coo_val",
     ).result
 
@@ -358,17 +748,21 @@ def generate_from_coo_atomic_format_op(
         operands=[
             coo_val,
             coo_idx,
-            coo_range,
+            coo_len, # 这里直接传入 coo_len
         ],
         out_shape=(C_val_tile.type.dims[0], B_val_tile.type.dims[0]),
         name_hint="A_val_tile",
     ).result
 
-    C_val_tile = op_builder.build(
-        MmaOp, "R2R", [A_val_tile, B_val_tile, C_val_tile], name_hint="C_val_tile"
+    C_val_tile_updated = op_builder.build(
+        MmaOp, 
+        "R2R", 
+        [A_val_tile, B_val_tile, C_val_tile], 
+        name_hint="C_val_tile"
     ).result
 
-    return C_val_tile
+
+    return C_val_tile_updated
 
 
 def generate_from_mco_atomic_format_op(
@@ -377,7 +771,80 @@ def generate_from_mco_atomic_format_op(
     format: Format,
     C_val_tile: Value,
 ) -> OpResult:
-    raise NotImplementedError("MCO atomic format op is not implemented")
+    assert len(schedule.args) == 4
+    assert isinstance(schedule.args[0], ArrayRef)
+    assert isinstance(schedule.args[1], ArrayRef)
+    assert isinstance(schedule.args[2], ArrayRef)
+    assert isinstance(schedule.args[3], ArrayRef)
+    print("Generating MCO atomic format op with args: ", schedule.args)
+    print("(debug)schedule.axes_len", schedule.axes_len)
+    print("(debug)schedule.axes", schedule.axes)
+    len_array = op_builder.lookup_symbol(
+        schedule.args[0].array, get_array_type(array_defs[schedule.args[0].array])
+    )
+    mask_array = op_builder.lookup_symbol(
+        schedule.args[1].array, get_array_type(array_defs[schedule.args[1].array])
+    )
+    val_array = op_builder.lookup_symbol(
+        schedule.args[2].array, get_array_type(array_defs[schedule.args[2].array])
+    )
+
+    B_val_tile = build_array_ref(
+        schedule.args[3], array_defs, format, name_hint="B_val_tile"
+    )   
+
+    assert isinstance(B_val_tile.type, ArrayType)
+    assert isinstance(C_val_tile.type, ArrayType)
+
+    mco_len = op_builder.build(
+        LoadOp,
+        len_array,
+        build_array_ref_indices(schedule.args[0], array_defs, format),
+        name_hint="mco_len"
+    ).result
+
+    mco_mask = op_builder.build(
+        McoAtomicFormatLoadMaskOp,
+        mem="G2R",
+        operands=[
+            mask_array,
+            *build_array_ref_indices(schedule.args[1], array_defs, format),
+        ],
+        name_hint="mco_mask"
+    ).result
+
+    mco_val = op_builder.build(
+        McoAtomicFormatLoadValOp,
+        mem="G2S",
+        operands=[
+            val_array,
+            *build_array_ref_indices(schedule.args[2], array_defs, format),
+        ],
+        out_shape=C_val_tile.type.dims[0] * B_val_tile.type.dims[0],  # type: ignore
+        name_hint="mco_val",
+    ).result
+
+    mco_val_restore = op_builder.build(
+        McoAtomicValRestoreOp,
+        mem="S2R",
+        operands=[
+            mco_val,
+            mco_mask,
+            mco_len,
+        ],
+        out_shape=(C_val_tile.type.dims[0], B_val_tile.type.dims[0]),
+        name_hint="mco_val_restore",
+    ).result
+
+    C_val_tile_updated = op_builder.build(
+        MmaOp, 
+        "R2R", 
+        [mco_val_restore, B_val_tile, C_val_tile], 
+        name_hint="C_val_tile"
+    ).result
+
+    return C_val_tile_updated
+    # raise NotImplementedError("MCO atomic format op is not implemented")
 
 
 def generate_from_dense_atomic_format_op(
@@ -386,4 +853,34 @@ def generate_from_dense_atomic_format_op(
     format: Format,
     C_val_tile: Value,
 ) -> OpResult:
-    raise NotImplementedError("Dense atomic format op is not implemented")
+    assert len(schedule.args) == 2
+    assert isinstance(schedule.args[0], ArrayRef)
+    assert isinstance(schedule.args[1], ArrayRef)
+    print("Generating Dense atomic format op with args: ", schedule.args)
+
+    val_array = op_builder.lookup_symbol(
+        schedule.args[0].array, get_array_type(array_defs[schedule.args[0].array])
+    )
+
+    B_val_tile = build_array_ref(
+        schedule.args[1], array_defs, format, name_hint="B_val_tile"
+    )
+
+    assert isinstance(B_val_tile.type, ArrayType)
+    assert isinstance(C_val_tile.type, ArrayType)
+
+    val_tile = op_builder.build(
+        LoadOp,
+        val_array,
+        build_array_ref_indices(schedule.args[0], array_defs, format), name_hint="val_tile"
+    )
+
+    C_val_tile_updated = op_builder.build(
+        MmaOp, 
+        "R2R", 
+        [val_tile.result, B_val_tile, C_val_tile], 
+        name_hint="C_val_tile"
+    ).result
+
+    return C_val_tile_updated  
+    # raise NotImplementedError("Dense atomic format op is not implemented")

@@ -94,7 +94,22 @@ class OpBuilder:
         op: Op,
         name_hint: Optional[str | Sequence[str]] = None,
     ) -> LoopResultOp: ...
-
+    @overload
+    def build(
+        self,
+        op_type: type[AddOp | MulOp | DivOp | PowOp],
+        lhs: Value,
+        rhs: Value,
+        name_hint: Optional[str | Sequence[str]] = None,
+    ) -> ArithmeticOp: ...
+    @overload
+    def build(
+        self, 
+        op_type: type[LoadOp],
+        array: Value, 
+        indices: Sequence[Value],
+        name_hint: Optional[str | Sequence[str]] = None
+    ) -> LoadOp: ...
     @overload
     def build(
         self,
@@ -133,6 +148,10 @@ class OpBuilder:
             raise ValueError("No symbol table available: not in a block. ")
 
     def lookup_symbol(self, name: str, type: Optional[Type] = None) -> Value:
+        #! DEBUG begin
+        # if name == "_":
+        #     assert 0
+        #! DEBUG end
         if (
             self.current_block is not None
             and (value := self.current_block.symbol_table[name]) is not None
@@ -366,13 +385,53 @@ class NoOp(Op):
         return "nop"
 
 
+# class ArrayRefOp(Op):
+#     def __init__(self, array: Value, indices: Sequence[Value]):
+#         assert isinstance(array.type, ArrayType)
+#         array_dims = array.type.dims[len(indices) :]
+#         for index in reversed(indices):
+#             if isinstance(index.type, ArrayType):
+#                 array_dims.insert(0, index.type.dims[0])
+#         super().__init__(
+#             operands=[array] + list(indices),
+#             results=[
+#                 OpResult(
+#                     type=ArrayType(array_dims, array.type.datatype),
+#                     defining_op=self,
+#                     result_idx_in_owner=0,
+#                 ),
+#             ],
+#         )
+
+#     @property
+#     def name(self) -> str:
+#         return "array_ref"
+
 class ArrayRefOp(Op):
     def __init__(self, array: Value, indices: Sequence[Value]):
         assert isinstance(array.type, ArrayType)
-        array_dims = array.type.dims[len(indices) :]
-        for index in reversed(indices):
+        
+        old_dims = array.type.dims
+        new_base_dims = []
+        extra_dims = []
+
+        # 1. 遍历 indices，对照原始维度进行判断
+        for i, index in enumerate(indices):
+            # 如果索引是 "_" (下划线占位符)，则保留该维度
+            # 假设你的 "_" 被包装成了某种特殊的 Value 或其 name_hint 是 "_"
+            if getattr(index, "name_hint", None) == "_":
+                new_base_dims.append(old_dims[i])
+            
+            # 如果索引本身是带维度的数组（高级索引逻辑）
             if isinstance(index.type, ArrayType):
-                array_dims.insert(0, index.type.dims[0])
+                extra_dims.extend(index.type.dims)
+
+        # 2. 加上原数组中完全没有被索引到的剩余维度
+        new_base_dims.extend(old_dims[len(indices):])
+
+        # 最终形状 = 嵌套带来的维度 + 保留/剩余的维度
+        array_dims = extra_dims + new_base_dims
+        
         super().__init__(
             operands=[array] + list(indices),
             results=[
@@ -388,6 +447,67 @@ class ArrayRefOp(Op):
     def name(self) -> str:
         return "array_ref"
 
+
+class LoadOp(Op):
+    """
+    从数组或 ArrayRef 的结果中加载标量值。
+    """
+    def __init__(self, array_or_ref: Value, indices: Sequence[Value] = []):
+        # 这里的 array_or_ref 可能是 ExternalSymbol(ArrayType) 或者是 ArrayRefOp 的结果
+        assert isinstance(array_or_ref.type, ArrayType)
+
+        original_dims = array_or_ref.type.dims
+        preserved_dims = []
+
+
+        # 遍历索引，决定哪些维度被消除，哪些被保留
+        for i, idx in enumerate(indices):
+            # 如果是占位符 "_"，则保留该维度
+            if getattr(idx, "name_hint", None) == "_":
+                preserved_dims.append(original_dims[i])
+            # 如果是普通索引（如 %i13），该维度被消除（不加入 preserved_dims）
+            else:
+                pass
+        
+        # 如果索引没覆盖完数组的所有维度，剩下的维度也要保留
+        if len(indices) < len(original_dims):
+            preserved_dims.extend(original_dims[len(indices):])
+
+        # 确定最终返回类型
+        if len(preserved_dims) == 0:
+            # 所有维度都被索引了，返回标量
+            result_type = array_or_ref.type.datatype
+        else:
+            # 还有维度保留，返回子数组（Tile）
+            result_type = ArrayType(preserved_dims, array_or_ref.type.datatype)
+
+        super().__init__(
+            operands=[array_or_ref] + list(indices),
+            results=[
+                OpResult(
+                    type=result_type,
+                    defining_op=self,
+                    result_idx_in_owner=0
+                )
+            ]
+        )
+        
+        # 如果提供了 indices，我们可以先内部构建一个隐式的 ArrayRef 逻辑，
+        # 或者直接作为 LoadOp 的操作数。这里采用直接作为操作数。
+        # super().__init__(
+        #     operands=[array_or_ref] + list(indices),
+        #     results=[
+        #         OpResult(
+        #             type=array_or_ref.type.datatype, # 返回数组的底层数据类型 (Int/Float)
+        #             defining_op=self,
+        #             result_idx_in_owner=0
+        #         )
+        #     ]
+        # )
+
+    @property
+    def name(self) -> str:
+        return "load"
 
 class DeviceOp(Op):
     """
@@ -503,17 +623,63 @@ class ForLoopOp(BlockOp):
     def get_iter_arg(self, idx: int) -> BlockArgument:
         return self.body.args[idx + 1]
 
+#> original LoopResultOp, accept value.defining_op
+# class LoopResultOp(Op):
+#     def __init__(self, op: Op):
+#         super().__init__(
+#             operands=op.results,
+#             results=[],
+#         )
 
+#     @property
+#     def name(self) -> str:
+#         return "loop_result"
+#> current LoopResultOp, accept the value directly
 class LoopResultOp(Op):
-    def __init__(self, op: Op):
+    def __init__(self, value: Value):
+        print("(debug) LoopResultOp value", value)
         super().__init__(
-            operands=op.results,
+            operands=[value],
             results=[],
         )
 
     @property
     def name(self) -> str:
         return "loop_result"
+
+
+
+class ArithmeticOp(Op):
+    """算术运算基类"""
+    def __init__(self, lhs: Value, rhs: Value):
+        # 推导结果类型：如果有一个是 Float，结果通常是 Float
+        res_type = FloatType() if isinstance(lhs.type, FloatType) or isinstance(rhs.type, FloatType) else IntType()
+        super().__init__(
+            operands=[lhs, rhs],
+            results=[
+                OpResult(type=res_type, defining_op=self, result_idx_in_owner=0),
+            ]
+        )
+
+class AddOp(ArithmeticOp):
+    @property
+    def name(self) -> str:
+        return "add"
+
+class MulOp(ArithmeticOp):
+    @property
+    def name(self) -> str:
+        return "mul"
+    
+class DivOp(ArithmeticOp): 
+    @property
+    def name(self) -> str:
+        return "div"
+    
+class PowOp(ArithmeticOp):
+    @property
+    def name(self) -> str:
+        return "pow"
 
 
 class SymbolTable:
