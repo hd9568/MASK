@@ -15,6 +15,7 @@ from .op_ir import (
     DivOp,
     PowOp,
     LoadOp,
+    ArangeOp,
     Type,
     Value,
     OpOperand,
@@ -274,6 +275,17 @@ class Printer:
             f"load ({array}, indices=([{', '.join(indices)}]))", indent_level
         )
 
+    def dump_arange_op(self, op: ArangeOp, indent_level: int = 0) -> str:
+        # 1. 提取起始偏移的操作数（通常是第一个 operand）
+        start = self.dump_op_operand(op.operands[0], with_type=False)
+        
+        # 2. 从结果的 ArrayType 中提取长度 (length)
+        # 假设 ArangeOp 的结果类型是 ArrayType([length], IntType())
+        length = op.result.type.dims[0]
+        
+        # 3. 格式化输出：arange %start, length=BLK_K
+        return self._indent_lines(f"arange ({start}, length={length})", indent_level)
+
     def dump_block(self, block: Block, indent_level: int = 0) -> str:
         ops_str = "\n".join(
             [self._indent_lines(self.dump_op(op), 1) for op in block.ops]
@@ -352,6 +364,8 @@ class Printer:
             op_str = self.dump_pow_op(op, 0)
         elif isinstance(op, LoadOp):
             op_str = self.dump_load_op(op, 0)
+        elif isinstance(op, ArangeOp):
+            op_str = self.dump_arange_op(op, 0)
         else:
             raise ValueError(f"Unknown op: {op}")
 

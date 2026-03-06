@@ -32,6 +32,7 @@ from sparsene.op_gen.opir.op_ir import (
     MulOp,
     DivOp,
     PowOp,
+    ArangeOp,
     op_builder,
     Type,
     ArrayType,
@@ -252,38 +253,29 @@ def translate_sympy_to_ir(expr: Expr, array_defs: ArrayDefCollection) -> Value:
 
     # 处理算术运算
     if expr.is_Add:
-        args = [translate_sympy_to_ir(a, array_defs) for a in expr.args]
-        res = args[0]
-        for a in args[1:]:
-            res = op_builder.build(AddOp, res, a).result
-        return res
-        # # 1. 识别并分离占位符 "_"
-        # has_placeholder = any(str(a) == "_" for a in expr.args)
-        
-        # if has_placeholder:
-        #     # 2. 提取所有非 "_" 的项到一个列表
-        #     non_placeholder_args = []
-        #     for a in expr.args:
-        #         if str(a) != "_":
-        #             non_placeholder_args.append(a)
+        # args = [translate_sympy_to_ir(a, array_defs) for a in expr.args]
+        # res = args[0]
+        # for a in args[1:]:
+        #     res = op_builder.build(AddOp, res, a).result
+        # return res
+        # 1. 检查是否存在占位符 "_"
+        placeholder_args = [a for a in expr.args if str(a) == "_"]
+        if placeholder_args:
+            # 2. 提取所有非 "_" 的数值项
+            non_placeholder_args = [a for a in expr.args if str(a) != "_"]
             
-        #     # 3. 处理没有偏移量的情况 (只有 _)
-        #     if len(non_placeholder_args) == 0:
-        #         return Value(type=None, name_hint="_")
+            if len(non_placeholder_args) == 0:
+                return Value(type=IntType(), name_hint="_")
             
-        #     # 4. 手动处理多项相加，避免使用 Add(*...)
-        #     # 首先转换第一项
-        #     base_offset_val = translate_sympy_to_ir(non_placeholder_args[0], array_defs)
+            # 3. 递归生成数值偏移的 IR（避免解包，逐个相加）
+            base_offset_val = translate_sympy_to_ir(non_placeholder_args[0], array_defs)
+            for i in range(1, len(non_placeholder_args)):
+                next_val = translate_sympy_to_ir(non_placeholder_args[i], array_defs)
+                base_offset_val = op_builder.build(AddOp, base_offset_val, next_val).result
             
-        #     # 如果有多项，逐一构建 AddOp 指令
-        #     for i in range(1, len(non_placeholder_args)):
-        #         next_val = translate_sympy_to_ir(non_placeholder_args[i], array_defs)
-        #         # 每一步相加都生成一个 IR 算子结果
-        #         base_offset_val = op_builder.build(AddOp, base_offset_val, next_val).result
-            
-        #     # 5. 标记最终的累加结果为切片起点
-        #     base_offset_val.name_hint = "slice_offset" 
-        #     return base_offset_val
+            # 4. 关键标记：这是一个切片的起始偏移量
+            base_offset_val.name_hint = "slice_offset"
+            return base_offset_val
     if expr.is_Mul:
         #> 原始 Mul 处理逻辑，但是 sympy 将 a/b 解析成 a * (b^-1)，生成的opIR中先做 1/b，结果再乘以a
         # args = [translate_sympy_to_ir(a, array_defs) for a in expr.args]
@@ -422,18 +414,6 @@ def generate_from_sparse_axis_iterator(
         # next_c_tile = for_loop_op.get_iter_arg(0) if is_reduction else current_c_tile
         next_c_tile = for_loop_op.get_iter_arg(0) if iter_args else None # TODO WHY
 
-        # 5. 递归生成 Body
-        # res_val = None
-        # if isinstance(schedule.body, AtomicFormatOp):
-        #     res_val = generate_from_atomic_format_op(schedule.body, array_defs, format, next_c_tile)
-        # elif isinstance(schedule.body, DenseAxisIterator):
-        #     res_val = generate_from_dense_axis_iterator(schedule.body, array_defs, format, next_c_tile, schedule)
-        # elif isinstance(schedule.body, SparseAxisIterator):
-        #     res_val = generate_from_sparse_axis_iterator(schedule.body, array_defs, format, next_c_tile, schedule)
-        # elif isinstance(schedule.body, SparseAxisSlicer):
-        #     raise NotImplementedError(
-        #         "Sparse axis slicer as body of sparse axis iterator is not implemented"
-        #     )
         updated_tile = generate_dispatch(schedule.body, array_defs, format, next_c_tile, schedule)
         # 6. 如果是归约循环，必须返回更新后的 Tile
         if iter_args:
@@ -574,8 +554,12 @@ def build_array_ref_indices(
     array_defs: ArrayDefCollection,
     format: Format,
     name_hint: Optional[str] = None,
+    tile_context: Optional[Dict[Direction, Expr]] = None,
 ) -> Sequence[Value]:
     indices: List[Value] = []
+
+    # 获得数组定义，确定每一维方向
+    adef = array_defs[array_ref.array]
     for i, index in enumerate(array_ref.indices):
         if isinstance(index, ArrayRef):
             index_result = build_array_ref(
@@ -595,6 +579,19 @@ def build_array_ref_indices(
                 index,
                 IntType(),
             )
+
+        # 将切片语义转换为Arange向量
+        hint = getattr(index_result, "name_hint", None)
+        if hint == "slice_offset":
+            axis_name = adef.axes[i]
+            if axis_name == "Y":
+                axis_dir = Direction.COL
+            else:
+                axis_dir = format.get_axis(axis_name).direction
+            length = tile_context.get(axis_dir) if tile_context else None
+            if length:
+                index_result = op_builder.build(ArangeOp, index_result, length).result
+        
         indices.append(index_result)
     return indices
 
@@ -604,10 +601,11 @@ def build_array_ref(
     array_defs: ArrayDefCollection,
     format: Format,
     name_hint: Optional[str] = None,
+    tile_context: Optional[Dict[Direction, Expr]] = None,
 ) -> OpResult:
     array = build_array_def(array_defs[array_ref.array])
     indices = build_array_ref_indices(
-        array_ref, array_defs, format, name_hint=name_hint
+        array_ref, array_defs, format, name_hint=name_hint, tile_context=tile_context
     )
 
     array_ref_op = op_builder.build(
@@ -779,6 +777,12 @@ def generate_from_mco_atomic_format_op(
     print("Generating MCO atomic format op with args: ", schedule.args)
     print("(debug)schedule.axes_len", schedule.axes_len)
     print("(debug)schedule.axes", schedule.axes)
+
+    tile_context = {}
+    for axis_name, axis_len in zip(schedule.axes, schedule.axes_len):
+        axis_dir = format.get_axis(axis_name).direction
+        tile_context[axis_dir] = axis_len
+
     len_array = op_builder.lookup_symbol(
         schedule.args[0].array, get_array_type(array_defs[schedule.args[0].array])
     )
@@ -790,7 +794,8 @@ def generate_from_mco_atomic_format_op(
     )
 
     B_val_tile = build_array_ref(
-        schedule.args[3], array_defs, format, name_hint="B_val_tile"
+        schedule.args[3], array_defs, format, name_hint="B_val_tile",
+        tile_context=tile_context
     )   
 
     assert isinstance(B_val_tile.type, ArrayType)

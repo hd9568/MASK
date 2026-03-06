@@ -410,7 +410,7 @@ class NoOp(Op):
 class ArrayRefOp(Op):
     def __init__(self, array: Value, indices: Sequence[Value]):
         assert isinstance(array.type, ArrayType)
-        
+
         old_dims = array.type.dims
         new_base_dims = []
         extra_dims = []
@@ -508,6 +508,18 @@ class LoadOp(Op):
     @property
     def name(self) -> str:
         return "load"
+
+class ArangeOp(Op):
+    def __init__(self, start: Value, length: Expr, name_hint = None):
+        res_type = ArrayType([length], IntType())
+        super().__init__(
+            operands=[start],
+            results=[OpResult(type=res_type, defining_op=self, result_idx_in_owner=0, name_hint=name_hint)]
+        )
+    
+    @property
+    def name(self) -> str:  
+        return "arange"
 
 class DeviceOp(Op):
     """
