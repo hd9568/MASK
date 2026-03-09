@@ -143,17 +143,17 @@ def generate_from_dense_axis_iterator(
         name_hint="num_row_win",
     ).result
 
-    # print("(debug)dense axis iterator: r = ", format.get_axis(schedule.axis).length)
+    is_reduction = format.get_axis(schedule.axis).direction == Direction.COL
 
     #> 空间轴切片（空间轴就是 Direction.ROW，与空间轴相对的是规约轴）
-    active_tile = current_c_tile
-    is_reduction = format.get_axis(schedule.axis).direction == Direction.COL
-    print(f"(debug)generate_from_dense_axis_iterator: axis={schedule.axis}, is_reduction={is_reduction}, current_c_tile={current_c_tile}")
-    print(f"(debug)schedule.induction_var: {schedule.induction_var}")
+    active_tile = current_c_tile    
     
+    # 1. 确定当前循环的初始 C Tile
+    # 如果是顶层空间轴且没有输入，则直接使用全局 C_val 定义（作为逻辑上的大 Tile）
+    if not is_reduction and current_c_tile is None and parent_schedule is None:
+        current_c_tile = op_builder.lookup_symbol("C_val")
 
-    #> 所有循环都要考虑传递C以及支持SSA规约
-    iter_args = {"C_tile_in": current_c_tile} if current_c_tile else {}
+    iter_args = {"C_tile_io": current_c_tile} if current_c_tile else {}
 
     for_loop_op = op_builder.build(
         ForLoopOp,
@@ -162,69 +162,85 @@ def generate_from_dense_axis_iterator(
         iter_args=iter_args,
     )
 
+    # with op_builder.op_scope(for_loop_op):
+    #     op_builder.add_symbol(schedule.induction_var, for_loop_op.get_induction_var())
+        
+    #     if not is_reduction and active_tile is not None:
+    #         # 如果当前的轴不是规约轴，并且传入了一个c_tile
+    #         # 需要从传入的c_tile中切出一块给子循环
+    #         # 比如[BLK_M, N] -> [BLK_M_I, N]
+    #         active_tile = op_builder.build(
+    #             ArrayRefOp,
+    #             active_tile,
+    #             # [Symbol(schedule.induction_var)],
+    #             [op_builder.lookup_symbol(schedule.induction_var, IntType(), )],
+    #             name_hint=f"c_sub_tile",
+    #         ).result
+        
+    #     #> 内部逻辑
+    #     inner_c_tile = for_loop_op.get_iter_arg(0) if iter_args else None
+
+    #     #> 递归调用分发
+    #     updated_sub_tile = generate_dispatch(schedule.body, array_defs, format, active_tile, schedule)
+
+    #     #> 如果是空间轴切片，内部返回sub_tile，需要把sub_tile写回parent tile
+    #     if iter_args:
+    #         if not is_reduction:
+    #             if updated_sub_tile is not None:
+    #                 op_builder.build(CValStoreOp, mem="R2S",operands=[updated_sub_tile, inner_c_tile, op_builder.lookup_symbol(schedule.induction_var)])
+    #             op_builder.build(LoopResultOp, inner_c_tile) 
+    #         else:
+    #             op_builder.build(LoopResultOp, updated_sub_tile)
+                
+    # # 如果最外层是空间轴而且没有父级，在循环外执行写回
+    # if not is_reduction and parent_schedule is None and for_loop_op.num_results > 0:
+    #     op_builder.build(CValStoreOp, mem="R2S", operands=[for_loop_op.get_results()[0]])
+
+    # if iter_args:
+    #     return for_loop_op.result
+    # return None
+
     with op_builder.op_scope(for_loop_op):
         op_builder.add_symbol(schedule.induction_var, for_loop_op.get_induction_var())
         
-        if not is_reduction and active_tile is not None:
-            # 如果当前的轴不是规约轴，并且传入了一个c_tile
-            # 需要从传入的c_tile中切出一块给子循环
-            # 比如[BLK_M, N] -> [BLK_M_I, N]
-            active_tile = op_builder.build(
+        # 取得当前迭代处理的容器
+        inner_c_tile = for_loop_op.get_iter_arg(0) if iter_args else None
+        active_sub_tile = inner_c_tile
+
+        # 2. 如果是空间轴，执行切分 (Logical Slice)
+        if not is_reduction and inner_c_tile is not None:
+            active_sub_tile = op_builder.build(
                 ArrayRefOp,
-                active_tile,
-                # [Symbol(schedule.induction_var)],
-                [op_builder.lookup_symbol(schedule.induction_var, IntType(), )],
-                name_hint=f"c_sub_tile",
+                inner_c_tile,
+                [op_builder.lookup_symbol(schedule.induction_var, IntType())],
+                name_hint=f"c_slice",
             ).result
         
-        #> 内部逻辑
-        inner_c_tile = for_loop_op.get_iter_arg(0) if iter_args else None
+        # 3. 递归分发
+        # 这里的 active_sub_tile 可能是切出的块（空间轴）或 容器本身（规约轴）
+        updated_res_tile = generate_dispatch(schedule.body, array_defs, format, active_sub_tile, schedule)
 
-        #> 递归调用分发
-        updated_sub_tile = generate_dispatch(schedule.body, array_defs, format, active_tile, schedule)
-
-        #> 如果是空间轴切片，内部返回sub_tile，需要把sub_tile写回parent tile
-        # if not is_reduction and current_c_tile is not None:
-        #      # C_val_store(updated_sub_tile, inner_c_tile[i])
-        #      op_builder.build(CValStoreOp, mem="R2S",operands=[updated_sub_tile, inner_c_tile, op_builder.lookup_symbol(schedule.induction_var)])
-        #      op_builder.build(LoopResultOp, inner_c_tile) 
-        # else:
-        #      # 如果是归约轴或直接计算，直接返回内部结果
-        #      op_builder.build(LoopResultOp, updated_sub_tile)
+        # 4. 空间轴负责合并写回
         if iter_args:
             if not is_reduction:
-                if updated_sub_tile is not None and current_c_tile is not None:
-                    op_builder.build(CValStoreOp, mem="R2S",operands=[updated_sub_tile, inner_c_tile, op_builder.lookup_symbol(schedule.induction_var)])
+                # 只有空间轴需要在 Body 结束前将子结果更新进父容器
+                if updated_res_tile is not None:
+                    op_builder.build(CValStoreOp, mem="R2S", operands=[
+                        updated_res_tile, 
+                        inner_c_tile, 
+                        op_builder.lookup_symbol(schedule.induction_var)
+                    ])
                 op_builder.build(LoopResultOp, inner_c_tile) 
             else:
-                op_builder.build(LoopResultOp, updated_sub_tile)
+                # 规约轴直接返回累加后的值
+                op_builder.build(LoopResultOp, updated_res_tile)
                 
-    # return for_loop_op.result
-    if iter_args:
-        return for_loop_op.result
-    return None
-        # if isinstance(schedule.body, DenseAxisIterator):
-        #     raise NotImplementedError(
-        #         "Dense axis iterator as body of dense axis iterator is not implemented"
-        #     )
-        # elif isinstance(schedule.body, SparseAxisIterator):
-        #     generate_from_sparse_axis_iterator(
-        #         schedule.body,
-        #         array_defs,
-        #         format,
-        #         current_c_tile,
-        #         schedule,
-        #     )
-        # elif isinstance(schedule.body, SparseAxisSlicer):
-        #     raise NotImplementedError(
-        #         "Sparse axis slicer as body of dense axis iterator is not implemented"
-        #     )
-        # elif isinstance(schedule.body, AtomicFormatOp):
-        #     raise NotImplementedError(
-        #         "Atomic format op as body of dense axis iterator is not implemented"
-        #     )
-        # else:
-        #     raise ValueError(f"Unsupported schedule type: {type(schedule.body)}")
+    # # 顶层物理写回判断（由 Pass 处理物理坐标映射，这里只负责生成 Store 指令）
+    # if parent_schedule is None and for_loop_op.num_results > 0:
+    #     # 如果最外层是空间轴，或者是规约轴算完，执行物理写回
+    #     op_builder.build(CValStoreOp, mem="R2S", operands=[for_loop_op.get_results()[0]])
+
+    return for_loop_op.get_results()[0] if iter_args else None
 
 
 def translate_sympy_to_ir(expr: Expr, array_defs: ArrayDefCollection) -> Value:
@@ -366,147 +382,128 @@ def generate_from_sparse_axis_iterator(
     array_defs: ArrayDefCollection,
     format: Format,
     current_c_tile: Optional[Value] = None,
-    # offset_index: Value,
     parent_schedule: Optional[Schedule] = None,
 ) -> Value:
-    #> 1. 循环边界计算[l, r)
     zero = op_builder.build(ConstantOp, 0, IntType(), name_hint="zero").result
     upper_bound = translate_sympy_to_ir(schedule.splen, array_defs)
-    # soff = op_builder.lookup_symbol(
-    #     schedule.offset_array, get_array_type(array_defs[schedule.offset_array])
-    # )
 
-    # l, r = op_builder.build(
-    #     SparseOffsetLoadOp, "G2R", [soff, offset_index], name_hint=["l", "r"]
-    # ).results
-
-    #> 2. 确定是否需要规约 C （当前轴是否在规约轴方向，通过direction判断
     is_reduction = format.get_axis(schedule.axis).direction == Direction.COL
 
-    #> 3. 如果是规约轴，且没有传入 C_tile，需要初始化（例如最外层的 Y 循环）
-    iter_args = {}
-    if is_reduction:
-        if current_c_tile is None:
-            spatial_shapes = collect_spatial_shapes(schedule.body, format)
-            assert len(spatial_shapes) > 0, "At least one spatial shape should be collected for reduction axis"
-            c_def = array_defs["C_val"] # 获取 C 数组定义的末尾维度
-            n_length = c_def.dims[-1]
-            
-            tile_shape = spatial_shapes + [n_length] # 组合成最终形状 [BLK_M_I, N]
-            
-            current_c_tile = op_builder.build(ConstantOp, 0, ArrayType(tile_shape, FloatType()), name_hint="zero_tile").result
-    #     iter_args["C_tile_in"] = current_c_tile
-    # assert current_c_tile is not None, "current_c_tile should be initialized at this point"
-    iter_args = {"C_in": current_c_tile} if current_c_tile else {}
-    print("(debug)generate_from_sparse_axis_iterator: iter_args = ", iter_args)
+    # 1. 规约轴初始化（逻辑与你之前的一致，但在 Spatial 轴包裹下可能由上层传入）
+    if is_reduction and current_c_tile is None:
+        tile_shape = collect_spatial_shapes(schedule.body, format) + [array_defs["C_val"].dims[-1]]
+        current_c_tile = op_builder.build(ConstantOp, 0, ArrayType(tile_shape, FloatType()), name_hint="zero_tile").result
+    
+    if not is_reduction and current_c_tile is None and parent_schedule is None:
+        current_c_tile = op_builder.lookup_symbol("C_val")
+
+    iter_args = {"C_io": current_c_tile} if current_c_tile else {}
+    
     for_loop_op = op_builder.build(
         ForLoopOp,
         induction_var=schedule.induction_var,
         range=(zero, upper_bound),
         iter_args=iter_args,
-        name_hint=f"loop_{schedule.induction_var}" if iter_args else None,
     )
 
     with op_builder.op_scope(for_loop_op):
         op_builder.add_symbol(schedule.induction_var, for_loop_op.get_induction_var())
+        inner_c_tile = for_loop_op.get_iter_arg(0) if iter_args else None
         
-        # 取得传入循环内部的 C Tile 引用
-        # next_c_tile = for_loop_op.get_iter_arg(0) if is_reduction else current_c_tile
-        next_c_tile = for_loop_op.get_iter_arg(0) if iter_args else None # TODO WHY
+        # 2. 空间轴处理（针对 Sparse Spatial 轴，如 CSR 的行切分）
+        # 这里需要处理变长带来的 indirect indexing
+        active_sub_tile = inner_c_tile
+        if not is_reduction and inner_c_tile is not None:
+             # 如果是变长空间轴，切分时可能需要用到 schedule 自带的索引逻辑
+             active_sub_tile = op_builder.build(
+                 ArrayRefOp, 
+                 inner_c_tile, 
+                 [op_builder.lookup_symbol(schedule.induction_var)],
+                 name_hint="c_sparse_slice"
+             ).result
 
-        updated_tile = generate_dispatch(schedule.body, array_defs, format, next_c_tile, schedule)
-        # 6. 如果是归约循环，必须返回更新后的 Tile
+        updated_res_tile = generate_dispatch(schedule.body, array_defs, format, active_sub_tile, schedule)
+        
+        # 3. 统一返回逻辑
         if iter_args:
-            op_builder.build(LoopResultOp, updated_tile)
-    #! 原来是这样写的：
-    # # 7. 循环结束后的写回逻辑
-    # # 如果是归约循环且处于某种边界（例如写回全局内存），调用 StoreOp
-    # if is_reduction and not isinstance(parent_schedule, (SparseAxisIterator, DenseAxisIterator)):
-    #     # 这里的判断逻辑可以根据 parent_schedule 是否也是 Y 轴来决定是写回全局还是交给上一层
-    #     op_builder.build(CValStoreOp, operands=[for_loop_op.result])
-    #! 修改成这样了，为什么？
-    # 5. 顶层写回逻辑
-    # 如果 parent_schedule 不是迭代器，说明已经回到最外层，执行最终 Store
-    # if current_c_tile is not None and not isinstance(parent_schedule, (DenseAxisIterator, SparseAxisIterator)):
-    #     op_builder.build(CValStoreOp, mem="R2S", operands=[for_loop_op.result])
-    #TODO Sparse 写回逻辑
-    # 只有规约轴会产生累加结果
-    if is_reduction and for_loop_op.num_results > 0:
-        updated_c_tile = for_loop_op.get_results()[0]
+            if not is_reduction:
+                # 空间轴：写回 inner_c_tile[i]
+                op_builder.build(CValStoreOp, mem="R2S", operands=[
+                    updated_res_tile, 
+                    inner_c_tile, 
+                    op_builder.lookup_symbol(schedule.induction_var)
+                ])
+                op_builder.build(LoopResultOp, inner_c_tile)
+            else:
+                op_builder.build(LoopResultOp, updated_res_tile)
 
-        # 确定是否写回：如果父节点不是规约轴，说明这一层的累加已经完成了
-        parent_is_reduction = (
-            isinstance(parent_schedule, (DenseAxisIterator, SparseAxisIterator)) and 
-            format.get_axis(parent_schedule.axis).direction == Direction.COL
-        )
+    return for_loop_op.get_results()[0] if iter_args else None
 
-        if not parent_is_reduction:
-            # 执行物理写回
-            indices = []
-            if isinstance(parent_schedule, (DenseAxisIterator, SparseAxisIterator)):
-                indices.append(op_builder.lookup_symbol(parent_schedule.induction_var))
+# def generate_from_sparse_axis_iterator(
+#     schedule: SparseAxisIterator,
+#     array_defs: ArrayDefCollection,
+#     format: Format,
+#     current_c_tile: Optional[Value] = None,
+#     # offset_index: Value,
+#     parent_schedule: Optional[Schedule] = None,
+# ) -> Value:
+#     #> 1. 循环边界计算[l, r)
+#     zero = op_builder.build(ConstantOp, 0, IntType(), name_hint="zero").result
+#     upper_bound = translate_sympy_to_ir(schedule.splen, array_defs)
 
-            op_builder.build(
-                CValStoreOp, 
-                mem="R2S", 
-                operands=[updated_c_tile] + indices # 将累加完的 Tile 存入 C[i11]
-            )
+#     #> 2. 确定是否需要规约 C （当前轴是否在规约轴方向，通过direction判断
+#     is_reduction = format.get_axis(schedule.axis).direction == Direction.COL
 
-    # return for_loop_op.result
-    if iter_args:
-        return for_loop_op.result
-    return None
+#     #> 3. 如果是规约轴，且没有传入 C_tile，需要初始化（例如最外层的 Y 循环）
+#     iter_args = {}
+#     if is_reduction:
+#         if current_c_tile is None:
+#             spatial_shapes = collect_spatial_shapes(schedule.body, format)
+#             assert len(spatial_shapes) > 0, "At least one spatial shape should be collected for reduction axis"
+#             c_def = array_defs["C_val"] # 获取 C 数组定义的末尾维度
+#             n_length = c_def.dims[-1]
+            
+#             tile_shape = spatial_shapes + [n_length] # 组合成最终形状 [BLK_M_I, N]
+            
+#             current_c_tile = op_builder.build(ConstantOp, 0, ArrayType(tile_shape, FloatType()), name_hint="zero_tile").result
+#     #     iter_args["C_tile_in"] = current_c_tile
+#     # assert current_c_tile is not None, "current_c_tile should be initialized at this point"
+#     iter_args = {"C_in": current_c_tile} if current_c_tile else {}
+#     for_loop_op = op_builder.build(
+#         ForLoopOp,
+#         induction_var=schedule.induction_var,
+#         range=(zero, upper_bound),
+#         iter_args=iter_args,
+#         name_hint=f"loop_{schedule.induction_var}" if iter_args else None,
+#     )
 
+#     with op_builder.op_scope(for_loop_op):
+#         op_builder.add_symbol(schedule.induction_var, for_loop_op.get_induction_var())
+        
+#         # 取得传入循环内部的 C Tile 引用
+#         inner_c_tile = for_loop_op.get_iter_arg(0) if iter_args else None
 
-    # if isinstance(schedule.body, AtomicFormatOp):
-    #     C_val_tile = op_builder.build(
-    #         ConstantOp,
-    #         0,
-    #         ArrayType(
-    #             [format.get_axis(axis).length for axis in schedule.body.axes],
-    #             FloatType(),
-    #         ),
-    #         name_hint="zero_tile",
-    #     )
+#         updated_sub_tile = generate_dispatch(schedule.body, array_defs, format, inner_c_tile, schedule)
+#         # 6. 如果是归约循环，必须返回更新后的 Tile
+#         if iter_args:
+#             if not is_reduction:
+#                 # 如果这个稀疏轴是空间轴（比如 CSR 的行循环），执行写回
+#                 if updated_sub_tile is not None:
+#                      # 根据是否有父容器决定写回方式
+#                      if parent_schedule is not None:
+#                          op_builder.build(CValStoreOp, mem="R2S", operands=[updated_sub_tile, inner_c_tile, op_builder.lookup_symbol(schedule.induction_var)])
+#                      else:
+#                          op_builder.build(CValStoreOp, mem="R2S", operands=[updated_sub_tile, op_builder.lookup_symbol(schedule.induction_var)])
+#                 op_builder.build(LoopResultOp, inner_c_tile)
+#             else:
+#                 # 规约轴：只传递结果
+#                 op_builder.build(LoopResultOp, updated_sub_tile)
+            
+#     # return for_loop_op.result
+#     if iter_args:
+#         return for_loop_op.result
+#     return None
 
-    #     for_loop_op = op_builder.build(
-    #         ForLoopOp,
-    #         induction_var=schedule.induction_var,
-    #         range=(l, r),
-    #         iter_args={
-    #             "C_val_tile": C_val_tile.get_result(),
-    #         },
-    #         name_hint=["C_val_tile_result"],
-    #     )
-
-    #     with op_builder.op_scope(for_loop_op):
-    #         op_builder.add_symbol(
-    #             schedule.induction_var, for_loop_op.get_induction_var()
-    #         )
-    #         op_result = generate_from_atomic_format_op(
-    #             schedule.body, array_defs, format, for_loop_op.get_iter_arg(0)
-    #         )
-    #         op_builder.build(LoopResultOp, op_result.defining_op)
-    # elif isinstance(schedule.body, DenseAxisIterator):
-    #     raise NotImplementedError(
-    #         "Dense axis iterator as body of sparse axis iterator is not implemented"
-    #     )
-    # elif isinstance(schedule.body, SparseAxisIterator):
-    #     raise NotImplementedError(
-    #         "Sparse axis iterator as body of sparse axis iterator is not implemented"
-    #     )
-    # elif isinstance(schedule.body, SparseAxisSlicer):
-    #     raise NotImplementedError(
-    #         "Sparse axis slicer as body of sparse axis iterator is not implemented"
-    #     )
-    # else:
-    #     raise ValueError(f"Unsupported schedule type: {type(schedule.body)}")
-
-    # op_builder.build(
-    #     CValStoreOp,
-    #     mem="R2S",
-    #     operands=[for_loop_op.result],
-    # )
 
 
 def generate_from_sparse_axis_slicer(

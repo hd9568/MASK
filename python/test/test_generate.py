@@ -34,38 +34,66 @@ if __name__ == "__main__":
     print("ME_TCF")
     rts = derive_rts(ME_TCF_FORMAT)
     computent = computent_from_rts("ME_TCF", rts)
+    ops = generate_from_computent(computent)
+    print(printer.default_printer.dump(ops))
+    # exit(0)
     # logger.info(rts)
     # logger.info(computent)
+
+
     print("=" * 100)
     print("BIT_TCF")
     rts = derive_rts(BIT_TCF_FORMAT)
     computent = computent_from_rts("BIT_TCF", rts)
+    ops = generate_from_computent(computent)
+    print(printer.default_printer.dump(ops))
     # logger.info(rts)
     # logger.info(computent)
+
+
     print("=" * 100)
     print("HME_TCF")
     rts = derive_rts(HME_TCF_FORMAT)
     computent = computent_from_rts("HME_TCF", rts)
+    ops = generate_from_computent(computent)
+    print(printer.default_printer.dump(ops))
+    # exit(0)
     # logger.info(rts)
     # logger.info(computent)
+
+
     print("=" * 100)
     print("ROW_REORDER_SR_BCRS")
     rts = derive_rts(ROW_REORDER_SR_BCRS_FORMAT)
     computent = computent_from_rts("ROW_REORDER_SR_BCRS", rts)
+    ops = generate_from_computent(computent)
+    print(printer.default_printer.dump(ops))
+    # exit(0)
     # logger.info(rts)
     # logger.info(computent)
+
+
     print("=" * 100)
     print("BIT_BSR")
     rts = derive_rts(BIT_BSR_FORMAT)
     computent = computent_from_rts("BIT_BSR", rts)
+    ops = generate_from_computent(computent)
+    print(printer.default_printer.dump(ops))
     # logger.info(rts)
     # logger.info(computent)
+    # exit(0)
+
+
     print("=" * 100)
     print("SR_BCRS")
     rts = derive_rts(SR_BCRS_FORMAT)
     computent = computent_from_rts("SR_BCRS", rts)
+    ops = generate_from_computent(computent)
+    print(printer.default_printer.dump(ops))
     # logger.info(rts)
     # logger.info(computent)
+
+
     print("=" * 100)
     # rts = derive_rts(ROW_REORDER_SR_BCRS_FORMAT)
     # logger.info(rts)
