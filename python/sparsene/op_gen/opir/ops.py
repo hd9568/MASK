@@ -335,7 +335,9 @@ class MmaOp(DeviceOp):
 
 @dataclass
 class CValStoreOp(DeviceOp):
-    def __init__(self, mem: str, operands: Sequence[Value]):
+    len: Value
+    def __init__(self, mem: str, operands: Sequence[Value], length: Value, name_hint: str = "c_slice"):
+        self.len = length
         super().__init__(
             mem=mem,
             operands=operands,
@@ -345,3 +347,21 @@ class CValStoreOp(DeviceOp):
     @property
     def name(self) -> str:
         return "c_val_store"
+
+@dataclass
+class CValLoadOp(DeviceOp):
+    len: Value
+    def __init__(self, mem: str, array: Value, offset: Value, length: Value, name_hint: str = "c_slice"):
+        # array: [M][N] 物理张量
+        # offset: 起始行偏移
+        # length: 加载的行数 (BLK_M)
+        self.len = length
+        super().__init__(
+            mem=mem,
+            operands=[array, offset],
+            results=[]
+        )
+        
+    @property
+    def name(self) -> str:
+        return "c_val_load"

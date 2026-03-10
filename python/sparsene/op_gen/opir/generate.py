@@ -53,6 +53,7 @@ from sparsene.op_gen.opir.ops import (
     McoAtomicFormatLoadValOp,
     McoAtomicValRestoreOp,
     MmaOp,
+    CValLoadOp,
     CValStoreOp,
 )
 from sympy import Symbol, Indexed, Expr, Integer, Rational
@@ -73,6 +74,63 @@ def datatype_to_type(datatype: DataType) -> Type:
 def get_array_type(array_def: ArrayDef) -> Type:
     dims = list(array_def.dims)
     return ArrayType(dims, datatype_to_type(array_def.datatype))
+
+
+def build_int_value_from_expr(
+    expr: Any,
+    array_defs: ArrayDefCollection,
+    name_hint: str = "len",
+) -> Value:
+    if isinstance(expr, Value):
+        return expr
+    if isinstance(expr, (Integer, int)):
+        return op_builder.build(ConstantOp, int(expr), IntType(), name_hint=name_hint).result
+    if isinstance(expr, str):
+        return op_builder.lookup_symbol(expr, IntType())
+    return translate_sympy_to_ir(expr, array_defs)
+
+
+def infer_m_dim_len(
+    tile: Value,
+    array_defs: ArrayDefCollection,
+    name_hint: str = "c_m_len",
+) -> Value:
+    assert isinstance(tile.type, ArrayType), "C tile should be an array"
+    assert len(tile.type.dims) > 0, "C tile should have at least one dimension"
+    return build_int_value_from_expr(tile.type.dims[0], array_defs, name_hint=name_hint)
+
+
+def build_c_val_load_slice(
+    c_tile_container: Value,
+    offset: Value,
+    array_defs: ArrayDefCollection,
+    name_hint: str = "c_slice",
+) -> Value:
+    assert isinstance(c_tile_container.type, ArrayType), "C tile container should be an array"
+    slice_dims = list(c_tile_container.type.dims[1:])
+    assert len(slice_dims) > 0, "C tile slicing should keep at least one dimension"
+
+    load_len = build_int_value_from_expr(
+        slice_dims[0],
+        array_defs,
+        name_hint=f"{name_hint}_len",
+    )
+
+    c_val_load_op = op_builder.build(
+        CValLoadOp,
+        mem="S2R",
+        array=c_tile_container,
+        offset=offset,
+        length=load_len,
+    )
+    c_slice_result = OpResult(
+        type=ArrayType(slice_dims, c_tile_container.type.datatype),
+        defining_op=c_val_load_op,
+        result_idx_in_owner=0,
+        name_hint=name_hint,
+    )
+    c_val_load_op.add_result(c_slice_result)
+    return c_slice_result
 
 def generate_dispatch(
     schedule: Schedule,
@@ -202,6 +260,7 @@ def generate_from_dense_axis_iterator(
 
     with op_builder.op_scope(for_loop_op):
         op_builder.add_symbol(schedule.induction_var, for_loop_op.get_induction_var())
+        loop_index = op_builder.lookup_symbol(schedule.induction_var, IntType())
         
         # 取得当前迭代处理的容器
         inner_c_tile = for_loop_op.get_iter_arg(0) if iter_args else None
@@ -209,12 +268,12 @@ def generate_from_dense_axis_iterator(
 
         # 2. 如果是空间轴，执行切分 (Logical Slice)
         if not is_reduction and inner_c_tile is not None:
-            active_sub_tile = op_builder.build(
-                ArrayRefOp,
+            active_sub_tile = build_c_val_load_slice(
                 inner_c_tile,
-                [op_builder.lookup_symbol(schedule.induction_var, IntType())],
-                name_hint=f"c_slice",
-            ).result
+                loop_index,
+                array_defs,
+                name_hint="c_slice",
+            )
         
         # 3. 递归分发
         # 这里的 active_sub_tile 可能是切出的块（空间轴）或 容器本身（规约轴）
@@ -225,11 +284,12 @@ def generate_from_dense_axis_iterator(
             if not is_reduction:
                 # 只有空间轴需要在 Body 结束前将子结果更新进父容器
                 if updated_res_tile is not None:
+                    store_len = infer_m_dim_len(updated_res_tile, array_defs, name_hint="c_store_len")
                     op_builder.build(CValStoreOp, mem="R2S", operands=[
                         updated_res_tile, 
                         inner_c_tile, 
-                        op_builder.lookup_symbol(schedule.induction_var)
-                    ])
+                        loop_index,
+                    ], length=store_len)
                 op_builder.build(LoopResultOp, inner_c_tile) 
             else:
                 # 规约轴直接返回累加后的值
@@ -408,19 +468,20 @@ def generate_from_sparse_axis_iterator(
 
     with op_builder.op_scope(for_loop_op):
         op_builder.add_symbol(schedule.induction_var, for_loop_op.get_induction_var())
+        loop_index = op_builder.lookup_symbol(schedule.induction_var, IntType())
         inner_c_tile = for_loop_op.get_iter_arg(0) if iter_args else None
         
         # 2. 空间轴处理（针对 Sparse Spatial 轴，如 CSR 的行切分）
         # 这里需要处理变长带来的 indirect indexing
         active_sub_tile = inner_c_tile
         if not is_reduction and inner_c_tile is not None:
-             # 如果是变长空间轴，切分时可能需要用到 schedule 自带的索引逻辑
-             active_sub_tile = op_builder.build(
-                 ArrayRefOp, 
-                 inner_c_tile, 
-                 [op_builder.lookup_symbol(schedule.induction_var)],
-                 name_hint="c_sparse_slice"
-             ).result
+            # 如果是变长空间轴，切分时可能需要用到 schedule 自带的索引逻辑
+            active_sub_tile = build_c_val_load_slice(
+                inner_c_tile,
+                loop_index,
+                array_defs,
+                name_hint="c_sparse_slice",
+            )
 
         updated_res_tile = generate_dispatch(schedule.body, array_defs, format, active_sub_tile, schedule)
         
@@ -428,11 +489,13 @@ def generate_from_sparse_axis_iterator(
         if iter_args:
             if not is_reduction:
                 # 空间轴：写回 inner_c_tile[i]
-                op_builder.build(CValStoreOp, mem="R2S", operands=[
-                    updated_res_tile, 
-                    inner_c_tile, 
-                    op_builder.lookup_symbol(schedule.induction_var)
-                ])
+                if updated_res_tile is not None:
+                    store_len = infer_m_dim_len(updated_res_tile, array_defs, name_hint="c_sparse_store_len")
+                    op_builder.build(CValStoreOp, mem="R2S", operands=[
+                        updated_res_tile,
+                        inner_c_tile,
+                        loop_index,
+                    ], length=store_len)
                 op_builder.build(LoopResultOp, inner_c_tile)
             else:
                 op_builder.build(LoopResultOp, updated_res_tile)
