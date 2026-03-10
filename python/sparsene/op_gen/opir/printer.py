@@ -11,10 +11,12 @@ from .op_ir import (
     MetaOp,
     ExternalSymbolOp,
     AddOp, 
+    SubOp,
     MulOp,
     DivOp,
     PowOp,
     LoadOp,
+    LoadOffsetOp,
     ArangeOp,
     Type,
     Value,
@@ -138,13 +140,25 @@ class Printer:
     def dump_device_op(self, op: DeviceOp, indent_level: int = 0) -> str:
         operands = [self.dump_op_operand(operand) for operand in op.operands]
         other_attrs = {key: val for key, val in op.attributes.items() if key != "mem"}
+        len_member_str = ""
+        if hasattr(op, "len") and isinstance(getattr(op, "len"), Value):
+            len_member_str = f" len={self.dump_value(getattr(op, 'len'), with_type=False)}"
+
+        def _format_attr_value(value: Any) -> str:
+            if isinstance(value, Value):
+                return self.dump_value(value, with_type=False)
+            return str(value)
+
         other_attrs_str = (
-            " attr=" + ", ".join(f"{key}={val}" for key, val in other_attrs.items())
+            " attr="
+            + ", ".join(
+                f"{key}={_format_attr_value(val)}" for key, val in other_attrs.items()
+            )
             if other_attrs
             else ""
         )
         return self._indent_lines(
-            f"{op.name}({', '.join(operands)}) mem={op.attributes['mem']}"
+            f"{op.name}({', '.join(operands)}){len_member_str} mem={op.attributes['mem']}"
             f"{other_attrs_str}",
             indent_level,
         )
@@ -258,6 +272,11 @@ class Printer:
         rhs = self.dump_op_operand(op.operands[1], with_type=False)
         return self._indent_lines(f"mul {lhs}, {rhs}", indent_level)
 
+    def dump_sub_op(self, op: SubOp, indent_level: int = 0) -> str:
+        lhs = self.dump_op_operand(op.operands[0], with_type=False)
+        rhs = self.dump_op_operand(op.operands[1], with_type=False)
+        return self._indent_lines(f"sub {lhs}, {rhs}", indent_level)
+
     def dump_div_op(self, op: DivOp, indent_level: int = 0) -> str:
         lhs = self.dump_op_operand(op.operands[0], with_type=False)
         rhs = self.dump_op_operand(op.operands[1], with_type=False)
@@ -272,7 +291,20 @@ class Printer:
         array = self.dump_op_operand(op.operands[0])
         indices = [self.dump_op_operand(idx, with_type=False) for idx in op.operands[1:]]
         return self._indent_lines(
-            f"load ({array}, indices=([{', '.join(indices)}]))", indent_level
+            f"load({array}, indices=([{', '.join(indices)}]))", indent_level
+        )
+    
+    def dump_load_offset_op(self, op: LoadOffsetOp, indent_level: int = 0) -> str:
+        # 1. 提取要访问的数组（通常打印时会带上 Type 信息，比如 array<int>[M/BLK_M + 1]）
+        array = self.dump_op_operand(op.operands[0])
+        
+        # 2. 提取基准索引（例如 %i1）
+        indices = [self.dump_op_operand(idx, with_type=False) for idx in op.operands[1:]]
+        
+        # 3. 格式化输出
+        # 结果类似于: load_offset(%val_len_offset: array<int>[M/BLK_M + 1], indices=([%i1]))
+        return self._indent_lines(
+            f"load_offset({array}, indices=([{', '.join(indices)}]))", indent_level
         )
 
     def dump_arange_op(self, op: ArangeOp, indent_level: int = 0) -> str:
@@ -281,6 +313,7 @@ class Printer:
         
         # 2. 从结果的 ArrayType 中提取长度 (length)
         # 假设 ArangeOp 的结果类型是 ArrayType([length], IntType())
+        assert isinstance(op.result.type, ArrayType)
         length = op.result.type.dims[0]
         
         # 3. 格式化输出：arange %start, length=BLK_K
@@ -354,10 +387,14 @@ class Printer:
             op_str = self.dump_c_val_store_op(op, 0)
         elif isinstance(op, LoopResultOp):
             op_str = self.dump_loop_result_op(op, 0)
+        elif isinstance(op, LoadOffsetOp):
+            op_str = self.dump_load_offset_op(op, 0)
         elif isinstance(op, AddOp):
             op_str = self.dump_add_op(op, 0)
         elif isinstance(op, MulOp):
             op_str = self.dump_mul_op(op, 0)
+        elif isinstance(op, SubOp):
+            op_str = self.dump_sub_op(op, 0)
         elif isinstance(op, DivOp):
             op_str = self.dump_div_op(op, 0)
         elif isinstance(op, PowOp):

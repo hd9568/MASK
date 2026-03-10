@@ -127,6 +127,27 @@ class VarlenLoweringPass:
         #! 将 [M/BLK_M] 修改为 [M/BLK_M + 1]
         assert isinstance(old_len_type, ArrayType), f"Expected length array to have ArrayType, got {old_len_type}"
         prefix_dims = list(old_len_type.dims)
+
+        if len(prefix_dims) == 0:
+            # 1. 只是简单改名，不增加维度，不生成 offset 数组
+            new_len_name = f"{old_len_name}_new" if not old_len_name.endswith("_new") else f"{old_len_name}_1"
+            self._array_name_aliases[old_len_name] = new_len_name
+            len_ext_op.attributes["symbol"] = new_len_name
+            len_ext_op.result.name_hint = new_len_name
+            
+            # 2. 依然去压缩依赖它的数组 (varlen(M) -> nnz_dim_varlen_M)
+            flatten_specs = self._find_and_compress_dependent_arrays(root, target_varlen, prefix_dims)
+            self._rebuild_symbol_cache(root)
+            
+            # 3. 遍历 Block 更新 Type，但不触发 LoadOffset 的替换
+            self._rewrite_block(
+                block=root.block,
+                len_offset_value=len_ext_op.result,
+                flatten_specs=flatten_specs,
+                incoming_replace_map={}
+            )
+            return True
+
         new_len_dims = list(prefix_dims)
         new_len_dims[-1] = simplify(sympify(new_len_dims[-1]) + Integer(1))
 
@@ -184,8 +205,27 @@ class VarlenLoweringPass:
             # [核心修改] 记录数组更名历史
             self._array_name_aliases[old_name] = new_name
 
+            # ================= NEW: 生成绝对安全的纯净维度名称 =================
+            import re
+            
+            # 1. 从 "varlen(K/BLK_K)" 中提取出 "K/BLK_K"
+            match = re.search(r'varlen\(([^)]+)\)', target_varlen)
+            core_name = match.group(1) if match else "unknown"
+            
+            # 2. 将所有非字母数字和非下划线的字符（比如 '/', '*', '+', '-'）替换为 '_'
+            safe_core_name = re.sub(r'[^a-zA-Z0-9_]', '_', core_name)
+            
+            # 3. 可选：把连续的多个下划线合并为一个，去掉首尾下划线，让名字更好看
+            safe_core_name = re.sub(r'_+', '_', safe_core_name).strip('_')
+            
+            # 创建纯净的符号，例如：nnz_dim_K_BLK_K
+            compressed_dim = Symbol(f"nnz_dim_{safe_core_name}")
+            # =================================================================
+
+            print(f"Compressing array '{old_name}' with varlen dim '{old_dims[prefix_rank]}' into new dim '{compressed_dim}'")
+
             # 更新维度... (省略细节，参考上一次的回复)
-            compressed_dim = Symbol(f"nnz_dim_{target_varlen.replace('(', '_').replace(')', '')}")
+            # compressed_dim = Symbol(f"nnz_dim_{target_varlen.replace('(', '_').replace(')', '')}")
             new_dims = [compressed_dim] + old_dims[prefix_rank + 1 :]
 
             op.attributes["symbol"] = new_name
@@ -288,6 +328,14 @@ class VarlenLoweringPass:
             return False
 
         spec = flatten_specs[array_src]
+
+        # ================= NEW: 拦截最外层全局维度 =================
+        if spec.prefix_rank == 0:
+            # 说明这个 varlen 是稠密的最外层 (如 varlen(M))
+            # 它的索引就是对的，不需要算 a*left + b*i，直接放行，返回 True 刷新 Type 即可。
+            return True
+        # ============================================================
+
         indices = [operand.source for operand in op.operands[1:]]
 
         if len(indices) <= spec.varlen_pos:
