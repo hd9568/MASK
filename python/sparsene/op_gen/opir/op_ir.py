@@ -97,7 +97,7 @@ class OpBuilder:
     @overload
     def build(
         self,
-        op_type: type[AddOp | MulOp | DivOp | PowOp],
+        op_type: type[AddOp | SubOp | MulOp | DivOp | PowOp],
         lhs: Value,
         rhs: Value,
         name_hint: Optional[str | Sequence[str]] = None,
@@ -452,7 +452,7 @@ class LoadOp(Op):
     """
     从数组或 ArrayRef 的结果中加载标量值。
     """
-    def __init__(self, array_or_ref: Value, indices: Sequence[Value] = []):
+    def __init__(self, array_or_ref: Value, indices: Sequence[Value] = [], name_hint: str | None = None):
         # 这里的 array_or_ref 可能是 ExternalSymbol(ArrayType) 或者是 ArrayRefOp 的结果
         assert isinstance(array_or_ref.type, ArrayType)
 
@@ -487,7 +487,8 @@ class LoadOp(Op):
                 OpResult(
                     type=result_type,
                     defining_op=self,
-                    result_idx_in_owner=0
+                    result_idx_in_owner=0,
+                    name_hint=name_hint
                 )
             ]
         )
@@ -509,8 +510,21 @@ class LoadOp(Op):
     def name(self) -> str:
         return "load"
 
+class LoadOffsetOp(Op):
+    def __init__(self, array: Value, indices: Sequence[Value], name_hint: str | None = None):
+        # 返回两个结果：left_offset, right_offset
+        results = [
+            OpResult(type=IntType(), name_hint=f"{name_hint}_l" if name_hint else "l", defining_op=self, result_idx_in_owner=0),
+            OpResult(type=IntType(), name_hint=f"{name_hint}_r" if name_hint else "r", defining_op=self, result_idx_in_owner=1)
+        ]
+        super().__init__(operands=[array] + list(indices), results=results)
+
+    @property
+    def name(self) -> str:
+        return "load_offset"
+
 class ArangeOp(Op):
-    def __init__(self, start: Value, length: Expr, name_hint = None):
+    def __init__(self, start: Value, length: Expr, name_hint: str | None = None):
         res_type = ArrayType([length], IntType())
         super().__init__(
             operands=[start],
@@ -677,6 +691,11 @@ class AddOp(ArithmeticOp):
     @property
     def name(self) -> str:
         return "add"
+
+class SubOp(ArithmeticOp):
+    @property
+    def name(self) -> str:
+        return "sub"
 
 class MulOp(ArithmeticOp):
     @property

@@ -123,6 +123,7 @@ class Computent:
     schedule: Schedule
     array_defs: ArrayDefCollection
     format: Format
+    varlen2LenArrayTable: Dict[str, ArrayDef] = field(default_factory=dict)
 
     def __str__(self, indent_width: int = 4) -> str:
         return (
@@ -1529,12 +1530,19 @@ def computent_from_rts(name: str, rts: TransformationSequence) -> Computent:
     assert isinstance(root_format.child, Format)
     add_metadata(schedule, root_format.child)
 
+    varlen2LenArrayTable = deepcopy(
+        SymbolTable.global_table("varlen2LenArrayTable")._table
+    )
+    print("varlen2LenArrayTable:", varlen2LenArrayTable)
+
 
     MyNameManager.reset()
     SymbolTable.reset()
+    print("varlen2LenArrayTable after reset:", varlen2LenArrayTable)
     return Computent(
         name=name,
         schedule=schedule,
         array_defs=array_defs,
         format=root_format.child,
+        varlen2LenArrayTable=varlen2LenArrayTable,
     )

@@ -714,14 +714,18 @@ def generate_from_coo_atomic_format_op(
         name_hint="coo_len"
     ).result
 
+    coo_idx_indices = build_array_ref_indices(schedule.args[1], array_defs, format)
+    coo_val_indices = build_array_ref_indices(schedule.args[2], array_defs, format)
+
     idx_tile_shape = C_val_tile.type.dims[0] * B_val_tile.type.dims[0]
     coo_idx = op_builder.build(
         CooAtomicFormatLoadIdxOp,
         mem="G2R",
         operands=[
             idx_array,
-            *build_array_ref_indices(schedule.args[1], array_defs, format),
+            *coo_idx_indices,
         ],
+        coo_len=coo_len,
         out_shape=idx_tile_shape,
         name_hint="coo_idx",
     ).result
@@ -731,8 +735,9 @@ def generate_from_coo_atomic_format_op(
         mem="G2S",
         operands=[
             val_array,
-            *build_array_ref_indices(schedule.args[2], array_defs, format),
+            *coo_val_indices,
         ],
+        coo_len=coo_len,
         out_shape=idx_tile_shape,
         name_hint="coo_val",
     ).result
@@ -822,6 +827,7 @@ def generate_from_mco_atomic_format_op(
             val_array,
             *build_array_ref_indices(schedule.args[2], array_defs, format),
         ],
+        mco_len=mco_len,
         out_shape=C_val_tile.type.dims[0] * B_val_tile.type.dims[0],  # type: ignore
         name_hint="mco_val",
     ).result

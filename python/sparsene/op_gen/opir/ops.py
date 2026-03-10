@@ -94,47 +94,26 @@ class CooAtomicFormatLoadOffOp(DeviceOp):
 #> current CooAtomicFormatLoadIdxOp
 @dataclass
 class CooAtomicFormatLoadIdxOp(DeviceOp):
-    def __init__(self, mem: str, operands: Sequence[Value], out_shape: Expr):
-        # 基本校验：第一个操作数必须是索引数组
+    len: Value
+
+    def __init__(self, mem: str, operands: Sequence[Value], out_shape: Expr, coo_len: Value):
+        assert len(operands) >= 1, "coo_atomic_format_load_idx requires idx_array as first operand"
         assert isinstance(operands[0].type, ArrayType)
-        
-        # 核心逻辑：判断当前是“物理偏移模式”还是“逻辑坐标模式”
-        # 模式 A (Condensed): [idx_array, i1, i2, ..., ll, rr] -> 末尾两个是 Int (偏移)
-        # 模式 B (Logical/Uncondensed): [idx_array, i1, i2, ..., _] -> 包含占位符
-        
-        # 我们通过判断最后两个操作数的类型和结果需求来定义
-        # 如果最后两个操作数是 ll, rr，则保留原有的双结果逻辑
-        is_condensed = (
-            len(operands) >= 3 and 
-            isinstance(operands[1], OpResult) and isinstance(operands[1].type, IntType) and
-            isinstance(operands[2], OpResult) and isinstance(operands[2].type, IntType) and
-            # isinstance(operands[-1].type, IntType) and 
-            # isinstance(operands[-2].type, IntType) and
-            operands[-1].name_hint != "_" # 排除占位符
-        )
+        assert isinstance(operands[0].type.datatype, IntType)
 
-        print(f"CooAtomicFormatLoadIdxOp: is_condensed={is_condensed}, operands={operands}")
-
-        results = []
-        # 结果 1: COO 索引数组 (Buffer)
-        results.append(OpResult(
-            type=ArrayType([out_shape], IntType()),
-            defining_op=self,
-            result_idx_in_owner=0,
-        ))
-
-        # 结果 2 (可选): 只有在 Condensed 模式下才返回动态 range
-        if is_condensed:
-            results.append(OpResult(
-                type=IntType(),
-                defining_op=self,
-                result_idx_in_owner=1,
-            ))
+        assert isinstance(coo_len.type, IntType), "len must be coo_len (int)"
+        self.len = coo_len
 
         super().__init__(
             mem=mem,
             operands=operands,
-            results=results,
+            results=[
+                OpResult(
+                    type=ArrayType([out_shape], IntType()),
+                    defining_op=self,
+                    result_idx_in_owner=0,
+                ),
+            ],
         )
 
     @property
@@ -167,27 +146,14 @@ class CooAtomicFormatLoadIdxOp(DeviceOp):
 #> current CooAtomicFormatLoadValOp
 @dataclass
 class CooAtomicFormatLoadValOp(DeviceOp):
-    def __init__(self, mem: str, operands: Sequence[Value], out_shape: Expr):
-        # 第一个操作数始终是原始的 Value 数组 (val_coo_val)
+    len: Value
+
+    def __init__(self, mem: str, operands: Sequence[Value], out_shape: Expr, coo_len: Value):
+        assert len(operands) >= 1, "coo_atomic_format_load_val requires val_array as first operand"
         assert isinstance(operands[0].type, ArrayType)
-        
-        # 模式识别逻辑：
-        # 模式 A (Condensed): [val_array, ..., ll, rr] -> 物理偏移
-        # 模式 B (Logical): [val_array, ..., _] -> 逻辑坐标 (包含占位符)
-        
-        # 如果最后两个操作数是 Int 且不是占位符，则校验 ll/rr
-        if (len(operands) >= 3 and 
-            isinstance(operands[1], OpResult) and isinstance(operands[1].type, IntType) and
-            isinstance(operands[2], OpResult) and isinstance(operands[2].type, IntType) and
-            # isinstance(operands[-1].type, IntType) and 
-            # isinstance(operands[-2].type, IntType) and 
-            operands[-1].name_hint != "_"):
-            # 物理模式校验
-            # 确保传入了具体的偏移量
-            pass 
-        else:
-            # 逻辑模式校验：确保至少包含了数组引用
-            pass
+
+        assert isinstance(coo_len.type, IntType), "len must be coo_len (int)"
+        self.len = coo_len
 
         super().__init__(
             mem=mem,
@@ -296,19 +262,14 @@ class McoAtomicFormatLoadMaskOp(DeviceOp):
 
 @dataclass
 class McoAtomicFormatLoadValOp(DeviceOp):
-    def __init__(self, mem: str, operands: Sequence[Value], out_shape: Expr):
-        assert isinstance(operands[0].type, ArrayType) # val array
-        print("McoAtomicFormatLoadValOp operands:", operands, "len(operands):", len(operands))
-        if (len(operands) >= 3 and 
-            isinstance(operands[1], OpResult) and isinstance(operands[1].type, IntType) and
-            isinstance(operands[2], OpResult) and isinstance(operands[2].type, IntType) and
-            # isinstance(operands[-1].type, IntType) and 
-            # isinstance(operands[-2].type, IntType) and 
-            operands[-1].name_hint != "_"):
-            # 物理模式校验
-            pass
-        else:
-            pass
+    len: Value
+
+    def __init__(self, mem: str, operands: Sequence[Value], out_shape: Expr, mco_len: Value):
+        assert len(operands) >= 1, "mco_atomic_format_load_val requires val_array as first operand"
+        assert isinstance(operands[0].type, ArrayType)
+        assert isinstance(mco_len.type, IntType), "len must be mco_len (int)"
+
+        self.len = mco_len
     
         super().__init__(
             mem=mem,
