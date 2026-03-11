@@ -11,6 +11,7 @@ from sparsene.transform.rts import derive_rts
 from sparsene.op_gen.computent.computent import computent_from_rts
 from sparsene.op_gen.opir.generate import generate_from_computent
 from sparsene.op_gen.opir.varlenLoweringPass import VarlenLoweringPass
+from sparsene.op_gen.opir.cValFlattenPass import CValFlattenPass
 from sparsene.op_gen.nvir.generate import generate_nvir
 from sparsene.logging import get_logger, set_logging_level_for_all
 
@@ -44,6 +45,11 @@ if __name__ == "__main__":
 
     print("[AFTER VarlenLoweringPass]")
     print(printer.Printer().dump(lowered_ops))
+    
+    c_val_flatten_pass = CValFlattenPass(op_builder=None)
+    flattened_ops = c_val_flatten_pass.run(lowered_ops)
+    print("[AFTER cValFlattenPass]")
+    print(printer.Printer().dump(flattened_ops))
     # exit(0)
     # logger.info(rts)
     # logger.info(computent)
@@ -60,6 +66,10 @@ if __name__ == "__main__":
     lowered_ops = varlen_lowering_pass.run(ops)
     print("[AFTER VarlenLoweringPass]")
     print(printer.default_printer.dump(lowered_ops))
+    c_val_flatten_pass = CValFlattenPass(op_builder=None)
+    flattened_ops = c_val_flatten_pass.run(lowered_ops)
+    print("[AFTER cValFlattenPass]")
+    print(printer.default_printer.dump(flattened_ops))
     # exit(0)
     # logger.info(rts)
     # logger.info(computent)
@@ -92,6 +102,11 @@ if __name__ == "__main__":
     lowered_ops = varlen_lowering_pass.run(ops)
     print("[AFTER VarlenLoweringPass]")
     print(printer.default_printer.dump(lowered_ops))
+    c_val_flatten_pass = CValFlattenPass(op_builder=None, varlen2IdxArrayTable=None)
+    flattened_ops = c_val_flatten_pass.run(lowered_ops)
+    print("(debug)", c_val_flatten_pass.varlen2IdxArrayTable)
+    print("[AFTER cValFlattenPass]")
+    print(printer.default_printer.dump(flattened_ops))
     # exit(0)
     # logger.info(rts)
     # logger.info(computent)
@@ -108,6 +123,10 @@ if __name__ == "__main__":
     lowered_ops = varlen_lowering_pass.run(ops)
     print("[AFTER VarlenLoweringPass]")
     print(printer.default_printer.dump(lowered_ops))
+    c_val_flatten_pass = CValFlattenPass(op_builder=None, varlen2IdxArrayTable=None)
+    flattened_ops = c_val_flatten_pass.run(lowered_ops)
+    print("[AFTER CValFlattenPass]")
+    print(printer.default_printer.dump(flattened_ops))
     # exit(0)
     # logger.info(rts)
     # logger.info(computent)
@@ -125,6 +144,10 @@ if __name__ == "__main__":
     lowered_ops = varlen_lowering_pass.run(ops)
     print("[AFTER VarlenLoweringPass]")
     print(printer.default_printer.dump(lowered_ops))
+    c_val_flatten_pass = CValFlattenPass(op_builder=None, varlen2IdxArrayTable=None)
+    flattened_ops = c_val_flatten_pass.run(lowered_ops)
+    print("[AFTER CValFlattenPass]")
+    print(printer.default_printer.dump(flattened_ops))
     exit(0)
     # logger.info(rts)
     # logger.info(computent)
