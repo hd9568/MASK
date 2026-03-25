@@ -347,6 +347,19 @@ class NvIrCodeGenerator:
             f", {init_str}" for init_str in non_owning_tensor_inits_strs
         )
 
+        extra_inputs = op.inputs[2:]
+        extra_inputs_str = (
+            "    " + "\n    ".join(f"TI{inp.idx} {inp.name};" for inp in extra_inputs) + "\n"
+            if extra_inputs
+            else ""
+        )
+        extra_f_params_str = "".join(
+            f", TI{inp.idx} {inp.name}" for inp in extra_inputs
+        )
+        extra_input_assignments_str = "".join(
+            f"        this->{inp.name} = {inp.name};\n" for inp in extra_inputs
+        )
+
         return templates.PIPELINED_FOR_LOOP_NVOP_DEF_SKELETON.format(
             visible_op_type_template_params=visible_op_type_template_params_str,
             non_owning_tensor_type_template_params=non_owning_tensor_type_template_params_str,
@@ -359,6 +372,9 @@ class NvIrCodeGenerator:
             visible_ops=self._indent_lines(visible_ops_str),
             visible_op_as_params=visible_op_as_params_str,
             visible_op_inits=visible_op_inits_str,
+            extra_inputs=extra_inputs_str,
+            extra_f_params=extra_f_params_str,
+            extra_input_assignments=extra_input_assignments_str,
             pipeline_methods=self._indent_lines(pipeline_methods),
             get_output_method=self._indent_lines(get_output_method_str),
         )
@@ -495,6 +511,19 @@ class NvIrCodeGenerator:
             f", {init_str}" for init_str in non_owning_tensor_inits_strs
         )
 
+        extra_inputs = op.inputs[2:]
+        extra_inputs_str = (
+            "    " + "\n    ".join(f"TI{inp.idx} {inp.name};" for inp in extra_inputs) + "\n"
+            if extra_inputs
+            else ""
+        )
+        extra_f_params_str = "".join(
+            f", TI{inp.idx} {inp.name}" for inp in extra_inputs
+        )
+        extra_input_assignments_str = "".join(
+            f"        this->{inp.name} = {inp.name};\n" for inp in extra_inputs
+        )
+
         loop_body_str = dump_loop_body()
 
         return templates.SEQUENTIAL_FOR_LOOP_NVOP_DEF_SKELETON.format(
@@ -509,6 +538,9 @@ class NvIrCodeGenerator:
             non_owning_tensor_as_params=non_owning_tensor_as_params_str,
             visible_op_inits=visible_op_inits_str,
             non_owning_tensor_inits=non_owning_tensor_inits_str,
+            extra_inputs=extra_inputs_str,
+            extra_f_params=extra_f_params_str,
+            extra_input_assignments=extra_input_assignments_str,
             loop_result_outputs_method=self._indent_lines(get_output_method_str),
             loop_body=self._indent_lines(loop_body_str, 3),
         )

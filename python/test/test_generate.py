@@ -1,4 +1,5 @@
 import argparse
+from pathlib import Path
 
 from sparsene.op_gen.opir import printer
 from sparsene.formats.DTC_SpMM import ME_TCF_FORMAT
@@ -13,16 +14,33 @@ from sparsene.op_gen.opir.generate import generate_from_computent
 from sparsene.op_gen.opir.varlenLoweringPass import VarlenLoweringPass
 from sparsene.op_gen.opir.cValFlattenPass import CValFlattenPass
 from sparsene.op_gen.nvir.generate import generate_nvir
+from sparsene.op_gen.nvir.printer import NvProgramPrinter
 from sparsene.logging import get_logger, set_logging_level_for_all
 
 from sparsene.formats.ROW_REORDER_SR_BCRS import ROW_REORDER_SR_BCRS_FORMAT
 
-
+from sparsene.op_gen.nvir.compiler_driver import apply_software_pipeline_and_codegen
 
 
 def parse_args():
     args = argparse.ArgumentParser()
     args.add_argument("--debug", "-d", action="store_true")
+    args.add_argument(
+        "--dump-impl",
+        action="store_true",
+        help="在 NVIR 树形 dump 中包含 op.impl 代码片段",
+    )
+    args.add_argument(
+        "--dump-no-io",
+        action="store_true",
+        help="在 NVIR 树形 dump 中隐藏 inputs/outputs",
+    )
+    args.add_argument(
+        "--dump-file",
+        type=str,
+        default="./me_tcf_nvir_tree.txt",
+        help="ME-TCF 的 NVIR 树形 dump 输出文件",
+    )
     return args.parse_args()
 
 
@@ -50,26 +68,61 @@ if __name__ == "__main__":
     flattened_ops = c_val_flatten_pass.run(lowered_ops)
     print("[AFTER cValFlattenPass]")
     print(printer.Printer().dump(flattened_ops))
-    # exit(0)
+
+    nvir_program = generate_nvir(opir=flattened_ops, format_name="ME_TCF")
+    print("[AFTER NVIR Lowering]")
+    print(f"program={nvir_program.name}, num_ops={len(nvir_program.ops)}")
+    print(
+        "top_ops=",
+        [op.name for op in nvir_program.ops[: len(nvir_program.ops)]],
+    )
+
+    show_io = not args.dump_no_io
+
+    tree_from_method = nvir_program.dump_tree(
+        indent_size=2,
+        show_io=show_io,
+        show_impl=args.dump_impl,
+    )
+    print("[AFTER NVIR Lowering - dump_tree]")
+    print(tree_from_method)
+
+    # tree_from_printer = NvProgramPrinter(
+    #     indent_size=2,
+    #     show_io=show_io,
+    #     show_impl=args.dump_impl,
+    # ).dump_program(nvir_program)
+    # if tree_from_method != tree_from_printer:
+    #     logger.warning("dump_tree output differs from NvProgramPrinter output")
+
+    # dump_path = Path(args.dump_file)
+    # dump_path.write_text(tree_from_method)
+    # print(f"[NVIR Tree Dumped] {dump_path.resolve()}")
+
+    
+    output_file = "./me_tcf_kernel.inc"
+    apply_software_pipeline_and_codegen(nvir_program, output_file)
+
+    exit(0)
     # logger.info(rts)
     # logger.info(computent)
 
 
-    print("=" * 100)
-    print("BIT_TCF")
-    rts = derive_rts(BIT_TCF_FORMAT)
-    computent = computent_from_rts("BIT_TCF", rts)
-    ops = generate_from_computent(computent)
-    print("[BEFORE VarlenLoweringPass]")
-    print(printer.default_printer.dump(ops))
-    varlen_lowering_pass = VarlenLoweringPass(op_builder=None, varlen2LenArrayTable=computent.varlen2LenArrayTable)
-    lowered_ops = varlen_lowering_pass.run(ops)
-    print("[AFTER VarlenLoweringPass]")
-    print(printer.default_printer.dump(lowered_ops))
-    c_val_flatten_pass = CValFlattenPass(op_builder=None)
-    flattened_ops = c_val_flatten_pass.run(lowered_ops)
-    print("[AFTER cValFlattenPass]")
-    print(printer.default_printer.dump(flattened_ops))
+    # print("=" * 100)
+    # print("BIT_TCF")
+    # rts = derive_rts(BIT_TCF_FORMAT)
+    # computent = computent_from_rts("BIT_TCF", rts)
+    # ops = generate_from_computent(computent)
+    # print("[BEFORE VarlenLoweringPass]")
+    # print(printer.default_printer.dump(ops))
+    # varlen_lowering_pass = VarlenLoweringPass(op_builder=None, varlen2LenArrayTable=computent.varlen2LenArrayTable)
+    # lowered_ops = varlen_lowering_pass.run(ops)
+    # print("[AFTER VarlenLoweringPass]")
+    # print(printer.default_printer.dump(lowered_ops))
+    # c_val_flatten_pass = CValFlattenPass(op_builder=None)
+    # flattened_ops = c_val_flatten_pass.run(lowered_ops)
+    # print("[AFTER cValFlattenPass]")
+    # print(printer.default_printer.dump(flattened_ops))
     # exit(0)
     # logger.info(rts)
     # logger.info(computent)
@@ -91,64 +144,64 @@ if __name__ == "__main__":
     # logger.info(computent)
 
 
-    print("=" * 100)
-    print("ROW_REORDER_SR_BCRS")
-    rts = derive_rts(ROW_REORDER_SR_BCRS_FORMAT)
-    computent = computent_from_rts("ROW_REORDER_SR_BCRS", rts)
-    ops = generate_from_computent(computent)
-    print("[BEFORE VarlenLoweringPass]")
-    print(printer.default_printer.dump(ops))
-    varlen_lowering_pass = VarlenLoweringPass(op_builder=None, varlen2LenArrayTable=computent.varlen2LenArrayTable)
-    lowered_ops = varlen_lowering_pass.run(ops)
-    print("[AFTER VarlenLoweringPass]")
-    print(printer.default_printer.dump(lowered_ops))
-    c_val_flatten_pass = CValFlattenPass(op_builder=None, varlen2IdxArrayTable=None)
-    flattened_ops = c_val_flatten_pass.run(lowered_ops)
-    print("(debug)", c_val_flatten_pass.varlen2IdxArrayTable)
-    print("[AFTER cValFlattenPass]")
-    print(printer.default_printer.dump(flattened_ops))
+    # print("=" * 100)
+    # print("ROW_REORDER_SR_BCRS")
+    # rts = derive_rts(ROW_REORDER_SR_BCRS_FORMAT)
+    # computent = computent_from_rts("ROW_REORDER_SR_BCRS", rts)
+    # ops = generate_from_computent(computent)
+    # print("[BEFORE VarlenLoweringPass]")
+    # print(printer.default_printer.dump(ops))
+    # varlen_lowering_pass = VarlenLoweringPass(op_builder=None, varlen2LenArrayTable=computent.varlen2LenArrayTable)
+    # lowered_ops = varlen_lowering_pass.run(ops)
+    # print("[AFTER VarlenLoweringPass]")
+    # print(printer.default_printer.dump(lowered_ops))
+    # c_val_flatten_pass = CValFlattenPass(op_builder=None, varlen2IdxArrayTable=None)
+    # flattened_ops = c_val_flatten_pass.run(lowered_ops)
+    # print("(debug)", c_val_flatten_pass.varlen2IdxArrayTable)
+    # print("[AFTER cValFlattenPass]")
+    # print(printer.default_printer.dump(flattened_ops))
     # exit(0)
     # logger.info(rts)
     # logger.info(computent)
 
 
-    print("=" * 100)
-    print("BIT_BSR")
-    rts = derive_rts(BIT_BSR_FORMAT)
-    computent = computent_from_rts("BIT_BSR", rts)
-    ops = generate_from_computent(computent)
-    print("[BEFORE VarlenLoweringPass]")
-    print(printer.default_printer.dump(ops))
-    varlen_lowering_pass = VarlenLoweringPass(op_builder=None, varlen2LenArrayTable=computent.varlen2LenArrayTable)
-    lowered_ops = varlen_lowering_pass.run(ops)
-    print("[AFTER VarlenLoweringPass]")
-    print(printer.default_printer.dump(lowered_ops))
-    c_val_flatten_pass = CValFlattenPass(op_builder=None, varlen2IdxArrayTable=None)
-    flattened_ops = c_val_flatten_pass.run(lowered_ops)
-    print("[AFTER CValFlattenPass]")
-    print(printer.default_printer.dump(flattened_ops))
+    # print("=" * 100)
+    # print("BIT_BSR")
+    # rts = derive_rts(BIT_BSR_FORMAT)
+    # computent = computent_from_rts("BIT_BSR", rts)
+    # ops = generate_from_computent(computent)
+    # print("[BEFORE VarlenLoweringPass]")
+    # print(printer.default_printer.dump(ops))
+    # varlen_lowering_pass = VarlenLoweringPass(op_builder=None, varlen2LenArrayTable=computent.varlen2LenArrayTable)
+    # lowered_ops = varlen_lowering_pass.run(ops)
+    # print("[AFTER VarlenLoweringPass]")
+    # print(printer.default_printer.dump(lowered_ops))
+    # c_val_flatten_pass = CValFlattenPass(op_builder=None, varlen2IdxArrayTable=None)
+    # flattened_ops = c_val_flatten_pass.run(lowered_ops)
+    # print("[AFTER CValFlattenPass]")
+    # print(printer.default_printer.dump(flattened_ops))
     # exit(0)
     # logger.info(rts)
     # logger.info(computent)
     # exit(0)
 
 
-    print("=" * 100)
-    print("SR_BCRS")
-    rts = derive_rts(SR_BCRS_FORMAT)
-    computent = computent_from_rts("SR_BCRS", rts)
-    ops = generate_from_computent(computent)
-    print("[BEFORE VarlenLoweringPass]")
-    print(printer.default_printer.dump(ops))
-    varlen_lowering_pass = VarlenLoweringPass(op_builder=None, varlen2LenArrayTable=computent.varlen2LenArrayTable)
-    lowered_ops = varlen_lowering_pass.run(ops)
-    print("[AFTER VarlenLoweringPass]")
-    print(printer.default_printer.dump(lowered_ops))
-    c_val_flatten_pass = CValFlattenPass(op_builder=None, varlen2IdxArrayTable=None)
-    flattened_ops = c_val_flatten_pass.run(lowered_ops)
-    print("[AFTER CValFlattenPass]")
-    print(printer.default_printer.dump(flattened_ops))
-    exit(0)
+    # print("=" * 100)
+    # print("SR_BCRS")
+    # rts = derive_rts(SR_BCRS_FORMAT)
+    # computent = computent_from_rts("SR_BCRS", rts)
+    # ops = generate_from_computent(computent)
+    # print("[BEFORE VarlenLoweringPass]")
+    # print(printer.default_printer.dump(ops))
+    # varlen_lowering_pass = VarlenLoweringPass(op_builder=None, varlen2LenArrayTable=computent.varlen2LenArrayTable)
+    # lowered_ops = varlen_lowering_pass.run(ops)
+    # print("[AFTER VarlenLoweringPass]")
+    # print(printer.default_printer.dump(lowered_ops))
+    # c_val_flatten_pass = CValFlattenPass(op_builder=None, varlen2IdxArrayTable=None)
+    # flattened_ops = c_val_flatten_pass.run(lowered_ops)
+    # print("[AFTER CValFlattenPass]")
+    # print(printer.default_printer.dump(flattened_ops))
+    # exit(0)
     # logger.info(rts)
     # logger.info(computent)
 

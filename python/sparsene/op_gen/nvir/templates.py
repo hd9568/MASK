@@ -115,6 +115,7 @@ public:
     int _l, _r;
     int _idx; // i + _l
     int _iter; // i
+{extra_inputs}
 
 {outputs}
 
@@ -135,9 +136,10 @@ public:
 
     // f
     template<typename = void>
-    CUTE_DEVICE void f(int l, int r) {{
+    CUTE_DEVICE void f(int l, int r{extra_f_params}) {{
         _l = l;
         _r = r;
+{extra_input_assignments}        
         dispatch();
     }}
 }};"""
@@ -178,6 +180,7 @@ public:
     int _l, _r;
     int _idx; // i + _l
     int _iter; // i
+{extra_inputs}
 
 {loop_result_outputs}
 
@@ -195,9 +198,10 @@ public:
 
     // f
     template<class Tensor_i0, class Tensor_i1>
-    CUTE_DEVICE void f(Tensor_i0 l, Tensor_i1 r) {{
+    CUTE_DEVICE void f(Tensor_i0 l, Tensor_i1 r{extra_f_params}) {{
         _l = l;
         _r = r;
+{extra_input_assignments}
         for (int i = _l; i < _r; i++) {{
             _idx = i;
             _iter = i - _l;
