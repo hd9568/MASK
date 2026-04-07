@@ -9,6 +9,7 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <time.h>
+#include <omp.h>
 
 #include "common.h"
 #include "utils.h"
@@ -195,28 +196,43 @@ void convertToSRBCRS(int M,
     int row_window_num = (M + TILE_M - 1) / TILE_M;
     int* val_soff = (int*)malloc(sizeof(int) * (row_window_num + 1));
     memset(val_soff, 0, sizeof(int) * (row_window_num + 1));
+    vector<int> tc_block_count(row_window_num, 0);
+
+#pragma omp parallel
+    {
+        vector<unsigned char> col_mark(K, 0);
+        vector<int> touched_cols;
+        touched_cols.reserve(TILE_M * TILE_K);
+
+#pragma omp for schedule(static)
+        for (int i_row_window = 0; i_row_window < row_window_num; i_row_window++) {
+            touched_cols.clear();
+            for (int i_row = 0; i_row < TILE_M; i_row++) {
+                int row = i_row_window * TILE_M + i_row;
+                if (row >= M)
+                    continue;
+                for (int j = csrPtrA[row]; j < csrPtrA[row + 1]; j++) {
+                    int col = csrColIdxA[j];
+                    if (!col_mark[col]) {
+                        col_mark[col] = 1;
+                        touched_cols.push_back(col);
+                    }
+                }
+            }
+
+            sort(touched_cols.begin(), touched_cols.end());
+            tc_block_count[i_row_window] = ((int)touched_cols.size() + TILE_K - 1) / TILE_K;
+
+            for (int col : touched_cols) {
+                col_mark[col] = 0;
+            }
+        }
+    }
+
     int total_TCBlock_num = 0;
-    int* nnz_col = (int*)malloc(sizeof(int) * K);
     for (int i_row_window = 0; i_row_window < row_window_num; i_row_window++) {
         val_soff[i_row_window] = total_TCBlock_num;
-        memset(nnz_col, 0, sizeof(int) * K);
-        for (int i_row = 0; i_row < TILE_M; i_row++) {
-            int row = i_row_window * TILE_M + i_row;
-            if (row >= M)
-                continue;
-            for (int j = csrPtrA[row]; j < csrPtrA[row + 1]; j++) {
-                nnz_col[csrColIdxA[j]] = 1;
-            }
-        }
-        int nnz_col_num = 0;
-        for (int i = 0, j = 0; i < K; i++) {
-            if (nnz_col[i] == 1) {
-                nnz_col[j] = i;
-                j++;
-                nnz_col_num++;
-            }
-        }
-        total_TCBlock_num += (nnz_col_num + TILE_K - 1) / TILE_K;
+        total_TCBlock_num += tc_block_count[i_row_window];
     }
     val_soff[row_window_num] = total_TCBlock_num;
     printf("total_BCRS_Block_num = %d\n", total_TCBlock_num);
@@ -229,52 +245,71 @@ void convertToSRBCRS(int M,
 
     auto swizzle_layout = composition(
       Swizzle<2, 2, 3>{}, make_layout(make_shape(TILE_M, TILE_K), make_stride(TILE_K, 1)));
-    for (int i_row_window = 0; i_row_window < row_window_num; i_row_window++) {
-        int TC_block_offset = val_soff[i_row_window];
-        int* tmp_val_sidx = val_sidx + TC_block_offset * TILE_K;
-        DTYPEAB* tmp_val_block_val = val_block_val + TC_block_offset * TILE_M * TILE_K;
-        memset(nnz_col, 0, sizeof(int) * K);
-        for (int i_row = 0; i_row < TILE_M; i_row++) {
-            int row = i_row_window * TILE_M + i_row;
-            if (row >= M)
-                continue;
-            for (int j = csrPtrA[row]; j < csrPtrA[row + 1]; j++) {
-                nnz_col[csrColIdxA[j]] = 1;
-            }
-        }
-        int nnz_col_num = 0;
-        for (int i = 0, j = 0; i < K; i++) {
-            if (nnz_col[i] == 1) {
-                nnz_col[j] = i;
-                j++;
-                nnz_col_num++;
-            }
-        }
-        int tc_block_num = (nnz_col_num + TILE_K - 1) / TILE_K;
-        for (int i_tc_block_col = 0; i_tc_block_col < tc_block_num * TILE_K; i_tc_block_col++) {
-            if (i_tc_block_col >= nnz_col_num)
-                tmp_val_sidx[i_tc_block_col] = nnz_col[nnz_col_num - 1];
-            else
-                tmp_val_sidx[i_tc_block_col] = nnz_col[i_tc_block_col];
-        }
-        for (int i_row = 0; i_row < TILE_M; i_row++) {
-            int row = i_row_window * TILE_M + i_row;
-            int col_start_pos = 0;
-            if (row >= M)
-                continue;
-            for (int j = csrPtrA[row]; j < csrPtrA[row + 1]; j++) {
-                int col = csrColIdxA[j];
-                float value = (float)csrValA[j];
-                int condensed_pos = binarySearch(nnz_col, col_start_pos, nnz_col_num - 1, col);
-                col_start_pos = condensed_pos + 1;
 
-                auto coord = make_coord(i_row, condensed_pos % TILE_K);
-                auto idx = swizzle_layout(coord);
-                tmp_val_block_val[(condensed_pos / TILE_K) * TILE_M * TILE_K + idx] =
-                  DTYPEAB(value);
+#pragma omp parallel
+    {
+        vector<unsigned char> col_mark(K, 0);
+        vector<int> touched_cols;
+        touched_cols.reserve(TILE_M * TILE_K);
+
+#pragma omp for schedule(static)
+        for (int i_row_window = 0; i_row_window < row_window_num; i_row_window++) {
+            int TC_block_offset = val_soff[i_row_window];
+            int* tmp_val_sidx = val_sidx + TC_block_offset * TILE_K;
+            DTYPEAB* tmp_val_block_val = val_block_val + TC_block_offset * TILE_M * TILE_K;
+
+            touched_cols.clear();
+            for (int i_row = 0; i_row < TILE_M; i_row++) {
+                int row = i_row_window * TILE_M + i_row;
+                if (row >= M)
+                    continue;
+                for (int j = csrPtrA[row]; j < csrPtrA[row + 1]; j++) {
+                    int col = csrColIdxA[j];
+                    if (!col_mark[col]) {
+                        col_mark[col] = 1;
+                        touched_cols.push_back(col);
+                    }
+                }
+            }
+
+            sort(touched_cols.begin(), touched_cols.end());
+            int nnz_col_num = (int)touched_cols.size();
+            int tc_block_num = (nnz_col_num + TILE_K - 1) / TILE_K;
+
+            for (int i_tc_block_col = 0; i_tc_block_col < tc_block_num * TILE_K; i_tc_block_col++) {
+                if (i_tc_block_col >= nnz_col_num)
+                    tmp_val_sidx[i_tc_block_col] = touched_cols[nnz_col_num - 1];
+                else
+                    tmp_val_sidx[i_tc_block_col] = touched_cols[i_tc_block_col];
+            }
+
+            for (int i_row = 0; i_row < TILE_M; i_row++) {
+                int row = i_row_window * TILE_M + i_row;
+                int col_start_pos = 0;
+                if (row >= M)
+                    continue;
+                for (int j = csrPtrA[row]; j < csrPtrA[row + 1]; j++) {
+                    int col = csrColIdxA[j];
+                    float value = (float)csrValA[j];
+                    int condensed_pos = (int)(lower_bound(touched_cols.begin() + col_start_pos,
+                                                          touched_cols.end(),
+                                                          col) -
+                                             touched_cols.begin());
+                    col_start_pos = condensed_pos + 1;
+
+                    auto coord = make_coord(i_row, condensed_pos % TILE_K);
+                    auto idx = swizzle_layout(coord);
+                    tmp_val_block_val[(condensed_pos / TILE_K) * TILE_M * TILE_K + idx] =
+                      DTYPEAB(value);
+                }
+            }
+
+            for (int col : touched_cols) {
+                col_mark[col] = 0;
             }
         }
     }
+
     sr_bcrs_test_tf32<TILE_M, TILE_N, TILE_K>(M, N, K, total_TCBlock_num, val_sidx, val_soff, B,
                                               val_block_val, C, is_ncu_test, warmup_time, execute_time);
 }

@@ -3,6 +3,7 @@ project(testbed LANGUAGES CXX CUDA)
 
 # CUDA compiler settings
 find_package(CUDAToolkit REQUIRED)
+find_package(OpenMP REQUIRED)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -17,13 +18,13 @@ set(CUDA_NVCC_FLAGS
         -lineinfo
         -O3
         -m64
-        -Xcompiler -fopenmp-simd
+    -Xcompiler -fopenmp
         --expt-relaxed-constexpr
         --ptxas-options=-v
         -ftemplate-backtrace-limit=0
 )
 
-set(CUDA_LIBS -lcusparse -lcublas)
+set(CUDA_LIBS -lcusparse -lcublas OpenMP::OpenMP_CXX)
 
 add_compile_options("$<$<COMPILE_LANGUAGE:CUDA>:-lineinfo>")
 
@@ -65,7 +66,7 @@ foreach(PLAN_FILE ${PLAN_FILES})
     add_executable(${PLAN_NAME} ${GENERATED_HOST_PROGRAM} ${SRC_CUDA_FILES} ${PROJECT_SOURCE_DIR}/main.cu)
 
     target_compile_options(srbcrs-${PLAN_NAME}-tf32 PRIVATE ${CUDA_NVCC_FLAGS} -I${SRCDIR} -I${CMAKE_CURRENT_SOURCE_DIR})
-    target_link_libraries(srbcrs-${PLAN_NAME}-tf32 PRIVATE -lcusparse -lcublas)
+    target_link_libraries(srbcrs-${PLAN_NAME}-tf32 PRIVATE ${CUDA_LIBS})
     target_compile_definitions(srbcrs-${PLAN_NAME}-tf32 PRIVATE f32)
     target_include_directories(srbcrs-${PLAN_NAME}-tf32 PRIVATE 
         ${CUTLASS_INCLUDE_DIR}
@@ -78,7 +79,7 @@ endforeach()
 add_executable(demo-srbcrs-tf32 ${PROJECT_SOURCE_DIR}/host_program.cu ${PROJECT_SOURCE_DIR}/main.cu ${SRC_CUDA_FILES})
 
 target_compile_options(demo-srbcrs-tf32 PRIVATE ${CUDA_NVCC_FLAGS} -I${SRCDIR} -I${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(demo-srbcrs-tf32 PRIVATE -lcusparse -lcublas)
+target_link_libraries(demo-srbcrs-tf32 PRIVATE ${CUDA_LIBS})
 target_compile_definitions(demo-srbcrs-tf32 PRIVATE f32)
 target_include_directories(demo-srbcrs-tf32 PRIVATE 
     ${CUTLASS_INCLUDE_DIR}
@@ -90,7 +91,7 @@ target_include_directories(demo-srbcrs-tf32 PRIVATE
 add_executable(demo-srbcrs-16x8-tf32 ${PROJECT_SOURCE_DIR}/host_program_16x8.cu ${PROJECT_SOURCE_DIR}/main_16x8.cu ${SRC_CUDA_FILES})
 
 target_compile_options(demo-srbcrs-16x8-tf32 PRIVATE ${CUDA_NVCC_FLAGS} -I${SRCDIR} -I${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(demo-srbcrs-16x8-tf32 PRIVATE -lcusparse -lcublas)
+target_link_libraries(demo-srbcrs-16x8-tf32 PRIVATE ${CUDA_LIBS})
 target_compile_definitions(demo-srbcrs-16x8-tf32 PRIVATE f32)
 target_include_directories(demo-srbcrs-16x8-tf32 PRIVATE 
     ${CUTLASS_INCLUDE_DIR}
@@ -102,9 +103,57 @@ target_include_directories(demo-srbcrs-16x8-tf32 PRIVATE
 add_executable(demo-srbcrs-16x8-spmv-tf32 ${PROJECT_SOURCE_DIR}/host_program_16x8_spmv.cu ${PROJECT_SOURCE_DIR}/main_16x8_spmv.cu ${SRC_CUDA_FILES})
 
 target_compile_options(demo-srbcrs-16x8-spmv-tf32 PRIVATE ${CUDA_NVCC_FLAGS} -I${SRCDIR} -I${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(demo-srbcrs-16x8-spmv-tf32 PRIVATE -lcusparse -lcublas)
+target_link_libraries(demo-srbcrs-16x8-spmv-tf32 PRIVATE ${CUDA_LIBS})
 target_compile_definitions(demo-srbcrs-16x8-spmv-tf32 PRIVATE f32)
 target_include_directories(demo-srbcrs-16x8-spmv-tf32 PRIVATE 
+    ${CUTLASS_INCLUDE_DIR}
+    ${CUTLASS_COMMON_DIR}
+    ${CUTLASS_UTIL_DIR}
+    ${SRCDIR}
+)
+
+add_executable(demo-srbcrs-multi-bind-tf32 ${PROJECT_SOURCE_DIR}/host_program_multi_bind.cu ${PROJECT_SOURCE_DIR}/main_multi_bind.cu ${SRC_CUDA_FILES})
+
+target_compile_options(demo-srbcrs-multi-bind-tf32 PRIVATE ${CUDA_NVCC_FLAGS} -I${SRCDIR} -I${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(demo-srbcrs-multi-bind-tf32 PRIVATE ${CUDA_LIBS})
+target_compile_definitions(demo-srbcrs-multi-bind-tf32 PRIVATE f32)
+target_include_directories(demo-srbcrs-multi-bind-tf32 PRIVATE
+    ${CUTLASS_INCLUDE_DIR}
+    ${CUTLASS_COMMON_DIR}
+    ${CUTLASS_UTIL_DIR}
+    ${SRCDIR}
+)
+
+add_executable(demo-srbcrs-strict-lb-tf32 ${PROJECT_SOURCE_DIR}/host_program_strict_lb.cu ${PROJECT_SOURCE_DIR}/main_strict_lb.cu ${SRC_CUDA_FILES})
+
+target_compile_options(demo-srbcrs-strict-lb-tf32 PRIVATE ${CUDA_NVCC_FLAGS} -I${SRCDIR} -I${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(demo-srbcrs-strict-lb-tf32 PRIVATE ${CUDA_LIBS})
+target_compile_definitions(demo-srbcrs-strict-lb-tf32 PRIVATE f32)
+target_include_directories(demo-srbcrs-strict-lb-tf32 PRIVATE
+    ${CUTLASS_INCLUDE_DIR}
+    ${CUTLASS_COMMON_DIR}
+    ${CUTLASS_UTIL_DIR}
+    ${SRCDIR}
+)
+
+add_executable(demo-srbcrs-16x8-multi-bind-tf32 ${PROJECT_SOURCE_DIR}/host_program_multi_bind.cu ${PROJECT_SOURCE_DIR}/main_multi_bind_16x8.cu ${SRC_CUDA_FILES})
+
+target_compile_options(demo-srbcrs-16x8-multi-bind-tf32 PRIVATE ${CUDA_NVCC_FLAGS} -I${SRCDIR} -I${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(demo-srbcrs-16x8-multi-bind-tf32 PRIVATE ${CUDA_LIBS})
+target_compile_definitions(demo-srbcrs-16x8-multi-bind-tf32 PRIVATE f32)
+target_include_directories(demo-srbcrs-16x8-multi-bind-tf32 PRIVATE
+    ${CUTLASS_INCLUDE_DIR}
+    ${CUTLASS_COMMON_DIR}
+    ${CUTLASS_UTIL_DIR}
+    ${SRCDIR}
+)
+
+add_executable(demo-srbcrs-16x8-strict-lb-tf32 ${PROJECT_SOURCE_DIR}/host_program_strict_lb.cu ${PROJECT_SOURCE_DIR}/main_strict_lb_16x8.cu ${SRC_CUDA_FILES})
+
+target_compile_options(demo-srbcrs-16x8-strict-lb-tf32 PRIVATE ${CUDA_NVCC_FLAGS} -I${SRCDIR} -I${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(demo-srbcrs-16x8-strict-lb-tf32 PRIVATE ${CUDA_LIBS})
+target_compile_definitions(demo-srbcrs-16x8-strict-lb-tf32 PRIVATE f32)
+target_include_directories(demo-srbcrs-16x8-strict-lb-tf32 PRIVATE
     ${CUTLASS_INCLUDE_DIR}
     ${CUTLASS_COMMON_DIR}
     ${CUTLASS_UTIL_DIR}
