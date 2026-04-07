@@ -9,6 +9,7 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <time.h>
+#include <omp.h>
 
 #include "common.h"
 #include "utils.h"
@@ -326,49 +327,75 @@ void convertToMETCF(int M,
     int row_window_num = (M + ROW_WINDOW_M - 1) / ROW_WINDOW_M;
     int* val_soff = (int*)malloc(sizeof(int) * (row_window_num + 1));
     memset(val_soff, 0, sizeof(int) * (row_window_num + 1));
-    int total_TCBlock_num = 0;
-    int* nnz_col = (int*)malloc(sizeof(int) * K);
     vector<vector<int>> vec_nnz_per_tc_block(row_window_num);
+    vector<int> tc_block_count(row_window_num, 0);
+    vector<int> nnz_pad_per_window(row_window_num, 0);
+
+#pragma omp parallel
+    {
+        vector<unsigned char> col_mark(K, 0);
+        vector<int> unique_cols;
+        unique_cols.reserve(ROW_WINDOW_M * TC_BLOCK_K);
+
+#pragma omp for schedule(static)
+        for (int i_row_window = 0; i_row_window < row_window_num; i_row_window++) {
+            unique_cols.clear();
+            for (int i_row = 0; i_row < ROW_WINDOW_M; i_row++) {
+                int row = i_row_window * ROW_WINDOW_M + i_row;
+                if (row >= M)
+                    continue;
+                for (int j = csrPtrA[row]; j < csrPtrA[row + 1]; j++) {
+                    int col = csrColIdxA[j];
+                    if (!col_mark[col]) {
+                        col_mark[col] = 1;
+                        unique_cols.push_back(col);
+                    }
+                }
+            }
+
+            sort(unique_cols.begin(), unique_cols.end());
+            int nnz_col_num = (int)unique_cols.size();
+            int TCBlock_num = (nnz_col_num + TC_BLOCK_K - 1) / TC_BLOCK_K;
+            tc_block_count[i_row_window] = TCBlock_num;
+
+            vector<int>& nnz_per_tc_block = vec_nnz_per_tc_block[i_row_window];
+            nnz_per_tc_block.assign(TCBlock_num, 0);
+
+            for (int i_row = 0; i_row < ROW_WINDOW_M; i_row++) {
+                int row = i_row_window * ROW_WINDOW_M + i_row;
+                int col_start_pos = 0;
+                if (row >= M)
+                    continue;
+                for (int j = csrPtrA[row]; j < csrPtrA[row + 1]; j++) {
+                    int col = csrColIdxA[j];
+                    int condensed_col =
+                      (int)(lower_bound(unique_cols.begin() + col_start_pos, unique_cols.end(), col) -
+                            unique_cols.begin());
+                    col_start_pos = condensed_col + 1;
+                    int tc_block_id = condensed_col / TC_BLOCK_K;
+                    nnz_per_tc_block[tc_block_id]++;
+                }
+            }
+
+            int pad_cnt = 0;
+            for (int i_tc_block = 0; i_tc_block < TCBlock_num; i_tc_block++) {
+                int nnz_block = nnz_per_tc_block[i_tc_block];
+                pad_cnt += (nnz_block + 8 - 1) / 8 * 8;
+            }
+            nnz_pad_per_window[i_row_window] = pad_cnt;
+
+            for (int col : unique_cols) {
+                col_mark[col] = 0;
+            }
+        }
+    }
+
+    int total_TCBlock_num = 0;
     int nnz_pad = 0;
     for (int i_row_window = 0; i_row_window < row_window_num; i_row_window++) {
         val_soff[i_row_window] = total_TCBlock_num;
-        memset(nnz_col, 0, sizeof(int) * K);
-        vector<int>& nnz_per_tc_block = vec_nnz_per_tc_block[i_row_window];
-        for (int i_row = 0; i_row < ROW_WINDOW_M; i_row++) {
-            int row = i_row_window * ROW_WINDOW_M + i_row;
-            if (row >= M)
-                continue;
-            for (int j = csrPtrA[row]; j < csrPtrA[row + 1]; j++) {
-                nnz_col[csrColIdxA[j]] = 1;
-            }
-        }
-        int nnz_col_num = 0;
-        for (int i = 0, j = 0; i < K; i++) {
-            if (nnz_col[i] == 1) {
-                nnz_col[j] = i;
-                j++;
-                nnz_col_num++;
-            }
-        }
-        total_TCBlock_num += (nnz_col_num + TC_BLOCK_K - 1) / TC_BLOCK_K;
-        int TCBlock_num = (nnz_col_num + TC_BLOCK_K - 1) / TC_BLOCK_K;
-        nnz_per_tc_block.resize(TCBlock_num, 0);
-        for (int i_row = 0; i_row < ROW_WINDOW_M; i_row++) {
-            int row = i_row_window * ROW_WINDOW_M + i_row;
-            if (row >= M)
-                continue;
-            for (int j = csrPtrA[row]; j < csrPtrA[row + 1]; j++) {
-                int col = csrColIdxA[j];
-                int condensed_col = binarySearch(nnz_col, 0, nnz_col_num - 1, col);
-                int tc_block_id = condensed_col / TC_BLOCK_K;
-                nnz_per_tc_block[tc_block_id]++;
-            }
-        }
-        //! coo val and idx load in 8 element group
-        for (int i_tc_block = 0; i_tc_block < TCBlock_num; i_tc_block++) {
-            int nnz_block = nnz_per_tc_block[i_tc_block];
-            nnz_pad += (nnz_block + 8 - 1) / 8 * 8;
-        }
+        total_TCBlock_num += tc_block_count[i_row_window];
+        nnz_pad += nnz_pad_per_window[i_row_window];
     }
     val_soff[row_window_num] = total_TCBlock_num;
     printf("total_TCBlock_num = %d, nnz = %d, nnz_pad=%d\n", total_TCBlock_num, nnz, nnz_pad);
@@ -407,57 +434,69 @@ void convertToMETCF(int M,
     auto swizzle_layout =
       composition(Swizzle<1, 2, 3>{},
                   make_layout(make_shape(ROW_WINDOW_M, TC_BLOCK_K), make_stride(TC_BLOCK_K, 1)));
-    int* tc_block_nnz_ptr = (int*)malloc(sizeof(int) * (K + TC_BLOCK_K - 1) / TC_BLOCK_K);
-    for (int i_row_window = 0; i_row_window < row_window_num; i_row_window++) {
-        int TC_block_offset = val_soff[i_row_window];
-        int* tmp_val_sidx = val_sidx + TC_block_offset * TC_BLOCK_K;
-        memset(nnz_col, 0, sizeof(int) * K);
-        vector<int>& nnz_per_tc_block = vec_nnz_per_tc_block[i_row_window];
-        for (int i_row = 0; i_row < ROW_WINDOW_M; i_row++) {
-            int row = i_row_window * ROW_WINDOW_M + i_row;
-            if (row >= M)
-                continue;
-            for (int j = csrPtrA[row]; j < csrPtrA[row + 1]; j++) {
-                nnz_col[csrColIdxA[j]] = 1;
+
+#pragma omp parallel
+    {
+        vector<unsigned char> col_mark(K, 0);
+        vector<int> unique_cols;
+        unique_cols.reserve(ROW_WINDOW_M * TC_BLOCK_K);
+
+#pragma omp for schedule(static)
+        for (int i_row_window = 0; i_row_window < row_window_num; i_row_window++) {
+            int TC_block_offset = val_soff[i_row_window];
+            int* tmp_val_sidx = val_sidx + TC_block_offset * TC_BLOCK_K;
+            int tc_block_num = tc_block_count[i_row_window];
+
+            unique_cols.clear();
+            for (int i_row = 0; i_row < ROW_WINDOW_M; i_row++) {
+                int row = i_row_window * ROW_WINDOW_M + i_row;
+                if (row >= M)
+                    continue;
+                for (int j = csrPtrA[row]; j < csrPtrA[row + 1]; j++) {
+                    int col = csrColIdxA[j];
+                    if (!col_mark[col]) {
+                        col_mark[col] = 1;
+                        unique_cols.push_back(col);
+                    }
+                }
             }
-        }
-        int nnz_col_num = 0;
-        for (int i = 0, j = 0; i < K; i++) {
-            if (nnz_col[i] == 1) {
-                nnz_col[j] = i;
-                j++;
-                nnz_col_num++;
+
+            sort(unique_cols.begin(), unique_cols.end());
+            int nnz_col_num = (int)unique_cols.size();
+            for (int i_tc_block_col = 0; i_tc_block_col < nnz_col_num; i_tc_block_col++) {
+                tmp_val_sidx[i_tc_block_col] = unique_cols[i_tc_block_col];
             }
-        }
-        int tc_block_num = (nnz_col_num + TC_BLOCK_K - 1) / TC_BLOCK_K;
-        for (int i_tc_block_col = 0; i_tc_block_col < nnz_col_num; i_tc_block_col++) {
-            tmp_val_sidx[i_tc_block_col] = nnz_col[i_tc_block_col];
-        }
-        memset(tc_block_nnz_ptr, 0, sizeof(int) * (K + TC_BLOCK_K - 1) / TC_BLOCK_K);
-        for (int i_tc_block = 0; i_tc_block < tc_block_num; i_tc_block++) {
-            tc_block_nnz_ptr[i_tc_block] = nnz_per_tc_block[i_tc_block];
-        }
-        for (int i_row = 0; i_row < ROW_WINDOW_M; i_row++) {
-            int row = i_row_window * ROW_WINDOW_M + i_row;
-            int col_start_pos = 0;
-            if (row >= M)
-                continue;
-            for (int j = csrPtrA[row]; j < csrPtrA[row + 1]; j++) {
-                int col = csrColIdxA[j];
-                float value = (float)csrValA[j];
-                int condensed_pos = binarySearch(nnz_col, col_start_pos, nnz_col_num - 1, col);
-                col_start_pos = condensed_pos + 1;
-                int tc_block_id = condensed_pos / TC_BLOCK_K;
-                val_coo_val[tc_block_nnz_ptr[tc_block_id]] = value;
-                //! origin idx
-                // int coo_idx = i_row * TC_BLOCK_K + (condensed_pos % TC_BLOCK_K);
-                // val_coo_idx[tc_block_nnz_ptr[tc_block_id]] = coo_idx;
-                //! manual swizzle
-                auto coord = make_coord(i_row, condensed_pos % TC_BLOCK_K);
-                auto swizzled_idx = swizzle_layout(coord);
-                val_coo_idx[tc_block_nnz_ptr[tc_block_id]] = swizzled_idx;
-                //! end
-                tc_block_nnz_ptr[tc_block_id]++;
+
+            vector<int>& nnz_per_tc_block = vec_nnz_per_tc_block[i_row_window];
+            vector<int> tc_block_nnz_ptr(tc_block_num, 0);
+            for (int i_tc_block = 0; i_tc_block < tc_block_num; i_tc_block++) {
+                tc_block_nnz_ptr[i_tc_block] = nnz_per_tc_block[i_tc_block];
+            }
+
+            for (int i_row = 0; i_row < ROW_WINDOW_M; i_row++) {
+                int row = i_row_window * ROW_WINDOW_M + i_row;
+                int col_start_pos = 0;
+                if (row >= M)
+                    continue;
+                for (int j = csrPtrA[row]; j < csrPtrA[row + 1]; j++) {
+                    int col = csrColIdxA[j];
+                    float value = (float)csrValA[j];
+                    int condensed_pos =
+                      (int)(lower_bound(unique_cols.begin() + col_start_pos, unique_cols.end(), col) -
+                            unique_cols.begin());
+                    col_start_pos = condensed_pos + 1;
+                    int tc_block_id = condensed_pos / TC_BLOCK_K;
+                    int write_pos = tc_block_nnz_ptr[tc_block_id]++;
+                    val_coo_val[write_pos] = value;
+
+                    auto coord = make_coord(i_row, condensed_pos % TC_BLOCK_K);
+                    auto swizzled_idx = swizzle_layout(coord);
+                    val_coo_idx[write_pos] = swizzled_idx;
+                }
+            }
+
+            for (int col : unique_cols) {
+                col_mark[col] = 0;
             }
         }
     }

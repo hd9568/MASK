@@ -3,6 +3,7 @@ project(testbed LANGUAGES CXX CUDA)
 
 # CUDA compiler settings
 find_package(CUDAToolkit REQUIRED)
+find_package(OpenMP REQUIRED)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -17,7 +18,7 @@ set(CUDA_NVCC_FLAGS
         -lineinfo
         -O3
         -m64
-        -Xcompiler -fopenmp-simd
+    -Xcompiler -fopenmp
         --expt-relaxed-constexpr
         --ptxas-options=-v
         -ftemplate-backtrace-limit=0
@@ -78,7 +79,7 @@ file(GLOB_RECURSE SRC_CUDA_FILES ${SRCDIR}/*.cu)
 add_executable(demo-dtc-tf32 ${PROJECT_SOURCE_DIR}/host_program.cu ${PROJECT_SOURCE_DIR}/main.cu ${SRC_CUDA_FILES})
 
 target_compile_options(demo-dtc-tf32 PRIVATE ${CUDA_NVCC_FLAGS} -I${SRCDIR} -I${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(demo-dtc-tf32 PRIVATE -lcusparse -lcublas)
+target_link_libraries(demo-dtc-tf32 PRIVATE -lcusparse -lcublas OpenMP::OpenMP_CXX)
 target_compile_definitions(demo-dtc-tf32 PRIVATE f32)
 target_include_directories(demo-dtc-tf32 PRIVATE 
     ${CUTLASS_INCLUDE_DIR}
@@ -90,7 +91,7 @@ target_include_directories(demo-dtc-tf32 PRIVATE
 add_executable(demo-dtc-multi-binding-tf32 ${PROJECT_SOURCE_DIR}/host_program_multi_binding.cu ${PROJECT_SOURCE_DIR}/main_multi_binding.cu ${SRC_CUDA_FILES})
 
 target_compile_options(demo-dtc-multi-binding-tf32 PRIVATE ${CUDA_NVCC_FLAGS} -I${SRCDIR} -I${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(demo-dtc-multi-binding-tf32 PRIVATE -lcusparse -lcublas)
+target_link_libraries(demo-dtc-multi-binding-tf32 PRIVATE -lcusparse -lcublas OpenMP::OpenMP_CXX)
 target_compile_definitions(demo-dtc-multi-binding-tf32 PRIVATE f32)
 target_include_directories(demo-dtc-multi-binding-tf32 PRIVATE 
     ${CUTLASS_INCLUDE_DIR}
@@ -102,7 +103,7 @@ target_include_directories(demo-dtc-multi-binding-tf32 PRIVATE
 add_executable(demo-dtc-strict-lb-tf32 ${PROJECT_SOURCE_DIR}/host_program_strict_lb.cu ${PROJECT_SOURCE_DIR}/main_strict_lb.cu ${SRC_CUDA_FILES})
 
 target_compile_options(demo-dtc-strict-lb-tf32 PRIVATE ${CUDA_NVCC_FLAGS} -I${SRCDIR} -I${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(demo-dtc-strict-lb-tf32 PRIVATE -lcusparse -lcublas)
+target_link_libraries(demo-dtc-strict-lb-tf32 PRIVATE -lcusparse -lcublas OpenMP::OpenMP_CXX)
 target_compile_definitions(demo-dtc-strict-lb-tf32 PRIVATE f32)
 target_include_directories(demo-dtc-strict-lb-tf32 PRIVATE 
     ${CUTLASS_INCLUDE_DIR}
