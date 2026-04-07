@@ -49,7 +49,51 @@ extern void dtc_spmm_test_val_sidx_bind_reorder(int M,
                                                 int warmup_time,
                                                 int execute_time);
 
+                        extern void dtc_spmm_test_val_sidx_bind_reorder_runtime(int M,
+                                                    int N,
+                                                    int K,
+                                                    int TCBlock_num,
+                                                    int nnz,
+                                                    int* val_sidx,
+                                                    int* val_soff,
+                                                    float* B_val,
+                                                    int* val_coo_idx,
+                                                    float* val_coo_val,
+                                                    int* val_coo_off,
+                                                    int row_block_num,
+                                                    int slb_block_dim_size,
+                                                    vector<int> row_block_offset,
+                                                    vector<int> row_block_to_row_window_id,
+                                                    vector<int> slb_tb_offset,
+                                                    int tile_n,
+                                                    float* C,
+                                                    bool is_ncu_test,
+                                                    int warmup_time,
+                                                    int execute_time);
+
 extern template void dtc_spmm_test_val_sidx_bind_reorder<64>(int M,
+                                                             int N,
+                                                             int K,
+                                                             int TCBlock_num,
+                                                             int nnz,
+                                                             int* val_sidx,
+                                                             int* val_soff,
+                                                             float* B_val,
+                                                             int* val_coo_idx,
+                                                             float* val_coo_val,
+                                                             int* val_coo_off,
+
+                                                             int row_block_num,
+                                                             int slb_block_dim_size,
+                                                             vector<int> row_block_offset,
+                                                             vector<int> row_block_to_row_window_id,
+                                                             vector<int> slb_tb_offset,
+
+                                                             float* C,
+                                                             bool is_ncu_test,
+                                                             int warmup_time,
+                                                             int execute_time);
+extern template void dtc_spmm_test_val_sidx_bind_reorder<16>(int M,
                                                              int N,
                                                              int K,
                                                              int TCBlock_num,
@@ -274,6 +318,7 @@ void convertToMETCF(int M,
                     float* csrValA,
                     float* B,
                     float* C,
+                    int tile_n,
                     bool is_ncu_test,
                     int warmup_time,
                     int execute_time) {
@@ -436,10 +481,27 @@ void convertToMETCF(int M,
     // TODO: need to change according to swizzle
     //! reorder
 
-    dtc_spmm_test_val_sidx_bind_reorder<64>(M, N, K, total_TCBlock_num, nnz_pad, val_sidx, val_soff,
-                                            B, val_coo_idx, val_coo_val, val_coo_off, 
-                                            row_block_num, slb_block_dim_size, row_block_offset, row_block_to_row_window_id, slb_tb_offset, 
-                                            C, is_ncu_test, warmup_time, execute_time);
+    dtc_spmm_test_val_sidx_bind_reorder_runtime(M,
+                                                N,
+                                                K,
+                                                total_TCBlock_num,
+                                                nnz_pad,
+                                                val_sidx,
+                                                val_soff,
+                                                B,
+                                                val_coo_idx,
+                                                val_coo_val,
+                                                val_coo_off,
+                                                row_block_num,
+                                                slb_block_dim_size,
+                                                row_block_offset,
+                                                row_block_to_row_window_id,
+                                                slb_tb_offset,
+                                                tile_n,
+                                                C,
+                                                is_ncu_test,
+                                                warmup_time,
+                                                execute_time);
 }
 
 void verify_new(float* C_cpu, float* C_cuda, int M, int N) {
@@ -550,6 +612,7 @@ void cusparse_spmm_all(float* cu_ValA,
 int main(int argc, char** argv) {
     string filename;
     int N = 1024;
+    int tile_n = 16;
     int M = 1024;
     int K = 1024;
     float sparsity = 0.9;
@@ -558,11 +621,21 @@ int main(int argc, char** argv) {
     int warmup_time = 100;
     int execute_time = 1000;
     parseInput(argc, argv, filename, "-filename", N, "-N", M, "-M", K, "-K", mtx_flag, "-mtx_flag",
-               sparsity, "-sparsity", is_ncu_test, "-ncu", warmup_time, "-warmup", execute_time,
-               "-repeat");
+               sparsity, "-sparsity", tile_n, "-tile_n", is_ncu_test, "-ncu", warmup_time,
+               "-warmup", execute_time, "-repeat");
+
+    if (tile_n != 16 && tile_n != 32 && tile_n != 64) {
+        printf("Unsupported -tile_n=%d, only 16/32/64 is allowed.\n", tile_n);
+        return 1;
+    }
+    if (N % tile_n != 0) {
+        printf("Invalid N=%d for tile_n=%d, require N %% tile_n == 0.\n", N, tile_n);
+        return 1;
+    }
 
     cout << "Filename: " << filename << endl;
     cout << "N: " << N << endl;
+    cout << "tile_n: " << tile_n << endl;
 
     int rowA, colA;
     int nnz = 0;
@@ -617,8 +690,8 @@ int main(int argc, char** argv) {
     initVector(B, K * N, 0);
 
     float* C_cuda = (float*)malloc(sizeof(float) * M * N);
-    convertToMETCF(M, N, K, nnz, csrPtrA, csrColIdxA, csrValA, B, C_cuda, (bool)is_ncu_test,
-                   warmup_time, execute_time);
+    convertToMETCF(M, N, K, nnz, csrPtrA, csrColIdxA, csrValA, B, C_cuda, tile_n,
+                   (bool)is_ncu_test, warmup_time, execute_time);
 
     // host check
     float* C_cpu = (float*)malloc(sizeof(float) * M * N);

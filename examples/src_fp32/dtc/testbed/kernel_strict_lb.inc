@@ -98,6 +98,12 @@ __device__ __forceinline__ void unpack_half_short(uint32_t packed, half& h, shor
     s = static_cast<short>(short_bits);
 }
 
+__device__ __forceinline__ unsigned int get_smid_ptx() {
+    unsigned int smid;
+    asm volatile("mov.u32 %0, %smid;" : "=r"(smid));
+    return smid;
+}
+
 
 template <class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class WARP_MNK, class TO0 = float>
 class B_valOp {
@@ -2257,11 +2263,28 @@ __global__ void dtc_spmm_kernel_fp32_val_idx_bind_stage2(
     float *dval_coo_val,
     int *dval_sidx,
     int *dval_soff,
+    unsigned long long *dsm_cycles,
+    int *dblock_smid,
     int K, int M, int Mo, int N, int nnz, int nnz_block, int row_block_num, int slb_block_dim_size
 ) {
+    constexpr int kTileB = decltype(get<1>(BLK_MNK{}))::value;
+    static_assert(kTileB == 16 || kTileB == 32 || kTileB == 64,
+                  "strict-lb kernel currently supports TILE_B=16/32/64 only");
+    static_assert((kTileB % 8) == 0, "TILE_B must be a multiple of 8");
+
     const int tid = threadIdx.x;
     const int lid = tid % 32;
     const int wid = tid / 32;
+
+    // __shared__ unsigned int blk_smid;
+    // __shared__ unsigned long long blk_start;
+    // if (tid == 0) {
+    //     blk_smid = get_smid_ptx();
+    //     blk_start = clock64();
+    //     int blk_linear_id = blockIdx.y * gridDim.x + blockIdx.x;
+    //     dblock_smid[blk_linear_id] = static_cast<int>(blk_smid);
+    // }
+    // __syncthreads();
 
     using B_valOp_t = B_valOp<BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK>;
     B_valOp_t B_valOp_v{tid, lid, wid, K, N, dB_val};
@@ -2408,4 +2431,10 @@ __global__ void dtc_spmm_kernel_fp32_val_idx_bind_stage2(
     BlkYLoopZeroOp_v.template f<>();
     BlockDimYOp_v.template f<>();
     dtc_spmm_kernel_blk_y_loop_v.template f<>();
+
+    // __syncthreads();
+    // if (tid == 0) {
+    //     unsigned long long blk_elapsed = clock64() - blk_start;
+    //     atomicAdd(&dsm_cycles[blk_smid], blk_elapsed);
+    // }
 };

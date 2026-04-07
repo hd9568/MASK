@@ -2,6 +2,7 @@
 **/CMakeFiles
 **/cmake_install.cmake
 **/build
+**/build_test
 
 **/plan_exes
 bin/*-fp16
@@ -10,3 +11,4 @@ bin/*.log
 bin/*list*.txt
 
 matrix_generator/generated_matrices
+*.npz

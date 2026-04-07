@@ -52,7 +52,9 @@ void ncu_test(
     int row_block_num,
     int* drow_block_offset,
     int* drow_block_to_row_window_id,
-    int* dslb_tb_offset
+    int* dslb_tb_offset,
+    unsigned long long* dsm_cycles,
+    int* dblock_smid
 ) {
     dim3 grid(threadblock_num_x, threadblock_num_y);
     dim3 block(thread_num);
@@ -82,6 +84,8 @@ void ncu_test(
         dval_coo_val, 
         dval_sidx, 
         dval_soff,
+        dsm_cycles,
+        dblock_smid,
         K, M, Mo, N, nnz, nnz_block, row_block_num, threadblock_num_x);
 }
 
@@ -108,6 +112,8 @@ void repeat_test(
     int* drow_block_offset,
     int* drow_block_to_row_window_id,
     int* dslb_tb_offset,
+    unsigned long long* dsm_cycles,
+    int* dblock_smid,
     
     int warmup_time,
     int execute_time
@@ -143,9 +149,13 @@ void repeat_test(
                 dval_coo_val, 
                 dval_sidx, 
                 dval_soff,
+                dsm_cycles,
+                dblock_smid,
                 K, M, Mo, N, nnz, nnz_block, row_block_num, threadblock_num_x);
         }
         CHECK_CUDA2(cudaDeviceSynchronize());
+
+            CHECK_CUDA2(cudaMemset(dsm_cycles, 0, sizeof(unsigned long long) * 256));
         gettimeofday(&t1, NULL);
         for (int i = 0; i < execute_time; i++) {
             dtc_spmm_kernel_fp32_val_idx_bind_stage2<BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK, tile_coo_val_size, tile_coo_val_size_no_pad, tile_sidx_size><<<grid, block>>>(
@@ -159,6 +169,8 @@ void repeat_test(
                 dval_coo_val, 
                 dval_sidx, 
                 dval_soff,
+                dsm_cycles,
+                dblock_smid,
                 K, M, Mo, N, nnz, nnz_block, row_block_num, threadblock_num_x);
         }
         CHECK_CUDA2(cudaDeviceSynchronize());
@@ -166,6 +178,33 @@ void repeat_test(
         double mykernel_time =
           ((t2.tv_sec - t1.tv_sec) * 1000.0 + (t2.tv_usec - t1.tv_usec) / 1000.0) / execute_time;
         printf("mykernel_time: %f ms\n", mykernel_time);
+
+        cudaDeviceProp prop;
+        CHECK_CUDA2(cudaGetDeviceProperties(&prop, 0));
+        std::vector<unsigned long long> sm_cycles(256, 0);
+        CHECK_CUDA2(cudaMemcpy(sm_cycles.data(), dsm_cycles,
+                               sizeof(unsigned long long) * 256,
+                               cudaMemcpyDeviceToHost));
+
+        unsigned long long min_c = ULLONG_MAX;
+        unsigned long long max_c = 0;
+        unsigned long long sum_c = 0;
+        int active_sm = 0;
+        // for (int sm = 0; sm < prop.multiProcessorCount; ++sm) {
+        //     unsigned long long v = sm_cycles[sm];
+        //     if (v > 0) {
+        //         min_c = std::min(min_c, v);
+        //         max_c = std::max(max_c, v);
+        //         sum_c += v;
+        //         active_sm++;
+        //     }
+        //     printf("SM[%d] accumulated_cycles=%llu\n", sm, v);
+        // }
+        // if (active_sm > 0 && min_c > 0) {
+        //     double avg_c = static_cast<double>(sum_c) / active_sm;
+        //     double imbalance = static_cast<double>(max_c) / min_c;
+        //     printf("SM cycle stats: active=%d avg=%.2f max/min=%.4f\n", active_sm, avg_c, imbalance);
+        // }
     }
 }
 
@@ -206,6 +245,8 @@ void dtc_spmm_test_val_sidx_bind_reorder(
     int* drow_block_offset;
     int* drow_block_to_row_window_id;
     int* dslb_tb_offset;
+    unsigned long long* dsm_cycles;
+    int* dblock_smid;
 
     int row_window_num = (M + ROW_WINDOW_M - 1) / ROW_WINDOW_M;
     // int pad_K = (K + 8 - 1) / 8 * 8;
@@ -235,6 +276,10 @@ void dtc_spmm_test_val_sidx_bind_reorder(
     CHECK_CUDA2(cudaMalloc(&drow_block_offset, sizeof(int) * row_block_offset.size()));
     CHECK_CUDA2(cudaMalloc(&drow_block_to_row_window_id, sizeof(int) * row_block_to_row_window_id.size()));
     CHECK_CUDA2(cudaMalloc(&dslb_tb_offset, sizeof(int) * slb_tb_offset.size()));
+    CHECK_CUDA2(cudaMalloc(&dsm_cycles, sizeof(unsigned long long) * 256));
+    CHECK_CUDA2(cudaMalloc(&dblock_smid, sizeof(int) * slb_block_dim_size * (N / TILE_B)));
+    CHECK_CUDA2(cudaMemset(dsm_cycles, 0, sizeof(unsigned long long) * 256));
+    CHECK_CUDA2(cudaMemset(dblock_smid, -1, sizeof(int) * slb_block_dim_size * (N / TILE_B)));
     CHECK_CUDA2(cudaMemcpy(drow_block_offset, row_block_offset.data(), sizeof(int) * row_block_offset.size(), cudaMemcpyHostToDevice));
     CHECK_CUDA2(cudaMemcpy(drow_block_to_row_window_id, row_block_to_row_window_id.data(), sizeof(int) * row_block_to_row_window_id.size(), cudaMemcpyHostToDevice));
     CHECK_CUDA2(cudaMemcpy(dslb_tb_offset, slb_tb_offset.data(), sizeof(int) * slb_tb_offset.size(), cudaMemcpyHostToDevice));
@@ -252,14 +297,18 @@ void dtc_spmm_test_val_sidx_bind_reorder(
     if (!is_ncu_test) {
         repeat_test<TILE_B>(threadblock_num_x, threadblock_num_y, thread_num, M, N, K, Mo,
                             nnz_block, nnz_aligned, dval_sidx, dval_soff, dB_val, dval_coo_val,
-                            dval_coo_idx, dval_coo_off, dC, row_block_num, drow_block_offset, drow_block_to_row_window_id, dslb_tb_offset, warmup_time, execute_time);
+                            dval_coo_idx, dval_coo_off, dC, row_block_num, drow_block_offset,
+                            drow_block_to_row_window_id, dslb_tb_offset, dsm_cycles,
+                            dblock_smid, warmup_time, execute_time);
     }
 
     // repeat test would cause C_val to accumulate results, so we need to reset it
     CHECK_CUDA2(cudaMemset(dC, 0, sizeof(float) * (row_window_num * ROW_WINDOW_M) * N));
     ncu_test<TILE_B>(threadblock_num_x, threadblock_num_y, thread_num, M, N, K, Mo, nnz_block,
                      nnz_aligned, dval_sidx, dval_soff, dB_val, dval_coo_val, dval_coo_idx,
-                     dval_coo_off, dC, row_block_num, drow_block_offset, drow_block_to_row_window_id, dslb_tb_offset);
+                     dval_coo_off, dC, row_block_num, drow_block_offset,
+                     drow_block_to_row_window_id, dslb_tb_offset, dsm_cycles,
+                     dblock_smid);
 
     CHECK_CUDA2(cudaDeviceSynchronize());
     CHECK_CUDA2(cudaGetLastError());
@@ -288,3 +337,364 @@ template void dtc_spmm_test_val_sidx_bind_reorder<64>(int M,
                                                       bool is_ncu_test,
                                                       int warmup_time,
                                                       int execute_time);
+
+template void dtc_spmm_test_val_sidx_bind_reorder<16>(int M,
+                                                      int N,
+                                                      int K,
+                                                      int TCBlock_num,
+                                                      int nnz,
+                                                      int* val_sidx,
+                                                      int* val_soff,
+                                                      float* B_val,
+                                                      int* val_coo_idx,
+                                                      float* val_coo_val,
+                                                      int* val_coo_off,
+
+                                                      int row_block_num,
+                                                      int slb_block_dim_size,
+                                                      vector<int> row_block_offset,
+                                                      vector<int> row_block_to_row_window_id,
+                                                      vector<int> slb_tb_offset,
+
+                                                      float* C,
+                                                      bool is_ncu_test,
+                                                      int warmup_time,
+                                                      int execute_time);
+
+template void dtc_spmm_test_val_sidx_bind_reorder<32>(int M,
+                                                      int N,
+                                                      int K,
+                                                      int TCBlock_num,
+                                                      int nnz,
+                                                      int* val_sidx,
+                                                      int* val_soff,
+                                                      float* B_val,
+                                                      int* val_coo_idx,
+                                                      float* val_coo_val,
+                                                      int* val_coo_off,
+
+                                                      int row_block_num,
+                                                      int slb_block_dim_size,
+                                                      vector<int> row_block_offset,
+                                                      vector<int> row_block_to_row_window_id,
+                                                      vector<int> slb_tb_offset,
+
+                                                      float* C,
+                                                      bool is_ncu_test,
+                                                      int warmup_time,
+                                                      int execute_time);
+
+void dtc_spmm_test_val_sidx_bind_reorder_runtime(int M,
+                                                 int N,
+                                                 int K,
+                                                 int TCBlock_num,
+                                                 int nnz,
+                                                 int* val_sidx,
+                                                 int* val_soff,
+                                                 float* B_val,
+                                                 int* val_coo_idx,
+                                                 float* val_coo_val,
+                                                 int* val_coo_off,
+                                                 int row_block_num,
+                                                 int slb_block_dim_size,
+                                                 vector<int> row_block_offset,
+                                                 vector<int> row_block_to_row_window_id,
+                                                 vector<int> slb_tb_offset,
+                                                 int tile_n,
+                                                 float* C,
+                                                 bool is_ncu_test,
+                                                 int warmup_time,
+                                                 int execute_time) {
+    if (tile_n == 64) {
+        dtc_spmm_test_val_sidx_bind_reorder<64>(M,
+                                                N,
+                                                K,
+                                                TCBlock_num,
+                                                nnz,
+                                                val_sidx,
+                                                val_soff,
+                                                B_val,
+                                                val_coo_idx,
+                                                val_coo_val,
+                                                val_coo_off,
+                                                row_block_num,
+                                                slb_block_dim_size,
+                                                row_block_offset,
+                                                row_block_to_row_window_id,
+                                                slb_tb_offset,
+                                                C,
+                                                is_ncu_test,
+                                                warmup_time,
+                                                execute_time);
+        return;
+    }
+
+    if (tile_n == 32) {
+        dtc_spmm_test_val_sidx_bind_reorder<32>(M,
+                                                N,
+                                                K,
+                                                TCBlock_num,
+                                                nnz,
+                                                val_sidx,
+                                                val_soff,
+                                                B_val,
+                                                val_coo_idx,
+                                                val_coo_val,
+                                                val_coo_off,
+                                                row_block_num,
+                                                slb_block_dim_size,
+                                                row_block_offset,
+                                                row_block_to_row_window_id,
+                                                slb_tb_offset,
+                                                C,
+                                                is_ncu_test,
+                                                warmup_time,
+                                                execute_time);
+        return;
+    }
+
+    if (tile_n == 16) {
+        dtc_spmm_test_val_sidx_bind_reorder<16>(M,
+                                                N,
+                                                K,
+                                                TCBlock_num,
+                                                nnz,
+                                                val_sidx,
+                                                val_soff,
+                                                B_val,
+                                                val_coo_idx,
+                                                val_coo_val,
+                                                val_coo_off,
+                                                row_block_num,
+                                                slb_block_dim_size,
+                                                row_block_offset,
+                                                row_block_to_row_window_id,
+                                                slb_tb_offset,
+                                                C,
+                                                is_ncu_test,
+                                                warmup_time,
+                                                execute_time);
+        return;
+    }
+
+        fprintf(stderr,
+            "Unsupported tile_n=%d, only 16/32/64 is allowed in strict-lb test.\n",
+            tile_n);
+    exit(1);
+}
+
+void run_spmm_device_srcfp32_64_strict_lb(int M,
+                                                                                    int N,
+                                                                                    int K,
+                                                                                    int TCBlock_num,
+                                                                                    int nnz,
+                                                                                    int* dval_sidx,
+                                                                                    int* dval_soff,
+                                                                                    float* dB_val,
+                                                                                    int* dval_coo_idx,
+                                                                                    float* dval_coo_val,
+                                                                                    int* dval_coo_off,
+                                                                                    int row_block_num,
+                                                                                    int slb_block_dim_size,
+                                                                                    int* drow_block_offset,
+                                                                                    int* drow_block_to_row_window_id,
+                                                                                    int* dslb_tb_offset,
+                                                                                      unsigned long long* dsm_cycles,
+                                                                                      int* dblock_smid,
+                                                                                    float* dC,
+                                                                                    cudaStream_t stream) {
+        constexpr int TILE_B = 64;
+        assert(N % TILE_B == 0);
+
+        const int threadblock_num_x = slb_block_dim_size;
+        const int threadblock_num_y = N / TILE_B;
+        const int thread_num = 32;
+        const int Mo = DIVUP(M, ROW_WINDOW_M);
+        const int nnz_block = TCBlock_num;
+
+        dim3 grid(threadblock_num_x, threadblock_num_y);
+        dim3 block(thread_num);
+
+        constexpr auto blk_mnk = make_shape(Int<TC_BLOCK_M>{}, Int<TILE_B>{}, Int<TC_BLOCK_K>{});
+        using BLK_MNK = decltype(blk_mnk);
+        constexpr auto mma_mnk = make_shape(_16{}, _8{}, _8{});
+        using MMA_MNK = decltype(mma_mnk);
+        constexpr auto blk_mma_mnk =
+            make_shape(Int<TC_BLOCK_M / 16>{}, Int<TILE_B / 8>{}, Int<TC_BLOCK_K / 8>{});
+        using BLK_MMA_MNK = decltype(blk_mma_mnk);
+        constexpr auto warp_mnk = make_shape(_1{}, _1{}, _1{});
+        using WARP_MNK = decltype(warp_mnk);
+
+        using tile_sidx_size = Int<TC_BLOCK_K>;
+        using tile_coo_val_size = Int<TC_BLOCK_M * TC_BLOCK_K>;
+        using tile_coo_val_size_no_pad = Int<TC_BLOCK_M * TC_BLOCK_K>;
+
+        dtc_spmm_kernel_fp32_val_idx_bind_stage2<BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK,
+                                                                                         tile_coo_val_size, tile_coo_val_size_no_pad,
+                                                                                         tile_sidx_size>
+            <<<grid, block, 0, stream>>>(dB_val,
+                                                                     dC,
+                                                                     drow_block_offset,
+                                                                     drow_block_to_row_window_id,
+                                                                     dslb_tb_offset,
+                                                                     dval_coo_idx,
+                                                                     dval_coo_off,
+                                                                     dval_coo_val,
+                                                                     dval_sidx,
+                                                                     dval_soff,
+                                                                       dsm_cycles,
+                                                                       dblock_smid,
+                                                                     K,
+                                                                     M,
+                                                                     Mo,
+                                                                     N,
+                                                                     nnz,
+                                                                     nnz_block,
+                                                                     row_block_num,
+                                                                     threadblock_num_x);
+        CHECK_CUDA2(cudaGetLastError());
+}
+
+    void run_spmm_device_srcfp32_16_strict_lb(int M,
+                          int N,
+                          int K,
+                          int TCBlock_num,
+                          int nnz,
+                          int* dval_sidx,
+                          int* dval_soff,
+                          float* dB_val,
+                          int* dval_coo_idx,
+                          float* dval_coo_val,
+                          int* dval_coo_off,
+                          int row_block_num,
+                          int slb_block_dim_size,
+                          int* drow_block_offset,
+                          int* drow_block_to_row_window_id,
+                          int* dslb_tb_offset,
+                          unsigned long long* dsm_cycles,
+                          int* dblock_smid,
+                          float* dC,
+                          cudaStream_t stream) {
+        constexpr int TILE_B = 16;
+        assert(N % TILE_B == 0);
+
+        const int threadblock_num_x = slb_block_dim_size;
+        const int threadblock_num_y = N / TILE_B;
+        const int thread_num = 32;
+        const int Mo = DIVUP(M, ROW_WINDOW_M);
+        const int nnz_block = TCBlock_num;
+
+        dim3 grid(threadblock_num_x, threadblock_num_y);
+        dim3 block(thread_num);
+
+        constexpr auto blk_mnk = make_shape(Int<TC_BLOCK_M>{}, Int<TILE_B>{}, Int<TC_BLOCK_K>{});
+        using BLK_MNK = decltype(blk_mnk);
+        constexpr auto mma_mnk = make_shape(_16{}, _8{}, _8{});
+        using MMA_MNK = decltype(mma_mnk);
+        constexpr auto blk_mma_mnk =
+            make_shape(Int<TC_BLOCK_M / 16>{}, Int<TILE_B / 8>{}, Int<TC_BLOCK_K / 8>{});
+        using BLK_MMA_MNK = decltype(blk_mma_mnk);
+        constexpr auto warp_mnk = make_shape(_1{}, _1{}, _1{});
+        using WARP_MNK = decltype(warp_mnk);
+
+        using tile_sidx_size = Int<TC_BLOCK_K>;
+        using tile_coo_val_size = Int<TC_BLOCK_M * TC_BLOCK_K>;
+        using tile_coo_val_size_no_pad = Int<TC_BLOCK_M * TC_BLOCK_K>;
+
+        dtc_spmm_kernel_fp32_val_idx_bind_stage2<BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK,
+                             tile_coo_val_size, tile_coo_val_size_no_pad,
+                             tile_sidx_size>
+            <<<grid, block, 0, stream>>>(dB_val,
+                         dC,
+                         drow_block_offset,
+                         drow_block_to_row_window_id,
+                         dslb_tb_offset,
+                         dval_coo_idx,
+                         dval_coo_off,
+                         dval_coo_val,
+                         dval_sidx,
+                         dval_soff,
+                         dsm_cycles,
+                         dblock_smid,
+                         K,
+                         M,
+                         Mo,
+                         N,
+                         nnz,
+                         nnz_block,
+                         row_block_num,
+                         threadblock_num_x);
+        CHECK_CUDA2(cudaGetLastError());
+    }
+
+void run_spmm_device_srcfp32_32_strict_lb(int M,
+                                          int N,
+                                          int K,
+                                          int TCBlock_num,
+                                          int nnz,
+                                          int* dval_sidx,
+                                          int* dval_soff,
+                                          float* dB_val,
+                                          int* dval_coo_idx,
+                                          float* dval_coo_val,
+                                          int* dval_coo_off,
+                                          int row_block_num,
+                                          int slb_block_dim_size,
+                                          int* drow_block_offset,
+                                          int* drow_block_to_row_window_id,
+                                          int* dslb_tb_offset,
+                                          unsigned long long* dsm_cycles,
+                                          int* dblock_smid,
+                                          float* dC,
+                                          cudaStream_t stream) {
+        constexpr int TILE_B = 32;
+        assert(N % TILE_B == 0);
+
+        const int threadblock_num_x = slb_block_dim_size;
+        const int threadblock_num_y = N / TILE_B;
+        const int thread_num = 32;
+        const int Mo = DIVUP(M, ROW_WINDOW_M);
+        const int nnz_block = TCBlock_num;
+
+        dim3 grid(threadblock_num_x, threadblock_num_y);
+        dim3 block(thread_num);
+
+        constexpr auto blk_mnk = make_shape(Int<TC_BLOCK_M>{}, Int<TILE_B>{}, Int<TC_BLOCK_K>{});
+        using BLK_MNK = decltype(blk_mnk);
+        constexpr auto mma_mnk = make_shape(_16{}, _8{}, _8{});
+        using MMA_MNK = decltype(mma_mnk);
+        constexpr auto blk_mma_mnk =
+            make_shape(Int<TC_BLOCK_M / 16>{}, Int<TILE_B / 8>{}, Int<TC_BLOCK_K / 8>{});
+        using BLK_MMA_MNK = decltype(blk_mma_mnk);
+        constexpr auto warp_mnk = make_shape(_1{}, _1{}, _1{});
+        using WARP_MNK = decltype(warp_mnk);
+
+        using tile_sidx_size = Int<TC_BLOCK_K>;
+        using tile_coo_val_size = Int<TC_BLOCK_M * TC_BLOCK_K>;
+        using tile_coo_val_size_no_pad = Int<TC_BLOCK_M * TC_BLOCK_K>;
+
+        dtc_spmm_kernel_fp32_val_idx_bind_stage2<BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK,
+                                                 tile_coo_val_size, tile_coo_val_size_no_pad,
+                                                 tile_sidx_size>
+            <<<grid, block, 0, stream>>>(dB_val,
+                                         dC,
+                                         drow_block_offset,
+                                         drow_block_to_row_window_id,
+                                         dslb_tb_offset,
+                                         dval_coo_idx,
+                                         dval_coo_off,
+                                         dval_coo_val,
+                                         dval_sidx,
+                                         dval_soff,
+                                         dsm_cycles,
+                                         dblock_smid,
+                                         K,
+                                         M,
+                                         Mo,
+                                         N,
+                                         nnz,
+                                         nnz_block,
+                                         row_block_num,
+                                         threadblock_num_x);
+        CHECK_CUDA2(cudaGetLastError());
+}

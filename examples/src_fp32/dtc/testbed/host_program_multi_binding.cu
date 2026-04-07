@@ -48,7 +48,9 @@ void ncu_test(int threadblock_num_x,
               int* dval_coo_off,
               int* drow_window_binding,
               int* drow_window_split,
-              float* dC) {
+              float* dC,
+              unsigned long long* dsm_cycles,
+              int* dblock_smid) {
     dim3 grid(threadblock_num_x, threadblock_num_y);
     dim3 block(thread_num);
 
@@ -78,6 +80,8 @@ void ncu_test(int threadblock_num_x,
         dval_coo_val, 
         dval_sidx, 
         dval_soff,
+        dsm_cycles,
+        dblock_smid,
         K, M, Mo, N, nnz, nnz_block, threadblock_num_x);
 }
 
@@ -100,6 +104,8 @@ void repeat_test(int threadblock_num_x,
                  int* drow_window_binding,
                  int* drow_window_split,
                  float* dC,
+                 unsigned long long* dsm_cycles,
+                 int* dblock_smid,
                  int warmup_time,
                  int execute_time) {
     dim3 grid(threadblock_num_x, threadblock_num_y);
@@ -127,9 +133,12 @@ void repeat_test(int threadblock_num_x,
                                                      tile_sidx_size>
               <<<grid, block>>>(dB_val, dC, drow_window_binding, drow_window_split, dval_coo_idx, 
                                 dval_coo_off, dval_coo_val, dval_sidx,
-                                dval_soff, K, M, Mo, N, nnz, nnz_block, threadblock_num_x);
+                                dval_soff, dsm_cycles, dblock_smid,
+                                K, M, Mo, N, nnz, nnz_block, threadblock_num_x);
         }
         CHECK_CUDA2(cudaDeviceSynchronize());
+
+        CHECK_CUDA2(cudaMemset(dsm_cycles, 0, sizeof(unsigned long long) * 256));
         gettimeofday(&t1, NULL);
         for (int i = 0; i < execute_time; i++) {
             dtc_spmm_kernel_fp32_val_idx_bind_stage2<BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK,
@@ -137,13 +146,41 @@ void repeat_test(int threadblock_num_x,
                                                      tile_sidx_size>
               <<<grid, block>>>(dB_val, dC, drow_window_binding, drow_window_split, dval_coo_idx, 
                                 dval_coo_off, dval_coo_val, dval_sidx,
-                                dval_soff, K, M, Mo, N, nnz, nnz_block, threadblock_num_x);
+                                dval_soff, dsm_cycles, dblock_smid,
+                                K, M, Mo, N, nnz, nnz_block, threadblock_num_x);
         }
         CHECK_CUDA2(cudaDeviceSynchronize());
         gettimeofday(&t2, NULL);
         double mykernel_time =
           ((t2.tv_sec - t1.tv_sec) * 1000.0 + (t2.tv_usec - t1.tv_usec) / 1000.0) / execute_time;
         printf("mykernel_time: %f ms\n", mykernel_time);
+
+        cudaDeviceProp prop;
+        CHECK_CUDA2(cudaGetDeviceProperties(&prop, 0));
+        std::vector<unsigned long long> sm_cycles(256, 0);
+        CHECK_CUDA2(cudaMemcpy(sm_cycles.data(), dsm_cycles,
+                               sizeof(unsigned long long) * 256,
+                               cudaMemcpyDeviceToHost));
+
+        unsigned long long min_c = ULLONG_MAX;
+        unsigned long long max_c = 0;
+        unsigned long long sum_c = 0;
+        int active_sm = 0;
+        // for (int sm = 0; sm < prop.multiProcessorCount; ++sm) {
+        //     unsigned long long v = sm_cycles[sm];
+        //     if (v > 0) {
+        //         min_c = std::min(min_c, v);
+        //         max_c = std::max(max_c, v);
+        //         sum_c += v;
+        //         active_sm++;
+        //     }
+        //     printf("SM[%d] accumulated_cycles=%llu\n", sm, v);
+        // }
+        // if (active_sm > 0 && min_c > 0) {
+        //     double avg_c = static_cast<double>(sum_c) / active_sm;
+        //     double imbalance = static_cast<double>(max_c) / min_c;
+        //     printf("SM cycle stats: active=%d avg=%.2f max/min=%.4f\n", active_sm, avg_c, imbalance);
+        // }
     }
 }
 
@@ -177,6 +214,8 @@ void dtc_spmm_test_val_sidx_bind_reorder(int M,
     int* dval_coo_off;
     int* drow_window_binding;
     int* drow_window_split;
+    unsigned long long* dsm_cycles;
+    int* dblock_smid;
     float* dC;
 
     int row_window_num = (M + ROW_WINDOW_M - 1) / ROW_WINDOW_M;
@@ -196,6 +235,10 @@ void dtc_spmm_test_val_sidx_bind_reorder(int M,
     CHECK_CUDA2(cudaMalloc(&dB_val, sizeof(float) * K * N));
     CHECK_CUDA2(cudaMalloc(&drow_window_binding, sizeof(int) * row_window_binding.size()));
     CHECK_CUDA2(cudaMalloc(&drow_window_split, sizeof(int) * row_window_split.size()));
+    CHECK_CUDA2(cudaMalloc(&dsm_cycles, sizeof(unsigned long long) * 256));
+    CHECK_CUDA2(cudaMalloc(&dblock_smid, sizeof(int) * row_window_blockDim_size * (N / TILE_B)));
+    CHECK_CUDA2(cudaMemset(dsm_cycles, 0, sizeof(unsigned long long) * 256));
+    CHECK_CUDA2(cudaMemset(dblock_smid, -1, sizeof(int) * row_window_blockDim_size * (N / TILE_B)));
 
     CHECK_CUDA2(cudaMemcpy(dval_soff, row_window_val_soff.data(), sizeof(int) * row_window_val_soff.size(), cudaMemcpyHostToDevice));
     CHECK_CUDA2(cudaMemcpy(drow_window_binding, row_window_binding.data(), sizeof(int) * row_window_binding.size(), cudaMemcpyHostToDevice));
@@ -234,14 +277,16 @@ void dtc_spmm_test_val_sidx_bind_reorder(int M,
     if (!is_ncu_test) {
         repeat_test<TILE_B>(threadblock_num_x, threadblock_num_y, thread_num, M, N, K, Mo,
                             nnz_block, nnz_aligned, dval_sidx, dval_soff, dB_val, dval_coo_val,
-                            dval_coo_idx, dval_coo_off, drow_window_binding, drow_window_split, dC, warmup_time, execute_time);
+                            dval_coo_idx, dval_coo_off, drow_window_binding, drow_window_split,
+                            dC, dsm_cycles, dblock_smid, warmup_time, execute_time);
     }
 
     // repeat test would cause C_val to accumulate results, so we need to reset it
     CHECK_CUDA2(cudaMemset(dC, 0, sizeof(float) * (row_window_num * ROW_WINDOW_M) * N));
     ncu_test<TILE_B>(threadblock_num_x, threadblock_num_y, thread_num, M, N, K, Mo, nnz_block,
                      nnz_aligned, dval_sidx, dval_soff, dB_val, dval_coo_val, dval_coo_idx,
-                     dval_coo_off, drow_window_binding, drow_window_split, dC);
+                     dval_coo_off, drow_window_binding, drow_window_split, dC, dsm_cycles,
+                     dblock_smid);
 
     CHECK_CUDA2(cudaDeviceSynchronize());
     CHECK_CUDA2(cudaGetLastError());
@@ -249,6 +294,25 @@ void dtc_spmm_test_val_sidx_bind_reorder(int M,
 }
 
 template void dtc_spmm_test_val_sidx_bind_reorder<64>(int M,
+                                                      int N,
+                                                      int K,
+                                                      int TCBlock_num,
+                                                      int nnz,
+                                                      int* val_sidx,
+                                                      int* val_soff,
+                                                      float* B_val,
+                                                      int* val_coo_idx,
+                                                      float* val_coo_val,
+                                                      int* val_coo_off,
+                                                      int row_window_blockDim_size,
+                                                      vector<int> row_window_binding,
+                                                      vector<int> row_window_split,
+                                                      vector<int> row_window_val_soff,
+                                                      float* C,
+                                                      bool is_ncu_test,
+                                                      int warmup_time,
+                                                      int execute_time);
+template void dtc_spmm_test_val_sidx_bind_reorder<16>(int M,
                                                       int N,
                                                       int K,
                                                       int TCBlock_num,
