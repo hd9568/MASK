@@ -24,7 +24,7 @@ from sparsene.op_gen.nvir.pipeline.pipeline_planner import (
     NeighborDependencyValidator,
 )
 from sparsene.op_gen.nvir.opgraph.graph import construct_graph_from_op_sequence
-from sparsene.op_gen.nvir.opgraph.graphviz_visualizer import visualize_op_graph
+# from sparsene.op_gen.nvir.opgraph.graphviz_visualizer import visualize_op_graph
 
 DTYPE_A = "float"
 DTYPE_B = "float"
@@ -748,7 +748,7 @@ if __name__ == "__main__":
     acc_main_loop_op, acc_program = acc()
 
     op_graph = construct_graph_from_op_sequence(acc_main_loop_op.body)
-    visualize_op_graph(op_graph, str(Path(__file__).parent / "acc.dot"))
+    # visualize_op_graph(op_graph, str(Path(__file__).parent / "acc.dot"))
 
     validator = NeighborDependencyValidator(op_graph)
     plans = enumerate_pipeline_plans(

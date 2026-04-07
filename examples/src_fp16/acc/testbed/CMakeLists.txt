@@ -96,46 +96,46 @@ target_include_directories(demo-acc-mco-smem-fp16 PRIVATE
     ${SRCDIR}
 )
 
-# add_executable(demo-acc-spmv-fp16 ${PROJECT_SOURCE_DIR}/host_program_spmv.cu ${PROJECT_SOURCE_DIR}/main_spmv.cu ${SRC_CUDA_FILES})
+add_executable(demo-acc-spmv-fp16 ${PROJECT_SOURCE_DIR}/host_program_spmv.cu ${PROJECT_SOURCE_DIR}/main_spmv.cu ${SRC_CUDA_FILES})
 
-# target_compile_options(demo-acc-spmv-fp16 PRIVATE ${CUDA_NVCC_FLAGS} -I${SRCDIR} -I${CMAKE_CURRENT_SOURCE_DIR})
-# target_link_libraries(demo-acc-spmv-fp16 PRIVATE -lcusparse -lcublas)
-# target_include_directories(demo-acc-spmv-fp16 PRIVATE 
-#     ${CUTLASS_INCLUDE_DIR}
-#     ${CUTLASS_COMMON_DIR}
-#     ${CUTLASS_UTIL_DIR}
-#     ${SRCDIR}
-# )
+target_compile_options(demo-acc-spmv-fp16 PRIVATE ${CUDA_NVCC_FLAGS} -I${SRCDIR} -I${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(demo-acc-spmv-fp16 PRIVATE -lcusparse -lcublas)
+target_include_directories(demo-acc-spmv-fp16 PRIVATE 
+    ${CUTLASS_INCLUDE_DIR}
+    ${CUTLASS_COMMON_DIR}
+    ${CUTLASS_UTIL_DIR}
+    ${SRCDIR}
+)
 
-# add_executable(demo-acc-nopipe-fp16 ${PROJECT_SOURCE_DIR}/host_program_nopipe.cu ${PROJECT_SOURCE_DIR}/main_nopipe.cu ${SRC_CUDA_FILES})
+add_executable(demo-acc-nopipe-fp16 ${PROJECT_SOURCE_DIR}/host_program_nopipe.cu ${PROJECT_SOURCE_DIR}/main_nopipe.cu ${SRC_CUDA_FILES})
 
-# target_compile_options(demo-acc-nopipe-fp16 PRIVATE ${CUDA_NVCC_FLAGS} -I${SRCDIR} -I${CMAKE_CURRENT_SOURCE_DIR})
-# target_link_libraries(demo-acc-nopipe-fp16 PRIVATE -lcusparse -lcublas)
-# target_include_directories(demo-acc-nopipe-fp16 PRIVATE 
-#     ${CUTLASS_INCLUDE_DIR}
-#     ${CUTLASS_COMMON_DIR}
-#     ${CUTLASS_UTIL_DIR}
-#     ${SRCDIR}
-# )
+target_compile_options(demo-acc-nopipe-fp16 PRIVATE ${CUDA_NVCC_FLAGS} -I${SRCDIR} -I${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(demo-acc-nopipe-fp16 PRIVATE -lcusparse -lcublas)
+target_include_directories(demo-acc-nopipe-fp16 PRIVATE 
+    ${CUTLASS_INCLUDE_DIR}
+    ${CUTLASS_COMMON_DIR}
+    ${CUTLASS_UTIL_DIR}
+    ${SRCDIR}
+)
 
-# add_executable(demo-acc-nopipe-nopre-fp16 ${PROJECT_SOURCE_DIR}/host_program_nopipe_nopre.cu ${PROJECT_SOURCE_DIR}/main_nopipe_nopre.cu ${SRC_CUDA_FILES})
+add_executable(demo-acc-nopipe-nopre-fp16 ${PROJECT_SOURCE_DIR}/host_program_nopipe_nopre.cu ${PROJECT_SOURCE_DIR}/main_nopipe_nopre.cu ${SRC_CUDA_FILES})
 
-# target_compile_options(demo-acc-nopipe-nopre-fp16 PRIVATE ${CUDA_NVCC_FLAGS} -I${SRCDIR} -I${CMAKE_CURRENT_SOURCE_DIR})
-# target_link_libraries(demo-acc-nopipe-nopre-fp16 PRIVATE -lcusparse -lcublas)
-# target_include_directories(demo-acc-nopipe-nopre-fp16 PRIVATE 
-#     ${CUTLASS_INCLUDE_DIR}
-#     ${CUTLASS_COMMON_DIR}
-#     ${CUTLASS_UTIL_DIR}
-#     ${SRCDIR}
-# )
+target_compile_options(demo-acc-nopipe-nopre-fp16 PRIVATE ${CUDA_NVCC_FLAGS} -I${SRCDIR} -I${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(demo-acc-nopipe-nopre-fp16 PRIVATE -lcusparse -lcublas)
+target_include_directories(demo-acc-nopipe-nopre-fp16 PRIVATE 
+    ${CUTLASS_INCLUDE_DIR}
+    ${CUTLASS_COMMON_DIR}
+    ${CUTLASS_UTIL_DIR}
+    ${SRCDIR}
+)
 
-# add_executable(demo-acc-nopipe-nopre-noswz-fp16 ${PROJECT_SOURCE_DIR}/host_program_nopipe_nopre_noswz.cu ${PROJECT_SOURCE_DIR}/main_nopipe_nopre_noswz.cu ${SRC_CUDA_FILES})
+add_executable(demo-acc-nopipe-nopre-noswz-fp16 ${PROJECT_SOURCE_DIR}/host_program_nopipe_nopre_noswz.cu ${PROJECT_SOURCE_DIR}/main_nopipe_nopre_noswz.cu ${SRC_CUDA_FILES})
 
-# target_compile_options(demo-acc-nopipe-nopre-noswz-fp16 PRIVATE ${CUDA_NVCC_FLAGS} -I${SRCDIR} -I${CMAKE_CURRENT_SOURCE_DIR})
-# target_link_libraries(demo-acc-nopipe-nopre-noswz-fp16 PRIVATE -lcusparse -lcublas)
-# target_include_directories(demo-acc-nopipe-nopre-noswz-fp16 PRIVATE 
-#     ${CUTLASS_INCLUDE_DIR}
-#     ${CUTLASS_COMMON_DIR}
-#     ${CUTLASS_UTIL_DIR}
-#     ${SRCDIR}
-# )
+target_compile_options(demo-acc-nopipe-nopre-noswz-fp16 PRIVATE ${CUDA_NVCC_FLAGS} -I${SRCDIR} -I${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(demo-acc-nopipe-nopre-noswz-fp16 PRIVATE -lcusparse -lcublas)
+target_include_directories(demo-acc-nopipe-nopre-noswz-fp16 PRIVATE 
+    ${CUTLASS_INCLUDE_DIR}
+    ${CUTLASS_COMMON_DIR}
+    ${CUTLASS_UTIL_DIR}
+    ${SRCDIR}
+)

@@ -372,3 +372,202 @@ python3 cluster_plan_search_curve_simulator.py \
   --output-csv run_cluster_search_more_suppressed_cache.csv \
   --output-plot run_cluster_search_more_suppressed_cache.png
 
+#! 看起来还是不太行
+python3 cluster_plan_search_curve_simulator.py \
+  --strategy cluster-search \
+  --plans plans_6156.txt \
+  --metric time_ms \
+  --threshold 0.12 \
+  --cluster-cache-file /workspace/sparsene/examples/src_fp32/acc/testbed/scripts/motivation_scripts/sc_search_6156plans/cache/cluster_6156_t012_a4_b2_g1.json \
+  --max-reps 1 \
+  --fine-mode ucb \
+  --ucb-beta 2.0 \
+  --fine-budget-per-group 1 \
+  --bad-start-k 192 \
+  --bad-start-source distance \
+  --bad-start-ramp-steps 1536 \
+  --cluster-real-budget 256 \
+  --suppress-early-good-window 96 \
+  --suppress-gap-history 12 \
+  --suppress-gap-ratio 0.92 \
+  --suppress-gap-min-history 2 \
+  --suppress-early-good-threshold-ms -1 \
+  --suppress-early-good-ratio-vs-best 1.35 \
+  --use-real-timing \
+  --build-dir /workspace/sparsene/examples/src_fp32/acc/testbed/build_test \
+  --target-template acc-plan_{plan_id}-tf32 \
+  --make-jobs 48 \
+  --run-args "-N 64 -M 1024 -K 1024 -mtx_flag 0" \
+  --output-json results/run_cluster_search_1.json \
+  --output-csv results/run_cluster_search_1.csv \
+  --output-plot results/run_cluster_search_1.png
+
+
+python3 cluster_plan_search_curve_simulator.py \
+  --strategy cluster-search \
+  --plans plans_6156.txt  \
+  --metric time_ms  \
+  --threshold 0.12  \
+  --cluster-cache-file cache/cluster_6156_t012_a4_b2_g1.json \
+  --max-reps 1  \
+  --fine-budget-per-group 0 \
+  --bad-start-k 192 \
+  --bad-start-source distance \
+  --bad-start-ramp-steps 1536 \
+  --cluster-real-budget 256 \
+  --use-real-timing \
+  --build-dir /workspace/sparsene/examples/src_fp32/acc/testbed/build_test  \
+  --target-template acc-plan_{plan_id}-tf32 \
+  --make-jobs 48  \
+  --run-args "-N 64 -M 1024 -K 1024 -mtx_flag 0"  \
+  --output-json results/run_cluster_search_2.json  \
+  --output-csv results/run_cluster_search_2.csv  \
+  --output-plot results/run_cluster_search_2.png 
+
+#! 设置threshold重新测试sim+search
+#! 结果和之前相同
+python3 cluster_plan_search_curve_simulator.py \
+  --strategy sim-cluster-hybrid \
+  --plans plans_6156.txt \
+  --results plan_result.json \
+  --sim-results sim_scores_6156.json \
+  --sim-metric sim_cost \
+  --metric time_ms \
+  --real-budget 64 \
+  --explore-ratio 0.2 \
+  --sim-cluster-max-reps 3 \
+  --sim-cluster-beta 0.5 \
+  --bad-start-k 8 \
+  --bad-start-source sim \
+  --bad-start-ramp-steps 24 \
+  --threshold 0.12 \
+  --cluster-cache-file cache/cluster_6156_t012_a4_b2_g1.json \
+  --use-real-timing \
+  --build-dir /workspace/sparsene/examples/src_fp32/acc/testbed/build_test \
+  --target-template acc-plan_{plan_id}-tf32 \
+  --make-jobs 48 \
+  --run-args "-N 64 -M 1024 -K 1024 -mtx_flag 0" \
+  --output-json results/run_sim_cluster_hybrid_1.json \
+  --output-csv results/run_sim_cluster_hybrid_1.csv \
+  --output-plot results/run_sim_cluster_hybrid_1.png
+
+#! 尝试一下sim全常数的方案（模拟没有sim的情况）
+#> bad-start没有发挥效果
+python3 cluster_plan_search_curve_simulator.py \
+  --strategy sim-cluster-hybrid \
+  --plans plans_6156.txt \
+  --results plan_result.json \
+  --sim-results results/sim_scores_6156_const.json \
+  --sim-metric sim_cost \
+  --metric time_ms \
+  --real-budget 64 \
+  --explore-ratio 0.2 \
+  --sim-cluster-max-reps 3 \
+  --sim-cluster-beta 0.5 \
+  --bad-start-k 8 \
+  --bad-start-source sim \
+  --bad-start-ramp-steps 24 \
+  --threshold 0.12 \
+  --cluster-cache-file cache/cluster_6156_t012_a4_b2_g1.json \
+  --use-real-timing \
+  --build-dir /workspace/sparsene/examples/src_fp32/acc/testbed/build_test \
+  --target-template acc-plan_{plan_id}-tf32 \
+  --make-jobs 48 \
+  --run-args "-N 64 -M 1024 -K 1024 -mtx_flag 0" \
+  --output-json results/run_sim_cluster_hybrid_constsim_1.json \
+  --output-csv results/run_sim_cluster_hybrid_constsim_1.csv \
+  --output-plot results/run_sim_cluster_hybrid_constsim_1.png
+
+#! 设置bad-start逻辑是distance
+python cluster_plan_search_curve_simulator.py \
+  --strategy sim-cluster-hybrid \
+  --plans plans_6156.txt \
+  --results plan_result.json \
+  --sim-results results/sim_scores_6156_const.json \
+  --sim-metric sim_cost \
+  --metric time_ms \
+  --real-budget 64 \
+  --explore-ratio 0.2 \
+  --sim-cluster-max-reps 3 \
+  --sim-cluster-beta 0.5 \
+  --bad-start-k 8 \
+  --bad-start-source distance \
+  --bad-start-ramp-steps 24 \
+  --threshold 0.12 \
+  --cluster-cache-file cache/cluster_6156_t012_a4_b2_g1.json \
+  --use-real-timing \
+  --build-dir /workspace/sparsene/examples/src_fp32/acc/testbed/build_test \
+  --target-template acc-plan_{plan_id}-tf32 \
+  --make-jobs 48 \
+  --run-args "-N 64 -M 1024 -K 1024 -mtx_flag 0" \
+  --output-json results/run_sim_cluster_hybrid_constsim_badstart_distance_1.json \
+  --output-csv results/run_sim_cluster_hybrid_constsim_badstart_distance_1.csv \
+  --output-plot results/run_sim_cluster_hybrid_constsim_badstart_distance_1.png
+
+
+python plot_sim_vs_nosim_curve.py \
+  --sim-json results/run_sim_cluster_hybrid_1.json \
+  --nosim-json results/run_sim_cluster_hybrid_constsim_badstart_distance_1.json \
+  --sim-label sim \
+  --nosim-label no-sim \
+  --output-plot results/plot_sim_vs_nosim_curve2.png \
+  --output-csv results/plot_sim_vs_nosim_curve2.csv
+
+#! 2026/04/04 重新测试sim+search与no-sim + search，重新设置阈值匹配模拟器的clusters总数
+python3 cluster_plan_search_curve_simulator.py \
+  --strategy sim-cluster-hybrid \
+  --plans plans_6156.txt \
+  --results plan_result.json \
+  --sim-results sim_scores_6156.json \
+  --sim-metric sim_cost \
+  --metric time_ms \
+  --real-budget 64 \
+  --explore-ratio 0.2 \
+  --sim-cluster-max-reps 3 \
+  --sim-cluster-beta 0.5 \
+  --bad-start-k 8 \
+  --bad-start-source sim \
+  --bad-start-ramp-steps 24 \
+  --threshold 0.20 \
+  --cluster-cache-file cache/cluster_6156_t020_a4_b2_g1.json \
+  --use-real-timing \
+  --build-dir /workspace/sparsene/examples/src_fp32/acc/testbed/build_test \
+  --target-template acc-plan_{plan_id}-tf32 \
+  --make-jobs 48 \
+  --run-args "-N 64 -M 1024 -K 1024 -mtx_flag 0" \
+  --output-json results/run_sim_cluster_hybrid_2.json \
+  --output-csv results/run_sim_cluster_hybrid_2.csv \
+  --output-plot results/run_sim_cluster_hybrid_2.png
+
+python cluster_plan_search_curve_simulator.py \
+  --strategy sim-cluster-hybrid \
+  --plans plans_6156.txt \
+  --results plan_result.json \
+  --sim-results results/sim_scores_6156_const.json \
+  --sim-metric sim_cost \
+  --metric time_ms \
+  --real-budget 64 \
+  --explore-ratio 0.2 \
+  --sim-cluster-max-reps 3 \
+  --sim-cluster-beta 0.5 \
+  --bad-start-k 8 \
+  --bad-start-source distance \
+  --bad-start-ramp-steps 24 \
+  --threshold 0.20 \
+  --cluster-cache-file cache/cluster_6156_t020_a4_b2_g1.json \
+  --use-real-timing \
+  --build-dir /workspace/sparsene/examples/src_fp32/acc/testbed/build_test \
+  --target-template acc-plan_{plan_id}-tf32 \
+  --make-jobs 48 \
+  --run-args "-N 64 -M 1024 -K 1024 -mtx_flag 0" \
+  --output-json results/run_sim_cluster_hybrid_constsim_badstart_distance_2.json \
+  --output-csv results/run_sim_cluster_hybrid_constsim_badstart_distance_2.csv \
+  --output-plot results/run_sim_cluster_hybrid_constsim_badstart_distance_2.png
+
+python plot_sim_vs_nosim_curve.py \
+  --sim-json results/run_sim_cluster_hybrid_2.json \
+  --nosim-json results/run_sim_cluster_hybrid_constsim_badstart_distance_2.json \
+  --sim-label sim \
+  --nosim-label no-sim \
+  --output-plot results/plot_sim_vs_nosim_curve2.png \
+  --output-csv results/plot_sim_vs_nosim_curve2.csv
