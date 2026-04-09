@@ -9,7 +9,7 @@ NVAL=512
 LOGDIR="/workspace/sparsene/examples/src_fp32/acc/testbed/build/logs"
 LOGDIR="/workspace/sparsene/examples/src_fp32/acc/testbed/scripts/motivation_scripts/plan_fig/2_0ms/"
 LOGDIR="/workspace/sparsene/examples/src_fp32/acc/testbed/scripts/motivation_scripts/"
-FILE="test_single_shift_exchangexy.log"
+FILE="test_single_shift_motivation.log"
 mkdir -p "$LOGDIR"
 
 while read -r plan; do

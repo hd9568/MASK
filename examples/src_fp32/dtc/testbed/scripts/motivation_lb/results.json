@@ -1,0 +1,4837 @@
+{
+  "results": [
+    {
+      "filename": "/workspace/selectedMM/08blocks.mtx ",
+      "normalbinding": "0.01110",
+      "multibinding": "0.01088",
+      "strictlb": "0.07926"
+    },
+    {
+      "filename": "/workspace/selectedMM/192bit.mtx ",
+      "normalbinding": "0.13942",
+      "multibinding": "0.13990",
+      "strictlb": "0.15014"
+    },
+    {
+      "filename": "/workspace/selectedMM/2D_54019_highK.mtx ",
+      "normalbinding": "0.53379",
+      "multibinding": "0.34848",
+      "strictlb": "0.38832"
+    },
+    {
+      "filename": "/workspace/selectedMM/2cubes_sphere.mtx ",
+      "normalbinding": "1.02000",
+      "multibinding": "1.02000",
+      "strictlb": "1.10000"
+    },
+    {
+      "filename": "/workspace/selectedMM/333SP.mtx ",
+      "normalbinding": "",
+      "multibinding": "25.71000",
+      "strictlb": "28.18000"
+    },
+    {
+      "filename": "/workspace/selectedMM/3D_51448_3D.mtx ",
+      "normalbinding": "1.41000",
+      "multibinding": "0.37568",
+      "strictlb": "0.44506"
+    },
+    {
+      "filename": "/workspace/selectedMM/3Dspectralwave.mtx ",
+      "normalbinding": "",
+      "multibinding": "14.59000",
+      "strictlb": "14.78000"
+    },
+    {
+      "filename": "/workspace/selectedMM/3Dspectralwave_b.mtx ",
+      "normalbinding": "1.58000",
+      "multibinding": "2.65000",
+      "strictlb": "0.01034"
+    },
+    {
+      "filename": "/workspace/selectedMM/598a.mtx ",
+      "normalbinding": "1.34000",
+      "multibinding": "1.34000",
+      "strictlb": "1.47000"
+    },
+    {
+      "filename": "/workspace/selectedMM/662_bus.mtx ",
+      "normalbinding": "0.01408",
+      "multibinding": "0.01402",
+      "strictlb": "0.07290"
+    },
+    {
+      "filename": "/workspace/selectedMM/685_bus.mtx ",
+      "normalbinding": "0.01158",
+      "multibinding": "0.01184",
+      "strictlb": "0.07354"
+    },
+    {
+      "filename": "/workspace/selectedMM/ABACUS_shell_hd.mtx ",
+      "normalbinding": "0.17933",
+      "multibinding": "0.17981",
+      "strictlb": "0.24672"
+    },
+    {
+      "filename": "/workspace/selectedMM/ABACUS_shell_hd_E.mtx ",
+      "normalbinding": "0.05469",
+      "multibinding": "0.11424",
+      "strictlb": "0.08621"
+    },
+    {
+      "filename": "/workspace/selectedMM/ABACUS_shell_ld.mtx ",
+      "normalbinding": "0.17952",
+      "multibinding": "0.18054",
+      "strictlb": "0.24445"
+    },
+    {
+      "filename": "/workspace/selectedMM/ABACUS_shell_ld_E.mtx ",
+      "normalbinding": "0.05437",
+      "multibinding": "0.11440",
+      "strictlb": "0.08816"
+    },
+    {
+      "filename": "/workspace/selectedMM/ABACUS_shell_ld_K.mtx ",
+      "normalbinding": "0.17997",
+      "multibinding": "0.18054",
+      "strictlb": "0.24387"
+    },
+    {
+      "filename": "/workspace/selectedMM/ABACUS_shell_ld_M.mtx ",
+      "normalbinding": "0.17805",
+      "multibinding": "0.17910",
+      "strictlb": "0.24448"
+    },
+    {
+      "filename": "/workspace/selectedMM/ABACUS_shell_ld_c.mtx ",
+      "normalbinding": "0.00592",
+      "multibinding": "0.00634",
+      "strictlb": "0.01021"
+    },
+    {
+      "filename": "/workspace/selectedMM/ABACUS_shell_md_E.mtx ",
+      "normalbinding": "0.05421",
+      "multibinding": "0.11510",
+      "strictlb": "0.08765"
+    },
+    {
+      "filename": "/workspace/selectedMM/ABACUS_shell_md_Mzeros.mtx ",
+      "normalbinding": "0.05114",
+      "multibinding": "0.11434",
+      "strictlb": "0.09082"
+    },
+    {
+      "filename": "/workspace/selectedMM/ABACUS_shell_ud.mtx ",
+      "normalbinding": "0.18115",
+      "multibinding": "0.18038",
+      "strictlb": "0.24637"
+    },
+    {
+      "filename": "/workspace/selectedMM/ABACUS_shell_ud_M.mtx ",
+      "normalbinding": "0.17952",
+      "multibinding": "0.18115",
+      "strictlb": "0.24483"
+    },
+    {
+      "filename": "/workspace/selectedMM/ABACUS_shell_ud_c.mtx ",
+      "normalbinding": "0.00570",
+      "multibinding": "0.00656",
+      "strictlb": "0.00973"
+    },
+    {
+      "filename": "/workspace/selectedMM/ACTIVSg10K.mtx ",
+      "normalbinding": "0.12189",
+      "multibinding": "0.12205",
+      "strictlb": "0.14915"
+    },
+    {
+      "filename": "/workspace/selectedMM/AS365.mtx ",
+      "normalbinding": "",
+      "multibinding": "29.51000",
+      "strictlb": "32.32000"
+    },
+    {
+      "filename": "/workspace/selectedMM/ASIC_100ks.mtx ",
+      "normalbinding": "0.63056",
+      "multibinding": "0.56758",
+      "strictlb": "0.57325"
+    },
+    {
+      "filename": "/workspace/selectedMM/ASIC_320k.mtx ",
+      "normalbinding": "25.34000",
+      "multibinding": "2.88000",
+      "strictlb": "2.60000"
+    },
+    {
+      "filename": "/workspace/selectedMM/Alemdar.mtx ",
+      "normalbinding": "0.06042",
+      "multibinding": "0.06022",
+      "strictlb": "0.08867"
+    },
+    {
+      "filename": "/workspace/selectedMM/Andrews.mtx ",
+      "normalbinding": "0.73594",
+      "multibinding": "0.73360",
+      "strictlb": "0.78211"
+    },
+    {
+      "filename": "/workspace/selectedMM/Baumann.mtx ",
+      "normalbinding": "0.59046",
+      "multibinding": "0.59514",
+      "strictlb": "0.85536"
+    },
+    {
+      "filename": "/workspace/selectedMM/BenElechi1.mtx ",
+      "normalbinding": "2.09000",
+      "multibinding": "2.10000",
+      "strictlb": "2.61000"
+    },
+    {
+      "filename": "/workspace/selectedMM/BenElechi1_b.mtx ",
+      "normalbinding": "0.73309",
+      "multibinding": "0.74413",
+      "strictlb": "0.69059"
+    },
+    {
+      "filename": "/workspace/selectedMM/Binaryalphadigs_10NN.mtx ",
+      "normalbinding": "0.02848",
+      "multibinding": "0.02877",
+      "strictlb": "0.07062"
+    },
+    {
+      "filename": "/workspace/selectedMM/Bump_2911.mtx ",
+      "normalbinding": "27.58000",
+      "multibinding": "27.57000",
+      "strictlb": "34.14000"
+    },
+    {
+      "filename": "/workspace/selectedMM/CAG_mat1916.mtx ",
+      "normalbinding": "0.11901",
+      "multibinding": "0.12006",
+      "strictlb": "0.08374"
+    },
+    {
+      "filename": "/workspace/selectedMM/CAG_mat364.mtx ",
+      "normalbinding": "",
+      "multibinding": "0.03264",
+      "strictlb": "0.07165"
+    },
+    {
+      "filename": "/workspace/selectedMM/CSphd.mtx ",
+      "normalbinding": "0.01606",
+      "multibinding": "0.01363",
+      "strictlb": "0.10422"
+    },
+    {
+      "filename": "/workspace/selectedMM/California.mtx ",
+      "normalbinding": "0.05536",
+      "multibinding": "0.05021",
+      "strictlb": "0.09197"
+    },
+    {
+      "filename": "/workspace/selectedMM/Chebyshev1.mtx ",
+      "normalbinding": "0.03382",
+      "multibinding": "0.00941",
+      "strictlb": "0.06982"
+    },
+    {
+      "filename": "/workspace/selectedMM/Chem97ZtZ.mtx ",
+      "normalbinding": "",
+      "multibinding": "0.02195",
+      "strictlb": "0.07552"
+    },
+    {
+      "filename": "/workspace/selectedMM/Chevron1.mtx ",
+      "normalbinding": "0.18339",
+      "multibinding": "0.18787",
+      "strictlb": "0.19408"
+    },
+    {
+      "filename": "/workspace/selectedMM/Chevron2.mtx ",
+      "normalbinding": "0.42733",
+      "multibinding": "0.43280",
+      "strictlb": "0.61155"
+    },
+    {
+      "filename": "/workspace/selectedMM/Chevron4.mtx ",
+      "normalbinding": "3.29000",
+      "multibinding": "3.31000",
+      "strictlb": "4.12000"
+    },
+    {
+      "filename": "/workspace/selectedMM/Cities.mtx ",
+      "normalbinding": "0.01021",
+      "multibinding": "0.01072",
+      "strictlb": "0.03194"
+    },
+    {
+      "filename": "/workspace/selectedMM/CollegeMsg.mtx ",
+      "normalbinding": "0.06726",
+      "multibinding": "0.04451",
+      "strictlb": "0.07434"
+    },
+    {
+      "filename": "/workspace/selectedMM/CurlCurl_1.mtx ",
+      "normalbinding": "1.38000",
+      "multibinding": "1.38000",
+      "strictlb": "1.53000"
+    },
+    {
+      "filename": "/workspace/selectedMM/CurlCurl_3.mtx ",
+      "normalbinding": "7.53000",
+      "multibinding": "7.57000",
+      "strictlb": "8.26000"
+    },
+    {
+      "filename": "/workspace/selectedMM/D_5.mtx ",
+      "normalbinding": "0.01114",
+      "multibinding": "0.01136",
+      "strictlb": "0.07242"
+    },
+    {
+      "filename": "/workspace/selectedMM/D_7.mtx ",
+      "normalbinding": "0.02710",
+      "multibinding": "0.02653",
+      "strictlb": "0.07165"
+    },
+    {
+      "filename": "/workspace/selectedMM/D_8.mtx ",
+      "normalbinding": "0.03414",
+      "multibinding": "0.03456",
+      "strictlb": "0.07162"
+    },
+    {
+      "filename": "/workspace/selectedMM/D_9.mtx ",
+      "normalbinding": "",
+      "multibinding": "0.03754",
+      "strictlb": "0.06922"
+    },
+    {
+      "filename": "/workspace/selectedMM/Dubcova3.mtx ",
+      "normalbinding": "1.46000",
+      "multibinding": "1.57000",
+      "strictlb": "1.73000"
+    },
+    {
+      "filename": "/workspace/selectedMM/EAT_SR.mtx ",
+      "normalbinding": "0.31546",
+      "multibinding": "0.31491",
+      "strictlb": "0.33446"
+    },
+    {
+      "filename": "/workspace/selectedMM/EPA.mtx ",
+      "normalbinding": "0.10003",
+      "multibinding": "0.03312",
+      "strictlb": "0.09200"
+    },
+    {
+      "filename": "/workspace/selectedMM/ESOC.mtx ",
+      "normalbinding": "2.80000",
+      "multibinding": "2.80000",
+      "strictlb": "2.95000"
+    },
+    {
+      "filename": "/workspace/selectedMM/EX2.mtx ",
+      "normalbinding": "",
+      "multibinding": "0.02650",
+      "strictlb": "0.07011"
+    },
+    {
+      "filename": "/workspace/selectedMM/EX4.mtx ",
+      "normalbinding": "0.06118",
+      "multibinding": "0.06170",
+      "strictlb": "0.08170"
+    },
+    {
+      "filename": "/workspace/selectedMM/EX6.mtx ",
+      "normalbinding": "0.20739",
+      "multibinding": "0.20336",
+      "strictlb": "0.21370"
+    },
+    {
+      "filename": "/workspace/selectedMM/Emilia_923.mtx ",
+      "normalbinding": "10.32000",
+      "multibinding": "10.31000",
+      "strictlb": "11.02000"
+    },
+    {
+      "filename": "/workspace/selectedMM/Erdos02.mtx ",
+      "normalbinding": "",
+      "multibinding": "0.04410",
+      "strictlb": "0.09373"
+    },
+    {
+      "filename": "/workspace/selectedMM/Erdos982.mtx ",
+      "normalbinding": "0.06237",
+      "multibinding": "0.03824",
+      "strictlb": "0.09082"
+    },
+    {
+      "filename": "/workspace/selectedMM/Erdos991.mtx ",
+      "normalbinding": "",
+      "multibinding": "0.01757",
+      "strictlb": "0.06883"
+    },
+    {
+      "filename": "/workspace/selectedMM/Erdos992.mtx ",
+      "normalbinding": "0.06182",
+      "multibinding": "0.04048",
+      "strictlb": "0.08880"
+    },
+    {
+      "filename": "/workspace/selectedMM/EternityII_E_b.mtx ",
+      "normalbinding": "0.03286",
+      "multibinding": "0.06467",
+      "strictlb": "0.05933"
+    },
+    {
+      "filename": "/workspace/selectedMM/EternityII_Etilde_b.mtx ",
+      "normalbinding": "0.03296",
+      "multibinding": "0.06074",
+      "strictlb": "0.05862"
+    },
+    {
+      "filename": "/workspace/selectedMM/F1.mtx ",
+      "normalbinding": "",
+      "multibinding": "6.45000",
+      "strictlb": "8.21000"
+    },
+    {
+      "filename": "/workspace/selectedMM/F2.mtx ",
+      "normalbinding": "1.28000",
+      "multibinding": "1.24000",
+      "strictlb": "1.26000"
+    },
+    {
+      "filename": "/workspace/selectedMM/FA.mtx ",
+      "normalbinding": "0.08938",
+      "multibinding": "0.08893",
+      "strictlb": "0.10925"
+    },
+    {
+      "filename": "/workspace/selectedMM/FEM_3D_thermal1.mtx ",
+      "normalbinding": "0.13814",
+      "multibinding": "0.13942",
+      "strictlb": "0.15891"
+    },
+    {
+      "filename": "/workspace/selectedMM/FX_March2010.mtx ",
+      "normalbinding": "1.22000",
+      "multibinding": "0.34371",
+      "strictlb": "0.11232"
+    },
+    {
+      "filename": "/workspace/selectedMM/Fashion_MNIST_norm_10NN.mtx ",
+      "normalbinding": "",
+      "multibinding": "0.17357",
+      "strictlb": "0.20048"
+    },
+    {
+      "filename": "/workspace/selectedMM/Franz1.mtx ",
+      "normalbinding": "0.01379",
+      "multibinding": "0.01357",
+      "strictlb": "0.07482"
+    },
+    {
+      "filename": "/workspace/selectedMM/Franz10.mtx ",
+      "normalbinding": "0.09421",
+      "multibinding": "0.09546",
+      "strictlb": "0.12669"
+    },
+    {
+      "filename": "/workspace/selectedMM/Franz5.mtx ",
+      "normalbinding": "0.04189",
+      "multibinding": "0.04224",
+      "strictlb": "0.08346"
+    },
+    {
+      "filename": "/workspace/selectedMM/Franz9.mtx ",
+      "normalbinding": "0.09174",
+      "multibinding": "0.09357",
+      "strictlb": "0.12694"
+    },
+    {
+      "filename": "/workspace/selectedMM/Freescale1.mtx ",
+      "normalbinding": "22.59000",
+      "multibinding": "23.80000",
+      "strictlb": "24.74000"
+    },
+    {
+      "filename": "/workspace/selectedMM/Freescale2.mtx ",
+      "normalbinding": "23.89000",
+      "multibinding": "21.74000",
+      "strictlb": "23.26000"
+    },
+    {
+      "filename": "/workspace/selectedMM/G10.mtx ",
+      "normalbinding": "0.06998",
+      "multibinding": "0.07002",
+      "strictlb": "0.06870"
+    },
+    {
+      "filename": "/workspace/selectedMM/G11.mtx ",
+      "normalbinding": "0.00979",
+      "multibinding": "0.01062",
+      "strictlb": "0.07328"
+    },
+    {
+      "filename": "/workspace/selectedMM/G12.mtx ",
+      "normalbinding": "0.01155",
+      "multibinding": "0.01242",
+      "strictlb": "0.07238"
+    },
+    {
+      "filename": "/workspace/selectedMM/G15.mtx ",
+      "normalbinding": "0.07158",
+      "multibinding": "0.03926",
+      "strictlb": "0.07002"
+    },
+    {
+      "filename": "/workspace/selectedMM/G16.mtx ",
+      "normalbinding": "0.06563",
+      "multibinding": "0.03654",
+      "strictlb": "0.07187"
+    },
+    {
+      "filename": "/workspace/selectedMM/G17.mtx ",
+      "normalbinding": "0.07261",
+      "multibinding": "0.04016",
+      "strictlb": "0.07107"
+    },
+    {
+      "filename": "/workspace/selectedMM/G18.mtx ",
+      "normalbinding": "0.06906",
+      "multibinding": "0.03926",
+      "strictlb": "0.07139"
+    },
+    {
+      "filename": "/workspace/selectedMM/G19.mtx ",
+      "normalbinding": "0.07174",
+      "multibinding": "0.03958",
+      "strictlb": "0.06963"
+    },
+    {
+      "filename": "/workspace/selectedMM/G21.mtx ",
+      "normalbinding": "0.07267",
+      "multibinding": "0.03990",
+      "strictlb": "0.07072"
+    },
+    {
+      "filename": "/workspace/selectedMM/G23.mtx ",
+      "normalbinding": "",
+      "multibinding": "0.05584",
+      "strictlb": "0.07859"
+    },
+    {
+      "filename": "/workspace/selectedMM/G26.mtx ",
+      "normalbinding": "",
+      "multibinding": "0.05757",
+      "strictlb": "0.07802"
+    },
+    {
+      "filename": "/workspace/selectedMM/G27.mtx ",
+      "normalbinding": "",
+      "multibinding": "0.05530",
+      "strictlb": "0.07802"
+    },
+    {
+      "filename": "/workspace/selectedMM/G29.mtx ",
+      "normalbinding": "",
+      "multibinding": "0.05536",
+      "strictlb": "0.07846"
+    },
+    {
+      "filename": "/workspace/selectedMM/G2_circuit.mtx ",
+      "normalbinding": "1.08000",
+      "multibinding": "1.09000",
+      "strictlb": "0.96682"
+    },
+    {
+      "filename": "/workspace/selectedMM/G3.mtx ",
+      "normalbinding": "0.06762",
+      "multibinding": "0.06835",
+      "strictlb": "0.06877"
+    },
+    {
+      "filename": "/workspace/selectedMM/G33.mtx ",
+      "normalbinding": "",
+      "multibinding": "0.01901",
+      "strictlb": "0.07302"
+    },
+    {
+      "filename": "/workspace/selectedMM/G34.mtx ",
+      "normalbinding": "",
+      "multibinding": "0.01837",
+      "strictlb": "0.07274"
+    },
+    {
+      "filename": "/workspace/selectedMM/G35.mtx ",
+      "normalbinding": "",
+      "multibinding": "0.05037",
+      "strictlb": "0.07395"
+    },
+    {
+      "filename": "/workspace/selectedMM/G39.mtx ",
+      "normalbinding": "",
+      "multibinding": "0.04925",
+      "strictlb": "0.07395"
+    },
+    {
+      "filename": "/workspace/selectedMM/G4.mtx ",
+      "normalbinding": "0.06816",
+      "multibinding": "0.06854",
+      "strictlb": "0.06874"
+    },
+    {
+      "filename": "/workspace/selectedMM/G40.mtx ",
+      "normalbinding": "",
+      "multibinding": "0.04973",
+      "strictlb": "0.07392"
+    },
+    {
+      "filename": "/workspace/selectedMM/G41.mtx ",
+      "normalbinding": "",
+      "multibinding": "0.04918",
+      "strictlb": "0.07341"
+    },
+    {
+      "filename": "/workspace/selectedMM/G48.mtx ",
+      "normalbinding": "0.02320",
+      "multibinding": "0.02355",
+      "strictlb": "0.07427"
+    },
+    {
+      "filename": "/workspace/selectedMM/G50.mtx ",
+      "normalbinding": "0.02250",
+      "multibinding": "0.02381",
+      "strictlb": "0.07434"
+    },
+    {
+      "filename": "/workspace/selectedMM/G51.mtx ",
+      "normalbinding": "0.09027",
+      "multibinding": "0.03974",
+      "strictlb": "0.06986"
+    },
+    {
+      "filename": "/workspace/selectedMM/G52.mtx ",
+      "normalbinding": "0.08189",
+      "multibinding": "0.04160",
+      "strictlb": "0.07139"
+    },
+    {
+      "filename": "/workspace/selectedMM/G55.mtx ",
+      "normalbinding": "0.04269",
+      "multibinding": "0.04205",
+      "strictlb": "0.07914"
+    },
+    {
+      "filename": "/workspace/selectedMM/G57.mtx ",
+      "normalbinding": "0.03834",
+      "multibinding": "0.04045",
+      "strictlb": "0.07661"
+    },
+    {
+      "filename": "/workspace/selectedMM/G58.mtx ",
+      "normalbinding": "0.27776",
+      "multibinding": "0.09280",
+      "strictlb": "0.09536"
+    },
+    {
+      "filename": "/workspace/selectedMM/G62.mtx ",
+      "normalbinding": "0.05146",
+      "multibinding": "0.05283",
+      "strictlb": "0.08339"
+    },
+    {
+      "filename": "/workspace/selectedMM/G63.mtx ",
+      "normalbinding": "0.33306",
+      "multibinding": "0.10723",
+      "strictlb": "0.10531"
+    },
+    {
+      "filename": "/workspace/selectedMM/G8.mtx ",
+      "normalbinding": "0.06778",
+      "multibinding": "0.06829",
+      "strictlb": "0.06851"
+    },
+    {
+      "filename": "/workspace/selectedMM/GAP-road.mtx ",
+      "normalbinding": "",
+      "multibinding": "",
+      "strictlb": ""
+    },
+    {
+      "filename": "/workspace/selectedMM/GD00_a.mtx ",
+      "normalbinding": "0.00941",
+      "multibinding": "0.00870",
+      "strictlb": "0.06573"
+    },
+    {
+      "filename": "/workspace/selectedMM/GD01_a.mtx ",
+      "normalbinding": "0.01056",
+      "multibinding": "0.01053",
+      "strictlb": "0.07622"
+    },
+    {
+      "filename": "/workspace/selectedMM/GD02_b.mtx ",
+      "normalbinding": "0.00819",
+      "multibinding": "0.00826",
+      "strictlb": "0.02714"
+    },
+    {
+      "filename": "/workspace/selectedMM/GD06_Java.mtx ",
+      "normalbinding": "0.02029",
+      "multibinding": "0.01645",
+      "strictlb": "0.07482"
+    },
+    {
+      "filename": "/workspace/selectedMM/GD96_d.mtx ",
+      "normalbinding": "0.01082",
+      "multibinding": "0.00989",
+      "strictlb": "0.04810"
+    },
+    {
+      "filename": "/workspace/selectedMM/GD97_c.mtx ",
+      "normalbinding": "0.02723",
+      "multibinding": "0.00899",
+      "strictlb": "0.07632"
+    },
+    {
+      "filename": "/workspace/selectedMM/GD98_b.mtx ",
+      "normalbinding": "0.01142",
+      "multibinding": "0.00915",
+      "strictlb": "0.03645"
+    },
+    {
+      "filename": "/workspace/selectedMM/GD99_c.mtx ",
+      "normalbinding": "0.00886",
+      "multibinding": "0.00906",
+      "strictlb": "0.03088"
+    },
+    {
+      "filename": "/workspace/selectedMM/GL6_D_9.mtx ",
+      "normalbinding": "0.02762",
+      "multibinding": "0.02742",
+      "strictlb": "0.07168"
+    },
+    {
+      "filename": "/workspace/selectedMM/GL7d12.mtx ",
+      "normalbinding": "0.05725",
+      "multibinding": "0.05654",
+      "strictlb": "0.10730"
+    },
+    {
+      "filename": "/workspace/selectedMM/GL7d14.mtx ",
+      "normalbinding": "1.78000",
+      "multibinding": "1.77000",
+      "strictlb": "1.86000"
+    },
+    {
+      "filename": "/workspace/selectedMM/GL7d20.mtx ",
+      "normalbinding": "37.80000",
+      "multibinding": "37.87000",
+      "strictlb": "41.68000"
+    },
+    {
+      "filename": "/workspace/selectedMM/GL7d21.mtx ",
+      "normalbinding": "",
+      "multibinding": "22.02000",
+      "strictlb": "24.53000"
+    },
+    {
+      "filename": "/workspace/selectedMM/GL7d22.mtx ",
+      "normalbinding": "9.22000",
+      "multibinding": "8.92000",
+      "strictlb": "10.41000"
+    },
+    {
+      "filename": "/workspace/selectedMM/GL7d24.mtx ",
+      "normalbinding": "0.96147",
+      "multibinding": "0.60506",
+      "strictlb": "0.65318"
+    },
+    {
+      "filename": "/workspace/selectedMM/GL7d25.mtx ",
+      "normalbinding": "0.35891",
+      "multibinding": "0.14339",
+      "strictlb": "0.10022"
+    },
+    {
+      "filename": "/workspace/selectedMM/Ga10As10H30.mtx ",
+      "normalbinding": "2.79000",
+      "multibinding": "2.75000",
+      "strictlb": "2.74000"
+    },
+    {
+      "filename": "/workspace/selectedMM/Ge99H100.mtx ",
+      "normalbinding": "3.26000",
+      "multibinding": "3.24000",
+      "strictlb": "3.18000"
+    },
+    {
+      "filename": "/workspace/selectedMM/Goodwin_010.mtx ",
+      "normalbinding": "0.01984",
+      "multibinding": "0.02038",
+      "strictlb": "0.07354"
+    },
+    {
+      "filename": "/workspace/selectedMM/Goodwin_017.mtx ",
+      "normalbinding": "0.02912",
+      "multibinding": "0.02941",
+      "strictlb": "0.07587"
+    },
+    {
+      "filename": "/workspace/selectedMM/Goodwin_071.mtx ",
+      "normalbinding": "0.37021",
+      "multibinding": "0.37094",
+      "strictlb": "0.45338"
+    },
+    {
+      "filename": "/workspace/selectedMM/Goodwin_095.mtx ",
+      "normalbinding": "0.65190",
+      "multibinding": "0.65514",
+      "strictlb": "0.79162"
+    },
+    {
+      "filename": "/workspace/selectedMM/H2O.mtx ",
+      "normalbinding": "",
+      "multibinding": "1.33000",
+      "strictlb": "1.36000"
+    },
+    {
+      "filename": "/workspace/selectedMM/HEP-th-new.mtx ",
+      "normalbinding": "0.37811",
+      "multibinding": "0.34870",
+      "strictlb": "0.38147"
+    },
+    {
+      "filename": "/workspace/selectedMM/HEP-th.mtx ",
+      "normalbinding": "0.37843",
+      "multibinding": "0.34246",
+      "strictlb": "0.39344"
+    },
+    {
+      "filename": "/workspace/selectedMM/HFE18_96_in.mtx ",
+      "normalbinding": "0.34051",
+      "multibinding": "0.34179",
+      "strictlb": "0.19792"
+    },
+    {
+      "filename": "/workspace/selectedMM/HTC_336_4438.mtx ",
+      "normalbinding": "2.56000",
+      "multibinding": "1.34000",
+      "strictlb": "1.27000"
+    },
+    {
+      "filename": "/workspace/selectedMM/Hamrle1_b.mtx ",
+      "normalbinding": "0.00627",
+      "multibinding": "0.00624",
+      "strictlb": "0.00979"
+    },
+    {
+      "filename": "/workspace/selectedMM/Hamrle2.mtx ",
+      "normalbinding": "0.02973",
+      "multibinding": "0.02886",
+      "strictlb": "0.08496"
+    },
+    {
+      "filename": "/workspace/selectedMM/Hamrle3.mtx ",
+      "normalbinding": "6.67000",
+      "multibinding": "7.28000",
+      "strictlb": "6.88000"
+    },
+    {
+      "filename": "/workspace/selectedMM/Hardesty1.mtx ",
+      "normalbinding": "5.59000",
+      "multibinding": "5.60000",
+      "strictlb": "7.52000"
+    },
+    {
+      "filename": "/workspace/selectedMM/Harvard500.mtx ",
+      "normalbinding": "0.03488",
+      "multibinding": "0.01270",
+      "strictlb": "0.07738"
+    },
+    {
+      "filename": "/workspace/selectedMM/Hook_1498.mtx ",
+      "normalbinding": "14.34000",
+      "multibinding": "14.34000",
+      "strictlb": "16.82000"
+    },
+    {
+      "filename": "/workspace/selectedMM/IG5-10.mtx ",
+      "normalbinding": "0.02854",
+      "multibinding": "0.02899",
+      "strictlb": "0.07181"
+    },
+    {
+      "filename": "/workspace/selectedMM/IG5-15.mtx ",
+      "normalbinding": "0.27235",
+      "multibinding": "0.26157",
+      "strictlb": "0.23965"
+    },
+    {
+      "filename": "/workspace/selectedMM/IG5-18.mtx ",
+      "normalbinding": "",
+      "multibinding": "1.28000",
+      "strictlb": "1.25000"
+    },
+    {
+      "filename": "/workspace/selectedMM/IG5-6.mtx ",
+      "normalbinding": "",
+      "multibinding": "0.00982",
+      "strictlb": "0.01741"
+    },
+    {
+      "filename": "/workspace/selectedMM/IG5-8.mtx ",
+      "normalbinding": "0.01779",
+      "multibinding": "0.01811",
+      "strictlb": "0.06733"
+    },
+    {
+      "filename": "/workspace/selectedMM/IG5-9.mtx ",
+      "normalbinding": "0.02470",
+      "multibinding": "0.02490",
+      "strictlb": "0.07043"
+    },
+    {
+      "filename": "/workspace/selectedMM/Journals.mtx ",
+      "normalbinding": "0.02070",
+      "multibinding": "0.02115",
+      "strictlb": "0.07418"
+    },
+    {
+      "filename": "/workspace/selectedMM/Kaufhold.mtx ",
+      "normalbinding": "0.05882",
+      "multibinding": "0.05997",
+      "strictlb": "0.09594"
+    },
+    {
+      "filename": "/workspace/selectedMM/Kemelmacher.mtx ",
+      "normalbinding": "0.12502",
+      "multibinding": "0.12854",
+      "strictlb": "0.13533"
+    },
+    {
+      "filename": "/workspace/selectedMM/Kuu.mtx ",
+      "normalbinding": "0.07485",
+      "multibinding": "0.07584",
+      "strictlb": "0.09293"
+    },
+    {
+      "filename": "/workspace/selectedMM/L-9.mtx ",
+      "normalbinding": "0.12938",
+      "multibinding": "0.13830",
+      "strictlb": "0.12598"
+    },
+    {
+      "filename": "/workspace/selectedMM/LF10.mtx ",
+      "normalbinding": "0.00723",
+      "multibinding": "0.00752",
+      "strictlb": "0.01421"
+    },
+    {
+      "filename": "/workspace/selectedMM/LF10000_C.mtx ",
+      "normalbinding": "0.00589",
+      "multibinding": "0.00646",
+      "strictlb": "0.01018"
+    },
+    {
+      "filename": "/workspace/selectedMM/LF10000_M.mtx ",
+      "normalbinding": "0.07248",
+      "multibinding": "0.07760",
+      "strictlb": "0.11757"
+    },
+    {
+      "filename": "/workspace/selectedMM/LF10_M.mtx ",
+      "normalbinding": "0.00736",
+      "multibinding": "0.00765",
+      "strictlb": "0.01450"
+    },
+    {
+      "filename": "/workspace/selectedMM/LFAT5.mtx ",
+      "normalbinding": "0.00653",
+      "multibinding": "0.00726",
+      "strictlb": "0.00899"
+    },
+    {
+      "filename": "/workspace/selectedMM/LFAT5000.mtx ",
+      "normalbinding": "0.12682",
+      "multibinding": "0.13053",
+      "strictlb": "0.11341"
+    },
+    {
+      "filename": "/workspace/selectedMM/LFAT5000_C.mtx ",
+      "normalbinding": "0.00595",
+      "multibinding": "0.00630",
+      "strictlb": "0.00998"
+    },
+    {
+      "filename": "/workspace/selectedMM/LFAT5000_M.mtx ",
+      "normalbinding": "0.12538",
+      "multibinding": "0.13126",
+      "strictlb": "0.11181"
+    },
+    {
+      "filename": "/workspace/selectedMM/LFAT5_B.mtx ",
+      "normalbinding": "0.00592",
+      "multibinding": "0.00637",
+      "strictlb": "0.00954"
+    },
+    {
+      "filename": "/workspace/selectedMM/LFAT5_C.mtx ",
+      "normalbinding": "0.00611",
+      "multibinding": "0.00650",
+      "strictlb": "0.00986"
+    },
+    {
+      "filename": "/workspace/selectedMM/LargeRegFile.mtx ",
+      "normalbinding": "9.37000",
+      "multibinding": "9.47000",
+      "strictlb": "9.26000"
+    },
+    {
+      "filename": "/workspace/selectedMM/LeGresley_2508.mtx ",
+      "normalbinding": "",
+      "multibinding": "0.02128",
+      "strictlb": "0.07389"
+    },
+    {
+      "filename": "/workspace/selectedMM/LeGresley_87936.mtx ",
+      "normalbinding": "0.55738",
+      "multibinding": "0.56202",
+      "strictlb": "0.66054"
+    },
+    {
+      "filename": "/workspace/selectedMM/Lederberg.mtx ",
+      "normalbinding": "",
+      "multibinding": "0.07014",
+      "strictlb": "0.13229"
+    },
+    {
+      "filename": "/workspace/selectedMM/Long_Coup_dt0.mtx ",
+      "normalbinding": "15.27000",
+      "multibinding": "15.27000",
+      "strictlb": "18.50000"
+    },
+    {
+      "filename": "/workspace/selectedMM/Long_Coup_dt6.mtx ",
+      "normalbinding": "15.27000",
+      "multibinding": "15.27000",
+      "strictlb": "18.50000"
+    },
+    {
+      "filename": "/workspace/selectedMM/M10PI_n1_B.mtx ",
+      "normalbinding": "0.00611",
+      "multibinding": "0.00954",
+      "strictlb": "0.01312"
+    },
+    {
+      "filename": "/workspace/selectedMM/M10PI_n1_C.mtx ",
+      "normalbinding": "0.00621",
+      "multibinding": "0.00669",
+      "strictlb": "0.00998"
+    },
+    {
+      "filename": "/workspace/selectedMM/M10PI_n1_E.mtx ",
+      "normalbinding": "",
+      "multibinding": "0.00781",
+      "strictlb": "0.08525"
+    },
+    {
+      "filename": "/workspace/selectedMM/M10PI_n_B.mtx ",
+      "normalbinding": "0.00640",
+      "multibinding": "0.01197",
+      "strictlb": "0.01037"
+    },
+    {
+      "filename": "/workspace/selectedMM/M20PI_n.mtx ",
+      "normalbinding": "0.01370",
+      "multibinding": "0.01168",
+      "strictlb": "0.07597"
+    },
+    {
+      "filename": "/workspace/selectedMM/M20PI_n1_C.mtx ",
+      "normalbinding": "0.00570",
+      "multibinding": "0.00662",
+      "strictlb": "0.00998"
+    },
+    {
+      "filename": "/workspace/selectedMM/M20PI_n_C.mtx ",
+      "normalbinding": "0.00602",
+      "multibinding": "0.00643",
+      "strictlb": "0.01005"
+    },
+    {
+      "filename": "/workspace/selectedMM/M20PI_n_E.mtx ",
+      "normalbinding": "0.00893",
+      "multibinding": "0.00995",
+      "strictlb": "0.08602"
+    },
+    {
+      "filename": "/workspace/selectedMM/M40PI_n1.mtx ",
+      "normalbinding": "",
+      "multibinding": "0.01520",
+      "strictlb": "0.07667"
+    },
+    {
+      "filename": "/workspace/selectedMM/M40PI_n1_C.mtx ",
+      "normalbinding": "",
+      "multibinding": "0.00659",
+      "strictlb": "0.00970"
+    },
+    {
+      "filename": "/workspace/selectedMM/M40PI_n_E.mtx ",
+      "normalbinding": "0.01312",
+      "multibinding": "0.01405",
+      "strictlb": "0.08672"
+    },
+    {
+      "filename": "/workspace/selectedMM/M6.mtx ",
+      "normalbinding": "",
+      "multibinding": "27.35000",
+      "strictlb": "29.87000"
+    },
+    {
+      "filename": "/workspace/selectedMM/M80PI_n.mtx ",
+      "normalbinding": "0.02586",
+      "multibinding": "0.02496",
+      "strictlb": "0.07661"
+    },
+    {
+      "filename": "/workspace/selectedMM/M80PI_n1_C.mtx ",
+      "normalbinding": "0.00589",
+      "multibinding": "0.00666",
+      "strictlb": "0.00995"
+    },
+    {
+      "filename": "/workspace/selectedMM/M80PI_n1_E.mtx ",
+      "normalbinding": "0.01910",
+      "multibinding": "0.01942",
+      "strictlb": "0.08666"
+    },
+    {
+      "filename": "/workspace/selectedMM/M80PI_n_B.mtx ",
+      "normalbinding": "0.01725",
+      "multibinding": "0.05053",
+      "strictlb": "0.01011"
+    },
+    {
+      "filename": "/workspace/selectedMM/M80PI_n_C.mtx ",
+      "normalbinding": "0.00592",
+      "multibinding": "0.00650",
+      "strictlb": "0.01014"
+    },
+    {
+      "filename": "/workspace/selectedMM/ML_Laplace.mtx ",
+      "normalbinding": "3.99000",
+      "multibinding": "3.99000",
+      "strictlb": "4.72000"
+    },
+    {
+      "filename": "/workspace/selectedMM/Muu.mtx ",
+      "normalbinding": "0.07504",
+      "multibinding": "0.07216",
+      "strictlb": "0.09290"
+    },
+    {
+      "filename": "/workspace/selectedMM/N_biocarta.mtx ",
+      "normalbinding": "",
+      "multibinding": "0.01478",
+      "strictlb": "0.07776"
+    },
+    {
+      "filename": "/workspace/selectedMM/N_pid.mtx ",
+      "normalbinding": "0.03446",
+      "multibinding": "0.02250",
+      "strictlb": "0.08813"
+    },
+    {
+      "filename": "/workspace/selectedMM/NotreDame_www.mtx ",
+      "normalbinding": "1.24000",
+      "multibinding": "1.54000",
+      "strictlb": "1.10000"
+    },
+    {
+      "filename": "/workspace/selectedMM/NotreDame_yeast.mtx ",
+      "normalbinding": "0.01754",
+      "multibinding": "0.01597",
+      "strictlb": "0.07846"
+    },
+    {
+      "filename": "/workspace/selectedMM/ODLIS.mtx ",
+      "normalbinding": "0.02557",
+      "multibinding": "0.02576",
+      "strictlb": "0.07443"
+    },
+    {
+      "filename": "/workspace/selectedMM/Oregon-1_G_2.mtx ",
+      "normalbinding": "0.37616",
+      "multibinding": "0.07773",
+      "strictlb": "0.15142"
+    },
+    {
+      "filename": "/workspace/selectedMM/Oregon-1_G_3.mtx ",
+      "normalbinding": "0.39725",
+      "multibinding": "0.07850",
+      "strictlb": "0.14954"
+    },
+    {
+      "filename": "/workspace/selectedMM/Oregon-1_G_4.mtx ",
+      "normalbinding": "0.39696",
+      "multibinding": "0.08112",
+      "strictlb": "0.14902"
+    },
+    {
+      "filename": "/workspace/selectedMM/Oregon-1_G_5.mtx ",
+      "normalbinding": "0.37571",
+      "multibinding": "0.07914",
+      "strictlb": "0.15110"
+    },
+    {
+      "filename": "/workspace/selectedMM/Oregon-1_G_6.mtx ",
+      "normalbinding": "0.39200",
+      "multibinding": "0.07965",
+      "strictlb": "0.15117"
+    },
+    {
+      "filename": "/workspace/selectedMM/Oregon-2.mtx ",
+      "normalbinding": "0.39930",
+      "multibinding": "0.09203",
+      "strictlb": "0.15174"
+    },
+    {
+      "filename": "/workspace/selectedMM/Oregon-2_G_3.mtx ",
+      "normalbinding": "0.38432",
+      "multibinding": "0.09238",
+      "strictlb": "0.12755"
+    },
+    {
+      "filename": "/workspace/selectedMM/Oregon-2_G_6.mtx ",
+      "normalbinding": "0.38765",
+      "multibinding": "0.09162",
+      "strictlb": "0.14954"
+    },
+    {
+      "filename": "/workspace/selectedMM/PFlow_742.mtx ",
+      "normalbinding": "7.69000",
+      "multibinding": "7.69000",
+      "strictlb": "8.42000"
+    },
+    {
+      "filename": "/workspace/selectedMM/PR02R.mtx ",
+      "normalbinding": "",
+      "multibinding": "1.64000",
+      "strictlb": "1.92000"
+    },
+    {
+      "filename": "/workspace/selectedMM/Pd.mtx ",
+      "normalbinding": "0.04003",
+      "multibinding": "0.04208",
+      "strictlb": "0.08880"
+    },
+    {
+      "filename": "/workspace/selectedMM/Pd_rhs.mtx ",
+      "normalbinding": "0.03174",
+      "multibinding": "0.03750",
+      "strictlb": "0.10822"
+    },
+    {
+      "filename": "/workspace/selectedMM/Pres_Poisson.mtx ",
+      "normalbinding": "0.15101",
+      "multibinding": "0.14848",
+      "strictlb": "0.16051"
+    },
+    {
+      "filename": "/workspace/selectedMM/QRpivot_b.mtx ",
+      "normalbinding": "0.00816",
+      "multibinding": "0.00867",
+      "strictlb": "0.07222"
+    },
+    {
+      "filename": "/workspace/selectedMM/RFdevice.mtx ",
+      "normalbinding": "0.55206",
+      "multibinding": "0.42554",
+      "strictlb": "0.44144"
+    },
+    {
+      "filename": "/workspace/selectedMM/Ragusa18.mtx ",
+      "normalbinding": "0.00746",
+      "multibinding": "0.00752",
+      "strictlb": "0.01459"
+    },
+    {
+      "filename": "/workspace/selectedMM/Reuters911_Day_03.mtx ",
+      "normalbinding": "0.07066",
+      "multibinding": "0.06090",
+      "strictlb": "0.11562"
+    },
+    {
+      "filename": "/workspace/selectedMM/Reuters911_Day_08.mtx ",
+      "normalbinding": "0.05251",
+      "multibinding": "0.05994",
+      "strictlb": "0.10208"
+    },
+    {
+      "filename": "/workspace/selectedMM/Reuters911_Day_11.mtx ",
+      "normalbinding": "0.06557",
+      "multibinding": "0.06006",
+      "strictlb": "0.09872"
+    },
+    {
+      "filename": "/workspace/selectedMM/Reuters911_Day_13.mtx ",
+      "normalbinding": "0.04547",
+      "multibinding": "0.05843",
+      "strictlb": "0.09712"
+    },
+    {
+      "filename": "/workspace/selectedMM/Reuters911_Day_14.mtx ",
+      "normalbinding": "0.05002",
+      "multibinding": "0.05555",
+      "strictlb": "0.10314"
+    },
+    {
+      "filename": "/workspace/selectedMM/Reuters911_Day_15.mtx ",
+      "normalbinding": "0.06835",
+      "multibinding": "0.05824",
+      "strictlb": "0.10525"
+    },
+    {
+      "filename": "/workspace/selectedMM/Reuters911_Day_16.mtx ",
+      "normalbinding": "0.05789",
+      "multibinding": "0.05811",
+      "strictlb": "0.09894"
+    },
+    {
+      "filename": "/workspace/selectedMM/Reuters911_Day_19.mtx ",
+      "normalbinding": "0.04189",
+      "multibinding": "0.05645",
+      "strictlb": "0.09843"
+    },
+    {
+      "filename": "/workspace/selectedMM/Reuters911_Day_23.mtx ",
+      "normalbinding": "0.04707",
+      "multibinding": "0.05622",
+      "strictlb": "0.10643"
+    },
+    {
+      "filename": "/workspace/selectedMM/Reuters911_Day_25.mtx ",
+      "normalbinding": "0.05581",
+      "multibinding": "0.05213",
+      "strictlb": "0.10154"
+    },
+    {
+      "filename": "/workspace/selectedMM/Reuters911_Day_27.mtx ",
+      "normalbinding": "0.05491",
+      "multibinding": "0.05843",
+      "strictlb": "0.09914"
+    },
+    {
+      "filename": "/workspace/selectedMM/Reuters911_Day_29.mtx ",
+      "normalbinding": "0.04720",
+      "multibinding": "0.05648",
+      "strictlb": "0.10518"
+    },
+    {
+      "filename": "/workspace/selectedMM/Reuters911_Day_31.mtx ",
+      "normalbinding": "0.05325",
+      "multibinding": "0.05261",
+      "strictlb": "0.09910"
+    },
+    {
+      "filename": "/workspace/selectedMM/Reuters911_Day_32.mtx ",
+      "normalbinding": "0.04659",
+      "multibinding": "0.05827",
+      "strictlb": "0.10010"
+    },
+    {
+      "filename": "/workspace/selectedMM/Reuters911_Day_36.mtx ",
+      "normalbinding": "0.05152",
+      "multibinding": "0.05306",
+      "strictlb": "0.09981"
+    },
+    {
+      "filename": "/workspace/selectedMM/Reuters911_Day_37.mtx ",
+      "normalbinding": "0.04915",
+      "multibinding": "0.06150",
+      "strictlb": "0.10198"
+    },
+    {
+      "filename": "/workspace/selectedMM/Reuters911_Day_38.mtx ",
+      "normalbinding": "0.05133",
+      "multibinding": "0.05469",
+      "strictlb": "0.10387"
+    },
+    {
+      "filename": "/workspace/selectedMM/Reuters911_Day_40.mtx ",
+      "normalbinding": "0.05018",
+      "multibinding": "0.05683",
+      "strictlb": "0.10144"
+    },
+    {
+      "filename": "/workspace/selectedMM/Reuters911_Day_44.mtx ",
+      "normalbinding": "0.04902",
+      "multibinding": "0.05549",
+      "strictlb": "0.10176"
+    },
+    {
+      "filename": "/workspace/selectedMM/Reuters911_Day_47.mtx ",
+      "normalbinding": "0.04819",
+      "multibinding": "0.05754",
+      "strictlb": "0.09421"
+    },
+    {
+      "filename": "/workspace/selectedMM/Reuters911_Day_48.mtx ",
+      "normalbinding": "0.04941",
+      "multibinding": "0.05891",
+      "strictlb": "0.10509"
+    },
+    {
+      "filename": "/workspace/selectedMM/Reuters911_Day_49.mtx ",
+      "normalbinding": "0.05194",
+      "multibinding": "0.05882",
+      "strictlb": "0.10208"
+    },
+    {
+      "filename": "/workspace/selectedMM/Reuters911_Day_51.mtx ",
+      "normalbinding": "0.04870",
+      "multibinding": "0.05587",
+      "strictlb": "0.10259"
+    },
+    {
+      "filename": "/workspace/selectedMM/Reuters911_Day_55.mtx ",
+      "normalbinding": "0.04947",
+      "multibinding": "0.05155",
+      "strictlb": "0.10163"
+    },
+    {
+      "filename": "/workspace/selectedMM/Reuters911_Day_59.mtx ",
+      "normalbinding": "0.04902",
+      "multibinding": "0.05594",
+      "strictlb": "0.10237"
+    },
+    {
+      "filename": "/workspace/selectedMM/Reuters911_Day_60.mtx ",
+      "normalbinding": "0.04512",
+      "multibinding": "0.05581",
+      "strictlb": "0.10419"
+    },
+    {
+      "filename": "/workspace/selectedMM/Reuters911_Day_61.mtx ",
+      "normalbinding": "0.04627",
+      "multibinding": "0.05171",
+      "strictlb": "0.10426"
+    },
+    {
+      "filename": "/workspace/selectedMM/Reuters911_Day_62.mtx ",
+      "normalbinding": "0.04374",
+      "multibinding": "0.05690",
+      "strictlb": "0.09910"
+    },
+    {
+      "filename": "/workspace/selectedMM/Reuters911_Day_63.mtx ",
+      "normalbinding": "0.04467",
+      "multibinding": "0.05750",
+      "strictlb": "0.09882"
+    },
+    {
+      "filename": "/workspace/selectedMM/Roget.mtx ",
+      "normalbinding": "0.01930",
+      "multibinding": "0.01917",
+      "strictlb": "0.07222"
+    },
+    {
+      "filename": "/workspace/selectedMM/S10PI_n.mtx ",
+      "normalbinding": "0.01197",
+      "multibinding": "0.00966",
+      "strictlb": "0.07584"
+    },
+    {
+      "filename": "/workspace/selectedMM/S10PI_n1.mtx ",
+      "normalbinding": "",
+      "multibinding": "0.00966",
+      "strictlb": "0.07539"
+    },
+    {
+      "filename": "/workspace/selectedMM/S10PI_n1_C.mtx ",
+      "normalbinding": "0.00586",
+      "multibinding": "0.00634",
+      "strictlb": "0.01040"
+    },
+    {
+      "filename": "/workspace/selectedMM/S10PI_n_C.mtx ",
+      "normalbinding": "0.00592",
+      "multibinding": "0.00640",
+      "strictlb": "0.01018"
+    },
+    {
+      "filename": "/workspace/selectedMM/S20PI_n1_C.mtx ",
+      "normalbinding": "0.00576",
+      "multibinding": "0.00640",
+      "strictlb": "0.01005"
+    },
+    {
+      "filename": "/workspace/selectedMM/S20PI_n1_E.mtx ",
+      "normalbinding": "0.00909",
+      "multibinding": "0.00982",
+      "strictlb": "0.08515"
+    },
+    {
+      "filename": "/workspace/selectedMM/S20PI_n_B.mtx ",
+      "normalbinding": "0.00829",
+      "multibinding": "0.01738",
+      "strictlb": "0.01021"
+    },
+    {
+      "filename": "/workspace/selectedMM/S20PI_n_C.mtx ",
+      "normalbinding": "0.00611",
+      "multibinding": "0.00650",
+      "strictlb": "0.01011"
+    },
+    {
+      "filename": "/workspace/selectedMM/S40PI_n1.mtx ",
+      "normalbinding": "",
+      "multibinding": "0.01587",
+      "strictlb": "0.07808"
+    },
+    {
+      "filename": "/workspace/selectedMM/S40PI_n1_E.mtx ",
+      "normalbinding": "",
+      "multibinding": "0.01488",
+      "strictlb": "0.08515"
+    },
+    {
+      "filename": "/workspace/selectedMM/S40PI_n_C.mtx ",
+      "normalbinding": "0.00589",
+      "multibinding": "0.00630",
+      "strictlb": "0.00970"
+    },
+    {
+      "filename": "/workspace/selectedMM/S80PI_n1.mtx ",
+      "normalbinding": "0.02272",
+      "multibinding": "0.02368",
+      "strictlb": "0.07706"
+    },
+    {
+      "filename": "/workspace/selectedMM/S80PI_n1_C.mtx ",
+      "normalbinding": "0.00611",
+      "multibinding": "0.00634",
+      "strictlb": "0.00995"
+    },
+    {
+      "filename": "/workspace/selectedMM/S80PI_n1_E.mtx ",
+      "normalbinding": "0.01952",
+      "multibinding": "0.01978",
+      "strictlb": "0.08586"
+    },
+    {
+      "filename": "/workspace/selectedMM/S80PI_n_C.mtx ",
+      "normalbinding": "0.00586",
+      "multibinding": "0.00618",
+      "strictlb": "0.00973"
+    },
+    {
+      "filename": "/workspace/selectedMM/S80PI_n_E.mtx ",
+      "normalbinding": "0.01955",
+      "multibinding": "0.01930",
+      "strictlb": "0.08704"
+    },
+    {
+      "filename": "/workspace/selectedMM/Sandi_sandi.mtx ",
+      "normalbinding": "0.01043",
+      "multibinding": "0.01053",
+      "strictlb": "0.07206"
+    },
+    {
+      "filename": "/workspace/selectedMM/SciMet.mtx ",
+      "normalbinding": "",
+      "multibinding": "0.02509",
+      "strictlb": "0.08534"
+    },
+    {
+      "filename": "/workspace/selectedMM/Serena.mtx ",
+      "normalbinding": "15.03000",
+      "multibinding": "15.03000",
+      "strictlb": "19.31000"
+    },
+    {
+      "filename": "/workspace/selectedMM/Si87H76.mtx ",
+      "normalbinding": "5.52000",
+      "multibinding": "5.51000",
+      "strictlb": "5.56000"
+    },
+    {
+      "filename": "/workspace/selectedMM/Stanford_Berkeley.mtx ",
+      "normalbinding": "14.47000",
+      "multibinding": "6.33000",
+      "strictlb": "5.64000"
+    },
+    {
+      "filename": "/workspace/selectedMM/StocF-1465.mtx ",
+      "normalbinding": "11.60000",
+      "multibinding": "11.63000",
+      "strictlb": "13.87000"
+    },
+    {
+      "filename": "/workspace/selectedMM/TEM152078.mtx ",
+      "normalbinding": "",
+      "multibinding": "1.56000",
+      "strictlb": "1.69000"
+    },
+    {
+      "filename": "/workspace/selectedMM/TEM181302.mtx ",
+      "normalbinding": "1.88000",
+      "multibinding": "1.88000",
+      "strictlb": "2.03000"
+    },
+    {
+      "filename": "/workspace/selectedMM/TEM181302_M.mtx ",
+      "normalbinding": "1.88000",
+      "multibinding": "1.89000",
+      "strictlb": "2.03000"
+    },
+    {
+      "filename": "/workspace/selectedMM/TEM27623_M.mtx ",
+      "normalbinding": "0.21331",
+      "multibinding": "0.21549",
+      "strictlb": "0.26886"
+    },
+    {
+      "filename": "/workspace/selectedMM/TF11.mtx ",
+      "normalbinding": "",
+      "multibinding": "0.01382",
+      "strictlb": "0.06982"
+    },
+    {
+      "filename": "/workspace/selectedMM/TF14.mtx ",
+      "normalbinding": "0.04419",
+      "multibinding": "0.04381",
+      "strictlb": "0.07418"
+    },
+    {
+      "filename": "/workspace/selectedMM/TF18.mtx ",
+      "normalbinding": "1.37000",
+      "multibinding": "1.36000",
+      "strictlb": "1.39000"
+    },
+    {
+      "filename": "/workspace/selectedMM/TF19.mtx ",
+      "normalbinding": "3.70000",
+      "multibinding": "3.69000",
+      "strictlb": "3.83000"
+    },
+    {
+      "filename": "/workspace/selectedMM/TS.mtx ",
+      "normalbinding": "0.01866",
+      "multibinding": "0.01901",
+      "strictlb": "0.07360"
+    },
+    {
+      "filename": "/workspace/selectedMM/TSC_OPF_300.mtx ",
+      "normalbinding": "",
+      "multibinding": "0.11158",
+      "strictlb": "0.12522"
+    },
+    {
+      "filename": "/workspace/selectedMM/TSOPF_FS_b162_c1.mtx ",
+      "normalbinding": "",
+      "multibinding": "0.11213",
+      "strictlb": "0.12598"
+    },
+    {
+      "filename": "/workspace/selectedMM/TSOPF_FS_b162_c3.mtx ",
+      "normalbinding": "",
+      "multibinding": "0.28896",
+      "strictlb": "0.32138"
+    },
+    {
+      "filename": "/workspace/selectedMM/TSOPF_FS_b162_c3_b.mtx ",
+      "normalbinding": "0.21552",
+      "multibinding": "0.21971",
+      "strictlb": "0.14096"
+    },
+    {
+      "filename": "/workspace/selectedMM/TSOPF_FS_b162_c4.mtx ",
+      "normalbinding": "3.10000",
+      "multibinding": "0.37446",
+      "strictlb": "0.44419"
+    },
+    {
+      "filename": "/workspace/selectedMM/TSOPF_FS_b300_b.mtx ",
+      "normalbinding": "0.20336",
+      "multibinding": "0.20624",
+      "strictlb": "0.13718"
+    },
+    {
+      "filename": "/workspace/selectedMM/TSOPF_FS_b300_c1.mtx ",
+      "normalbinding": "2.33000",
+      "multibinding": "0.46154",
+      "strictlb": "0.46550"
+    },
+    {
+      "filename": "/workspace/selectedMM/TSOPF_FS_b300_c2_b.mtx ",
+      "normalbinding": "0.42550",
+      "multibinding": "0.42960",
+      "strictlb": "0.18298"
+    },
+    {
+      "filename": "/workspace/selectedMM/TSOPF_FS_b39_c19.mtx ",
+      "normalbinding": "4.94000",
+      "multibinding": "0.62528",
+      "strictlb": "0.59382"
+    },
+    {
+      "filename": "/workspace/selectedMM/TSOPF_FS_b39_c19_b.mtx ",
+      "normalbinding": "0.57949",
+      "multibinding": "0.58390",
+      "strictlb": "0.23376"
+    },
+    {
+      "filename": "/workspace/selectedMM/TSOPF_FS_b39_c30.mtx ",
+      "normalbinding": "8.07000",
+      "multibinding": "0.99702",
+      "strictlb": "0.96720"
+    },
+    {
+      "filename": "/workspace/selectedMM/TSOPF_FS_b39_c30_b.mtx ",
+      "normalbinding": "0.93181",
+      "multibinding": "0.93475",
+      "strictlb": "0.37462"
+    },
+    {
+      "filename": "/workspace/selectedMM/TSOPF_FS_b39_c7.mtx ",
+      "normalbinding": "1.81000",
+      "multibinding": "0.22240",
+      "strictlb": "0.25360"
+    },
+    {
+      "filename": "/workspace/selectedMM/TSOPF_FS_b39_c7_b.mtx ",
+      "normalbinding": "0.19571",
+      "multibinding": "0.19936",
+      "strictlb": "0.13286"
+    },
+    {
+      "filename": "/workspace/selectedMM/TSOPF_RS_b162_c1.mtx ",
+      "normalbinding": "0.05133",
+      "multibinding": "0.05098",
+      "strictlb": "0.08413"
+    },
+    {
+      "filename": "/workspace/selectedMM/TSOPF_RS_b162_c4_b.mtx ",
+      "normalbinding": "0.04694",
+      "multibinding": "0.12048",
+      "strictlb": "0.08842"
+    },
+    {
+      "filename": "/workspace/selectedMM/TSOPF_RS_b2052_c1.mtx ",
+      "normalbinding": "0.56822",
+      "multibinding": "0.54045",
+      "strictlb": "0.54397"
+    },
+    {
+      "filename": "/workspace/selectedMM/TSOPF_RS_b300_c2_b.mtx ",
+      "normalbinding": "0.06282",
+      "multibinding": "0.06410",
+      "strictlb": "0.09328"
+    },
+    {
+      "filename": "/workspace/selectedMM/TSOPF_RS_b39_c19_b.mtx ",
+      "normalbinding": "0.15443",
+      "multibinding": "0.17024",
+      "strictlb": "0.09677"
+    },
+    {
+      "filename": "/workspace/selectedMM/TSOPF_RS_b39_c30.mtx ",
+      "normalbinding": "0.39702",
+      "multibinding": "0.40349",
+      "strictlb": "0.39389"
+    },
+    {
+      "filename": "/workspace/selectedMM/TSOPF_RS_b39_c7_b.mtx ",
+      "normalbinding": "0.04874",
+      "multibinding": "0.05149",
+      "strictlb": "0.08515"
+    },
+    {
+      "filename": "/workspace/selectedMM/Tina_AskCal.mtx ",
+      "normalbinding": "0.00640",
+      "multibinding": "0.00704",
+      "strictlb": "0.00944"
+    },
+    {
+      "filename": "/workspace/selectedMM/Tina_DisCog.mtx ",
+      "normalbinding": "0.00634",
+      "multibinding": "0.00710",
+      "strictlb": "0.00896"
+    },
+    {
+      "filename": "/workspace/selectedMM/Trec5.mtx ",
+      "normalbinding": "0.00618",
+      "multibinding": "0.00669",
+      "strictlb": "0.00973"
+    },
+    {
+      "filename": "/workspace/selectedMM/Trec8.mtx ",
+      "normalbinding": "0.01370",
+      "multibinding": "0.01363",
+      "strictlb": "0.02480"
+    },
+    {
+      "filename": "/workspace/selectedMM/Trec9.mtx ",
+      "normalbinding": "0.02458",
+      "multibinding": "0.02470",
+      "strictlb": "0.06166"
+    },
+    {
+      "filename": "/workspace/selectedMM/Trefethen_150.mtx ",
+      "normalbinding": "0.01757",
+      "multibinding": "0.01776",
+      "strictlb": "0.06781"
+    },
+    {
+      "filename": "/workspace/selectedMM/Trefethen_20.mtx ",
+      "normalbinding": "0.00733",
+      "multibinding": "0.00749",
+      "strictlb": "0.01360"
+    },
+    {
+      "filename": "/workspace/selectedMM/Trefethen_2000.mtx ",
+      "normalbinding": "",
+      "multibinding": "0.03933",
+      "strictlb": "0.07110"
+    },
+    {
+      "filename": "/workspace/selectedMM/Trefethen_20000.mtx ",
+      "normalbinding": "0.37002",
+      "multibinding": "0.36874",
+      "strictlb": "0.39661"
+    },
+    {
+      "filename": "/workspace/selectedMM/Trefethen_200b.mtx ",
+      "normalbinding": "0.01824",
+      "multibinding": "0.01837",
+      "strictlb": "0.07181"
+    },
+    {
+      "filename": "/workspace/selectedMM/Trefethen_20b.mtx ",
+      "normalbinding": "0.00726",
+      "multibinding": "0.00749",
+      "strictlb": "0.01389"
+    },
+    {
+      "filename": "/workspace/selectedMM/Trefethen_300.mtx ",
+      "normalbinding": "",
+      "multibinding": "0.02138",
+      "strictlb": "0.06829"
+    },
+    {
+      "filename": "/workspace/selectedMM/Trefethen_500.mtx ",
+      "normalbinding": "0.02374",
+      "multibinding": "0.02406",
+      "strictlb": "0.06854"
+    },
+    {
+      "filename": "/workspace/selectedMM/USpowerGrid.mtx ",
+      "normalbinding": "",
+      "multibinding": "0.02896",
+      "strictlb": "0.08035"
+    },
+    {
+      "filename": "/workspace/selectedMM/Vehicle_10NN.mtx ",
+      "normalbinding": "",
+      "multibinding": "0.03011",
+      "strictlb": "0.06947"
+    },
+    {
+      "filename": "/workspace/selectedMM/Zd_Jac6_db.mtx ",
+      "normalbinding": "0.23462",
+      "multibinding": "0.22954",
+      "strictlb": "0.29795"
+    },
+    {
+      "filename": "/workspace/selectedMM/Zhao1.mtx ",
+      "normalbinding": "0.22192",
+      "multibinding": "0.22506",
+      "strictlb": "0.29098"
+    },
+    {
+      "filename": "/workspace/selectedMM/aa3.mtx ",
+      "normalbinding": "0.12742",
+      "multibinding": "0.12835",
+      "strictlb": "0.07491"
+    },
+    {
+      "filename": "/workspace/selectedMM/aa4.mtx ",
+      "normalbinding": "0.19622",
+      "multibinding": "0.19664",
+      "strictlb": "0.07341"
+    },
+    {
+      "filename": "/workspace/selectedMM/abtaha1.mtx ",
+      "normalbinding": "0.06118",
+      "multibinding": "0.06157",
+      "strictlb": "0.11107"
+    },
+    {
+      "filename": "/workspace/selectedMM/abtaha2.mtx ",
+      "normalbinding": "",
+      "multibinding": "0.20368",
+      "strictlb": "0.17514"
+    },
+    {
+      "filename": "/workspace/selectedMM/adder_dcop_01.mtx ",
+      "normalbinding": "0.15504",
+      "multibinding": "0.02605",
+      "strictlb": "0.07318"
+    },
+    {
+      "filename": "/workspace/selectedMM/adder_dcop_04.mtx ",
+      "normalbinding": "0.16029",
+      "multibinding": "0.01843",
+      "strictlb": "0.07315"
+    },
+    {
+      "filename": "/workspace/selectedMM/adder_dcop_06.mtx ",
+      "normalbinding": "0.15514",
+      "multibinding": "0.02570",
+      "strictlb": "0.07309"
+    },
+    {
+      "filename": "/workspace/selectedMM/adder_dcop_10.mtx ",
+      "normalbinding": "0.15446",
+      "multibinding": "0.02467",
+      "strictlb": "0.07299"
+    },
+    {
+      "filename": "/workspace/selectedMM/adder_dcop_11.mtx ",
+      "normalbinding": "0.16157",
+      "multibinding": "0.02531",
+      "strictlb": "0.07379"
+    },
+    {
+      "filename": "/workspace/selectedMM/adder_dcop_17.mtx ",
+      "normalbinding": "0.15466",
+      "multibinding": "0.02557",
+      "strictlb": "0.07366"
+    },
+    {
+      "filename": "/workspace/selectedMM/adder_dcop_21.mtx ",
+      "normalbinding": "0.15539",
+      "multibinding": "0.02550",
+      "strictlb": "0.07318"
+    },
+    {
+      "filename": "/workspace/selectedMM/adder_dcop_22.mtx ",
+      "normalbinding": "0.15501",
+      "multibinding": "0.02547",
+      "strictlb": "0.07405"
+    },
+    {
+      "filename": "/workspace/selectedMM/adder_dcop_23.mtx ",
+      "normalbinding": "0.15517",
+      "multibinding": "0.02547",
+      "strictlb": "0.07306"
+    },
+    {
+      "filename": "/workspace/selectedMM/adder_dcop_26.mtx ",
+      "normalbinding": "0.15517",
+      "multibinding": "0.02592",
+      "strictlb": "0.07370"
+    },
+    {
+      "filename": "/workspace/selectedMM/adder_dcop_28.mtx ",
+      "normalbinding": "0.15501",
+      "multibinding": "0.02554",
+      "strictlb": "0.07325"
+    },
+    {
+      "filename": "/workspace/selectedMM/adder_dcop_29.mtx ",
+      "normalbinding": "0.15462",
+      "multibinding": "0.02570",
+      "strictlb": "0.07318"
+    },
+    {
+      "filename": "/workspace/selectedMM/adder_dcop_30.mtx ",
+      "normalbinding": "0.15475",
+      "multibinding": "0.02621",
+      "strictlb": "0.07293"
+    },
+    {
+      "filename": "/workspace/selectedMM/adder_dcop_33.mtx ",
+      "normalbinding": "0.15507",
+      "multibinding": "0.02531",
+      "strictlb": "0.07299"
+    },
+    {
+      "filename": "/workspace/selectedMM/adder_dcop_35.mtx ",
+      "normalbinding": "0.15478",
+      "multibinding": "0.02563",
+      "strictlb": "0.07270"
+    },
+    {
+      "filename": "/workspace/selectedMM/adder_dcop_37.mtx ",
+      "normalbinding": "0.15491",
+      "multibinding": "0.02547",
+      "strictlb": "0.07280"
+    },
+    {
+      "filename": "/workspace/selectedMM/adder_dcop_40.mtx ",
+      "normalbinding": "0.15466",
+      "multibinding": "0.02586",
+      "strictlb": "0.07328"
+    },
+    {
+      "filename": "/workspace/selectedMM/adder_dcop_44.mtx ",
+      "normalbinding": "0.15542",
+      "multibinding": "0.02589",
+      "strictlb": "0.07386"
+    },
+    {
+      "filename": "/workspace/selectedMM/adder_dcop_46.mtx ",
+      "normalbinding": "0.15530",
+      "multibinding": "0.02576",
+      "strictlb": "0.07354"
+    },
+    {
+      "filename": "/workspace/selectedMM/adder_dcop_49.mtx ",
+      "normalbinding": "0.15520",
+      "multibinding": "0.02573",
+      "strictlb": "0.07373"
+    },
+    {
+      "filename": "/workspace/selectedMM/adder_dcop_54.mtx ",
+      "normalbinding": "0.15472",
+      "multibinding": "0.02554",
+      "strictlb": "0.07315"
+    },
+    {
+      "filename": "/workspace/selectedMM/adder_dcop_56.mtx ",
+      "normalbinding": "0.15488",
+      "multibinding": "0.02560",
+      "strictlb": "0.07322"
+    },
+    {
+      "filename": "/workspace/selectedMM/adder_dcop_57.mtx ",
+      "normalbinding": "0.15456",
+      "multibinding": "0.02589",
+      "strictlb": "0.07309"
+    },
+    {
+      "filename": "/workspace/selectedMM/adder_dcop_60.mtx ",
+      "normalbinding": "0.15542",
+      "multibinding": "0.02611",
+      "strictlb": "0.07363"
+    },
+    {
+      "filename": "/workspace/selectedMM/adder_dcop_64.mtx ",
+      "normalbinding": "0.15482",
+      "multibinding": "0.02605",
+      "strictlb": "0.07312"
+    },
+    {
+      "filename": "/workspace/selectedMM/adder_dcop_67.mtx ",
+      "normalbinding": "0.15466",
+      "multibinding": "0.02573",
+      "strictlb": "0.07405"
+    },
+    {
+      "filename": "/workspace/selectedMM/adder_trans_01.mtx ",
+      "normalbinding": "0.16608",
+      "multibinding": "0.02640",
+      "strictlb": "0.07293"
+    },
+    {
+      "filename": "/workspace/selectedMM/af23560.mtx ",
+      "normalbinding": "0.16054",
+      "multibinding": "0.16090",
+      "strictlb": "0.25043"
+    },
+    {
+      "filename": "/workspace/selectedMM/af_5_k101.mtx ",
+      "normalbinding": "2.90000",
+      "multibinding": "2.91000",
+      "strictlb": "4.72000"
+    },
+    {
+      "filename": "/workspace/selectedMM/af_shell10.mtx ",
+      "normalbinding": "8.64000",
+      "multibinding": "8.68000",
+      "strictlb": "13.92000"
+    },
+    {
+      "filename": "/workspace/selectedMM/af_shell2.mtx ",
+      "normalbinding": "2.91000",
+      "multibinding": "2.92000",
+      "strictlb": "4.34000"
+    },
+    {
+      "filename": "/workspace/selectedMM/af_shell3.mtx ",
+      "normalbinding": "2.91000",
+      "multibinding": "2.92000",
+      "strictlb": "4.33000"
+    },
+    {
+      "filename": "/workspace/selectedMM/af_shell4.mtx ",
+      "normalbinding": "2.91000",
+      "multibinding": "2.92000",
+      "strictlb": "4.34000"
+    },
+    {
+      "filename": "/workspace/selectedMM/af_shell5.mtx ",
+      "normalbinding": "2.91000",
+      "multibinding": "2.92000",
+      "strictlb": "4.35000"
+    },
+    {
+      "filename": "/workspace/selectedMM/af_shell7.mtx ",
+      "normalbinding": "2.91000",
+      "multibinding": "2.92000",
+      "strictlb": "4.34000"
+    },
+    {
+      "filename": "/workspace/selectedMM/af_shell8.mtx ",
+      "normalbinding": "2.91000",
+      "multibinding": "2.92000",
+      "strictlb": "4.34000"
+    },
+    {
+      "filename": "/workspace/selectedMM/af_shell9.mtx ",
+      "normalbinding": "2.91000",
+      "multibinding": "2.92000",
+      "strictlb": "4.34000"
+    },
+    {
+      "filename": "/workspace/selectedMM/aft02.mtx ",
+      "normalbinding": "0.05776",
+      "multibinding": "0.05747",
+      "strictlb": "0.09190"
+    },
+    {
+      "filename": "/workspace/selectedMM/air02.mtx ",
+      "normalbinding": "0.79978",
+      "multibinding": "0.80451",
+      "strictlb": "0.07139"
+    },
+    {
+      "filename": "/workspace/selectedMM/air03.mtx ",
+      "normalbinding": "1.10000",
+      "multibinding": "1.10000",
+      "strictlb": "0.07725"
+    },
+    {
+      "filename": "/workspace/selectedMM/air04.mtx ",
+      "normalbinding": "0.14467",
+      "multibinding": "0.11885",
+      "strictlb": "0.07526"
+    },
+    {
+      "filename": "/workspace/selectedMM/air05.mtx ",
+      "normalbinding": "0.19578",
+      "multibinding": "0.19638",
+      "strictlb": "0.07296"
+    },
+    {
+      "filename": "/workspace/selectedMM/aircraft.mtx ",
+      "normalbinding": "0.02922",
+      "multibinding": "0.02982",
+      "strictlb": "0.07706"
+    },
+    {
+      "filename": "/workspace/selectedMM/airfoil1_dual.mtx ",
+      "normalbinding": "0.04541",
+      "multibinding": "0.04778",
+      "strictlb": "0.08848"
+    },
+    {
+      "filename": "/workspace/selectedMM/airfoil_2d.mtx ",
+      "normalbinding": "0.17798",
+      "multibinding": "0.17824",
+      "strictlb": "0.21571"
+    },
+    {
+      "filename": "/workspace/selectedMM/al2010.mtx ",
+      "normalbinding": "1.54000",
+      "multibinding": "1.55000",
+      "strictlb": "1.79000"
+    },
+    {
+      "filename": "/workspace/selectedMM/amazon-2008.mtx ",
+      "normalbinding": "4.09000",
+      "multibinding": "4.12000",
+      "strictlb": "4.60000"
+    },
+    {
+      "filename": "/workspace/selectedMM/amazon0302.mtx ",
+      "normalbinding": "1.51000",
+      "multibinding": "1.52000",
+      "strictlb": "1.66000"
+    },
+    {
+      "filename": "/workspace/selectedMM/amazon0312.mtx ",
+      "normalbinding": "2.85000",
+      "multibinding": "2.86000",
+      "strictlb": "3.18000"
+    },
+    {
+      "filename": "/workspace/selectedMM/appu.mtx ",
+      "normalbinding": "",
+      "multibinding": "1.59000",
+      "strictlb": "1.50000"
+    },
+    {
+      "filename": "/workspace/selectedMM/ar2010.mtx ",
+      "normalbinding": "1.12000",
+      "multibinding": "1.13000",
+      "strictlb": "1.29000"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-22july06.mtx ",
+      "normalbinding": "0.80781",
+      "multibinding": "0.16976",
+      "strictlb": "0.19917"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_002.mtx ",
+      "normalbinding": "0.09382",
+      "multibinding": "0.04106",
+      "strictlb": "0.08938"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_003.mtx ",
+      "normalbinding": "0.09664",
+      "multibinding": "0.04054",
+      "strictlb": "0.09114"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_008.mtx ",
+      "normalbinding": "0.09206",
+      "multibinding": "0.04048",
+      "strictlb": "0.08966"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_009.mtx ",
+      "normalbinding": "0.09101",
+      "multibinding": "0.04067",
+      "strictlb": "0.08912"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_011.mtx ",
+      "normalbinding": "0.09194",
+      "multibinding": "0.03942",
+      "strictlb": "0.08835"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_014.mtx ",
+      "normalbinding": "0.09766",
+      "multibinding": "0.04000",
+      "strictlb": "0.08915"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_015.mtx ",
+      "normalbinding": "0.09331",
+      "multibinding": "0.03981",
+      "strictlb": "0.09200"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_017.mtx ",
+      "normalbinding": "0.09248",
+      "multibinding": "0.04019",
+      "strictlb": "0.08768"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_018.mtx ",
+      "normalbinding": "0.09555",
+      "multibinding": "0.04074",
+      "strictlb": "0.08912"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_019.mtx ",
+      "normalbinding": "0.09674",
+      "multibinding": "0.04010",
+      "strictlb": "0.08928"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_022.mtx ",
+      "normalbinding": "0.09517",
+      "multibinding": "0.04045",
+      "strictlb": "0.09318"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_026.mtx ",
+      "normalbinding": "0.09360",
+      "multibinding": "0.04035",
+      "strictlb": "0.09107"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_030.mtx ",
+      "normalbinding": "0.09808",
+      "multibinding": "0.04179",
+      "strictlb": "0.09184"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_031.mtx ",
+      "normalbinding": "0.09574",
+      "multibinding": "0.04134",
+      "strictlb": "0.08902"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_033.mtx ",
+      "normalbinding": "0.09562",
+      "multibinding": "0.03936",
+      "strictlb": "0.09040"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_034.mtx ",
+      "normalbinding": "0.09683",
+      "multibinding": "0.04035",
+      "strictlb": "0.09014"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_038.mtx ",
+      "normalbinding": "0.09853",
+      "multibinding": "0.04035",
+      "strictlb": "0.09475"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_039.mtx ",
+      "normalbinding": "0.09910",
+      "multibinding": "0.04042",
+      "strictlb": "0.09354"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_040.mtx ",
+      "normalbinding": "0.09536",
+      "multibinding": "0.03926",
+      "strictlb": "0.09107"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_042.mtx ",
+      "normalbinding": "0.09725",
+      "multibinding": "0.04035",
+      "strictlb": "0.09206"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_043.mtx ",
+      "normalbinding": "0.09824",
+      "multibinding": "0.04038",
+      "strictlb": "0.08998"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_044.mtx ",
+      "normalbinding": "0.10307",
+      "multibinding": "0.04115",
+      "strictlb": "0.09062"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_047.mtx ",
+      "normalbinding": "0.09741",
+      "multibinding": "0.04042",
+      "strictlb": "0.08992"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_051.mtx ",
+      "normalbinding": "0.09770",
+      "multibinding": "0.04125",
+      "strictlb": "0.08998"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_055.mtx ",
+      "normalbinding": "0.09936",
+      "multibinding": "0.04022",
+      "strictlb": "0.09190"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_059.mtx ",
+      "normalbinding": "0.10570",
+      "multibinding": "0.03942",
+      "strictlb": "0.09085"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_061.mtx ",
+      "normalbinding": "0.09962",
+      "multibinding": "0.03984",
+      "strictlb": "0.08819"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_062.mtx ",
+      "normalbinding": "0.10506",
+      "multibinding": "0.04134",
+      "strictlb": "0.08941"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_064.mtx ",
+      "normalbinding": "0.10410",
+      "multibinding": "0.04022",
+      "strictlb": "0.09149"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_067.mtx ",
+      "normalbinding": "0.09914",
+      "multibinding": "0.04006",
+      "strictlb": "0.08826"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_068.mtx ",
+      "normalbinding": "0.10586",
+      "multibinding": "0.04243",
+      "strictlb": "0.08931"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_072.mtx ",
+      "normalbinding": "0.10016",
+      "multibinding": "0.04035",
+      "strictlb": "0.08902"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_073.mtx ",
+      "normalbinding": "0.10582",
+      "multibinding": "0.04016",
+      "strictlb": "0.08678"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_074.mtx ",
+      "normalbinding": "0.10371",
+      "multibinding": "0.04045",
+      "strictlb": "0.08858"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_075.mtx ",
+      "normalbinding": "0.10442",
+      "multibinding": "0.04090",
+      "strictlb": "0.08643"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_076.mtx ",
+      "normalbinding": "0.10374",
+      "multibinding": "0.04077",
+      "strictlb": "0.08730"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_077.mtx ",
+      "normalbinding": "0.10045",
+      "multibinding": "0.04058",
+      "strictlb": "0.08688"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_079.mtx ",
+      "normalbinding": "0.10653",
+      "multibinding": "0.04026",
+      "strictlb": "0.08736"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_080.mtx ",
+      "normalbinding": "0.10064",
+      "multibinding": "0.03984",
+      "strictlb": "0.08755"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_087.mtx ",
+      "normalbinding": "0.10115",
+      "multibinding": "0.03984",
+      "strictlb": "0.08717"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_100.mtx ",
+      "normalbinding": "0.10234",
+      "multibinding": "0.04090",
+      "strictlb": "0.08909"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_101.mtx ",
+      "normalbinding": "0.10672",
+      "multibinding": "0.04150",
+      "strictlb": "0.08973"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_107.mtx ",
+      "normalbinding": "0.10614",
+      "multibinding": "0.04269",
+      "strictlb": "0.09021"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_109.mtx ",
+      "normalbinding": "0.10781",
+      "multibinding": "0.04131",
+      "strictlb": "0.09181"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_110.mtx ",
+      "normalbinding": "0.10416",
+      "multibinding": "0.04016",
+      "strictlb": "0.09088"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_112.mtx ",
+      "normalbinding": "0.10512",
+      "multibinding": "0.04163",
+      "strictlb": "0.09242"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_115.mtx ",
+      "normalbinding": "0.10624",
+      "multibinding": "0.04077",
+      "strictlb": "0.09040"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_117.mtx ",
+      "normalbinding": "0.10477",
+      "multibinding": "0.04070",
+      "strictlb": "0.09181"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_119.mtx ",
+      "normalbinding": "0.10854",
+      "multibinding": "0.04048",
+      "strictlb": "0.08790"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_120.mtx ",
+      "normalbinding": "0.10893",
+      "multibinding": "0.04058",
+      "strictlb": "0.08963"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_122.mtx ",
+      "normalbinding": "0.10608",
+      "multibinding": "0.04141",
+      "strictlb": "0.09027"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_123.mtx ",
+      "normalbinding": "0.10912",
+      "multibinding": "0.04128",
+      "strictlb": "0.09139"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_124.mtx ",
+      "normalbinding": "0.10781",
+      "multibinding": "0.04211",
+      "strictlb": "0.09232"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_135.mtx ",
+      "normalbinding": "0.10941",
+      "multibinding": "0.04109",
+      "strictlb": "0.08778"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_138.mtx ",
+      "normalbinding": "0.10941",
+      "multibinding": "0.04141",
+      "strictlb": "0.09229"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_142.mtx ",
+      "normalbinding": "0.11318",
+      "multibinding": "0.04163",
+      "strictlb": "0.09021"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_147.mtx ",
+      "normalbinding": "0.11904",
+      "multibinding": "0.04048",
+      "strictlb": "0.08861"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_148.mtx ",
+      "normalbinding": "0.10883",
+      "multibinding": "0.04166",
+      "strictlb": "0.08883"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_152.mtx ",
+      "normalbinding": "0.11283",
+      "multibinding": "0.04195",
+      "strictlb": "0.09210"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_156.mtx ",
+      "normalbinding": "0.11174",
+      "multibinding": "0.04128",
+      "strictlb": "0.09446"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_158.mtx ",
+      "normalbinding": "0.11136",
+      "multibinding": "0.04224",
+      "strictlb": "0.09270"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_159.mtx ",
+      "normalbinding": "0.11210",
+      "multibinding": "0.04179",
+      "strictlb": "0.09194"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_160.mtx ",
+      "normalbinding": "0.11398",
+      "multibinding": "0.04243",
+      "strictlb": "0.09030"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_165.mtx ",
+      "normalbinding": "0.11334",
+      "multibinding": "0.04045",
+      "strictlb": "0.08973"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_171.mtx ",
+      "normalbinding": "0.11216",
+      "multibinding": "0.04163",
+      "strictlb": "0.08848"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_175.mtx ",
+      "normalbinding": "0.11587",
+      "multibinding": "0.04186",
+      "strictlb": "0.08992"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_176.mtx ",
+      "normalbinding": "0.11549",
+      "multibinding": "0.04128",
+      "strictlb": "0.09094"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_181.mtx ",
+      "normalbinding": "0.11424",
+      "multibinding": "0.04208",
+      "strictlb": "0.09094"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_182.mtx ",
+      "normalbinding": "0.11187",
+      "multibinding": "0.04202",
+      "strictlb": "0.09030"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_183.mtx ",
+      "normalbinding": "0.11581",
+      "multibinding": "0.04186",
+      "strictlb": "0.09082"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_184.mtx ",
+      "normalbinding": "0.11587",
+      "multibinding": "0.04096",
+      "strictlb": "0.08810"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_187.mtx ",
+      "normalbinding": "0.11782",
+      "multibinding": "0.04083",
+      "strictlb": "0.08925"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_193.mtx ",
+      "normalbinding": "0.12483",
+      "multibinding": "0.04141",
+      "strictlb": "0.09437"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_194.mtx ",
+      "normalbinding": "0.12147",
+      "multibinding": "0.04182",
+      "strictlb": "0.09158"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_195.mtx ",
+      "normalbinding": "0.11517",
+      "multibinding": "0.04195",
+      "strictlb": "0.09261"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_199.mtx ",
+      "normalbinding": "0.11821",
+      "multibinding": "0.04144",
+      "strictlb": "0.09072"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_202.mtx ",
+      "normalbinding": "0.12093",
+      "multibinding": "0.04182",
+      "strictlb": "0.08944"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_203.mtx ",
+      "normalbinding": "0.12272",
+      "multibinding": "0.04125",
+      "strictlb": "0.08790"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_205.mtx ",
+      "normalbinding": "0.11930",
+      "multibinding": "0.04240",
+      "strictlb": "0.09075"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_207.mtx ",
+      "normalbinding": "0.12090",
+      "multibinding": "0.04211",
+      "strictlb": "0.09120"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_208.mtx ",
+      "normalbinding": "0.11779",
+      "multibinding": "0.04291",
+      "strictlb": "0.08893"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_214.mtx ",
+      "normalbinding": "0.12301",
+      "multibinding": "0.04253",
+      "strictlb": "0.08838"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_222.mtx ",
+      "normalbinding": "0.11958",
+      "multibinding": "0.04170",
+      "strictlb": "0.08787"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_226.mtx ",
+      "normalbinding": "0.11776",
+      "multibinding": "0.04285",
+      "strictlb": "0.09142"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_227.mtx ",
+      "normalbinding": "0.12074",
+      "multibinding": "0.04253",
+      "strictlb": "0.08739"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_232.mtx ",
+      "normalbinding": "0.12646",
+      "multibinding": "0.04246",
+      "strictlb": "0.08362"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_239.mtx ",
+      "normalbinding": "0.12941",
+      "multibinding": "0.04304",
+      "strictlb": "0.08451"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_240.mtx ",
+      "normalbinding": "0.12099",
+      "multibinding": "0.04432",
+      "strictlb": "0.08301"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_241.mtx ",
+      "normalbinding": "0.11776",
+      "multibinding": "0.04230",
+      "strictlb": "0.08464"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_248.mtx ",
+      "normalbinding": "0.12509",
+      "multibinding": "0.04230",
+      "strictlb": "0.08470"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_249.mtx ",
+      "normalbinding": "0.12272",
+      "multibinding": "0.04160",
+      "strictlb": "0.08410"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_251.mtx ",
+      "normalbinding": "0.12080",
+      "multibinding": "0.04294",
+      "strictlb": "0.08467"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_252.mtx ",
+      "normalbinding": "0.12397",
+      "multibinding": "0.04294",
+      "strictlb": "0.08365"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_254.mtx ",
+      "normalbinding": "0.12499",
+      "multibinding": "0.04138",
+      "strictlb": "0.08566"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_257.mtx ",
+      "normalbinding": "0.12246",
+      "multibinding": "0.04243",
+      "strictlb": "0.08339"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_258.mtx ",
+      "normalbinding": "0.12330",
+      "multibinding": "0.04256",
+      "strictlb": "0.08333"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_262.mtx ",
+      "normalbinding": "0.11936",
+      "multibinding": "0.04128",
+      "strictlb": "0.08986"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_263.mtx ",
+      "normalbinding": "0.12170",
+      "multibinding": "0.04218",
+      "strictlb": "0.08806"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_266.mtx ",
+      "normalbinding": "0.12262",
+      "multibinding": "0.04170",
+      "strictlb": "0.08784"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_268.mtx ",
+      "normalbinding": "0.12566",
+      "multibinding": "0.04157",
+      "strictlb": "0.08794"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_272.mtx ",
+      "normalbinding": "0.12602",
+      "multibinding": "0.04202",
+      "strictlb": "0.08787"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_278.mtx ",
+      "normalbinding": "0.13296",
+      "multibinding": "0.04269",
+      "strictlb": "0.09760"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_284.mtx ",
+      "normalbinding": "0.12592",
+      "multibinding": "0.04259",
+      "strictlb": "0.09482"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_285.mtx ",
+      "normalbinding": "0.12592",
+      "multibinding": "0.04346",
+      "strictlb": "0.09638"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_287.mtx ",
+      "normalbinding": "0.12291",
+      "multibinding": "0.04282",
+      "strictlb": "0.09507"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_291.mtx ",
+      "normalbinding": "0.12698",
+      "multibinding": "0.04211",
+      "strictlb": "0.09587"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_293.mtx ",
+      "normalbinding": "0.12669",
+      "multibinding": "0.04346",
+      "strictlb": "0.09581"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_295.mtx ",
+      "normalbinding": "0.12723",
+      "multibinding": "0.04445",
+      "strictlb": "0.09760"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_296.mtx ",
+      "normalbinding": "0.12509",
+      "multibinding": "0.04230",
+      "strictlb": "0.10099"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_298.mtx ",
+      "normalbinding": "0.12614",
+      "multibinding": "0.04323",
+      "strictlb": "0.09402"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_302.mtx ",
+      "normalbinding": "0.12515",
+      "multibinding": "0.04202",
+      "strictlb": "0.09274"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_303.mtx ",
+      "normalbinding": "0.12586",
+      "multibinding": "0.04234",
+      "strictlb": "0.09523"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_306.mtx ",
+      "normalbinding": "0.13146",
+      "multibinding": "0.04381",
+      "strictlb": "0.09434"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_307.mtx ",
+      "normalbinding": "0.12832",
+      "multibinding": "0.04298",
+      "strictlb": "0.09379"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_309.mtx ",
+      "normalbinding": "0.13075",
+      "multibinding": "0.04262",
+      "strictlb": "0.09456"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_310.mtx ",
+      "normalbinding": "0.12915",
+      "multibinding": "0.04230",
+      "strictlb": "0.09491"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_314.mtx ",
+      "normalbinding": "0.12848",
+      "multibinding": "0.04285",
+      "strictlb": "0.09405"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_318.mtx ",
+      "normalbinding": "0.12979",
+      "multibinding": "0.04304",
+      "strictlb": "0.09997"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_321.mtx ",
+      "normalbinding": "0.12730",
+      "multibinding": "0.04378",
+      "strictlb": "0.09619"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_322.mtx ",
+      "normalbinding": "0.12685",
+      "multibinding": "0.04365",
+      "strictlb": "0.09674"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_323.mtx ",
+      "normalbinding": "0.13008",
+      "multibinding": "0.04410",
+      "strictlb": "0.09616"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_328.mtx ",
+      "normalbinding": "0.12883",
+      "multibinding": "0.04342",
+      "strictlb": "0.09619"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_330.mtx ",
+      "normalbinding": "0.13194",
+      "multibinding": "0.04506",
+      "strictlb": "0.10016"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_333.mtx ",
+      "normalbinding": "0.12768",
+      "multibinding": "0.04230",
+      "strictlb": "0.09837"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_345.mtx ",
+      "normalbinding": "0.13146",
+      "multibinding": "0.04330",
+      "strictlb": "0.09370"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_349.mtx ",
+      "normalbinding": "0.12909",
+      "multibinding": "0.04330",
+      "strictlb": "0.10006"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_351.mtx ",
+      "normalbinding": "0.13270",
+      "multibinding": "0.04310",
+      "strictlb": "0.09686"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_356.mtx ",
+      "normalbinding": "0.13299",
+      "multibinding": "0.04413",
+      "strictlb": "0.09715"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_358.mtx ",
+      "normalbinding": "0.13686",
+      "multibinding": "0.04262",
+      "strictlb": "0.09667"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_360.mtx ",
+      "normalbinding": "0.13363",
+      "multibinding": "0.04378",
+      "strictlb": "0.09850"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_362.mtx ",
+      "normalbinding": "0.13344",
+      "multibinding": "0.04365",
+      "strictlb": "0.09734"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_365.mtx ",
+      "normalbinding": "0.13526",
+      "multibinding": "0.04320",
+      "strictlb": "0.09741"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_366.mtx ",
+      "normalbinding": "0.13837",
+      "multibinding": "0.04397",
+      "strictlb": "0.09766"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_371.mtx ",
+      "normalbinding": "0.13530",
+      "multibinding": "0.04429",
+      "strictlb": "0.09338"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_378.mtx ",
+      "normalbinding": "0.13555",
+      "multibinding": "0.04330",
+      "strictlb": "0.09306"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_381.mtx ",
+      "normalbinding": "0.13766",
+      "multibinding": "0.04435",
+      "strictlb": "0.08966"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_385.mtx ",
+      "normalbinding": "0.14314",
+      "multibinding": "0.04406",
+      "strictlb": "0.09379"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_391.mtx ",
+      "normalbinding": "0.13840",
+      "multibinding": "0.04371",
+      "strictlb": "0.09149"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_399.mtx ",
+      "normalbinding": "0.13958",
+      "multibinding": "0.04355",
+      "strictlb": "0.09344"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_400.mtx ",
+      "normalbinding": "0.14976",
+      "multibinding": "0.04362",
+      "strictlb": "0.09248"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_402.mtx ",
+      "normalbinding": "0.14435",
+      "multibinding": "0.04454",
+      "strictlb": "0.09139"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_403.mtx ",
+      "normalbinding": "0.14422",
+      "multibinding": "0.04486",
+      "strictlb": "0.09299"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_405.mtx ",
+      "normalbinding": "0.13898",
+      "multibinding": "0.04291",
+      "strictlb": "0.09104"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_406.mtx ",
+      "normalbinding": "0.03194",
+      "multibinding": "0.03715",
+      "strictlb": "0.10435"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_408.mtx ",
+      "normalbinding": "0.03302",
+      "multibinding": "0.03654",
+      "strictlb": "0.10432"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_412.mtx ",
+      "normalbinding": "0.03597",
+      "multibinding": "0.03702",
+      "strictlb": "0.10192"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_416.mtx ",
+      "normalbinding": "0.03498",
+      "multibinding": "0.03869",
+      "strictlb": "0.10371"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_419.mtx ",
+      "normalbinding": "0.03443",
+      "multibinding": "0.03734",
+      "strictlb": "0.10090"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_420.mtx ",
+      "normalbinding": "0.14362",
+      "multibinding": "0.04349",
+      "strictlb": "0.09952"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_421.mtx ",
+      "normalbinding": "0.14218",
+      "multibinding": "0.04406",
+      "strictlb": "0.09910"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_425.mtx ",
+      "normalbinding": "0.14429",
+      "multibinding": "0.04566",
+      "strictlb": "0.10262"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_426.mtx ",
+      "normalbinding": "0.14077",
+      "multibinding": "0.04611",
+      "strictlb": "0.09990"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_427.mtx ",
+      "normalbinding": "0.14534",
+      "multibinding": "0.04461",
+      "strictlb": "0.10397"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_429.mtx ",
+      "normalbinding": "0.14742",
+      "multibinding": "0.04659",
+      "strictlb": "0.10400"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_430.mtx ",
+      "normalbinding": "0.14666",
+      "multibinding": "0.04534",
+      "strictlb": "0.10486"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_431.mtx ",
+      "normalbinding": "0.14595",
+      "multibinding": "0.04557",
+      "strictlb": "0.10483"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_432.mtx ",
+      "normalbinding": "0.14304",
+      "multibinding": "0.04464",
+      "strictlb": "0.09712"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_435.mtx ",
+      "normalbinding": "0.14246",
+      "multibinding": "0.04474",
+      "strictlb": "0.09661"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_437.mtx ",
+      "normalbinding": "0.14179",
+      "multibinding": "0.04400",
+      "strictlb": "0.09824"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_438.mtx ",
+      "normalbinding": "0.14346",
+      "multibinding": "0.04515",
+      "strictlb": "0.09837"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_440.mtx ",
+      "normalbinding": "0.14950",
+      "multibinding": "0.04563",
+      "strictlb": "0.10086"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_444.mtx ",
+      "normalbinding": "0.14733",
+      "multibinding": "0.04576",
+      "strictlb": "0.10115"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_446.mtx ",
+      "normalbinding": "0.14630",
+      "multibinding": "0.04592",
+      "strictlb": "0.10106"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_447.mtx ",
+      "normalbinding": "0.16000",
+      "multibinding": "0.04445",
+      "strictlb": "0.10323"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_448.mtx ",
+      "normalbinding": "0.14723",
+      "multibinding": "0.04454",
+      "strictlb": "0.10896"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_457.mtx ",
+      "normalbinding": "0.14522",
+      "multibinding": "0.04432",
+      "strictlb": "0.10432"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_458.mtx ",
+      "normalbinding": "0.14925",
+      "multibinding": "0.04531",
+      "strictlb": "0.10173"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_462.mtx ",
+      "normalbinding": "0.15670",
+      "multibinding": "0.04467",
+      "strictlb": "0.10454"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_465.mtx ",
+      "normalbinding": "0.14650",
+      "multibinding": "0.04528",
+      "strictlb": "0.10710"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_466.mtx ",
+      "normalbinding": "0.14650",
+      "multibinding": "0.04525",
+      "strictlb": "0.10394"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_467.mtx ",
+      "normalbinding": "0.14611",
+      "multibinding": "0.04576",
+      "strictlb": "0.10182"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_470.mtx ",
+      "normalbinding": "0.14864",
+      "multibinding": "0.04445",
+      "strictlb": "0.10160"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_471.mtx ",
+      "normalbinding": "0.15050",
+      "multibinding": "0.04480",
+      "strictlb": "0.10269"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_472.mtx ",
+      "normalbinding": "0.14925",
+      "multibinding": "0.04544",
+      "strictlb": "0.10064"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_473.mtx ",
+      "normalbinding": "0.14688",
+      "multibinding": "0.04502",
+      "strictlb": "0.10173"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_475.mtx ",
+      "normalbinding": "0.15379",
+      "multibinding": "0.04502",
+      "strictlb": "0.10752"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_480.mtx ",
+      "normalbinding": "0.15293",
+      "multibinding": "0.04611",
+      "strictlb": "0.10074"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_481.mtx ",
+      "normalbinding": "0.15917",
+      "multibinding": "0.04528",
+      "strictlb": "0.09872"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_482.mtx ",
+      "normalbinding": "0.15082",
+      "multibinding": "0.04608",
+      "strictlb": "0.10426"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_483.mtx ",
+      "normalbinding": "0.14918",
+      "multibinding": "0.04653",
+      "strictlb": "0.10109"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_484.mtx ",
+      "normalbinding": "0.15984",
+      "multibinding": "0.04554",
+      "strictlb": "0.10086"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_486.mtx ",
+      "normalbinding": "0.15485",
+      "multibinding": "0.04598",
+      "strictlb": "0.10266"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_488.mtx ",
+      "normalbinding": "0.15946",
+      "multibinding": "0.04403",
+      "strictlb": "0.10371"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_489.mtx ",
+      "normalbinding": "0.15597",
+      "multibinding": "0.04525",
+      "strictlb": "0.10134"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_493.mtx ",
+      "normalbinding": "0.15475",
+      "multibinding": "0.04598",
+      "strictlb": "0.10314"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_494.mtx ",
+      "normalbinding": "0.15094",
+      "multibinding": "0.04746",
+      "strictlb": "0.10253"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_495.mtx ",
+      "normalbinding": "0.15370",
+      "multibinding": "0.04653",
+      "strictlb": "0.10320"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_499.mtx ",
+      "normalbinding": "0.15395",
+      "multibinding": "0.04582",
+      "strictlb": "0.09347"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_507.mtx ",
+      "normalbinding": "0.15194",
+      "multibinding": "0.04736",
+      "strictlb": "0.09130"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_508.mtx ",
+      "normalbinding": "0.15674",
+      "multibinding": "0.04688",
+      "strictlb": "0.09331"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_511.mtx ",
+      "normalbinding": "0.15325",
+      "multibinding": "0.04682",
+      "strictlb": "0.09219"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_512.mtx ",
+      "normalbinding": "0.15728",
+      "multibinding": "0.04598",
+      "strictlb": "0.09507"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_513.mtx ",
+      "normalbinding": "0.15610",
+      "multibinding": "0.04931",
+      "strictlb": "0.09382"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_514.mtx ",
+      "normalbinding": "0.16432",
+      "multibinding": "0.04646",
+      "strictlb": "0.09248"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_516.mtx ",
+      "normalbinding": "0.16013",
+      "multibinding": "0.04717",
+      "strictlb": "0.11024"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_518.mtx ",
+      "normalbinding": "0.15546",
+      "multibinding": "0.04595",
+      "strictlb": "0.09427"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_520.mtx ",
+      "normalbinding": "0.15526",
+      "multibinding": "0.04624",
+      "strictlb": "0.09744"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_522.mtx ",
+      "normalbinding": "0.15562",
+      "multibinding": "0.04714",
+      "strictlb": "0.10874"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_527.mtx ",
+      "normalbinding": "0.15632",
+      "multibinding": "0.04787",
+      "strictlb": "0.10810"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_528.mtx ",
+      "normalbinding": "0.15830",
+      "multibinding": "0.04819",
+      "strictlb": "0.10416"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_529.mtx ",
+      "normalbinding": "0.15677",
+      "multibinding": "0.04643",
+      "strictlb": "0.10726"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_533.mtx ",
+      "normalbinding": "0.15504",
+      "multibinding": "0.04704",
+      "strictlb": "0.10224"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_535.mtx ",
+      "normalbinding": "0.16138",
+      "multibinding": "0.04666",
+      "strictlb": "0.10218"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_536.mtx ",
+      "normalbinding": "0.15782",
+      "multibinding": "0.04726",
+      "strictlb": "0.10266"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_537.mtx ",
+      "normalbinding": "0.15571",
+      "multibinding": "0.04742",
+      "strictlb": "0.10221"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_542.mtx ",
+      "normalbinding": "0.16541",
+      "multibinding": "0.04717",
+      "strictlb": "0.10118"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_543.mtx ",
+      "normalbinding": "0.16163",
+      "multibinding": "0.04640",
+      "strictlb": "0.10717"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_546.mtx ",
+      "normalbinding": "0.16179",
+      "multibinding": "0.04586",
+      "strictlb": "0.10710"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_547.mtx ",
+      "normalbinding": "0.15766",
+      "multibinding": "0.04611",
+      "strictlb": "0.10989"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_550.mtx ",
+      "normalbinding": "0.15571",
+      "multibinding": "0.04803",
+      "strictlb": "0.10650"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_551.mtx ",
+      "normalbinding": "0.16400",
+      "multibinding": "0.04832",
+      "strictlb": "0.10563"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_552.mtx ",
+      "normalbinding": "0.16221",
+      "multibinding": "0.04765",
+      "strictlb": "0.10525"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_553.mtx ",
+      "normalbinding": "0.16413",
+      "multibinding": "0.04736",
+      "strictlb": "0.10378"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_554.mtx ",
+      "normalbinding": "0.16301",
+      "multibinding": "0.04746",
+      "strictlb": "0.10454"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_559.mtx ",
+      "normalbinding": "0.16077",
+      "multibinding": "0.04746",
+      "strictlb": "0.10432"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_560.mtx ",
+      "normalbinding": "0.16314",
+      "multibinding": "0.04781",
+      "strictlb": "0.11011"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_563.mtx ",
+      "normalbinding": "0.15712",
+      "multibinding": "0.04822",
+      "strictlb": "0.10819"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_566.mtx ",
+      "normalbinding": "0.16147",
+      "multibinding": "0.04838",
+      "strictlb": "0.10659"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_568.mtx ",
+      "normalbinding": "0.15869",
+      "multibinding": "0.04768",
+      "strictlb": "0.10768"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_569.mtx ",
+      "normalbinding": "0.15830",
+      "multibinding": "0.04752",
+      "strictlb": "0.11040"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_571.mtx ",
+      "normalbinding": "0.16269",
+      "multibinding": "0.04794",
+      "strictlb": "0.11155"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_572.mtx ",
+      "normalbinding": "0.16595",
+      "multibinding": "0.04698",
+      "strictlb": "0.11344"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_574.mtx ",
+      "normalbinding": "0.16720",
+      "multibinding": "0.04810",
+      "strictlb": "0.10733"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_576.mtx ",
+      "normalbinding": "0.16403",
+      "multibinding": "0.04877",
+      "strictlb": "0.11082"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_577.mtx ",
+      "normalbinding": "0.16586",
+      "multibinding": "0.04944",
+      "strictlb": "0.10672"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_580.mtx ",
+      "normalbinding": "0.16198",
+      "multibinding": "0.04758",
+      "strictlb": "0.10794"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_583.mtx ",
+      "normalbinding": "0.16733",
+      "multibinding": "0.04771",
+      "strictlb": "0.10432"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_584.mtx ",
+      "normalbinding": "0.17542",
+      "multibinding": "0.04806",
+      "strictlb": "0.10803"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_586.mtx ",
+      "normalbinding": "0.16771",
+      "multibinding": "0.04896",
+      "strictlb": "0.10659"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_588.mtx ",
+      "normalbinding": "0.16429",
+      "multibinding": "0.04861",
+      "strictlb": "0.10867"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_589.mtx ",
+      "normalbinding": "0.16611",
+      "multibinding": "0.04922",
+      "strictlb": "0.10669"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_590.mtx ",
+      "normalbinding": "0.10096",
+      "multibinding": "0.04294",
+      "strictlb": "0.09459"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_593.mtx ",
+      "normalbinding": "0.16579",
+      "multibinding": "0.04826",
+      "strictlb": "0.10707"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_594.mtx ",
+      "normalbinding": "0.16755",
+      "multibinding": "0.04864",
+      "strictlb": "0.10634"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_597.mtx ",
+      "normalbinding": "0.16976",
+      "multibinding": "0.04790",
+      "strictlb": "0.10672"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_599.mtx ",
+      "normalbinding": "0.16374",
+      "multibinding": "0.04970",
+      "strictlb": "0.10717"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_602.mtx ",
+      "normalbinding": "0.17027",
+      "multibinding": "0.05005",
+      "strictlb": "0.10822"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_613.mtx ",
+      "normalbinding": "0.16822",
+      "multibinding": "0.04851",
+      "strictlb": "0.10384"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_616.mtx ",
+      "normalbinding": "0.16483",
+      "multibinding": "0.04826",
+      "strictlb": "0.10813"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_618.mtx ",
+      "normalbinding": "0.17315",
+      "multibinding": "0.04806",
+      "strictlb": "0.10621"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_619.mtx ",
+      "normalbinding": "0.17491",
+      "multibinding": "0.04886",
+      "strictlb": "0.10522"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_620.mtx ",
+      "normalbinding": "0.17101",
+      "multibinding": "0.04922",
+      "strictlb": "0.10979"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_621.mtx ",
+      "normalbinding": "0.17254",
+      "multibinding": "0.04832",
+      "strictlb": "0.10909"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_623.mtx ",
+      "normalbinding": "0.16934",
+      "multibinding": "0.04941",
+      "strictlb": "0.10611"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_625.mtx ",
+      "normalbinding": "0.17046",
+      "multibinding": "0.04970",
+      "strictlb": "0.10925"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_629.mtx ",
+      "normalbinding": "0.17130",
+      "multibinding": "0.05091",
+      "strictlb": "0.10906"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_630.mtx ",
+      "normalbinding": "0.17670",
+      "multibinding": "0.04806",
+      "strictlb": "0.10544"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_631.mtx ",
+      "normalbinding": "0.17258",
+      "multibinding": "0.04950",
+      "strictlb": "0.10419"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_632.mtx ",
+      "normalbinding": "0.17328",
+      "multibinding": "0.04957",
+      "strictlb": "0.10502"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_633.mtx ",
+      "normalbinding": "0.17536",
+      "multibinding": "0.05011",
+      "strictlb": "0.10582"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_634.mtx ",
+      "normalbinding": "0.17594",
+      "multibinding": "0.04941",
+      "strictlb": "0.10656"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_636.mtx ",
+      "normalbinding": "0.17382",
+      "multibinding": "0.04954",
+      "strictlb": "0.10845"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_642.mtx ",
+      "normalbinding": "0.17379",
+      "multibinding": "0.04813",
+      "strictlb": "0.11894"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_643.mtx ",
+      "normalbinding": "0.17046",
+      "multibinding": "0.05050",
+      "strictlb": "0.11930"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_644.mtx ",
+      "normalbinding": "0.17754",
+      "multibinding": "0.04877",
+      "strictlb": "0.11722"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_647.mtx ",
+      "normalbinding": "0.17821",
+      "multibinding": "0.04890",
+      "strictlb": "0.11549"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_649.mtx ",
+      "normalbinding": "0.17142",
+      "multibinding": "0.04810",
+      "strictlb": "0.11542"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_652.mtx ",
+      "normalbinding": "0.17824",
+      "multibinding": "0.04941",
+      "strictlb": "0.11562"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_654.mtx ",
+      "normalbinding": "0.17939",
+      "multibinding": "0.04928",
+      "strictlb": "0.11427"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_662.mtx ",
+      "normalbinding": "0.17853",
+      "multibinding": "0.04998",
+      "strictlb": "0.11872"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_663.mtx ",
+      "normalbinding": "0.18294",
+      "multibinding": "0.05120",
+      "strictlb": "0.11264"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_664.mtx ",
+      "normalbinding": "0.17882",
+      "multibinding": "0.04954",
+      "strictlb": "0.11562"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_667.mtx ",
+      "normalbinding": "0.18208",
+      "multibinding": "0.04982",
+      "strictlb": "0.11027"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_668.mtx ",
+      "normalbinding": "0.18326",
+      "multibinding": "0.05011",
+      "strictlb": "0.10979"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_670.mtx ",
+      "normalbinding": "0.17987",
+      "multibinding": "0.04954",
+      "strictlb": "0.10976"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_681.mtx ",
+      "normalbinding": "0.18547",
+      "multibinding": "0.04931",
+      "strictlb": "0.10998"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_685.mtx ",
+      "normalbinding": "0.18464",
+      "multibinding": "0.05030",
+      "strictlb": "0.11082"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_687.mtx ",
+      "normalbinding": "0.18579",
+      "multibinding": "0.04982",
+      "strictlb": "0.11363"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_693.mtx ",
+      "normalbinding": "0.19238",
+      "multibinding": "0.05053",
+      "strictlb": "0.11459"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_695.mtx ",
+      "normalbinding": "0.12426",
+      "multibinding": "0.04563",
+      "strictlb": "0.10122"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_696.mtx ",
+      "normalbinding": "0.19075",
+      "multibinding": "0.05194",
+      "strictlb": "0.11606"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_697.mtx ",
+      "normalbinding": "0.10624",
+      "multibinding": "0.04237",
+      "strictlb": "0.10848"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_701.mtx ",
+      "normalbinding": "0.18666",
+      "multibinding": "0.05101",
+      "strictlb": "0.11856"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_702.mtx ",
+      "normalbinding": "0.19379",
+      "multibinding": "0.05053",
+      "strictlb": "0.11789"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_703.mtx ",
+      "normalbinding": "0.18800",
+      "multibinding": "0.05034",
+      "strictlb": "0.11603"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_704.mtx ",
+      "normalbinding": "0.20029",
+      "multibinding": "0.05117",
+      "strictlb": "0.11629"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_705.mtx ",
+      "normalbinding": "0.19475",
+      "multibinding": "0.05184",
+      "strictlb": "0.11933"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_707.mtx ",
+      "normalbinding": "0.19050",
+      "multibinding": "0.05130",
+      "strictlb": "0.11955"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_711.mtx ",
+      "normalbinding": "0.07114",
+      "multibinding": "0.04205",
+      "strictlb": "0.10864"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_713.mtx ",
+      "normalbinding": "0.08438",
+      "multibinding": "0.04400",
+      "strictlb": "0.11059"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_716.mtx ",
+      "normalbinding": "0.08448",
+      "multibinding": "0.04214",
+      "strictlb": "0.10845"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_717.mtx ",
+      "normalbinding": "0.08544",
+      "multibinding": "0.04349",
+      "strictlb": "0.10640"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_718.mtx ",
+      "normalbinding": "0.08413",
+      "multibinding": "0.04237",
+      "strictlb": "0.11005"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_720.mtx ",
+      "normalbinding": "0.08605",
+      "multibinding": "0.04195",
+      "strictlb": "0.10992"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_722.mtx ",
+      "normalbinding": "0.08678",
+      "multibinding": "0.04246",
+      "strictlb": "0.10912"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_725.mtx ",
+      "normalbinding": "0.08698",
+      "multibinding": "0.04250",
+      "strictlb": "0.10835"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_727.mtx ",
+      "normalbinding": "0.08864",
+      "multibinding": "0.04192",
+      "strictlb": "0.10915"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_728.mtx ",
+      "normalbinding": "0.08986",
+      "multibinding": "0.04064",
+      "strictlb": "0.10640"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_729.mtx ",
+      "normalbinding": "0.08698",
+      "multibinding": "0.04198",
+      "strictlb": "0.10893"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_730.mtx ",
+      "normalbinding": "0.08787",
+      "multibinding": "0.04131",
+      "strictlb": "0.10627"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_732.mtx ",
+      "normalbinding": "0.11280",
+      "multibinding": "0.04461",
+      "strictlb": "0.10762"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-735_G_733.mtx ",
+      "normalbinding": "0.20086",
+      "multibinding": "0.05187",
+      "strictlb": "0.11702"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-caida.mtx ",
+      "normalbinding": "0.49491",
+      "multibinding": "0.20278",
+      "strictlb": "0.23142"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-caida_G_004.mtx ",
+      "normalbinding": "0.45011",
+      "multibinding": "0.16416",
+      "strictlb": "0.20746"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-caida_G_006.mtx ",
+      "normalbinding": "0.43366",
+      "multibinding": "0.16848",
+      "strictlb": "0.21040"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-caida_G_007.mtx ",
+      "normalbinding": "0.44406",
+      "multibinding": "0.16874",
+      "strictlb": "0.20630"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-caida_G_008.mtx ",
+      "normalbinding": "0.46333",
+      "multibinding": "0.16666",
+      "strictlb": "0.20682"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-caida_G_009.mtx ",
+      "normalbinding": "0.45459",
+      "multibinding": "0.17014",
+      "strictlb": "0.20554"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-caida_G_011.mtx ",
+      "normalbinding": "0.46515",
+      "multibinding": "0.16832",
+      "strictlb": "0.21850"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-caida_G_013.mtx ",
+      "normalbinding": "0.45181",
+      "multibinding": "0.17318",
+      "strictlb": "0.20627"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-caida_G_015.mtx ",
+      "normalbinding": "0.46234",
+      "multibinding": "0.17165",
+      "strictlb": "0.21162"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-caida_G_018.mtx ",
+      "normalbinding": "0.48544",
+      "multibinding": "0.17613",
+      "strictlb": "0.22374"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-caida_G_021.mtx ",
+      "normalbinding": "0.45594",
+      "multibinding": "0.18026",
+      "strictlb": "0.21782"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-caida_G_023.mtx ",
+      "normalbinding": "0.45587",
+      "multibinding": "0.18333",
+      "strictlb": "0.21994"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-caida_G_027.mtx ",
+      "normalbinding": "0.46410",
+      "multibinding": "0.18323",
+      "strictlb": "0.22093"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-caida_G_032.mtx ",
+      "normalbinding": "0.47750",
+      "multibinding": "0.18650",
+      "strictlb": "0.23120"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-caida_G_033.mtx ",
+      "normalbinding": "0.47373",
+      "multibinding": "0.18445",
+      "strictlb": "0.22643"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-caida_G_036.mtx ",
+      "normalbinding": "0.47245",
+      "multibinding": "0.18778",
+      "strictlb": "0.22819"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-caida_G_039.mtx ",
+      "normalbinding": "0.47859",
+      "multibinding": "0.18794",
+      "strictlb": "0.21581"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-caida_G_043.mtx ",
+      "normalbinding": "0.46755",
+      "multibinding": "0.18640",
+      "strictlb": "0.22570"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-caida_G_049.mtx ",
+      "normalbinding": "0.51101",
+      "multibinding": "0.19002",
+      "strictlb": "0.23907"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-caida_G_051.mtx ",
+      "normalbinding": "0.47808",
+      "multibinding": "0.18912",
+      "strictlb": "0.23155"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-caida_G_055.mtx ",
+      "normalbinding": "0.47203",
+      "multibinding": "0.19190",
+      "strictlb": "0.24099"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-caida_G_056.mtx ",
+      "normalbinding": "0.47782",
+      "multibinding": "0.19030",
+      "strictlb": "0.23590"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-caida_G_057.mtx ",
+      "normalbinding": "0.48419",
+      "multibinding": "0.18909",
+      "strictlb": "0.23722"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-caida_G_058.mtx ",
+      "normalbinding": "0.48365",
+      "multibinding": "0.18666",
+      "strictlb": "0.22637"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-caida_G_059.mtx ",
+      "normalbinding": "0.49645",
+      "multibinding": "0.19072",
+      "strictlb": "0.22819"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-caida_G_060.mtx ",
+      "normalbinding": "0.48589",
+      "multibinding": "0.19171",
+      "strictlb": "0.23341"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-caida_G_062.mtx ",
+      "normalbinding": "0.48819",
+      "multibinding": "0.19242",
+      "strictlb": "0.22288"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-caida_G_063.mtx ",
+      "normalbinding": "0.47530",
+      "multibinding": "0.18989",
+      "strictlb": "0.22582"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-caida_G_064.mtx ",
+      "normalbinding": "0.48736",
+      "multibinding": "0.18874",
+      "strictlb": "0.22547"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-caida_G_066.mtx ",
+      "normalbinding": "0.47882",
+      "multibinding": "0.18963",
+      "strictlb": "0.22832"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-caida_G_072.mtx ",
+      "normalbinding": "0.47827",
+      "multibinding": "0.19219",
+      "strictlb": "0.22573"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-caida_G_074.mtx ",
+      "normalbinding": "0.47610",
+      "multibinding": "0.19392",
+      "strictlb": "0.22160"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-caida_G_076.mtx ",
+      "normalbinding": "0.48173",
+      "multibinding": "0.19421",
+      "strictlb": "0.22960"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-caida_G_077.mtx ",
+      "normalbinding": "0.47930",
+      "multibinding": "0.19334",
+      "strictlb": "0.22518"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-caida_G_079.mtx ",
+      "normalbinding": "0.48640",
+      "multibinding": "0.19411",
+      "strictlb": "0.23018"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-caida_G_080.mtx ",
+      "normalbinding": "0.47766",
+      "multibinding": "0.19235",
+      "strictlb": "0.23053"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-caida_G_081.mtx ",
+      "normalbinding": "0.42733",
+      "multibinding": "0.18528",
+      "strictlb": "0.22320"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-caida_G_084.mtx ",
+      "normalbinding": "0.49178",
+      "multibinding": "0.19642",
+      "strictlb": "0.22560"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-caida_G_085.mtx ",
+      "normalbinding": "0.50653",
+      "multibinding": "0.19706",
+      "strictlb": "0.24874"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-caida_G_086.mtx ",
+      "normalbinding": "0.48042",
+      "multibinding": "0.19536",
+      "strictlb": "0.22874"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-caida_G_089.mtx ",
+      "normalbinding": "0.47779",
+      "multibinding": "0.19677",
+      "strictlb": "0.23072"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-caida_G_090.mtx ",
+      "normalbinding": "0.49667",
+      "multibinding": "0.20000",
+      "strictlb": "0.22384"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-caida_G_091.mtx ",
+      "normalbinding": "0.48384",
+      "multibinding": "0.19517",
+      "strictlb": "0.23040"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-caida_G_095.mtx ",
+      "normalbinding": "0.48032",
+      "multibinding": "0.19757",
+      "strictlb": "0.23840"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-caida_G_097.mtx ",
+      "normalbinding": "0.47514",
+      "multibinding": "0.19859",
+      "strictlb": "0.23741"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-caida_G_099.mtx ",
+      "normalbinding": "0.47354",
+      "multibinding": "0.19994",
+      "strictlb": "0.24131"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-caida_G_102.mtx ",
+      "normalbinding": "0.48634",
+      "multibinding": "0.20058",
+      "strictlb": "0.24752"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-caida_G_103.mtx ",
+      "normalbinding": "0.50528",
+      "multibinding": "0.20314",
+      "strictlb": "0.23798"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-caida_G_104.mtx ",
+      "normalbinding": "0.50230",
+      "multibinding": "0.20061",
+      "strictlb": "0.23824"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-caida_G_105.mtx ",
+      "normalbinding": "0.50048",
+      "multibinding": "0.20144",
+      "strictlb": "0.23120"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-caida_G_107.mtx ",
+      "normalbinding": "0.49210",
+      "multibinding": "0.20202",
+      "strictlb": "0.23389"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-caida_G_113.mtx ",
+      "normalbinding": "0.48304",
+      "multibinding": "0.20074",
+      "strictlb": "0.23693"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-caida_G_116.mtx ",
+      "normalbinding": "0.49504",
+      "multibinding": "0.20586",
+      "strictlb": "0.23504"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-caida_G_119.mtx ",
+      "normalbinding": "0.49357",
+      "multibinding": "0.20659",
+      "strictlb": "0.24096"
+    },
+    {
+      "filename": "/workspace/selectedMM/as-caida_G_120.mtx ",
+      "normalbinding": "0.48170",
+      "multibinding": "0.20429",
+      "strictlb": "0.24838"
+    },
+    {
+      "filename": "/workspace/selectedMM/ash219.mtx ",
+      "normalbinding": "0.00675",
+      "multibinding": "0.00726",
+      "strictlb": "0.04035"
+    },
+    {
+      "filename": "/workspace/selectedMM/ash331.mtx ",
+      "normalbinding": "0.00675",
+      "multibinding": "0.00720",
+      "strictlb": "0.05840"
+    },
+    {
+      "filename": "/workspace/selectedMM/ash608.mtx ",
+      "normalbinding": "0.00771",
+      "multibinding": "0.00819",
+      "strictlb": "0.08410"
+    },
+    {
+      "filename": "/workspace/selectedMM/astro-ph.mtx ",
+      "normalbinding": "0.21590",
+      "multibinding": "0.18224",
+      "strictlb": "0.21782"
+    },
+    {
+      "filename": "/workspace/selectedMM/atmosmodj.mtx ",
+      "normalbinding": "10.49000",
+      "multibinding": "10.51000",
+      "strictlb": "11.62000"
+    },
+    {
+      "filename": "/workspace/selectedMM/audikw_1.mtx ",
+      "normalbinding": "",
+      "multibinding": "15.20000",
+      "strictlb": "18.95000"
+    },
+    {
+      "filename": "/workspace/selectedMM/aug3dcqp.mtx ",
+      "normalbinding": "0.24845",
+      "multibinding": "0.25920",
+      "strictlb": "0.20397"
+    },
+    {
+      "filename": "/workspace/selectedMM/av41092.mtx ",
+      "normalbinding": "0.78093",
+      "multibinding": "0.59878",
+      "strictlb": "0.56426"
+    },
+    {
+      "filename": "/workspace/selectedMM/b_dyn.mtx ",
+      "normalbinding": "0.01165",
+      "multibinding": "0.01181",
+      "strictlb": "0.07526"
+    },
+    {
+      "filename": "/workspace/selectedMM/barrier2-2.mtx ",
+      "normalbinding": "3.04000",
+      "multibinding": "2.14000",
+      "strictlb": "2.21000"
+    }
+  ],
+  "strictlb_fastest": [
+    "/workspace/selectedMM/3Dspectralwave_b.mtx ",
+    "/workspace/selectedMM/ASIC_320k.mtx ",
+    "/workspace/selectedMM/BenElechi1_b.mtx ",
+    "/workspace/selectedMM/CAG_mat1916.mtx ",
+    "/workspace/selectedMM/FX_March2010.mtx ",
+    "/workspace/selectedMM/G10.mtx ",
+    "/workspace/selectedMM/G2_circuit.mtx ",
+    "/workspace/selectedMM/G63.mtx ",
+    "/workspace/selectedMM/GL7d22.mtx ",
+    "/workspace/selectedMM/GL7d25.mtx ",
+    "/workspace/selectedMM/Ga10As10H30.mtx ",
+    "/workspace/selectedMM/Ge99H100.mtx ",
+    "/workspace/selectedMM/HFE18_96_in.mtx ",
+    "/workspace/selectedMM/HTC_336_4438.mtx ",
+    "/workspace/selectedMM/IG5-15.mtx ",
+    "/workspace/selectedMM/L-9.mtx ",
+    "/workspace/selectedMM/LFAT5000.mtx ",
+    "/workspace/selectedMM/LFAT5000_M.mtx ",
+    "/workspace/selectedMM/LargeRegFile.mtx ",
+    "/workspace/selectedMM/M80PI_n_B.mtx ",
+    "/workspace/selectedMM/NotreDame_www.mtx ",
+    "/workspace/selectedMM/TSOPF_FS_b162_c3_b.mtx ",
+    "/workspace/selectedMM/TSOPF_FS_b300_b.mtx ",
+    "/workspace/selectedMM/TSOPF_FS_b300_c2_b.mtx ",
+    "/workspace/selectedMM/TSOPF_FS_b39_c19.mtx ",
+    "/workspace/selectedMM/TSOPF_FS_b39_c19_b.mtx ",
+    "/workspace/selectedMM/TSOPF_FS_b39_c30.mtx ",
+    "/workspace/selectedMM/TSOPF_FS_b39_c30_b.mtx ",
+    "/workspace/selectedMM/TSOPF_FS_b39_c7_b.mtx ",
+    "/workspace/selectedMM/TSOPF_RS_b39_c19_b.mtx ",
+    "/workspace/selectedMM/TSOPF_RS_b39_c30.mtx ",
+    "/workspace/selectedMM/aa3.mtx ",
+    "/workspace/selectedMM/aa4.mtx ",
+    "/workspace/selectedMM/af_shell10.mtx ",
+    "/workspace/selectedMM/air02.mtx ",
+    "/workspace/selectedMM/air03.mtx ",
+    "/workspace/selectedMM/air04.mtx ",
+    "/workspace/selectedMM/air05.mtx ",
+    "/workspace/selectedMM/aug3dcqp.mtx ",
+    "/workspace/selectedMM/av41092.mtx "
+  ],
+  "multi_bind_fastest": [
+    "/workspace/selectedMM/08blocks.mtx ",
+    "/workspace/selectedMM/2D_54019_highK.mtx ",
+    "/workspace/selectedMM/3D_51448_3D.mtx ",
+    "/workspace/selectedMM/662_bus.mtx ",
+    "/workspace/selectedMM/ABACUS_shell_ud.mtx ",
+    "/workspace/selectedMM/ASIC_100ks.mtx ",
+    "/workspace/selectedMM/Alemdar.mtx ",
+    "/workspace/selectedMM/Andrews.mtx ",
+    "/workspace/selectedMM/Bump_2911.mtx ",
+    "/workspace/selectedMM/CSphd.mtx ",
+    "/workspace/selectedMM/California.mtx ",
+    "/workspace/selectedMM/Chebyshev1.mtx ",
+    "/workspace/selectedMM/CollegeMsg.mtx ",
+    "/workspace/selectedMM/D_7.mtx ",
+    "/workspace/selectedMM/EAT_SR.mtx ",
+    "/workspace/selectedMM/EPA.mtx ",
+    "/workspace/selectedMM/EX6.mtx ",
+    "/workspace/selectedMM/Emilia_923.mtx ",
+    "/workspace/selectedMM/Erdos982.mtx ",
+    "/workspace/selectedMM/Erdos992.mtx ",
+    "/workspace/selectedMM/F2.mtx ",
+    "/workspace/selectedMM/FA.mtx ",
+    "/workspace/selectedMM/Franz1.mtx ",
+    "/workspace/selectedMM/Freescale2.mtx ",
+    "/workspace/selectedMM/G15.mtx ",
+    "/workspace/selectedMM/G16.mtx ",
+    "/workspace/selectedMM/G17.mtx ",
+    "/workspace/selectedMM/G18.mtx ",
+    "/workspace/selectedMM/G19.mtx ",
+    "/workspace/selectedMM/G21.mtx ",
+    "/workspace/selectedMM/G51.mtx ",
+    "/workspace/selectedMM/G52.mtx ",
+    "/workspace/selectedMM/G55.mtx ",
+    "/workspace/selectedMM/G58.mtx ",
+    "/workspace/selectedMM/GD00_a.mtx ",
+    "/workspace/selectedMM/GD01_a.mtx ",
+    "/workspace/selectedMM/GD06_Java.mtx ",
+    "/workspace/selectedMM/GD96_d.mtx ",
+    "/workspace/selectedMM/GD97_c.mtx ",
+    "/workspace/selectedMM/GD98_b.mtx ",
+    "/workspace/selectedMM/GL6_D_9.mtx ",
+    "/workspace/selectedMM/GL7d12.mtx ",
+    "/workspace/selectedMM/GL7d14.mtx ",
+    "/workspace/selectedMM/GL7d24.mtx ",
+    "/workspace/selectedMM/HEP-th-new.mtx ",
+    "/workspace/selectedMM/HEP-th.mtx ",
+    "/workspace/selectedMM/Hamrle1_b.mtx ",
+    "/workspace/selectedMM/Hamrle2.mtx ",
+    "/workspace/selectedMM/Harvard500.mtx ",
+    "/workspace/selectedMM/M20PI_n.mtx ",
+    "/workspace/selectedMM/M80PI_n.mtx ",
+    "/workspace/selectedMM/Muu.mtx ",
+    "/workspace/selectedMM/N_pid.mtx ",
+    "/workspace/selectedMM/NotreDame_yeast.mtx ",
+    "/workspace/selectedMM/Oregon-1_G_2.mtx ",
+    "/workspace/selectedMM/Oregon-1_G_3.mtx ",
+    "/workspace/selectedMM/Oregon-1_G_4.mtx ",
+    "/workspace/selectedMM/Oregon-1_G_5.mtx ",
+    "/workspace/selectedMM/Oregon-1_G_6.mtx ",
+    "/workspace/selectedMM/Oregon-2.mtx ",
+    "/workspace/selectedMM/Oregon-2_G_3.mtx ",
+    "/workspace/selectedMM/Oregon-2_G_6.mtx ",
+    "/workspace/selectedMM/Pres_Poisson.mtx ",
+    "/workspace/selectedMM/RFdevice.mtx ",
+    "/workspace/selectedMM/Reuters911_Day_03.mtx ",
+    "/workspace/selectedMM/Reuters911_Day_11.mtx ",
+    "/workspace/selectedMM/Reuters911_Day_15.mtx ",
+    "/workspace/selectedMM/Reuters911_Day_25.mtx ",
+    "/workspace/selectedMM/Reuters911_Day_31.mtx ",
+    "/workspace/selectedMM/Roget.mtx ",
+    "/workspace/selectedMM/S10PI_n.mtx ",
+    "/workspace/selectedMM/S80PI_n_E.mtx ",
+    "/workspace/selectedMM/Si87H76.mtx ",
+    "/workspace/selectedMM/TF14.mtx ",
+    "/workspace/selectedMM/TF18.mtx ",
+    "/workspace/selectedMM/TF19.mtx ",
+    "/workspace/selectedMM/TSOPF_FS_b162_c4.mtx ",
+    "/workspace/selectedMM/TSOPF_FS_b300_c1.mtx ",
+    "/workspace/selectedMM/TSOPF_FS_b39_c7.mtx ",
+    "/workspace/selectedMM/TSOPF_RS_b162_c1.mtx ",
+    "/workspace/selectedMM/TSOPF_RS_b2052_c1.mtx ",
+    "/workspace/selectedMM/Trec8.mtx ",
+    "/workspace/selectedMM/Trefethen_20000.mtx ",
+    "/workspace/selectedMM/Zd_Jac6_db.mtx ",
+    "/workspace/selectedMM/adder_dcop_01.mtx ",
+    "/workspace/selectedMM/adder_dcop_04.mtx ",
+    "/workspace/selectedMM/adder_dcop_06.mtx ",
+    "/workspace/selectedMM/adder_dcop_10.mtx ",
+    "/workspace/selectedMM/adder_dcop_11.mtx ",
+    "/workspace/selectedMM/adder_dcop_17.mtx ",
+    "/workspace/selectedMM/adder_dcop_21.mtx ",
+    "/workspace/selectedMM/adder_dcop_22.mtx ",
+    "/workspace/selectedMM/adder_dcop_23.mtx ",
+    "/workspace/selectedMM/adder_dcop_26.mtx ",
+    "/workspace/selectedMM/adder_dcop_28.mtx ",
+    "/workspace/selectedMM/adder_dcop_29.mtx ",
+    "/workspace/selectedMM/adder_dcop_30.mtx ",
+    "/workspace/selectedMM/adder_dcop_33.mtx ",
+    "/workspace/selectedMM/adder_dcop_35.mtx ",
+    "/workspace/selectedMM/adder_dcop_37.mtx ",
+    "/workspace/selectedMM/adder_dcop_40.mtx ",
+    "/workspace/selectedMM/adder_dcop_44.mtx ",
+    "/workspace/selectedMM/adder_dcop_46.mtx ",
+    "/workspace/selectedMM/adder_dcop_49.mtx ",
+    "/workspace/selectedMM/adder_dcop_54.mtx ",
+    "/workspace/selectedMM/adder_dcop_56.mtx ",
+    "/workspace/selectedMM/adder_dcop_57.mtx ",
+    "/workspace/selectedMM/adder_dcop_60.mtx ",
+    "/workspace/selectedMM/adder_dcop_64.mtx ",
+    "/workspace/selectedMM/adder_dcop_67.mtx ",
+    "/workspace/selectedMM/adder_trans_01.mtx ",
+    "/workspace/selectedMM/aft02.mtx ",
+    "/workspace/selectedMM/as-22july06.mtx ",
+    "/workspace/selectedMM/as-735_G_002.mtx ",
+    "/workspace/selectedMM/as-735_G_003.mtx ",
+    "/workspace/selectedMM/as-735_G_008.mtx ",
+    "/workspace/selectedMM/as-735_G_009.mtx ",
+    "/workspace/selectedMM/as-735_G_011.mtx ",
+    "/workspace/selectedMM/as-735_G_014.mtx ",
+    "/workspace/selectedMM/as-735_G_015.mtx ",
+    "/workspace/selectedMM/as-735_G_017.mtx ",
+    "/workspace/selectedMM/as-735_G_018.mtx ",
+    "/workspace/selectedMM/as-735_G_019.mtx ",
+    "/workspace/selectedMM/as-735_G_022.mtx ",
+    "/workspace/selectedMM/as-735_G_026.mtx ",
+    "/workspace/selectedMM/as-735_G_030.mtx ",
+    "/workspace/selectedMM/as-735_G_031.mtx ",
+    "/workspace/selectedMM/as-735_G_033.mtx ",
+    "/workspace/selectedMM/as-735_G_034.mtx ",
+    "/workspace/selectedMM/as-735_G_038.mtx ",
+    "/workspace/selectedMM/as-735_G_039.mtx ",
+    "/workspace/selectedMM/as-735_G_040.mtx ",
+    "/workspace/selectedMM/as-735_G_042.mtx ",
+    "/workspace/selectedMM/as-735_G_043.mtx ",
+    "/workspace/selectedMM/as-735_G_044.mtx ",
+    "/workspace/selectedMM/as-735_G_047.mtx ",
+    "/workspace/selectedMM/as-735_G_051.mtx ",
+    "/workspace/selectedMM/as-735_G_055.mtx ",
+    "/workspace/selectedMM/as-735_G_059.mtx ",
+    "/workspace/selectedMM/as-735_G_061.mtx ",
+    "/workspace/selectedMM/as-735_G_062.mtx ",
+    "/workspace/selectedMM/as-735_G_064.mtx ",
+    "/workspace/selectedMM/as-735_G_067.mtx ",
+    "/workspace/selectedMM/as-735_G_068.mtx ",
+    "/workspace/selectedMM/as-735_G_072.mtx ",
+    "/workspace/selectedMM/as-735_G_073.mtx ",
+    "/workspace/selectedMM/as-735_G_074.mtx ",
+    "/workspace/selectedMM/as-735_G_075.mtx ",
+    "/workspace/selectedMM/as-735_G_076.mtx ",
+    "/workspace/selectedMM/as-735_G_077.mtx ",
+    "/workspace/selectedMM/as-735_G_079.mtx ",
+    "/workspace/selectedMM/as-735_G_080.mtx ",
+    "/workspace/selectedMM/as-735_G_087.mtx ",
+    "/workspace/selectedMM/as-735_G_100.mtx ",
+    "/workspace/selectedMM/as-735_G_101.mtx ",
+    "/workspace/selectedMM/as-735_G_107.mtx ",
+    "/workspace/selectedMM/as-735_G_109.mtx ",
+    "/workspace/selectedMM/as-735_G_110.mtx ",
+    "/workspace/selectedMM/as-735_G_112.mtx ",
+    "/workspace/selectedMM/as-735_G_115.mtx ",
+    "/workspace/selectedMM/as-735_G_117.mtx ",
+    "/workspace/selectedMM/as-735_G_119.mtx ",
+    "/workspace/selectedMM/as-735_G_120.mtx ",
+    "/workspace/selectedMM/as-735_G_122.mtx ",
+    "/workspace/selectedMM/as-735_G_123.mtx ",
+    "/workspace/selectedMM/as-735_G_124.mtx ",
+    "/workspace/selectedMM/as-735_G_135.mtx ",
+    "/workspace/selectedMM/as-735_G_138.mtx ",
+    "/workspace/selectedMM/as-735_G_142.mtx ",
+    "/workspace/selectedMM/as-735_G_147.mtx ",
+    "/workspace/selectedMM/as-735_G_148.mtx ",
+    "/workspace/selectedMM/as-735_G_152.mtx ",
+    "/workspace/selectedMM/as-735_G_156.mtx ",
+    "/workspace/selectedMM/as-735_G_158.mtx ",
+    "/workspace/selectedMM/as-735_G_159.mtx ",
+    "/workspace/selectedMM/as-735_G_160.mtx ",
+    "/workspace/selectedMM/as-735_G_165.mtx ",
+    "/workspace/selectedMM/as-735_G_171.mtx ",
+    "/workspace/selectedMM/as-735_G_175.mtx ",
+    "/workspace/selectedMM/as-735_G_176.mtx ",
+    "/workspace/selectedMM/as-735_G_181.mtx ",
+    "/workspace/selectedMM/as-735_G_182.mtx ",
+    "/workspace/selectedMM/as-735_G_183.mtx ",
+    "/workspace/selectedMM/as-735_G_184.mtx ",
+    "/workspace/selectedMM/as-735_G_187.mtx ",
+    "/workspace/selectedMM/as-735_G_193.mtx ",
+    "/workspace/selectedMM/as-735_G_194.mtx ",
+    "/workspace/selectedMM/as-735_G_195.mtx ",
+    "/workspace/selectedMM/as-735_G_199.mtx ",
+    "/workspace/selectedMM/as-735_G_202.mtx ",
+    "/workspace/selectedMM/as-735_G_203.mtx ",
+    "/workspace/selectedMM/as-735_G_205.mtx ",
+    "/workspace/selectedMM/as-735_G_207.mtx ",
+    "/workspace/selectedMM/as-735_G_208.mtx ",
+    "/workspace/selectedMM/as-735_G_214.mtx ",
+    "/workspace/selectedMM/as-735_G_222.mtx ",
+    "/workspace/selectedMM/as-735_G_226.mtx ",
+    "/workspace/selectedMM/as-735_G_227.mtx ",
+    "/workspace/selectedMM/as-735_G_232.mtx ",
+    "/workspace/selectedMM/as-735_G_239.mtx ",
+    "/workspace/selectedMM/as-735_G_240.mtx ",
+    "/workspace/selectedMM/as-735_G_241.mtx ",
+    "/workspace/selectedMM/as-735_G_248.mtx ",
+    "/workspace/selectedMM/as-735_G_249.mtx ",
+    "/workspace/selectedMM/as-735_G_251.mtx ",
+    "/workspace/selectedMM/as-735_G_252.mtx ",
+    "/workspace/selectedMM/as-735_G_254.mtx ",
+    "/workspace/selectedMM/as-735_G_257.mtx ",
+    "/workspace/selectedMM/as-735_G_258.mtx ",
+    "/workspace/selectedMM/as-735_G_262.mtx ",
+    "/workspace/selectedMM/as-735_G_263.mtx ",
+    "/workspace/selectedMM/as-735_G_266.mtx ",
+    "/workspace/selectedMM/as-735_G_268.mtx ",
+    "/workspace/selectedMM/as-735_G_272.mtx ",
+    "/workspace/selectedMM/as-735_G_278.mtx ",
+    "/workspace/selectedMM/as-735_G_284.mtx ",
+    "/workspace/selectedMM/as-735_G_285.mtx ",
+    "/workspace/selectedMM/as-735_G_287.mtx ",
+    "/workspace/selectedMM/as-735_G_291.mtx ",
+    "/workspace/selectedMM/as-735_G_293.mtx ",
+    "/workspace/selectedMM/as-735_G_295.mtx ",
+    "/workspace/selectedMM/as-735_G_296.mtx ",
+    "/workspace/selectedMM/as-735_G_298.mtx ",
+    "/workspace/selectedMM/as-735_G_302.mtx ",
+    "/workspace/selectedMM/as-735_G_303.mtx ",
+    "/workspace/selectedMM/as-735_G_306.mtx ",
+    "/workspace/selectedMM/as-735_G_307.mtx ",
+    "/workspace/selectedMM/as-735_G_309.mtx ",
+    "/workspace/selectedMM/as-735_G_310.mtx ",
+    "/workspace/selectedMM/as-735_G_314.mtx ",
+    "/workspace/selectedMM/as-735_G_318.mtx ",
+    "/workspace/selectedMM/as-735_G_321.mtx ",
+    "/workspace/selectedMM/as-735_G_322.mtx ",
+    "/workspace/selectedMM/as-735_G_323.mtx ",
+    "/workspace/selectedMM/as-735_G_328.mtx ",
+    "/workspace/selectedMM/as-735_G_330.mtx ",
+    "/workspace/selectedMM/as-735_G_333.mtx ",
+    "/workspace/selectedMM/as-735_G_345.mtx ",
+    "/workspace/selectedMM/as-735_G_349.mtx ",
+    "/workspace/selectedMM/as-735_G_351.mtx ",
+    "/workspace/selectedMM/as-735_G_356.mtx ",
+    "/workspace/selectedMM/as-735_G_358.mtx ",
+    "/workspace/selectedMM/as-735_G_360.mtx ",
+    "/workspace/selectedMM/as-735_G_362.mtx ",
+    "/workspace/selectedMM/as-735_G_365.mtx ",
+    "/workspace/selectedMM/as-735_G_366.mtx ",
+    "/workspace/selectedMM/as-735_G_371.mtx ",
+    "/workspace/selectedMM/as-735_G_378.mtx ",
+    "/workspace/selectedMM/as-735_G_381.mtx ",
+    "/workspace/selectedMM/as-735_G_385.mtx ",
+    "/workspace/selectedMM/as-735_G_391.mtx ",
+    "/workspace/selectedMM/as-735_G_399.mtx ",
+    "/workspace/selectedMM/as-735_G_400.mtx ",
+    "/workspace/selectedMM/as-735_G_402.mtx ",
+    "/workspace/selectedMM/as-735_G_403.mtx ",
+    "/workspace/selectedMM/as-735_G_405.mtx ",
+    "/workspace/selectedMM/as-735_G_420.mtx ",
+    "/workspace/selectedMM/as-735_G_421.mtx ",
+    "/workspace/selectedMM/as-735_G_425.mtx ",
+    "/workspace/selectedMM/as-735_G_426.mtx ",
+    "/workspace/selectedMM/as-735_G_427.mtx ",
+    "/workspace/selectedMM/as-735_G_429.mtx ",
+    "/workspace/selectedMM/as-735_G_430.mtx ",
+    "/workspace/selectedMM/as-735_G_431.mtx ",
+    "/workspace/selectedMM/as-735_G_432.mtx ",
+    "/workspace/selectedMM/as-735_G_435.mtx ",
+    "/workspace/selectedMM/as-735_G_437.mtx ",
+    "/workspace/selectedMM/as-735_G_438.mtx ",
+    "/workspace/selectedMM/as-735_G_440.mtx ",
+    "/workspace/selectedMM/as-735_G_444.mtx ",
+    "/workspace/selectedMM/as-735_G_446.mtx ",
+    "/workspace/selectedMM/as-735_G_447.mtx ",
+    "/workspace/selectedMM/as-735_G_448.mtx ",
+    "/workspace/selectedMM/as-735_G_457.mtx ",
+    "/workspace/selectedMM/as-735_G_458.mtx ",
+    "/workspace/selectedMM/as-735_G_462.mtx ",
+    "/workspace/selectedMM/as-735_G_465.mtx ",
+    "/workspace/selectedMM/as-735_G_466.mtx ",
+    "/workspace/selectedMM/as-735_G_467.mtx ",
+    "/workspace/selectedMM/as-735_G_470.mtx ",
+    "/workspace/selectedMM/as-735_G_471.mtx ",
+    "/workspace/selectedMM/as-735_G_472.mtx ",
+    "/workspace/selectedMM/as-735_G_473.mtx ",
+    "/workspace/selectedMM/as-735_G_475.mtx ",
+    "/workspace/selectedMM/as-735_G_480.mtx ",
+    "/workspace/selectedMM/as-735_G_481.mtx ",
+    "/workspace/selectedMM/as-735_G_482.mtx ",
+    "/workspace/selectedMM/as-735_G_483.mtx ",
+    "/workspace/selectedMM/as-735_G_484.mtx ",
+    "/workspace/selectedMM/as-735_G_486.mtx ",
+    "/workspace/selectedMM/as-735_G_488.mtx ",
+    "/workspace/selectedMM/as-735_G_489.mtx ",
+    "/workspace/selectedMM/as-735_G_493.mtx ",
+    "/workspace/selectedMM/as-735_G_494.mtx ",
+    "/workspace/selectedMM/as-735_G_495.mtx ",
+    "/workspace/selectedMM/as-735_G_499.mtx ",
+    "/workspace/selectedMM/as-735_G_507.mtx ",
+    "/workspace/selectedMM/as-735_G_508.mtx ",
+    "/workspace/selectedMM/as-735_G_511.mtx ",
+    "/workspace/selectedMM/as-735_G_512.mtx ",
+    "/workspace/selectedMM/as-735_G_513.mtx ",
+    "/workspace/selectedMM/as-735_G_514.mtx ",
+    "/workspace/selectedMM/as-735_G_516.mtx ",
+    "/workspace/selectedMM/as-735_G_518.mtx ",
+    "/workspace/selectedMM/as-735_G_520.mtx ",
+    "/workspace/selectedMM/as-735_G_522.mtx ",
+    "/workspace/selectedMM/as-735_G_527.mtx ",
+    "/workspace/selectedMM/as-735_G_528.mtx ",
+    "/workspace/selectedMM/as-735_G_529.mtx ",
+    "/workspace/selectedMM/as-735_G_533.mtx ",
+    "/workspace/selectedMM/as-735_G_535.mtx ",
+    "/workspace/selectedMM/as-735_G_536.mtx ",
+    "/workspace/selectedMM/as-735_G_537.mtx ",
+    "/workspace/selectedMM/as-735_G_542.mtx ",
+    "/workspace/selectedMM/as-735_G_543.mtx ",
+    "/workspace/selectedMM/as-735_G_546.mtx ",
+    "/workspace/selectedMM/as-735_G_547.mtx ",
+    "/workspace/selectedMM/as-735_G_550.mtx ",
+    "/workspace/selectedMM/as-735_G_551.mtx ",
+    "/workspace/selectedMM/as-735_G_552.mtx ",
+    "/workspace/selectedMM/as-735_G_553.mtx ",
+    "/workspace/selectedMM/as-735_G_554.mtx ",
+    "/workspace/selectedMM/as-735_G_559.mtx ",
+    "/workspace/selectedMM/as-735_G_560.mtx ",
+    "/workspace/selectedMM/as-735_G_563.mtx ",
+    "/workspace/selectedMM/as-735_G_566.mtx ",
+    "/workspace/selectedMM/as-735_G_568.mtx ",
+    "/workspace/selectedMM/as-735_G_569.mtx ",
+    "/workspace/selectedMM/as-735_G_571.mtx ",
+    "/workspace/selectedMM/as-735_G_572.mtx ",
+    "/workspace/selectedMM/as-735_G_574.mtx ",
+    "/workspace/selectedMM/as-735_G_576.mtx ",
+    "/workspace/selectedMM/as-735_G_577.mtx ",
+    "/workspace/selectedMM/as-735_G_580.mtx ",
+    "/workspace/selectedMM/as-735_G_583.mtx ",
+    "/workspace/selectedMM/as-735_G_584.mtx ",
+    "/workspace/selectedMM/as-735_G_586.mtx ",
+    "/workspace/selectedMM/as-735_G_588.mtx ",
+    "/workspace/selectedMM/as-735_G_589.mtx ",
+    "/workspace/selectedMM/as-735_G_590.mtx ",
+    "/workspace/selectedMM/as-735_G_593.mtx ",
+    "/workspace/selectedMM/as-735_G_594.mtx ",
+    "/workspace/selectedMM/as-735_G_597.mtx ",
+    "/workspace/selectedMM/as-735_G_599.mtx ",
+    "/workspace/selectedMM/as-735_G_602.mtx ",
+    "/workspace/selectedMM/as-735_G_613.mtx ",
+    "/workspace/selectedMM/as-735_G_616.mtx ",
+    "/workspace/selectedMM/as-735_G_618.mtx ",
+    "/workspace/selectedMM/as-735_G_619.mtx ",
+    "/workspace/selectedMM/as-735_G_620.mtx ",
+    "/workspace/selectedMM/as-735_G_621.mtx ",
+    "/workspace/selectedMM/as-735_G_623.mtx ",
+    "/workspace/selectedMM/as-735_G_625.mtx ",
+    "/workspace/selectedMM/as-735_G_629.mtx ",
+    "/workspace/selectedMM/as-735_G_630.mtx ",
+    "/workspace/selectedMM/as-735_G_631.mtx ",
+    "/workspace/selectedMM/as-735_G_632.mtx ",
+    "/workspace/selectedMM/as-735_G_633.mtx ",
+    "/workspace/selectedMM/as-735_G_634.mtx ",
+    "/workspace/selectedMM/as-735_G_636.mtx ",
+    "/workspace/selectedMM/as-735_G_642.mtx ",
+    "/workspace/selectedMM/as-735_G_643.mtx ",
+    "/workspace/selectedMM/as-735_G_644.mtx ",
+    "/workspace/selectedMM/as-735_G_647.mtx ",
+    "/workspace/selectedMM/as-735_G_649.mtx ",
+    "/workspace/selectedMM/as-735_G_652.mtx ",
+    "/workspace/selectedMM/as-735_G_654.mtx ",
+    "/workspace/selectedMM/as-735_G_662.mtx ",
+    "/workspace/selectedMM/as-735_G_663.mtx ",
+    "/workspace/selectedMM/as-735_G_664.mtx ",
+    "/workspace/selectedMM/as-735_G_667.mtx ",
+    "/workspace/selectedMM/as-735_G_668.mtx ",
+    "/workspace/selectedMM/as-735_G_670.mtx ",
+    "/workspace/selectedMM/as-735_G_681.mtx ",
+    "/workspace/selectedMM/as-735_G_685.mtx ",
+    "/workspace/selectedMM/as-735_G_687.mtx ",
+    "/workspace/selectedMM/as-735_G_693.mtx ",
+    "/workspace/selectedMM/as-735_G_695.mtx ",
+    "/workspace/selectedMM/as-735_G_696.mtx ",
+    "/workspace/selectedMM/as-735_G_697.mtx ",
+    "/workspace/selectedMM/as-735_G_701.mtx ",
+    "/workspace/selectedMM/as-735_G_702.mtx ",
+    "/workspace/selectedMM/as-735_G_703.mtx ",
+    "/workspace/selectedMM/as-735_G_704.mtx ",
+    "/workspace/selectedMM/as-735_G_705.mtx ",
+    "/workspace/selectedMM/as-735_G_707.mtx ",
+    "/workspace/selectedMM/as-735_G_711.mtx ",
+    "/workspace/selectedMM/as-735_G_713.mtx ",
+    "/workspace/selectedMM/as-735_G_716.mtx ",
+    "/workspace/selectedMM/as-735_G_717.mtx ",
+    "/workspace/selectedMM/as-735_G_718.mtx ",
+    "/workspace/selectedMM/as-735_G_720.mtx ",
+    "/workspace/selectedMM/as-735_G_722.mtx ",
+    "/workspace/selectedMM/as-735_G_725.mtx ",
+    "/workspace/selectedMM/as-735_G_727.mtx ",
+    "/workspace/selectedMM/as-735_G_728.mtx ",
+    "/workspace/selectedMM/as-735_G_729.mtx ",
+    "/workspace/selectedMM/as-735_G_730.mtx ",
+    "/workspace/selectedMM/as-735_G_732.mtx ",
+    "/workspace/selectedMM/as-735_G_733.mtx ",
+    "/workspace/selectedMM/as-caida.mtx ",
+    "/workspace/selectedMM/as-caida_G_004.mtx ",
+    "/workspace/selectedMM/as-caida_G_006.mtx ",
+    "/workspace/selectedMM/as-caida_G_007.mtx ",
+    "/workspace/selectedMM/as-caida_G_008.mtx ",
+    "/workspace/selectedMM/as-caida_G_009.mtx ",
+    "/workspace/selectedMM/as-caida_G_011.mtx ",
+    "/workspace/selectedMM/as-caida_G_013.mtx ",
+    "/workspace/selectedMM/as-caida_G_015.mtx ",
+    "/workspace/selectedMM/as-caida_G_018.mtx ",
+    "/workspace/selectedMM/as-caida_G_021.mtx ",
+    "/workspace/selectedMM/as-caida_G_023.mtx ",
+    "/workspace/selectedMM/as-caida_G_027.mtx ",
+    "/workspace/selectedMM/as-caida_G_032.mtx ",
+    "/workspace/selectedMM/as-caida_G_033.mtx ",
+    "/workspace/selectedMM/as-caida_G_036.mtx ",
+    "/workspace/selectedMM/as-caida_G_039.mtx ",
+    "/workspace/selectedMM/as-caida_G_043.mtx ",
+    "/workspace/selectedMM/as-caida_G_049.mtx ",
+    "/workspace/selectedMM/as-caida_G_051.mtx ",
+    "/workspace/selectedMM/as-caida_G_055.mtx ",
+    "/workspace/selectedMM/as-caida_G_056.mtx ",
+    "/workspace/selectedMM/as-caida_G_057.mtx ",
+    "/workspace/selectedMM/as-caida_G_058.mtx ",
+    "/workspace/selectedMM/as-caida_G_059.mtx ",
+    "/workspace/selectedMM/as-caida_G_060.mtx ",
+    "/workspace/selectedMM/as-caida_G_062.mtx ",
+    "/workspace/selectedMM/as-caida_G_063.mtx ",
+    "/workspace/selectedMM/as-caida_G_064.mtx ",
+    "/workspace/selectedMM/as-caida_G_066.mtx ",
+    "/workspace/selectedMM/as-caida_G_072.mtx ",
+    "/workspace/selectedMM/as-caida_G_074.mtx ",
+    "/workspace/selectedMM/as-caida_G_076.mtx ",
+    "/workspace/selectedMM/as-caida_G_077.mtx ",
+    "/workspace/selectedMM/as-caida_G_079.mtx ",
+    "/workspace/selectedMM/as-caida_G_080.mtx ",
+    "/workspace/selectedMM/as-caida_G_081.mtx ",
+    "/workspace/selectedMM/as-caida_G_084.mtx ",
+    "/workspace/selectedMM/as-caida_G_085.mtx ",
+    "/workspace/selectedMM/as-caida_G_086.mtx ",
+    "/workspace/selectedMM/as-caida_G_089.mtx ",
+    "/workspace/selectedMM/as-caida_G_090.mtx ",
+    "/workspace/selectedMM/as-caida_G_091.mtx ",
+    "/workspace/selectedMM/as-caida_G_095.mtx ",
+    "/workspace/selectedMM/as-caida_G_097.mtx ",
+    "/workspace/selectedMM/as-caida_G_099.mtx ",
+    "/workspace/selectedMM/as-caida_G_102.mtx ",
+    "/workspace/selectedMM/as-caida_G_103.mtx ",
+    "/workspace/selectedMM/as-caida_G_104.mtx ",
+    "/workspace/selectedMM/as-caida_G_105.mtx ",
+    "/workspace/selectedMM/as-caida_G_107.mtx ",
+    "/workspace/selectedMM/as-caida_G_113.mtx ",
+    "/workspace/selectedMM/as-caida_G_116.mtx ",
+    "/workspace/selectedMM/as-caida_G_119.mtx ",
+    "/workspace/selectedMM/as-caida_G_120.mtx ",
+    "/workspace/selectedMM/astro-ph.mtx ",
+    "/workspace/selectedMM/barrier2-2.mtx "
+  ]
+}

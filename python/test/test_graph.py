@@ -9,6 +9,7 @@ from sparsene.op_gen.opir.op_ir import ForLoopOp, MetaOp
 from sparsene.op_gen.nvir.opgraph.printer import GraphPrinter
 from sparsene.logging import get_logger, set_logging_level_for_all
 from sparsene.op_gen.nvir.opgraph.graphviz_visualizer import visualize_op_graph as visualize_op_graph
+from sparsene.op_gen.opir import printer
 # from sparsene.op_gen.nvir.opgraph.visualizerx import visualize_op_graph as visualize_op_graphx
 
 def parse_args():
@@ -25,10 +26,11 @@ if __name__ == "__main__":
     rts = derive_rts(DTC_SPMM_FORMAT)
     computent = computent_from_rts("dtc_spmm", rts)
     meta_op = generate_from_computent(computent)
+    print(printer.default_printer.dump(meta_op))
     assert isinstance(meta_op, MetaOp), f"meta_op: {meta_op}"
-    dense_for_op = meta_op.block.ops[2]
+    dense_for_op = meta_op.block.ops[9]
     assert isinstance(dense_for_op, ForLoopOp), f"dense_for_op: {dense_for_op}"
-    sparse_for_op = dense_for_op.block.ops[3]
+    sparse_for_op = dense_for_op.block.ops[2]
     assert isinstance(sparse_for_op, ForLoopOp), f"sparse_for_op: {sparse_for_op}"
 
     printer = GraphPrinter()

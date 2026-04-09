@@ -52,14 +52,14 @@ def acc():
                 shape=Shape(VarlenShape("K"), VarlenShape("N")),
                 name="B_val",
                 dtype=DTYPE_B,
-                tensor_str="logical_divide(make_tensor(make_gmem_ptr(dB_val), make_layout(make_shape(K, N), make_stride(N, _1{}))), make_shape(_1{}, get<1>(BLK_MNK{})))(_, make_coord(_, blockIdx.y))",
+                tensor_str="logical_divide(make_tensor(make_gmem_ptr(dB_val), make_layout(make_shape(K, N), make_stride(N, _1{}))), make_shape(_1{}, get<1>(BLK_MNK{})))(_, make_coord(_, blockIdx.x))",
                 tensor_type_str="decltype(logical_divide(make_tensor(make_gmem_ptr((TO0*)nullptr), make_layout(make_shape(VARLEN, VARLEN), make_stride(VARLEN, _1{}))), make_shape(_1{}, get<1>(BLK_MNK{})))(_, make_coord(_, VARLEN)))",
             ),
             "C_val": GmemInout(
                 shape=Shape(VarlenShape("M"), VarlenShape("N")),
                 name="C_val",
                 dtype=DTYPE_C,
-                tensor_str="logical_divide(make_tensor(make_gmem_ptr(dC_val), make_layout(make_shape(M, N), make_stride(N, _1{}))), select<0, 1>(BLK_MNK{}))(make_coord(_, blockIdx.x), make_coord(_, blockIdx.y))",
+                tensor_str="logical_divide(make_tensor(make_gmem_ptr(dC_val), make_layout(make_shape(M, N), make_stride(N, _1{}))), select<0, 1>(BLK_MNK{}))(make_coord(_, blockIdx.y), make_coord(_, blockIdx.x))",
                 tensor_type_str="decltype(logical_divide(make_tensor(make_gmem_ptr((TO0*)nullptr), make_layout(make_shape(VARLEN, VARLEN), make_stride(VARLEN, _1{}))), select<0, 1>(BLK_MNK{}))(make_coord(_, VARLEN), make_coord(_, VARLEN)))",
             ),
             "val_sidx": GmemInout(
@@ -197,7 +197,7 @@ def acc():
                 idx=1, name="i",
                 tensor=NvOpTensor(
                     shape=Shape(), mem="rmem", dtype="int",
-                    source="blockIdx.x",
+                    source="blockIdx.y",
                 ),
             ),
         ],

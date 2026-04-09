@@ -538,7 +538,8 @@ public:
     CUTE_DEVICE void f(Tensor_i0 val_sidx, TI1 i) {
         
         if (threadIdx.x == 0) {
-            tile_sidx(0, buf_idx) = val_sidx(i);
+            __pipeline_memcpy_async((int*)&tile_sidx(0, buf_idx), (int*)&val_sidx(i), sizeof(int));
+            // tile_sidx(0, buf_idx) = val_sidx(i);
         }
         
     }
@@ -2018,7 +2019,7 @@ __global__ void bitbsr_spmm_kernel_fp16fp16fp32(
     };
     using G2sSparseMcoValLoadOp_t = G2sSparseMcoValLoadOp<Int<2>, BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK>;
     using G2sSparseMcoValLoadOp_layout_o0 = typename G2sSparseMcoValLoadOp_t::Layout_o0;
-    __shared__ half G2sSparseMcoValLoadOp_tensor_o0[cosize_v<G2sSparseMcoValLoadOp_layout_o0>];
+    __shared__ __align__(16) half G2sSparseMcoValLoadOp_tensor_o0[cosize_v<G2sSparseMcoValLoadOp_layout_o0>];
     G2sSparseMcoValLoadOp_t G2sSparseMcoValLoadOp_v{
         tid, lid, wid, 
         G2sSparseMcoValLoadOp_tensor_o0, 

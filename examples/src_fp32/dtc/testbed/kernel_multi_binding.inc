@@ -2015,6 +2015,7 @@ public:
         CUTE_STATIC_ASSERT_V((get<0>(get<1>(shape_i0)) == size<0>(get<1>(shape(REGC)))));
         CUTE_STATIC_ASSERT_V((get<1>(get<1>(shape_i0)) == size<1>(get<1>(shape(REGC)))));
         //! write back
+        // assert(bind_id == blockIdx.x);
         for (int i_tileN = 0; i_tileN < get<1>(BLK_MNK{}) / 8; i_tileN++) {
             int row = lid / 4;
             int col = i_tileN * 8 + lid % 4 * 2;

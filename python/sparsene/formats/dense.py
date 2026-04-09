@@ -1,19 +1,20 @@
 from sparsene.format.format import Direction, Format, df_axis
 from copy import deepcopy
+from sympy import Expr, Symbol, Number
 
 DENSE_FORMAT = Format(
     name="dense",
     axes=[
-        df_axis("X", Direction.ROW, length="M"),
-        df_axis("Y", Direction.COL, length="K"),
+        df_axis("X", Direction.ROW, length=Symbol("M")),
+        df_axis("Y", Direction.COL, length=Symbol("K")),
     ],
 )
 
 DENSE_T_FORMAT = Format(
     name="dense_T",
     axes=[
-        df_axis("Y", Direction.COL, length="K"),
-        df_axis("X", Direction.ROW, length="M"),
+        df_axis("Y", Direction.COL, length=Symbol("K")),
+        df_axis("X", Direction.ROW, length=Symbol("M")),
     ],
 )
 

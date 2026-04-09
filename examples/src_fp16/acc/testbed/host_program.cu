@@ -51,7 +51,7 @@ void ncu_test(int threadblock_num_x,
               dtypeMask* dval_mco_mask,
               int* dval_mco_off,
               dtypeA* dval_mco_val) {
-    dim3 grid(threadblock_num_y, threadblock_num_x);
+    dim3 grid(threadblock_num_x, threadblock_num_y);
     dim3 block(thread_num);
 
     constexpr auto blk_mnk = make_shape(Int<Tile_M>{}, Int<Tile_N>{}, Int<Tile_K>{});

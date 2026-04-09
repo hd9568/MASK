@@ -694,3 +694,42 @@ class NvOpProgram:
         self.gmem_inouts[gmem_inout.name] = gmem_inout
         self.gmem_tensor_ops[gmem_inout.name] = GmemTensorNvOp(gmem_inout)
         self.append_op(self.gmem_tensor_ops[gmem_inout.name])
+
+    def dump_tree(
+        self,
+        *,
+        indent_size: int = 2,
+        show_io: bool = True,
+        show_impl: bool = False,
+        impl_max_lines: int = 8,
+        debug_indent: bool = False,
+    ) -> str:
+        from sparsene.op_gen.nvir.printer import NvProgramPrinter
+
+        printer = NvProgramPrinter(
+            indent_size=indent_size,
+            show_io=show_io,
+            show_impl=show_impl,
+            impl_max_lines=impl_max_lines,
+            debug_indent=debug_indent,
+        )
+        return printer.dump_program(self)
+
+    def print_tree(
+        self,
+        *,
+        indent_size: int = 2,
+        show_io: bool = True,
+        show_impl: bool = False,
+        impl_max_lines: int = 8,
+        debug_indent: bool = False,
+    ) -> None:
+        print(
+            self.dump_tree(
+                indent_size=indent_size,
+                show_io=show_io,
+                show_impl=show_impl,
+                impl_max_lines=impl_max_lines,
+                debug_indent=debug_indent,
+            )
+        )
