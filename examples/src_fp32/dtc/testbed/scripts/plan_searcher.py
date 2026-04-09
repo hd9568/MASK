@@ -24,7 +24,7 @@ from sparsene.op_gen.nvir.pipeline.pipeline_planner import (
     NeighborDependencyValidator,
 )
 from sparsene.op_gen.nvir.opgraph.graph import construct_graph_from_op_sequence
-from sparsene.op_gen.nvir.opgraph.graphviz_visualizer import visualize_op_graph
+# from sparsene.op_gen.nvir.opgraph.graphviz_visualizer import visualize_op_graph
 
 def dtc():
     dtc_program = NvOpProgram(
@@ -574,9 +574,12 @@ __syncthreads();
 for (int i_restore = lid; i_restore < nnz_num; i_restore += 32) {
     float value = tileA_coo_val(i_restore);
     int idx = tileA_coo_idx(i_restore);
-    int row = idx / 8;
-    int col = idx % 8;
-    tile_coo_restore_val_block(row, col, buf_idx) = value;
+    //! without manual swizzle
+    // int row = idx / 8;
+    // int col = idx % 8;
+    // tile_coo_restore_val_block(row, col, buf_idx) = value;
+    //! manual swizzle
+    *((float*)tile_coo_restore_val_block(_, _, buf_idx).data().get() + idx) = value;
 }"""
         ),
         mem_type=("s", "s"),
@@ -815,7 +818,7 @@ if __name__ == "__main__":
     dtc_main_loop_op, dtc_program = dtc()
 
     op_graph = construct_graph_from_op_sequence(dtc_main_loop_op.body)
-    visualize_op_graph(op_graph, "dtc.dot")
+    # visualize_op_graph(op_graph, "dtc.dot")
 
     validator = NeighborDependencyValidator(op_graph)
     plans = enumerate_pipeline_plans(
