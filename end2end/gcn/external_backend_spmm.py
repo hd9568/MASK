@@ -173,6 +173,8 @@ class DTCBackend(BackendBase):
         self._preprocess_func: Optional[Callable[..., Any]] = None
         self._run_func_default: Optional[Callable[..., Any]] = None
         self._run_func_balance: Optional[Callable[..., Any]] = None
+        self._run_func_default_name: Optional[str] = None
+        self._run_func_balance_name: Optional[str] = None
         self._source_root = Path(
             os.getenv(
                 "SPARSENE_DTC_SOURCE_ROOT",
@@ -268,6 +270,8 @@ class DTCBackend(BackendBase):
         self._preprocess_func = None
         self._run_func_default = None
         self._run_func_balance = None
+        self._run_func_default_name = None
+        self._run_func_balance_name = None
         if self._module is None:
             return
 
@@ -277,7 +281,7 @@ class DTCBackend(BackendBase):
             "multi_binding": ("preprocess_gpu_multi_binding", "preprocess_gpu"),
         }
         run_candidates: Dict[str, Tuple[str, ...]] = {
-            "base": ("run_DTCSpMM",),
+            "base": ("DTCSpMM_gcn", "run_DTCSpMM"),
             "strict_lb": ("run_DTCSpMM_strict_lb", "run_DTCSpMM"),
             "multi_binding": ("run_DTCSpMM_multi_binding", "run_DTCSpMM"),
         }
@@ -309,10 +313,12 @@ class DTCBackend(BackendBase):
         run_name = self._find_first_attr(self._module, run_candidates[variant])
         if run_name is not None:
             self._run_func_default = getattr(self._module, run_name)
+            self._run_func_default_name = run_name
 
         run_balance_name = self._find_first_attr(self._module, run_balance_candidates[variant])
         if run_balance_name is not None:
             self._run_func_balance = getattr(self._module, run_balance_name)
+            self._run_func_balance_name = run_balance_name
 
     def _load_module(self) -> None:
         self._try_preload_shared_libs()
@@ -412,6 +418,7 @@ class DTCBackend(BackendBase):
         dense_in, dense_out_cols = _pad_dense_to_tile(dense, tile_b)
 
         run_func = self._run_func_balance if use_balance else self._run_func_default
+        run_func_name = self._run_func_balance_name if use_balance else self._run_func_default_name
         if run_func is None:
             return _fallback_or_raise(
                 f"No callable DTC run function for variant={self.variant}",
@@ -431,6 +438,16 @@ class DTCBackend(BackendBase):
                     sparse_a_to_x_idx,
                     int(num_rows),
                     exeplan,
+                )
+            elif run_func_name == "DTCSpMM_gcn":
+                out = run_func(
+                    dense_in,
+                    row_window_offset,
+                    tcblocktile_id,
+                    tcblock_offset,
+                    sparse_a_to_x_idx,
+                    int(num_rows),
+                    int(colind.numel()),
                 )
             else:
                 out = run_func(
@@ -506,11 +523,35 @@ class SRBCRSBackend(BackendBase):
             return "base"
         if v in {"16x8", "16_8", "srbcrs_16x8", "sr_bcrs_16x8"}:
             return "16x8"
+        if v in {"multi_bind", "multi-binding", "multi_binding", "multibind"}:
+            return "multi_binding"
+        if v in {"strict_lb", "strict-lb", "strictlb"}:
+            return "strict_lb"
+        if v in {
+            "16x8_multi_bind",
+            "16x8_multibind",
+            "16x8_multi_binding",
+            "multi_bind_16x8",
+            "multi_binding_16x8",
+            "multibind_16x8",
+            "srbcrs_16x8_multi_bind",
+            "sr_bcrs_16x8_multi_bind",
+        }:
+            return "16x8_multi_binding"
+        if v in {
+            "16x8_strict_lb",
+            "16x8_strictlb",
+            "strict_lb_16x8",
+            "strictlb_16x8",
+            "srbcrs_16x8_strict_lb",
+            "sr_bcrs_16x8_strict_lb",
+        }:
+            return "16x8_strict_lb"
         return v
 
     @staticmethod
     def _variant_tile_shape(variant: str) -> Tuple[int, int]:
-        if variant == "16x8":
+        if variant in {"16x8", "16x8_multi_binding", "16x8_strict_lb"}:
             return 16, 8
         return 32, 32
 
@@ -598,14 +639,110 @@ class SRBCRSBackend(BackendBase):
         preprocess_candidates: Dict[str, Tuple[str, ...]] = {
             "base": ("preprocess_gpu",),
             "16x8": ("preprocess_gpu_16x8", "preprocess_gpu"),
+            "multi_binding": (
+                "preprocess_gpu_multi_binding",
+                "preprocess_gpu_multi_bind",
+                "preprocess_gpu",
+            ),
+            "strict_lb": (
+                "preprocess_gpu_strict_lb",
+                "preprocess_gpu",
+            ),
+            "16x8_multi_binding": (
+                "preprocess_gpu_16x8_multi_binding",
+                "preprocess_gpu_16x8_multi_bind",
+                "preprocess_gpu_multi_binding_16x8",
+                "preprocess_gpu_multi_bind_16x8",
+                "preprocess_gpu_16x8",
+                "preprocess_gpu_multi_binding",
+                "preprocess_gpu_multi_bind",
+                "preprocess_gpu",
+            ),
+            "16x8_strict_lb": (
+                "preprocess_gpu_16x8_strict_lb",
+                "preprocess_gpu_strict_lb_16x8",
+                "preprocess_gpu_16x8",
+                "preprocess_gpu_strict_lb",
+                "preprocess_gpu",
+            ),
         }
         run_candidates: Dict[str, Tuple[str, ...]] = {
             "base": ("run_SRBCRS",),
             "16x8": ("run_SRBCRS_16x8", "run_SRBCRS"),
+            "multi_binding": (
+                "run_SRBCRS_multi_binding",
+                "run_SRBCRS_multi_bind",
+                "run_SRBCRS",
+            ),
+            "strict_lb": (
+                "run_SRBCRS_strict_lb",
+                "run_SRBCRS",
+            ),
+            "16x8_multi_binding": (
+                "run_SRBCRS_16x8_multi_binding",
+                "run_SRBCRS_16x8_multi_bind",
+                "run_SRBCRS_multi_binding_16x8",
+                "run_SRBCRS_multi_bind_16x8",
+                "run_SRBCRS_16x8",
+                "run_SRBCRS_multi_binding",
+                "run_SRBCRS_multi_bind",
+                "run_SRBCRS",
+            ),
+            "16x8_strict_lb": (
+                "run_SRBCRS_16x8_strict_lb",
+                "run_SRBCRS_strict_lb_16x8",
+                "run_SRBCRS_16x8",
+                "run_SRBCRS_strict_lb",
+                "run_SRBCRS",
+            ),
         }
         run_balance_candidates: Dict[str, Tuple[str, ...]] = {
             "base": ("run_SRBCRS_balance", "run_SRBCRS"),
             "16x8": ("run_SRBCRS_16x8_balance", "run_SRBCRS_16x8", "run_SRBCRS_balance", "run_SRBCRS"),
+            "multi_binding": (
+                "run_SRBCRS_multi_binding_balance",
+                "run_SRBCRS_multi_bind_balance",
+                "run_SRBCRS_multi_binding",
+                "run_SRBCRS_multi_bind",
+                "run_SRBCRS_balance",
+                "run_SRBCRS",
+            ),
+            "strict_lb": (
+                "run_SRBCRS_strict_lb_balance",
+                "run_SRBCRS_strict_lb",
+                "run_SRBCRS_balance",
+                "run_SRBCRS",
+            ),
+            "16x8_multi_binding": (
+                "run_SRBCRS_16x8_multi_binding_balance",
+                "run_SRBCRS_16x8_multi_bind_balance",
+                "run_SRBCRS_multi_binding_16x8_balance",
+                "run_SRBCRS_multi_bind_16x8_balance",
+                "run_SRBCRS_16x8_multi_binding",
+                "run_SRBCRS_16x8_multi_bind",
+                "run_SRBCRS_multi_binding_16x8",
+                "run_SRBCRS_multi_bind_16x8",
+                "run_SRBCRS_16x8_balance",
+                "run_SRBCRS_16x8",
+                "run_SRBCRS_multi_binding_balance",
+                "run_SRBCRS_multi_bind_balance",
+                "run_SRBCRS_multi_binding",
+                "run_SRBCRS_multi_bind",
+                "run_SRBCRS_balance",
+                "run_SRBCRS",
+            ),
+            "16x8_strict_lb": (
+                "run_SRBCRS_16x8_strict_lb_balance",
+                "run_SRBCRS_strict_lb_16x8_balance",
+                "run_SRBCRS_16x8_strict_lb",
+                "run_SRBCRS_strict_lb_16x8",
+                "run_SRBCRS_16x8_balance",
+                "run_SRBCRS_16x8",
+                "run_SRBCRS_strict_lb_balance",
+                "run_SRBCRS_strict_lb",
+                "run_SRBCRS_balance",
+                "run_SRBCRS",
+            ),
         }
 
         variant = self.variant if self.variant in preprocess_candidates else "base"
@@ -792,7 +929,14 @@ class SRBCRSBackend(BackendBase):
         feat_dim: int,
         num_nodes_ori: int,
     ) -> Tensor:
-        if self.variant not in {"base", "16x8"}:
+        if self.variant not in {
+            "base",
+            "16x8",
+            "multi_binding",
+            "strict_lb",
+            "16x8_multi_binding",
+            "16x8_strict_lb",
+        }:
             _warn_once(f"Unknown SR-BCRS variant={self.variant}, fallback to base dispatch")
         return self._run_variant(rowptr, colind, values, dense, num_rows)
 

@@ -222,12 +222,14 @@ python3 gcn/eva_gcn_sparsene.py \
 
 ## All-26-Matrix Commands (DTC / DTC multi-bind / DTC strict-lb / SR-BCRS / SR-BCRS-16x8 / FlashSparse)
 
-Use the 26 matrices listed in `/workspace/scripts/sparsene_test_mtx_list.txt` directly:
+Use the matrix list in `/workspace/scripts/sparsene_test_mtx_list.txt` directly.
+
+For current DTC tests, it is recommended to skip `ASIC_680k` first (to avoid the known slow/unstable case while validating other datasets):
 
 ```bash
 cd /workspace/sparsene/end2end
-DATASETS=$(sed -E 's#.*/##; s#\.mtx$##' /workspace/scripts/sparsene_test_mtx_list.txt | paste -sd, -)
-echo "$DATASETS" | tr ',' '\n' | wc -l  # expect: 26
+DATASETS=$(sed -E 's#.*/##; s#\.mtx$##' /workspace/scripts/sparsene_test_mtx_list.txt | grep -v '^ASIC_680k$' | paste -sd, -)
+echo "$DATASETS" | tr ',' '\n' | wc -l  # expect: 25
 ```
 
 change the dataset dir: from `/workspace/baselines/dtc_datasets` to `/workspace/scripts/selected_npz` 
@@ -236,7 +238,7 @@ change the dataset dir: from `/workspace/baselines/dtc_datasets` to `/workspace/
 
 ```bash
 cd /workspace/sparsene/end2end
-DATASETS=$(sed -E 's#.*/##; s#\.mtx$##' /workspace/scripts/sparsene_test_mtx_list.txt | paste -sd, -)
+DATASETS=$(sed -E 's#.*/##; s#\.mtx$##' /workspace/scripts/sparsene_test_mtx_list.txt | grep -v '^ASIC_680k$' | paste -sd, -)
 SPARSENE_SPMM_BACKEND=dtc \
 SPARSENE_DTC_VARIANT=base \
 SPARSENE_DTC_SOURCE_ROOT=/workspace/sparsene/examples/src_fp32/dtc/testbed \
@@ -268,7 +270,7 @@ python3 gcn/eva_gcn_sparsene.py \
 
 ```bash
 cd /workspace/sparsene/end2end
-DATASETS=$(sed -E 's#.*/##; s#\.mtx$##' /workspace/scripts/sparsene_test_mtx_list.txt | paste -sd, -)
+DATASETS=$(sed -E 's#.*/##; s#\.mtx$##' /workspace/scripts/sparsene_test_mtx_list.txt | grep -v '^ASIC_680k$' | paste -sd, -)
 SPARSENE_SPMM_BACKEND=dtc \
 SPARSENE_DTC_VARIANT=multi_binding \
 SPARSENE_DTC_SOURCE_ROOT=/workspace/sparsene/examples/src_fp32/dtc/testbed \
@@ -304,7 +306,7 @@ Use isolated per-dataset processes and then merge CSV rows:
 ```bash
 cd /workspace/sparsene/end2end
 set -euo pipefail
-mapfile -t DATASETS_ARR < <(sed -E 's#.*/##; s#\.mtx$##' /workspace/scripts/sparsene_test_mtx_list.txt)
+mapfile -t DATASETS_ARR < <(sed -E 's#.*/##; s#\.mtx$##' /workspace/scripts/sparsene_test_mtx_list.txt | grep -v '^ASIC_680k$')
 
 rm -f result/_tmp_dtc_strict_lb_*.csv result/gcn_e2e_dtc_strict_lb_26.csv
 
@@ -457,6 +459,77 @@ python3 gcn/eva_gcn_sparsene.py \
     --external-module external_backend_spmm \
     --external-function srbcrs_spmm \
     --output-csv result/gcn_e2e_srbcrs_16x8_26_128-512.csv
+```
+
+### 5.1) SR-BCRS 16x8 multi-bind / strict-lb (all 26)
+
+`external_backend_spmm` now accepts the following SR-BCRS variants for end2end routing:
+
+- `SPARSENE_SRBCRS_VARIANT=16x8_multi_bind`
+- `SPARSENE_SRBCRS_VARIANT=16x8_strict_lb`
+
+Example (16x8 multi-bind):
+
+```bash
+cd /workspace/sparsene/end2end
+DATASETS=$(sed -E 's#.*/##; s#\.mtx$##' /workspace/scripts/sparsene_test_mtx_list.txt | paste -sd, -)
+SPARSENE_SPMM_BACKEND=sr_bcrs \
+SPARSENE_SRBCRS_VARIANT=16x8_multi_bind \
+SPARSENE_SRBCRS_SOURCE_ROOT=/workspace/sparsene/examples/src_fp32/sr_bcrs/testbed \
+SPARSENE_SRBCRS_MODULE_NAME=SRBCRSSpMM \
+SPARSENE_SRBCRS_ALLOW_NON_SRC_FP32=0 \
+SPARSENE_ALLOW_CSR_FALLBACK=0 \
+SPARSENE_SRBCRS_TILE_B=auto \
+python3 gcn/eva_gcn_sparsene.py \
+    --dataset-dir /workspace/scripts/selected_npz \
+    --datasets "$DATASETS" \
+    --hidden-list 128 \
+    --layer-list 3 \
+    --epochs 100 \
+    --warmup-epochs 30 \
+    --repeat-runs 2 \
+    --segment-timing 1 \
+    --exclude-preprocess 1 \
+    --backend-warmup-iters 2 \
+    --feature-dim 128 \
+    --num-classes 16 \
+    --device cuda:0 \
+    --backend external \
+    --external-module external_backend_spmm \
+    --external-function srbcrs_spmm \
+    --output-csv result/gcn_e2e_srbcrs_16x8_multibind_26_128-512.csv
+```
+
+Example (16x8 strict-lb):
+
+```bash
+cd /workspace/sparsene/end2end
+DATASETS=$(sed -E 's#.*/##; s#\.mtx$##' /workspace/scripts/sparsene_test_mtx_list.txt | paste -sd, -)
+SPARSENE_SPMM_BACKEND=sr_bcrs \
+SPARSENE_SRBCRS_VARIANT=16x8_strict_lb \
+SPARSENE_SRBCRS_SOURCE_ROOT=/workspace/sparsene/examples/src_fp32/sr_bcrs/testbed \
+SPARSENE_SRBCRS_MODULE_NAME=SRBCRSSpMM \
+SPARSENE_SRBCRS_ALLOW_NON_SRC_FP32=0 \
+SPARSENE_ALLOW_CSR_FALLBACK=0 \
+SPARSENE_SRBCRS_TILE_B=auto \
+python3 gcn/eva_gcn_sparsene.py \
+    --dataset-dir /workspace/scripts/selected_npz \
+    --datasets "$DATASETS" \
+    --hidden-list 128 \
+    --layer-list 3 \
+    --epochs 100 \
+    --warmup-epochs 30 \
+    --repeat-runs 2 \
+    --segment-timing 1 \
+    --exclude-preprocess 1 \
+    --backend-warmup-iters 2 \
+    --feature-dim 128 \
+    --num-classes 16 \
+    --device cuda:0 \
+    --backend external \
+    --external-module external_backend_spmm \
+    --external-function srbcrs_spmm \
+    --output-csv result/gcn_e2e_srbcrs_16x8_strict_lb_26_128.csv
 ```
 
 **SRBCRS 16x8 nsys**
@@ -652,4 +725,166 @@ python3 gcn/eva_gcn_sparsene.py \
     --external-module external_backend_spmm \
     --external-function flashsparse_spmm \
     --output-csv result/gcn_e2e_flashsparse_stable_pdb1HYS.csv
+```
+
+### DTC-SpMM (Origin Paper)
+
+Use the original ASPLOS'24 DTC extension as baseline in current end2end pipeline.
+
+Build once:
+
+```bash
+cd /workspace/baselines/DTC-SpMM_ASPLOS24
+source init_dtc.sh
+source third_party/init_sputnik.sh
+# First-time dependency build (skip if libs already exist):
+# source third_party/build_sputnik.sh
+cd DTC-SpMM
+python3 setup.py build_ext --inplace
+```
+
+Run all datasets except `ASIC_680k` (recommended for current DTC origin test):
+
+```bash
+cd /workspace/sparsene/end2end
+DATASETS=$(sed -E 's#.*/##; s#\.mtx$##' /workspace/scripts/sparsene_test_mtx_list.txt | grep -v '^ASIC_680k$' | paste -sd, -)
+SPARSENE_SPMM_BACKEND=dtc \
+SPARSENE_DTC_VARIANT=base \
+SPARSENE_DTC_SOURCE_ROOT=/workspace/baselines/DTC-SpMM_ASPLOS24/DTC-SpMM \
+SPARSENE_DTC_MODULE_NAME=DTCSpMM \
+SPARSENE_DTC_ALLOW_NON_SRC_FP32=1 \
+SPARSENE_ALLOW_CSR_FALLBACK=0 \
+SPARSENE_DTC_TILE_B=auto \
+python3 gcn/eva_gcn_sparsene.py \
+    --dataset-dir /workspace/scripts/selected_npz \
+    --datasets "$DATASETS" \
+    --hidden-list 128 \
+    --layer-list 3 \
+    --epochs 100 \
+    --warmup-epochs 30 \
+    --repeat-runs 2 \
+    --segment-timing 1 \
+    --exclude-preprocess 1 \
+    --backend-warmup-iters 2 \
+    --feature-dim 128 \
+    --num-classes 16 \
+    --device cuda:0 \
+    --backend external \
+    --external-module external_backend_spmm \
+    --external-function dtc_spmm \
+    --output-csv result/gcn_e2e_dtc_origin_26_n128.csv
+```
+
+### PyG
+
+Install dependencies if needed:
+
+```bash
+pip install torch_geometric
+```
+
+Run all 26 datasets with native PyG layers:
+
+```bash
+cd /workspace/sparsene/end2end
+DATASETS=$(sed -E 's#.*/##; s#\.mtx$##' /workspace/scripts/sparsene_test_mtx_list.txt | paste -sd, -)
+python3 gcn/eva_gcn_sparsene.py \
+    --dataset-dir /workspace/scripts/selected_npz \
+    --datasets "$DATASETS" \
+    --hidden-list 128 \
+    --layer-list 3 \
+    --epochs 100 \
+    --warmup-epochs 30 \
+    --repeat-runs 2 \
+    --segment-timing 1 \
+    --exclude-preprocess 0 \
+    --backend-warmup-iters 0 \
+    --feature-dim 128 \
+    --num-classes 16 \
+    --device cuda:0 \
+    --backend pyg \
+    --output-csv result/gcn_e2e_pyg_26_n128.csv
+```
+
+### DGL
+
+Recommended: use a dedicated venv for CUDA DGL (validated in this workspace).
+
+```bash
+python3 -m pip install -U virtualenv
+python3 -m virtualenv /workspace/venv_dgl
+source /workspace/venv_dgl/bin/activate
+
+# Install a CUDA-enabled PyTorch stack first.
+python -m pip install torch==2.4.0+cu121 torchvision==0.19.0+cu121 torchaudio==2.4.0+cu121 --index-url https://download.pytorch.org/whl/cu121
+
+# Install CUDA DGL (nightly wheel index used by current container setup).
+python -m pip install --pre dgl -f https://data.dgl.ai/wheels-test/torch-2.4/cu124/repo.html
+```
+
+Verify DGL CUDA support first (required for `--device cuda:0`):
+
+```bash
+/workspace/venv_dgl/bin/python - <<'PY'
+import torch
+import dgl
+import dgl.nn.pytorch as dglnn
+
+print('torch:', torch.__version__, 'cuda:', torch.version.cuda, 'cuda_available:', torch.cuda.is_available())
+print('dgl:', dgl.__version__)
+
+dev = torch.device('cuda:0')
+g = dgl.graph((torch.tensor([0], device=dev), torch.tensor([0], device=dev)), num_nodes=1, device=dev)
+x = torch.ones((1, 1), device=dev)
+conv = dglnn.GraphConv(1, 1, norm='none', weight=False, bias=False, allow_zero_in_degree=True).to(dev)
+_ = conv(g, x)
+print('DGL CUDA check: OK')
+PY
+```
+
+If it fails with messages like `Device API cuda is not enabled` or `SpMM does not support cuda device`, your current DGL is CPU-only. Install a CUDA-enabled DGL build matching your CUDA/PyTorch setup, or run DGL baseline with `--device cpu`.
+
+Quick smoke test (DD, 1 epoch):
+
+```bash
+cd /workspace/sparsene/end2end
+/workspace/venv_dgl/bin/python gcn/eva_gcn_sparsene.py \
+    --dataset-dir /workspace/scripts/selected_npz \
+    --datasets DD \
+    --hidden-list 128 \
+    --layer-list 3 \
+    --epochs 1 \
+    --warmup-epochs 0 \
+    --repeat-runs 1 \
+    --segment-timing 1 \
+    --exclude-preprocess 0 \
+    --backend-warmup-iters 0 \
+    --feature-dim 128 \
+    --num-classes 16 \
+    --device cuda:0 \
+    --backend dgl \
+    --output-csv result/_tmp_dgl_cuda_venv_smoke.csv
+```
+
+Run all 26 datasets with native DGL layers:
+
+```bash
+cd /workspace/sparsene/end2end
+DATASETS=$(sed -E 's#.*/##; s#\.mtx$##' /workspace/scripts/sparsene_test_mtx_list.txt | paste -sd, -)
+/workspace/venv_dgl/bin/python gcn/eva_gcn_sparsene.py \
+    --dataset-dir /workspace/scripts/selected_npz \
+    --datasets "$DATASETS" \
+    --hidden-list 128 \
+    --layer-list 3 \
+    --epochs 100 \
+    --warmup-epochs 30 \
+    --repeat-runs 2 \
+    --segment-timing 1 \
+    --exclude-preprocess 0 \
+    --backend-warmup-iters 0 \
+    --feature-dim 128 \
+    --num-classes 16 \
+    --device cuda:0 \
+    --backend dgl \
+    --output-csv result/gcn_e2e_dgl_26_n128.csv
 ```

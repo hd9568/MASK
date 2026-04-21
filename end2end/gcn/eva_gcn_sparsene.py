@@ -22,7 +22,7 @@ import sys
 import time
 import weakref
 from dataclasses import dataclass
-from typing import Callable, Dict, List, Optional, Sequence, Tuple, cast
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, cast
 
 import numpy as np
 import torch
@@ -31,6 +31,8 @@ import torch.nn.functional as F
 
 
 Tensor = torch.Tensor
+
+_DGL_CUDA_READY_CACHE: Dict[str, bool] = {}
 
 
 @dataclass
@@ -44,6 +46,8 @@ class GraphData:
     rowptr_t: Tensor
     colind_t: Tensor
     values_t: Tensor
+    edge_index: Tensor
+    framework_graph: Optional[Any]
     x: Tensor
     y: Tensor
 
@@ -163,6 +167,7 @@ def load_graph_data(
     gen.manual_seed(seed)
     x = torch.randn((num_nodes, feature_dim), generator=gen, dtype=torch.float32)
     y = torch.randint(0, num_classes, (num_nodes,), generator=gen, dtype=torch.long)
+    edge_index = torch.tensor(np.stack([src, dst], axis=0), dtype=torch.long, device=device)
 
     return GraphData(
         name=dataset_name,
@@ -174,6 +179,8 @@ def load_graph_data(
         rowptr_t=a_t_csr.crow_indices().to(device),
         colind_t=a_t_csr.col_indices().to(device),
         values_t=a_t_csr.values().to(device),
+        edge_index=edge_index,
+        framework_graph=None,
         x=x.to(device),
         y=y.to(device),
     )
@@ -336,6 +343,208 @@ class ReplaceableGCN(nn.Module):
         return F.log_softmax(x, dim=1)
 
 
+class PyGGCN(nn.Module):
+    def __init__(
+        self,
+        in_dim: int,
+        hidden_dim: int,
+        out_dim: int,
+        num_layers: int,
+        dropout: float,
+    ) -> None:
+        super().__init__()
+        if num_layers < 2:
+            raise ValueError("num_layers must be >= 2")
+        try:
+            from torch_geometric.nn import GCNConv  # type: ignore
+        except Exception as exc:
+            raise RuntimeError(
+                "PyG backend requires torch_geometric. "
+                "Install it in the current Python environment first."
+            ) from exc
+
+        self.conv_in = GCNConv(
+            in_dim,
+            hidden_dim,
+            add_self_loops=False,
+            normalize=False,
+            bias=False,
+        )
+        self.hidden = nn.ModuleList(
+            [
+                GCNConv(
+                    hidden_dim,
+                    hidden_dim,
+                    add_self_loops=False,
+                    normalize=False,
+                    bias=False,
+                )
+                for _ in range(num_layers - 2)
+            ]
+        )
+        self.conv_out = GCNConv(
+            hidden_dim,
+            out_dim,
+            add_self_loops=False,
+            normalize=False,
+            bias=False,
+        )
+        self.dropout = float(dropout)
+
+    def forward(self, data: GraphData, backend: SpMMBackend) -> Tensor:
+        _ = backend
+        edge_index = data.edge_index
+        x = F.relu(self.conv_in(data.x, edge_index))
+        x = F.dropout(x, p=self.dropout, training=self.training)
+        for conv in self.hidden:
+            x = F.relu(conv(x, edge_index))
+            x = F.dropout(x, p=self.dropout, training=self.training)
+        x = self.conv_out(x, edge_index)
+        return F.log_softmax(x, dim=1)
+
+
+class DGLGCN(nn.Module):
+    def __init__(
+        self,
+        in_dim: int,
+        hidden_dim: int,
+        out_dim: int,
+        num_layers: int,
+        dropout: float,
+    ) -> None:
+        super().__init__()
+        if num_layers < 2:
+            raise ValueError("num_layers must be >= 2")
+        try:
+            import dgl.nn.pytorch as dglnn  # type: ignore
+        except Exception as exc:
+            raise RuntimeError(
+                "DGL backend requires dgl. Install it in the current Python environment first."
+            ) from exc
+
+        self.conv_in = dglnn.GraphConv(
+            in_dim,
+            hidden_dim,
+            norm="none",
+            weight=True,
+            bias=False,
+            allow_zero_in_degree=True,
+        )
+        self.hidden = nn.ModuleList(
+            [
+                dglnn.GraphConv(
+                    hidden_dim,
+                    hidden_dim,
+                    norm="none",
+                    weight=True,
+                    bias=False,
+                    allow_zero_in_degree=True,
+                )
+                for _ in range(num_layers - 2)
+            ]
+        )
+        self.conv_out = dglnn.GraphConv(
+            hidden_dim,
+            out_dim,
+            norm="none",
+            weight=True,
+            bias=False,
+            allow_zero_in_degree=True,
+        )
+        self.dropout = float(dropout)
+
+    def forward(self, data: GraphData, backend: SpMMBackend) -> Tensor:
+        _ = backend
+        if data.framework_graph is None:
+            raise RuntimeError("DGL graph is not prepared")
+        graph = data.framework_graph
+        x = F.relu(self.conv_in(graph, data.x))
+        x = F.dropout(x, p=self.dropout, training=self.training)
+        for conv in self.hidden:
+            x = F.relu(conv(graph, x))
+            x = F.dropout(x, p=self.dropout, training=self.training)
+        x = self.conv_out(graph, x)
+        return F.log_softmax(x, dim=1)
+
+
+def _prepare_framework_graph(data: GraphData, backend_name: str, device: torch.device) -> None:
+    if backend_name != "dgl":
+        return
+
+    try:
+        import dgl  # type: ignore
+    except Exception as exc:
+        raise RuntimeError(
+            "DGL backend requires dgl. Install it in the current Python environment first."
+        ) from exc
+
+    if device.type == "cuda":
+        cache_key = str(device)
+        if not _DGL_CUDA_READY_CACHE.get(cache_key, False):
+            try:
+                import dgl.nn.pytorch as dglnn  # type: ignore
+
+                probe_src = torch.tensor([0], dtype=torch.int64, device=device)
+                probe_dst = torch.tensor([0], dtype=torch.int64, device=device)
+                probe_graph = dgl.graph((probe_src, probe_dst), num_nodes=1, device=device)
+                probe_x = torch.ones((1, 1), dtype=torch.float32, device=device)
+                probe_conv = dglnn.GraphConv(
+                    1,
+                    1,
+                    norm="none",
+                    weight=False,
+                    bias=False,
+                    allow_zero_in_degree=True,
+                ).to(device)
+                _ = probe_conv(probe_graph, probe_x)
+                _DGL_CUDA_READY_CACHE[cache_key] = True
+            except Exception as exc:
+                raise RuntimeError(
+                    "DGL CUDA backend is unavailable in the current environment. "
+                    "Current dgl is likely CPU-only. Install a CUDA-enabled DGL build, "
+                    "or run with --device cpu for DGL backend."
+                ) from exc
+
+    src = data.edge_index[0].to(torch.int64)
+    dst = data.edge_index[1].to(torch.int64)
+    data.framework_graph = dgl.graph((src, dst), num_nodes=data.num_nodes, device=device)
+
+
+def _build_model(
+    backend_name: str,
+    in_dim: int,
+    hidden_dim: int,
+    out_dim: int,
+    num_layers: int,
+    dropout: float,
+) -> nn.Module:
+    if backend_name in {"torch", "external"}:
+        return ReplaceableGCN(
+            in_dim=in_dim,
+            hidden_dim=hidden_dim,
+            out_dim=out_dim,
+            num_layers=num_layers,
+            dropout=dropout,
+        )
+    if backend_name == "pyg":
+        return PyGGCN(
+            in_dim=in_dim,
+            hidden_dim=hidden_dim,
+            out_dim=out_dim,
+            num_layers=num_layers,
+            dropout=dropout,
+        )
+    if backend_name == "dgl":
+        return DGLGCN(
+            in_dim=in_dim,
+            hidden_dim=hidden_dim,
+            out_dim=out_dim,
+            num_layers=num_layers,
+            dropout=dropout,
+        )
+    raise ValueError(f"Unsupported model backend: {backend_name}")
+
+
 def _sync_if_cuda(device: torch.device) -> None:
     if device.type == "cuda":
         torch.cuda.synchronize(device)
@@ -388,7 +597,7 @@ def _prewarm_backend(
 
 
 def _run_one_epoch(
-    model: ReplaceableGCN,
+    model: nn.Module,
     data: GraphData,
     backend: SpMMBackend,
     optimizer: torch.optim.Optimizer,
@@ -491,7 +700,7 @@ def _run_one_epoch(
 
 
 def train_timed(
-    model: ReplaceableGCN,
+    model: nn.Module,
     data: GraphData,
     backend: SpMMBackend,
     epochs: int,
@@ -756,7 +965,12 @@ def main() -> None:
     parser.add_argument("--weight-decay", type=float, default=5e-4)
     parser.add_argument("--seed", type=int, default=1234)
     parser.add_argument("--device", type=str, default="cuda:0")
-    parser.add_argument("--backend", type=str, choices=["torch", "external"], default="torch")
+    parser.add_argument(
+        "--backend",
+        type=str,
+        choices=["torch", "external", "pyg", "dgl"],
+        default="torch",
+    )
     parser.add_argument("--external-module", type=str, default="")
     parser.add_argument("--external-function", type=str, default="")
     parser.add_argument("--_internal-no-isolate", action="store_true", help=argparse.SUPPRESS)
@@ -786,7 +1000,10 @@ def main() -> None:
         _run_flashsparse_isolated(args=args, dataset_names=[name for name, _ in dataset_paths])
         return
 
-    backend = SpMMBackend.build(args.backend, args.external_module, args.external_function)
+    if args.backend in {"torch", "external"}:
+        backend = SpMMBackend.build(args.backend, args.external_module, args.external_function)
+    else:
+        backend = SpMMBackend(name=args.backend)
     enable_external_reset = os.getenv("SPARSENE_EXTERNAL_RESET_PER_CASE", "0") == "1"
     external_reset_fn: Optional[Callable[[], None]] = None
     if args.backend == "external" and args.external_module:
@@ -842,7 +1059,10 @@ def main() -> None:
                     device=device,
                     seed=args.seed,
                 )
-                model = ReplaceableGCN(
+                _prepare_framework_graph(data=data, backend_name=args.backend, device=device)
+
+                model = _build_model(
+                    backend_name=args.backend,
                     in_dim=args.feature_dim,
                     hidden_dim=hidden,
                     out_dim=args.num_classes,
