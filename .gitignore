@@ -42,5 +42,15 @@ motivation/TCBlockNum/*
 examples/**/testbed/build/*
 
 examples/**/testbed/build_new/*
+examples/**/testbed/build_generated/
+examples/**/testbed/build_reference/
+examples/**/testbed/build_multi_dataset/
+examples/**/testbed/build_perf_logs/
 
-examples/**/testbed/plans_new/*
+docs/log/
+current_generated_vs_patched.diff
+patches/
+paper/
+
+python/me_tcf_kernel3_patched.inc
+examples/src_fp32/dtc/testbed/me_tcf_kernel_origin.inc

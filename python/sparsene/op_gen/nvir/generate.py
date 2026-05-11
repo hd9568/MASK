@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Dict, Any, Optional, Union, List, cast
+import keyword
 import re
 
 import sparsene.op_gen.opir.op_ir as op_ir
@@ -10,6 +11,7 @@ from sparsene.op_gen.nvir.nvop import (
     NvOpInput,
     NvOpOutput,
     NvOpTensor,
+    SwizzleLayout,
     IoMemType,
     OpMemType,
     NvOpType,
@@ -38,7 +40,9 @@ SPARSE_FORMAT_REGISTRY = {
     "ME_TCF": {
         "shape_overrides": {
             "val_len": ["Mo"],               # 拦截 val_len_offset 等
-            "val_coo_len": ["nnz_dim_K_o"]   # 拦截 val_coo_len_offset 等
+            "val_coo_len": ["nnz_dim_K_o"],  # 拦截 val_coo_len_offset 等
+            "val_sidx": ["BLK_K", "nnz_dim_K"],
+            "C_val": ["N", "M"],
         },
         # 2. 强制指定特殊变量的数据类型
         "dtypes": {
@@ -96,6 +100,8 @@ def _sanitize_identifier(name: str) -> str:
         sanitized = "v"
     if sanitized[0].isdigit():
         sanitized = f"v_{sanitized}"
+    if keyword.iskeyword(sanitized) or sanitized in {"add", "sub", "mul", "div", "pow", "const"}:
+        sanitized = f"gen_{sanitized}"
     return sanitized
 
 
@@ -117,15 +123,13 @@ def _try_parse_static_int(value: Any) -> Optional[int]:
 
 
 def _io_mem_to_tag(mem: IoMemType) -> str:
-    match mem:
-        case "gmem":
-            return "g"
-        case "smem":
-            return "s"
-        case "rmem":
-            return "r"
-        case _:
-            return "x"
+    if mem == "gmem":
+        return "g"
+    if mem == "smem":
+        return "s"
+    if mem == "rmem":
+        return "r"
+    return "x"
 
 
 def _blk_mnk_expr(dim_name: str) -> Optional[str]:
@@ -332,6 +336,10 @@ def _fixed_reg_b_shape() -> Shape:
         IntShape(2),
         MnkShape("BLK_MMA_MNK", "n"),
     )
+
+
+def _fixed_coo_tile_shape() -> Shape:
+    return Shape(ParamShape("get<0>(BLK_MNK{}) * get<2>(BLK_MNK{})"))
 
 
 def _insert_outer_blk_x_loop(
@@ -571,7 +579,9 @@ def _resolve_source(
         return block_arg_sources[value]
 
     if isinstance(value, op_ir.BlockArgument):
-        return value.name_hint or "_idx"
+        name_hint = value.name_hint or "_idx"
+        blk_expr = _blk_mnk_expr(name_hint)
+        return blk_expr if blk_expr is not None else name_hint
 
     if getattr(value, "name_hint", None) == "_":
         return "_"
@@ -583,9 +593,14 @@ def _resolve_source(
         symbol = str(value.defining_op.attributes["symbol"])
         if isinstance(value.type, op_ir.ArrayType):
             return state.program.gmem_tensor_ops[symbol].outputs[0]
+        blk_expr = _blk_mnk_expr(symbol)
+        if blk_expr is not None:
+            return blk_expr
         return symbol
 
-    return getattr(value, "name_hint", None) or "0"
+    fallback_name = getattr(value, "name_hint", None) or "0"
+    blk_expr = _blk_mnk_expr(fallback_name)
+    return blk_expr if blk_expr is not None else fallback_name
 
 
 def _infer_input_mem(value: op_ir.Value, source: SourceType) -> IoMemType:
@@ -631,8 +646,10 @@ def _choose_output_mem(
         return "smem"
     if logical_kind in ["coo_atomic_format_load_val", "mco_atomic_format_load_val"]:
         return "smem"
-    if logical_kind in ["coo_atomic_format_load_idx", "mco_atomic_format_load_mask", "load_offset"]:
+    if logical_kind in ["mco_atomic_format_load_mask", "load_offset"]:
         return "rmem"
+    if logical_kind in ["coo_atomic_format_load_idx"] and isinstance(result_type, op_ir.ArrayType):
+        return "smem"
     if logical_kind in ["c_val_load"]:
         return "rmem"
     if logical_kind in ["ldmatrix"]:
@@ -685,13 +702,26 @@ def _make_input(
     source: SourceType,
 ) -> NvOpInput:
     value_type = value.type if value.type is not None else op_ir.IntType()
+    inferred_shape = opir_type_to_nvir_shape(value_type)
+    inferred_dtype = opir_type_to_nvir_dtype(value_type)
+    inferred_mem = _infer_input_mem(value, source)
+
+    # Prefer the already-lowered producer tensor metadata when available.
+    # This preserves shape/layout normalizations such as `val_sidx_new`
+    # being materialized as `[BLK_K, nnz_dim_K]` instead of the original
+    # OPIR-facing `[nnz_dim_K, BLK_K]`.
+    if isinstance(source, NvOpOutput):
+        inferred_shape = source.tensor.shape
+        inferred_dtype = source.tensor.dtype
+        inferred_mem = source.tensor.mem
+
     return NvOpInput(
         idx=idx,
         name=name,
         tensor=NvOpTensor(
-            shape=opir_type_to_nvir_shape(value_type),
-            mem=_infer_input_mem(value, source),
-            dtype=opir_type_to_nvir_dtype(value_type),
+            shape=inferred_shape,
+            mem=inferred_mem,
+            dtype=inferred_dtype,
             source=source,
         ),
     )
@@ -772,6 +802,7 @@ for (int n_iter = 0; n_iter < get<1>(BLK_MMA_MNK{{}}); n_iter++) {{
         mem_type=("s", "r"),
         op_type=NvOpType.OTHERS,
         logical_kind="ldmatrix",
+        matrix_operand="A" if operand_index == 0 else "B",
     )
     target_append(ldmatrix_op)
     return ldmatrix_op.outputs[0]
@@ -803,19 +834,60 @@ def _make_impl(logical_kind: str, inputs: List[NvOpInput], outputs: List[NvOpOut
             return NvOpImpl(f"{outputs[0].name}(0) = {inputs[0].name}({indices});")
         return NvOpImpl("//! TODO: tensor load lowering")
 
+    if logical_kind == "coo_atomic_format_load_idx" and len(inputs) >= 3 and len(outputs) == 2:
+        return NvOpImpl(
+            f"""{outputs[1].name}(0) = {inputs[2].name} - {inputs[1].name};
+if (({inputs[1].name} & 3) == 0) {{
+    auto thr_tiler = make_shape(_4{{}});
+    auto input = make_tensor({inputs[0].name}.data() + {inputs[1].name}, size<0>(shape({outputs[0].name})));
+    for (int i_load = lid; i_load * 4 + {inputs[1].name} < {inputs[2].name}; i_load += 32) {{
+        auto thr_coord = make_coord(i_load);
+        auto src = local_tile(input, thr_tiler, thr_coord);
+        auto dst = local_tile({outputs[0].name}(_, buf_idx), thr_tiler, thr_coord);
+        copy(Copy_Atom<SM80_CP_ASYNC_CACHEGLOBAL<cute::uint128_t>, int>{{}}, src, dst);
+    }}
+}} else {{
+    int nnz_tile = get<0>(BLK_MNK{{}}) * get<2>(BLK_MNK{{}});
+    for (int i_load = lid; i_load < nnz_tile; i_load += 32) {{
+        int src_idx = {inputs[1].name} + i_load;
+        {outputs[0].name}(i_load, buf_idx) = src_idx < {inputs[2].name} ? {inputs[0].name}(src_idx) : 0;
+    }}
+}}"""
+        )
     if logical_kind == "coo_atomic_format_load_idx" and len(inputs) >= 2 and len(outputs) == 1:
         return NvOpImpl(
-            f"""int nnz_tile = size<0>(shape({outputs[0].name}));
+            f"""int nnz_tile = get<0>(BLK_MNK{{}}) * get<2>(BLK_MNK{{}});
 for (int i_load = lid; i_load < nnz_tile; i_load += 32) {{
-    {outputs[0].name}(i_load, buf_idx) = {inputs[0].name}({inputs[1].name} + i_load);
+    int src_idx = {inputs[1].name} + i_load;
+    {outputs[0].name}(i_load, buf_idx) = src_idx < get<0>(shape_i0) ? {inputs[0].name}(src_idx) : 0;
 }}"""
         )
 
+    if logical_kind == "coo_atomic_format_load_val" and len(inputs) >= 3 and len(outputs) == 1:
+        return NvOpImpl(
+            f"""if (({inputs[1].name} & 3) == 0) {{
+    auto thr_tiler = make_shape(_4{{}});
+    auto input = make_tensor({inputs[0].name}.data() + {inputs[1].name}, size<0>(shape({outputs[0].name})));
+    for (int i_load = lid; i_load * 4 + {inputs[1].name} < {inputs[2].name}; i_load += 32) {{
+        auto thr_coord = make_coord(i_load);
+        auto src = local_tile(input, thr_tiler, thr_coord);
+        auto dst = local_tile({outputs[0].name}(_, buf_idx), thr_tiler, thr_coord);
+        copy(Copy_Atom<SM80_CP_ASYNC_CACHEGLOBAL<cute::uint128_t>, float>{{}}, src, dst);
+    }}
+}} else {{
+    int nnz_tile = get<0>(BLK_MNK{{}}) * get<2>(BLK_MNK{{}});
+    for (int i_load = lid; i_load < nnz_tile; i_load += 32) {{
+        int src_idx = {inputs[1].name} + i_load;
+        {outputs[0].name}(i_load, buf_idx) = src_idx < {inputs[2].name} ? {inputs[0].name}(src_idx) : float(0);
+    }}
+}}"""
+        )
     if logical_kind == "coo_atomic_format_load_val" and len(inputs) >= 2 and len(outputs) == 1:
         return NvOpImpl(
-            f"""int nnz_tile = size<0>(shape({outputs[0].name}));
+            f"""int nnz_tile = get<0>(BLK_MNK{{}}) * get<2>(BLK_MNK{{}});
 for (int i_load = lid; i_load < nnz_tile; i_load += 32) {{
-    {outputs[0].name}(i_load, buf_idx) = {inputs[0].name}({inputs[1].name} + i_load);
+    int src_idx = {inputs[1].name} + i_load;
+    {outputs[0].name}(i_load, buf_idx) = src_idx < get<0>(shape_i0) ? {inputs[0].name}(src_idx) : float(0);
 }}"""
         )
 
@@ -883,16 +955,17 @@ for (int linear = lid; linear < rows * cols; linear += 32) {{
 
     if logical_kind == "mma":
         return NvOpImpl(
-            f"""int tile_m = get<0>(shape({inputs[0].name}));
-int tile_k = get<1>(shape({inputs[0].name}));
-int tile_n = get<1>(shape({inputs[1].name}));
-for (int row = lid; row < tile_m; row += 32) {{
-    for (int col = 0; col < tile_n; ++col) {{
-        float acc = static_cast<float>({inputs[2].name}(row, col));
-        for (int kk = 0; kk < tile_k; ++kk) {{
-            acc += static_cast<float>({inputs[0].name}(row, kk)) * static_cast<float>({inputs[1].name}(kk, col));
-        }}
-        {outputs[0].name}(row, col) = acc;
+            f"""for (int m_iter = 0; m_iter < get<0>(BLK_MMA_MNK{{}}); m_iter++) {{
+    for (int n_iter = 0; n_iter < get<1>(BLK_MMA_MNK{{}}); n_iter++) {{
+        uint32_t frag_A[4];
+        uint32_t frag_B[2];
+        asm("cvt.rna.tf32.f32  %0, %1;\\n" : "=r"(frag_A[0]) : "f"({inputs[0].name}(0, m_iter)));
+        asm("cvt.rna.tf32.f32  %0, %1;\\n" : "=r"(frag_A[1]) : "f"({inputs[0].name}(1, m_iter)));
+        asm("cvt.rna.tf32.f32  %0, %1;\\n" : "=r"(frag_A[2]) : "f"({inputs[0].name}(2, m_iter)));
+        asm("cvt.rna.tf32.f32  %0, %1;\\n" : "=r"(frag_A[3]) : "f"({inputs[0].name}(3, m_iter)));
+        asm("cvt.rna.tf32.f32  %0, %1;\\n" : "=r"(frag_B[0]) : "f"({inputs[1].name}(0, n_iter)));
+        asm("cvt.rna.tf32.f32  %0, %1;\\n" : "=r"(frag_B[1]) : "f"({inputs[1].name}(1, n_iter)));
+        mma_m16n8k8_fp32_tf32_tf32_fp32({outputs[0].name}(_, make_coord(m_iter, n_iter)).data(), frag_A, frag_B);
     }}
 }}"""
         )
@@ -904,15 +977,20 @@ for (int row = lid; row < tile_m; row += 32) {{
         # 注意: CuTe 推荐使用 local_tile 获取局部视图，再 copy
         # (这里假设 inputs[1] 是原来的全局偏移，我们直接忽略它)
         return NvOpImpl(
-            f"auto local_C = local_tile({inputs[0].name}, make_shape(Int<BLK_M>{{}}, Int<BLK_N>{{}}), make_coord(_0{{}}, _0{{}}));\n"
+            f"auto local_C = local_tile({inputs[0].name}, make_shape(get<0>(BLK_MNK{{}}), get<1>(BLK_MNK{{}})), make_coord(_0{{}}, _0{{}}));\n"
             f"copy(local_C, {outputs[0].name}(0));"
         )
         
     if logical_kind == "c_val_store" and len(inputs) >= 2:
-        # inputs[0] 是要存的寄存器数据，inputs[1] 是目标 C_val
         return NvOpImpl(
-            f"auto local_C = local_tile({inputs[1].name}, make_shape(Int<BLK_M>{{}}, Int<BLK_N>{{}}), make_coord(_0{{}}, _0{{}}));\n"
-            f"copy({inputs[0].name}(0), local_C);"
+            f"""for (int i_tileN = 0; i_tileN < get<1>(BLK_MNK{{}}) / 8; i_tileN++) {{
+    int row = lid / 4;
+    int col = i_tileN * 8 + lid % 4 * 2;
+    {inputs[1].name}(col, row) = {inputs[0].name}(0, i_tileN);
+    {inputs[1].name}(col + 1, row) = {inputs[0].name}(1, i_tileN);
+    {inputs[1].name}(col, row + 8) = {inputs[0].name}(2, i_tileN);
+    {inputs[1].name}(col + 1, row + 8) = {inputs[0].name}(3, i_tileN);
+}}"""
         )
     if logical_kind == "array_ref":
         if len(outputs) == 1 and outputs[0].tensor.mem == "smem" and len(inputs) >= 2:
@@ -928,7 +1006,24 @@ for (int i_load = lid; i_load < tile_len; i_load += 32) {{
 }}"""
                 )
 
+
             if len(outputs[0].tensor.shape) >= 2:
+                if outputs[0].tensor.row_major:
+                    return NvOpImpl(
+                        f"""auto load_tile_n = _4{{}};
+for (int iter_i = lid; iter_i < get<0>(shape({out_name})) * get<1>(shape({out_name})) / load_tile_n; iter_i += 32) {{
+    int row = iter_i / (get<1>(shape({out_name})) / load_tile_n);
+    int col = iter_i % (get<1>(shape({out_name})) / load_tile_n);
+    int src_row = {idx_name}(row);
+    auto thr_tiler_gmem = make_shape(_1{{}}, _4{{}});
+    auto thr_coord_gmem = make_coord(src_row, col);
+    auto src = local_tile({src_name}, thr_tiler_gmem, thr_coord_gmem);
+    auto thr_tiler_smem = make_shape(_1{{}}, _4{{}});
+    auto thr_coord_smem = make_coord(row, col);
+    auto dst = local_tile({out_name}(_, _, buf_idx), thr_tiler_smem, thr_coord_smem);
+    copy(Copy_Atom<SM80_CP_ASYNC_CACHEGLOBAL<cute::uint128_t>, float>{{}}, src(0, _), dst(0, _));
+}}"""
+                    )
                 return NvOpImpl(
                     f"""int rows = size<0>(shape({out_name}));
 int cols = size<1>(shape({out_name}));
@@ -1134,7 +1229,12 @@ def _lower_for_loop(
         target_append(loop_nvop)
 
         inner_block_arg_sources = dict(block_arg_sources)
-        inner_block_arg_sources[op.get_induction_var()] = "_idx"
+        # The loop induction variable is consumed inside the generated
+        # pipeline body through `shift_constant`. Binding it to `l + {c}`
+        # preserves the concrete step index for fill / loop_step /
+        # remainder / empty, instead of reading the uninitialized `_idx`
+        # member of `for_loop`.
+        inner_block_arg_sources[op.get_induction_var()] = "l + {c}"
         inner_block_arg_sources[op.range[0]] = "l"
         inner_block_arg_sources[op.range[1]] = "r"
         for i in range(op.num_iter_args):
@@ -1238,11 +1338,14 @@ def _lower_array_ref(
                 shape=output_shape,
                 mem=output_mem,
                 dtype=opir_type_to_nvir_dtype(op.result.type),
+                row_major=is_b_val_ref,
+                swizzle=SwizzleLayout(3, 2, 3) if is_b_val_ref else None,
             ),
             origin=output_origin,
         )
     ]
 
+    cp_async_enabled = is_b_val_ref
     nvop = NvOp(
         name=op_name,
         inputs=inputs,
@@ -1251,7 +1354,11 @@ def _lower_array_ref(
         mem_type=_infer_mem_type(inputs, outputs),
         op_type=(NvOpType.COPY_2D_SP if materialize_to_smem else NvOpType.OTHERS),
         logical_kind="array_ref",
+        array_ref_role="b_val" if is_b_val_ref else "val_sidx" if is_val_sidx_ref else "generic",
+        cp_async=cp_async_enabled,
     )
+    if outputs and outputs[0].tensor.mem == "smem":
+        outputs[0].attrs["cp_async"] = cp_async_enabled
     target_append(nvop)
     state.value_sources[op.result] = nvop.outputs[0]
 
@@ -1309,14 +1416,26 @@ def _lower_generic_op(
             if isinstance(inputs[2].tensor.source, NvOpOutput):
                 output_origin = inputs[2].tensor.source
 
+        output_shape = opir_type_to_nvir_shape(result.type)
+        if logical_kind == "mma" and idx == 0:
+            output_shape = _fixed_c_tile_shape()
+        elif logical_kind in {"coo_atomic_format_load_idx", "coo_atomic_format_load_val"} and idx == 0:
+            output_shape = _fixed_coo_tile_shape()
+
         outputs.append(
             NvOpOutput(
                 idx=idx,
                 name=result.name_hint or op.result_name(idx),
                 tensor=NvOpTensor(
-                    shape=opir_type_to_nvir_shape(result.type),
+                    shape=output_shape,
                     mem=_choose_output_mem(logical_kind, result.type, mem_hint),
                     dtype=opir_type_to_nvir_dtype(result.type),
+                    row_major=(logical_kind == "coo_atomic_val_restore"),
+                    swizzle=(
+                        SwizzleLayout(1, 2, 3)
+                        if logical_kind == "coo_atomic_val_restore"
+                        else None
+                    ),
                 ),
                 origin=output_origin,
             )
@@ -1331,6 +1450,24 @@ def _lower_generic_op(
         op_type=_choose_op_type(logical_kind, outputs),
         logical_kind=logical_kind,
     )
+    if logical_kind in {"coo_atomic_format_load_idx", "coo_atomic_format_load_val"}:
+        nvop.attrs["cp_async"] = True
+        for out in outputs:
+            if out.tensor.mem == "smem":
+                out.attrs["cp_async"] = True
+    # Mark non-cp.async ops explicitly to avoid inserting useless pipeline primitives.
+    # This is particularly important for ME_TCF, where many helpers write to SMEM
+    # but are implemented via normal stores (not cp.async).
+    if logical_kind in {
+        "coo_atomic_val_restore",
+        "mco_atomic_format_load_mask",
+        "mco_atomic_format_load_val",
+        "mco_atomic_val_restore",
+    }:
+        nvop.attrs["cp_async"] = False
+        for out in outputs:
+            if out.tensor.mem == "smem":
+                out.attrs["cp_async"] = False
     target_append(nvop)
 
     for idx, result in enumerate(op.results):

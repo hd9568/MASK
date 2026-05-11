@@ -94,15 +94,12 @@ class CooAtomicFormatLoadOffOp(DeviceOp):
 #> current CooAtomicFormatLoadIdxOp
 @dataclass
 class CooAtomicFormatLoadIdxOp(DeviceOp):
-    len: Value
-
-    def __init__(self, mem: str, operands: Sequence[Value], out_shape: Expr, coo_len: Value):
-        assert len(operands) >= 1, "coo_atomic_format_load_idx requires idx_array as first operand"
+    def __init__(self, mem: str, operands: Sequence[Value], out_shape: Expr):
+        assert len(operands) == 3, "coo_atomic_format_load_idx requires idx_array, ll, rr"
         assert isinstance(operands[0].type, ArrayType)
         assert isinstance(operands[0].type.datatype, IntType)
-
-        assert isinstance(coo_len.type, IntType), "len must be coo_len (int)"
-        self.len = coo_len
+        assert isinstance(operands[1].type, IntType), "ll must be int"
+        assert isinstance(operands[2].type, IntType), "rr must be int"
 
         super().__init__(
             mem=mem,
@@ -112,6 +109,11 @@ class CooAtomicFormatLoadIdxOp(DeviceOp):
                     type=ArrayType([out_shape], IntType()),
                     defining_op=self,
                     result_idx_in_owner=0,
+                ),
+                OpResult(
+                    type=IntType(),
+                    defining_op=self,
+                    result_idx_in_owner=1,
                 ),
             ],
         )
@@ -146,14 +148,11 @@ class CooAtomicFormatLoadIdxOp(DeviceOp):
 #> current CooAtomicFormatLoadValOp
 @dataclass
 class CooAtomicFormatLoadValOp(DeviceOp):
-    len: Value
-
-    def __init__(self, mem: str, operands: Sequence[Value], out_shape: Expr, coo_len: Value):
-        assert len(operands) >= 1, "coo_atomic_format_load_val requires val_array as first operand"
+    def __init__(self, mem: str, operands: Sequence[Value], out_shape: Expr):
+        assert len(operands) == 3, "coo_atomic_format_load_val requires val_array, ll, rr"
         assert isinstance(operands[0].type, ArrayType)
-
-        assert isinstance(coo_len.type, IntType), "len must be coo_len (int)"
-        self.len = coo_len
+        assert isinstance(operands[1].type, IntType), "ll must be int"
+        assert isinstance(operands[2].type, IntType), "rr must be int"
 
         super().__init__(
             mem=mem,

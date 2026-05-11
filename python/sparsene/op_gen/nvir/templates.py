@@ -227,7 +227,7 @@ public:
 {get_output_method}
     
     // f
-    template<typename = void>
+    {f_template_head}
     CUTE_DEVICE void f() {{
         {f_body}
     }}

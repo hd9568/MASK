@@ -8,7 +8,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
-#include <sys/time.h>
 #include <time.h>
 
 #include <thrust/device_vector.h>
@@ -112,8 +111,11 @@ void repeat_test(int threadblock_num_x,
     using tile_coo_val_size = Int<TC_BLOCK_M * TC_BLOCK_K>;
     using tile_coo_val_size_no_pad = Int<TC_BLOCK_M * TC_BLOCK_K>;
 
-    struct timeval t1, t2;
     {
+        cudaEvent_t start_event = nullptr;
+        cudaEvent_t stop_event = nullptr;
+        CHECK_CUDA2(cudaEventCreate(&start_event));
+        CHECK_CUDA2(cudaEventCreate(&stop_event));
         for (int i = 0; i < warmup_time; i++) {
             dtc_spmm_kernel_fp32_val_idx_bind_stage2<BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK,
                                                      tile_coo_val_size, tile_coo_val_size_no_pad,
@@ -124,8 +126,7 @@ void repeat_test(int threadblock_num_x,
         }
         CHECK_CUDA2(cudaDeviceSynchronize());
 
-            CHECK_CUDA2(cudaMemset(dsm_cycles, 0, sizeof(unsigned long long) * 256));
-        gettimeofday(&t1, NULL);
+        CHECK_CUDA2(cudaEventRecord(start_event));
         for (int i = 0; i < execute_time; i++) {
             dtc_spmm_kernel_fp32_val_idx_bind_stage2<BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK,
                                                      tile_coo_val_size, tile_coo_val_size_no_pad,
@@ -134,38 +135,14 @@ void repeat_test(int threadblock_num_x,
                         dval_soff, dsm_cycles, dblock_smid,
                         K, M, Mo, N, nnz, nnz_block);
         }
-        CHECK_CUDA2(cudaDeviceSynchronize());
-        gettimeofday(&t2, NULL);
-        double mykernel_time =
-          ((t2.tv_sec - t1.tv_sec) * 1000.0 + (t2.tv_usec - t1.tv_usec) / 1000.0) / execute_time;
+        CHECK_CUDA2(cudaEventRecord(stop_event));
+        CHECK_CUDA2(cudaEventSynchronize(stop_event));
+        float elapsed_ms = 0.0f;
+        CHECK_CUDA2(cudaEventElapsedTime(&elapsed_ms, start_event, stop_event));
+        double mykernel_time = static_cast<double>(elapsed_ms) / execute_time;
         printf("mykernel_time: %f ms\n", mykernel_time);
-
-            cudaDeviceProp prop;
-            CHECK_CUDA2(cudaGetDeviceProperties(&prop, 0));
-            std::vector<unsigned long long> sm_cycles(256, 0);
-            CHECK_CUDA2(cudaMemcpy(sm_cycles.data(), dsm_cycles,
-                         sizeof(unsigned long long) * 256,
-                         cudaMemcpyDeviceToHost));
-
-            unsigned long long min_c = ULLONG_MAX;
-            unsigned long long max_c = 0;
-            unsigned long long sum_c = 0;
-            int active_sm = 0;
-            for (int sm = 0; sm < prop.multiProcessorCount; ++sm) {
-              unsigned long long v = sm_cycles[sm];
-              if (v > 0) {
-                min_c = std::min(min_c, v);
-                max_c = std::max(max_c, v);
-                sum_c += v;
-                active_sm++;
-              }
-              printf("SM[%d] accumulated_cycles=%llu\n", sm, v);
-            }
-            if (active_sm > 0 && min_c > 0) {
-              double avg_c = static_cast<double>(sum_c) / active_sm;
-              double imbalance = static_cast<double>(max_c) / min_c;
-              printf("SM cycle stats: active=%d avg=%.2f max/min=%.4f\n", active_sm, avg_c, imbalance);
-            }
+        CHECK_CUDA2(cudaEventDestroy(start_event));
+        CHECK_CUDA2(cudaEventDestroy(stop_event));
     }
 }
 
@@ -192,8 +169,8 @@ void dtc_spmm_test_val_sidx_bind_reorder(int M,
     int* dval_coo_idx;
     float* dval_coo_val;
     int* dval_coo_off;
-    unsigned long long* dsm_cycles;
-    int* dblock_smid;
+    unsigned long long* dsm_cycles = nullptr;
+    int* dblock_smid = nullptr;
     float* dC;
 
     int row_window_num = (M + ROW_WINDOW_M - 1) / ROW_WINDOW_M;
@@ -210,10 +187,6 @@ void dtc_spmm_test_val_sidx_bind_reorder(int M,
     CHECK_CUDA2(cudaMalloc(&dval_coo_val, (nnz + 8 - 1) / 8 * 8 * sizeof(float)));
     CHECK_CUDA2(cudaMemset(dval_coo_val, 0, (nnz + 8 - 1) / 8 * 8 * sizeof(float)));
     CHECK_CUDA2(cudaMalloc(&dval_coo_off, sizeof(int) * (2 * TCBlock_num + 1)));
-    CHECK_CUDA2(cudaMalloc(&dsm_cycles, sizeof(unsigned long long) * 256));
-    CHECK_CUDA2(cudaMalloc(&dblock_smid, sizeof(int) * row_window_num * (N / TILE_B)));
-    CHECK_CUDA2(cudaMemset(dsm_cycles, 0, sizeof(unsigned long long) * 256));
-    CHECK_CUDA2(cudaMemset(dblock_smid, -1, sizeof(int) * row_window_num * (N / TILE_B)));
     CHECK_CUDA2(cudaMalloc(&dC, sizeof(float) * (row_window_num * ROW_WINDOW_M) *
                                   N)); // C is row major (alloc more copy some)
     CHECK_CUDA2(cudaMemcpy(dval_sidx, val_sidx, sizeof(int) * TCBlock_num * TC_BLOCK_K,
@@ -260,8 +233,6 @@ void dtc_spmm_test_val_sidx_bind_reorder(int M,
     CHECK_CUDA2(cudaFree(dval_coo_idx));
     CHECK_CUDA2(cudaFree(dval_coo_val));
     CHECK_CUDA2(cudaFree(dval_coo_off));
-    CHECK_CUDA2(cudaFree(dsm_cycles));
-    CHECK_CUDA2(cudaFree(dblock_smid));
     CHECK_CUDA2(cudaFree(dC));
 }
 

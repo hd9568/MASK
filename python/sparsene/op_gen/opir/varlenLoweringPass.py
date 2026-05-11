@@ -329,6 +329,12 @@ class VarlenLoweringPass:
 
         spec = flatten_specs[array_src]
 
+        # Keep COO (idx/val) explicit [ll, rr] bounds untouched.
+        # Those bounds are already absolute offsets and should not be collapsed
+        # into a single flattened index by generic array-index rewriting.
+        if isinstance(op, (CooAtomicFormatLoadIdxOp, CooAtomicFormatLoadValOp)) and len(op.operands) == 3:
+            return False
+
         # ================= NEW: 拦截最外层全局维度 =================
         if spec.prefix_rank == 0:
             # 说明这个 varlen 是稠密的最外层 (如 varlen(M))
@@ -620,7 +626,10 @@ class VarlenLoweringPass:
                 remapped_operands.append(OpOperand(source))
             op.operands = remapped_operands
 
-        if isinstance(op, (CooAtomicFormatLoadIdxOp, CooAtomicFormatLoadValOp, McoAtomicFormatLoadValOp)):
+        if (
+            isinstance(op, (CooAtomicFormatLoadIdxOp, CooAtomicFormatLoadValOp, McoAtomicFormatLoadValOp))
+            and hasattr(op, "len")
+        ):
             len_source = op.len
             while len_source in replace_map:
                 len_source = replace_map[len_source]

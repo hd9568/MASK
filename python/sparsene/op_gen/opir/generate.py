@@ -24,6 +24,7 @@ from sparsene.op_gen.opir.op_ir import (
     ForLoopOp,
     ArrayRefOp,
     LoadOp,
+    LoadOffsetOp,
     Value,
     IntType,
     MetaOp,
@@ -769,38 +770,34 @@ def generate_from_coo_atomic_format_op(
     # C_val_tile = op_builder.build(
     #     MmaOp, "R2R", [A_val_tile, B_val_tile, C_val_tile], name_hint="C_val_tile"
     # ).result
-    #> current coo processing logic. using len array instead of off array
-    coo_len = op_builder.build(
-        LoadOp,
+    ll, rr = op_builder.build(
+        LoadOffsetOp,
         len_array,
         build_array_ref_indices(schedule.args[0], array_defs, format),
-        name_hint="coo_len"
-    ).result
-
-    coo_idx_indices = build_array_ref_indices(schedule.args[1], array_defs, format)
-    coo_val_indices = build_array_ref_indices(schedule.args[2], array_defs, format)
+        name_hint=["ll", "rr"],
+    ).results
 
     idx_tile_shape = C_val_tile.type.dims[0] * B_val_tile.type.dims[0]
-    coo_idx = op_builder.build(
+    coo_idx, coo_range = op_builder.build(
         CooAtomicFormatLoadIdxOp,
-        mem="G2R",
+        mem="G2S",
         operands=[
             idx_array,
-            *coo_idx_indices,
+            ll,
+            rr,
         ],
-        coo_len=coo_len,
         out_shape=idx_tile_shape,
-        name_hint="coo_idx",
-    ).result
+        name_hint=["coo_idx", "coo_range"],
+    ).results
 
     coo_val = op_builder.build(
         CooAtomicFormatLoadValOp,
         mem="G2S",
         operands=[
             val_array,
-            *coo_val_indices,
+            ll,
+            rr,
         ],
-        coo_len=coo_len,
         out_shape=idx_tile_shape,
         name_hint="coo_val",
     ).result
@@ -811,7 +808,7 @@ def generate_from_coo_atomic_format_op(
         operands=[
             coo_val,
             coo_idx,
-            coo_len, # 这里直接传入 coo_len
+            coo_range,
         ],
         out_shape=(C_val_tile.type.dims[0], B_val_tile.type.dims[0]),
         name_hint="A_val_tile",

@@ -53,6 +53,18 @@ class NvIrCodeGenerator:
         indent = self._get_indent(indent_level)
         return "\n".join(f"{indent}{line}" for line in text.split("\n"))
 
+    def _format_param_expr(self, expr: str) -> str:
+        blk_to_idx = {
+            "BLK_M": 0,
+            "BLK_N": 1,
+            "BLK_K": 2,
+        }
+        if expr in blk_to_idx:
+            return f"get<{blk_to_idx[expr]}>(BLK_MNK{{}})"
+        if re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", expr):
+            return f"{expr}{{}}"
+        return expr
+
     def dump_nvop_class_def(self, op: NvOp) -> str:
         def dump_template_head() -> str:
             parameter_types_strs = [
@@ -262,6 +274,8 @@ class NvIrCodeGenerator:
 
         get_output_method_str = self.dump_get_output_method(op)
 
+        f_template_head = "template<int buf_idx, typename = void>" if op.pipelined else "template<typename = void>"
+
         return templates.CONSTANT_NVOP_CLASS_DEF_SKELETON.format(
             nbuf_type=nbuf_type_str,
             parameter_types=parameter_types_str,
@@ -271,6 +285,7 @@ class NvIrCodeGenerator:
             make_shape_str=make_shape_str,
             mem_type_str=mem_type_str,
             tensor_name=tensor_name,
+            f_template_head=f_template_head,
             f_body=f_body,
             get_output_method=self._indent_lines(get_output_method_str),
         )
@@ -570,11 +585,11 @@ class NvIrCodeGenerator:
                         dump_static_assert(s, inp, parent_shape_indices + [i])
                     else:
                         static_assert_strs.append(
-                            f"CUTE_STATIC_ASSERT_V(("
+                            f"assert("
                             f"{dump_nested_tuple_access(f'shape_i{inp.idx}', parent_shape_indices + [i])}"
                             f" == "
                             f"{dump_nested_tuple_access(f'shape({inp.name})', parent_shape_indices + [i], size_outside=True)}"
-                            "));"
+                            ");"
                         )
 
             for inp in op.inputs:
@@ -585,6 +600,14 @@ class NvIrCodeGenerator:
         dump_static_assert()
 
         code_str = "\n".join([*static_assert_strs, op.impl.code_template])
+        if op.pipelined:
+            for out in op.outputs:
+                if len(out.tensor.shape) == 0:
+                    code_str = re.sub(
+                        rf"\b{re.escape(out.name)}\(0\)",
+                        f"{out.name}(0, buf_idx)",
+                        code_str,
+                    )
         f_template_head_str = f"template<" + ", ".join(
             (["int buf_idx"] if op.pipelined else [])
             + [
@@ -612,6 +635,7 @@ class NvIrCodeGenerator:
 
     def dump_f_method_call_arg(
         self,
+        op: NvOp,
         inp: NvOpInput,
         buf_idx_str: str,
         shift_constant: Optional[str] = None,
@@ -629,6 +653,35 @@ class NvIrCodeGenerator:
                 arg += "(0)"
             return arg
         elif isinstance(inp.tensor.source, str):
+            if (
+                inp.tensor.source == "BLK_K"
+                and op.attrs.get("logical_kind") == "div"
+                and len(op.inputs) >= 1
+            ):
+                src0 = op.inputs[0].tensor.source
+                if src0 == "off_l":
+                    return "1"
+                if isinstance(src0, NvOpOutput):
+                    src0_op = src0.op
+                    if (
+                        src0_op is not None
+                        and src0_op.attrs.get("logical_kind") == "sub"
+                    ):
+                        for sub_inp in src0_op.inputs:
+                            if isinstance(sub_inp.tensor.source, NvOpOutput):
+                                parent = sub_inp.tensor.source.op
+                                if (
+                                    parent is not None
+                                    and parent.attrs.get("logical_kind")
+                                    == "load_offset"
+                                ):
+                                    return "1"
+            if inp.tensor.source == "BLK_M":
+                return "get<0>(BLK_MNK{})"
+            if inp.tensor.source == "BLK_N":
+                return "get<1>(BLK_MNK{})"
+            if inp.tensor.source == "BLK_K":
+                return "get<2>(BLK_MNK{})"
             if "{c}" in inp.tensor.source:
                 if shift_constant is not None:
                     return inp.tensor.source.format(c=shift_constant)
@@ -649,7 +702,7 @@ class NvIrCodeGenerator:
         #     g2r_coo_atomic_format_load_off_op.template output<(i - shift1) % nbuf_rmem, 1>()
         # );
         arg_strs = [
-            self.dump_f_method_call_arg(inp, buf_idx_str, shift_constant)
+            self.dump_f_method_call_arg(op, inp, buf_idx_str, shift_constant)
             for inp in op.inputs
         ]
         if not op.pipelined:
@@ -917,7 +970,7 @@ class NvIrCodeGenerator:
             if isinstance(s, IntShape):
                 shape_strs.append(f"Int<{s.value}>{{}}")
             elif isinstance(s, ParamShape):
-                shape_strs.append(f"{s.param}{{}}")
+                shape_strs.append(self._format_param_expr(s.param))
             elif isinstance(s, VarlenShape):
                 shape_strs.append("VARLEN")
             elif isinstance(s, MnkShape):
@@ -942,7 +995,7 @@ class NvIrCodeGenerator:
             if isinstance(shape, IntShape):
                 return f"Int<{shape.value}>{{}}"
             elif isinstance(shape, ParamShape):
-                return f"{shape.param}{{}}"
+                return self._format_param_expr(shape.param)
             elif isinstance(shape, VarlenShape):
                 return "VARLEN"
             elif isinstance(shape, MnkShape):
@@ -1054,13 +1107,12 @@ class NvIrCodeGenerator:
             return f"{using_stride_str}\n{using_layout_str}"
 
         def dump_decl_output_tensor_type() -> str:
-            match out.tensor.mem:
-                case "gmem":
-                    decl_tensor_str = f"decltype(make_tensor(make_gmem_ptr((TO{out.idx}*)nullptr), Layout_o{out.idx}{{}}))"
-                case "smem":
-                    decl_tensor_str = f"decltype(make_tensor(make_smem_ptr((TO{out.idx}*)nullptr), Layout_o{out.idx}{{}}))"
-                case "rmem":
-                    decl_tensor_str = f"decltype(make_tensor(make_rmem_ptr((TO{out.idx}*)nullptr), Layout_o{out.idx}{{}}))"
+            if out.tensor.mem == "gmem":
+                decl_tensor_str = f"decltype(make_tensor(make_gmem_ptr((TO{out.idx}*)nullptr), Layout_o{out.idx}{{}}))"
+            elif out.tensor.mem == "smem":
+                decl_tensor_str = f"decltype(make_tensor(make_smem_ptr((TO{out.idx}*)nullptr), Layout_o{out.idx}{{}}))"
+            else:
+                decl_tensor_str = f"decltype(make_tensor(make_rmem_ptr((TO{out.idx}*)nullptr), Layout_o{out.idx}{{}}))"
             return f"using Tensor_o{out.idx} = {decl_tensor_str};"
 
         def dump_decl_output_shape() -> str:
@@ -1115,7 +1167,7 @@ class NvIrCodeGenerator:
             if isinstance(s, IntShape):
                 shape_strs.append(f"Int<{s.value}>{{}}")
             elif isinstance(s, ParamShape):
-                shape_strs.append(f"{s.param}{{}}")
+                shape_strs.append(self._format_param_expr(s.param))
             elif isinstance(s, VarlenShape):
                 shape_strs.append(f"mode_{'o' if is_output else 'i'}{idx}_{varlen_idx}")
                 varlen_idx += 1
@@ -1178,11 +1230,14 @@ class NvIrCodeGenerator:
             for out in smem_outputs
             if out.owning
         ]
-        smem_output_array_defs = [
-            f"__shared__ {out.tensor.dtype} {op.name}_tensor_o{out.idx}[cosize_v<{op.name}_layout_o{out.idx}>];"
-            for out in smem_outputs
-            if out.owning
-        ]
+        smem_output_array_defs = []
+        for out in smem_outputs:
+            if not out.owning:
+                continue
+            align_prefix = "__align__(16) " if out.attrs.get("cp_async", False) else ""
+            smem_output_array_defs.append(
+                f"{align_prefix}__shared__ {out.tensor.dtype} {op.name}_tensor_o{out.idx}[cosize_v<{op.name}_layout_o{out.idx}>];"
+            )
 
         rmem_output_shapes = [
             f"using {op.name}_layout_o{out.idx} = typename {op.name}_t::Layout_o{out.idx};"
@@ -1278,13 +1333,22 @@ class NvIrCodeGenerator:
     def dump_constant_nvop_create(
         self,
         op: ConstantNvOp,
+        nbuf: int,
     ) -> str:
         op_name = op.name
         dtype = op.outputs[0].tensor.dtype
 
-        return templates.CONSTANT_NVOP_CREATE_SKELETON.format(
-            op_name=op_name,
-            dtype=dtype,
+        template_args = []
+        if op.pipelined:
+            template_args.append(f"Int<{nbuf}>")
+        template_args.extend(["BLK_MNK", "MMA_MNK", "BLK_MMA_MNK", "WARP_MNK"])
+        template_args_str = ", ".join(template_args)
+
+        return (
+            f"using {op_name}_t = {op_name}<{template_args_str}>;\n"
+            f"using {op_name}_layout_o0 = typename {op_name}_t::Layout_o0;\n"
+            f"{dtype} {op_name}_tensor_o0[cosize_v<{op_name}_layout_o0>];\n"
+            f"{op_name}_t {op_name}_v{{tid, lid, wid, {op_name}_tensor_o0}};"
         )
 
     def dump_for_loop_nvop_create(
@@ -1434,7 +1498,6 @@ class NvIrCodeGenerator:
             op_calls: List[OpCall], pipeline_history: List[Tuple[NvOp, int]]
         ) -> List[Inst]:
             instructions = []
-
             for op_call in op_calls:
                 if has_cp_async_smem_input(op_call.op):
                     wait_num = get_wait_num(
@@ -1892,7 +1955,7 @@ class NvIrCodeGenerator:
                 else:
                     raise ValueError(f"Unknown body type: {type(op.body)}")
             elif isinstance(op, ConstantNvOp):
-                nvop_inits.append(self.dump_constant_nvop_create(op))
+                nvop_inits.append(self.dump_constant_nvop_create(op, nbuf))
             else:
                 nvop_inits.append(self.dump_nvop_create(op, nbuf))
             visible_ops.setdefault(current_level, []).append(op)

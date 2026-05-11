@@ -975,7 +975,6 @@ public:
 
     // Hardware parameters
     int tid, lid, wid;
-
     CUTE_DEVICE CalculateOp(int tid, int lid, int wid, Tensor_o0 REGC)
     : tid(tid), lid(lid), wid(wid), REGC(REGC) {}
 

@@ -124,6 +124,24 @@ std::string extractMatrixName(const std::string& file_path) {
     return filename;
 }
 
+std::filesystem::path getCheckpointCacheDir() {
+    if (const char* env_dir = std::getenv("SPARSENE_MTX_CACHE_DIR")) {
+        if (env_dir[0] != '\0') {
+            return std::filesystem::path(env_dir);
+        }
+    }
+    return std::filesystem::path(__FILE__).parent_path() / "mtx_cache";
+}
+
+bool useCheckpointCache() {
+    if (const char* env = std::getenv("SPARSENE_DISABLE_MTX_CACHE")) {
+        if (env[0] != '\0' && env[0] != '0') {
+            return false;
+        }
+    }
+    return true;
+}
+
 // -------------------------
 // storeCheckpoint for ME-TCF
 // -------------------------
@@ -138,11 +156,18 @@ int storeCheckpoint(
     int& total_TCBlock_num,
     int& nnz_pad
 ) {
+    if (!useCheckpointCache()) {
+        return 0;
+    }
+
     string checkpoint_filename = extractMatrixName(file_path) + 
                                  "_M" + to_string(M) + 
                                  "_K" + to_string(K) + 
                                  "_METCF.checkpoint";
-    string full_path = "/workspace/sparsene/examples/src_fp32/dtc/testbed/mtx_cache/" + checkpoint_filename;
+    std::filesystem::path cache_dir = getCheckpointCacheDir();
+    std::error_code ec;
+    std::filesystem::create_directories(cache_dir, ec);
+    string full_path = (cache_dir / checkpoint_filename).string();
 
     std::ofstream outputFile(full_path, std::ios::binary);
     if (!outputFile.is_open()) {
@@ -185,11 +210,16 @@ int loadCheckpoint(
     int& total_TCBlock_num,
     int& nnz_pad
 ) {
+    if (!useCheckpointCache()) {
+        return 0;
+    }
+
     string checkpoint_filename = extractMatrixName(file_path) + 
                                  "_M" + to_string(M) + 
                                  "_K" + to_string(K) + 
                                  "_METCF.checkpoint";
-    string full_path = "/workspace/sparsene/examples/src_fp32/dtc/testbed/mtx_cache/" + checkpoint_filename;
+    std::filesystem::path cache_dir = getCheckpointCacheDir();
+    string full_path = (cache_dir / checkpoint_filename).string();
 
     std::ifstream inputFile(full_path, std::ios::binary);
     if (!inputFile.is_open()) {
@@ -225,8 +255,20 @@ int loadCheckpoint(
     inputFile.close();
     return 1;
 }
-
-
+void convertToMETCF(
+    int M,
+    int N,
+    int K,
+    int nnz,
+    int* csrPtrA,
+    int* csrColIdxA,
+    float* csrValA,
+    float* B,
+    float* C,
+    bool is_ncu_test,
+    int warmup_time,
+    int execute_time
+);
 
 void convertToMETCF(
     int M,
@@ -245,6 +287,13 @@ void convertToMETCF(
 ) {
     using dtypeB = float;
     using dtypeC = float;
+
+    if (!useCheckpointCache()) {
+        convertToMETCF(
+            M, N, K, nnz, csrPtrA, csrColIdxA, csrValA, B, C, is_ncu_test, warmup_time,
+            execute_time);
+        return;
+    }
 
     dtypeB* B_val = B;
     dtypeC* C_val = C;
@@ -644,15 +693,17 @@ void verify_new(float* C_cpu, float* C_cuda, int M, int N) {
     }
 }
 
-void cusparse_spmm_all(float* cu_ValA,
-                       int* cu_RowPtrA,
-                       int* cu_ColIdxA,
-                       float* cu_B,
-                       float* cu_C,
-                       int M,
-                       int N,
-                       int K,
-                       int nnz) {
+double cusparse_spmm_all(float* cu_ValA,
+                         int* cu_RowPtrA,
+                         int* cu_ColIdxA,
+                         float* cu_B,
+                         float* cu_C,
+                         int M,
+                         int N,
+                         int K,
+                         int nnz,
+                         int warmup_time,
+                         int execute_time) {
     int A_num_rows = M;
     int A_num_cols = K;
     int B_num_rows = K;
@@ -709,7 +760,32 @@ void cusparse_spmm_all(float* cu_ValA,
       handle, CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_OPERATION_NON_TRANSPOSE, &alpha, matA,
       matB, &beta, matC, CUDA_R_32F, CUSPARSE_SPMM_ALG_DEFAULT, dBuffer))
 
-    // execute SpMM
+    cudaEvent_t start_event = nullptr;
+    cudaEvent_t stop_event = nullptr;
+    if (execute_time > 0) {
+        CHECK_CUDA(cudaEventCreate(&start_event));
+        CHECK_CUDA(cudaEventCreate(&stop_event));
+        for (int i = 0; i < warmup_time; ++i) {
+            CHECK_CUSPARSE(cusparseSpMM(handle, CUSPARSE_OPERATION_NON_TRANSPOSE,
+                                        CUSPARSE_OPERATION_NON_TRANSPOSE, &alpha, matA, matB,
+                                        &beta, matC, CUDA_R_32F, CUSPARSE_SPMM_ALG_DEFAULT,
+                                        dBuffer))
+        }
+        CHECK_CUDA(cudaDeviceSynchronize());
+
+        CHECK_CUDA(cudaEventRecord(start_event));
+        for (int i = 0; i < execute_time; ++i) {
+            CHECK_CUSPARSE(cusparseSpMM(handle, CUSPARSE_OPERATION_NON_TRANSPOSE,
+                                        CUSPARSE_OPERATION_NON_TRANSPOSE, &alpha, matA, matB,
+                                        &beta, matC, CUDA_R_32F, CUSPARSE_SPMM_ALG_DEFAULT,
+                                        dBuffer))
+        }
+        CHECK_CUDA(cudaEventRecord(stop_event));
+        CHECK_CUDA(cudaEventSynchronize(stop_event));
+    }
+
+    // execute SpMM for the final host verification result
+    CHECK_CUDA(cudaMemset(dC, 0, sizeof(float) * C_size));
     CHECK_CUSPARSE(cusparseSpMM(handle, CUSPARSE_OPERATION_NON_TRANSPOSE,
                                 CUSPARSE_OPERATION_NON_TRANSPOSE, &alpha, matA, matB, &beta, matC,
                                 CUDA_R_32F, CUSPARSE_SPMM_ALG_DEFAULT, dBuffer))
@@ -730,7 +806,16 @@ void cusparse_spmm_all(float* cu_ValA,
     CHECK_CUDA(cudaFree(dA_val))
     CHECK_CUDA(cudaFree(dB))
     CHECK_CUDA(cudaFree(dC))
-    return;
+    if (execute_time > 0) {
+        float elapsed_ms = 0.0f;
+        CHECK_CUDA(cudaEventElapsedTime(&elapsed_ms, start_event, stop_event));
+        CHECK_CUDA(cudaEventDestroy(start_event));
+        CHECK_CUDA(cudaEventDestroy(stop_event));
+        double cusparse_time = static_cast<double>(elapsed_ms) / execute_time;
+        printf("cusparse_time: %f ms\n", cusparse_time);
+        return cusparse_time;
+    }
+    return 0.0;
 }
 
 int main(int argc, char** argv) {
@@ -809,7 +894,8 @@ int main(int argc, char** argv) {
     // host check
     float* C_cpu = (float*)malloc(sizeof(float) * M * N);
     memset(C_cpu, 0, sizeof(float) * M * N);
-    cusparse_spmm_all(csrValA, csrPtrA, csrColIdxA, B, C_cpu, M, N, K, nnz);
+    cusparse_spmm_all(csrValA, csrPtrA, csrColIdxA, B, C_cpu, M, N, K, nnz, warmup_time,
+                      execute_time);
     verify_new(C_cpu, C_cuda, M, N);
 
     printf("check nan: cusp %.1f mykernel %.1f\n", C_cpu[0], C_cuda[0]);

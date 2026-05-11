@@ -100,7 +100,7 @@ if __name__ == "__main__":
     # print(f"[NVIR Tree Dumped] {dump_path.resolve()}")
 
     
-    output_file = "./me_tcf_kernel.inc"
+    output_file = "./me_tcf_kernel3.inc"
     apply_software_pipeline_and_codegen(nvir_program, output_file)
 
     exit(0)
