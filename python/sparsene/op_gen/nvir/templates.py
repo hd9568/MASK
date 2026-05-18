@@ -314,6 +314,8 @@ using namespace cute;
 #define DIVUP(a, b) (((a) - 1) / (b) + 1)
 #define ALIGN(a,b) (DIVUP(a,b)*(b))
 
+{generated_metadata}
+
 {device_helper_functions}
 
 {nvop_defs}

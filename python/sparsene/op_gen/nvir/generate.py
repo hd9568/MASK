@@ -28,6 +28,7 @@ from sparsene.op_gen.nvir.nvop import (
     ParamShape,
 )
 from sparsene.logging import get_logger
+from sparsene.op_gen.strategy_agent import StrategyConfig, StrategyDecision, run_strategy_agent
 
 
 logger = get_logger(__name__)
@@ -85,12 +86,49 @@ class LoweringState:
     value_sources: Dict[op_ir.Value, SourceType] = field(default_factory=dict)
     name_counter: Dict[str, int] = field(default_factory=dict)
     use_fixed_c_tile_shape: bool = False
+    strategy_decision: Optional[StrategyDecision] = None
 
     def unique_name(self, raw_name: str) -> str:
         base = _sanitize_identifier(raw_name or "op")
         idx = self.name_counter.get(base, 0)
         self.name_counter[base] = idx + 1
         return base if idx == 0 else f"{base}_{idx}"
+
+
+def _strategy_tensor_setting(
+    state: Optional[LoweringState],
+    name: str,
+    default: Any,
+) -> Any:
+    if state is None or state.strategy_decision is None:
+        return default
+    tensor_placement = state.strategy_decision.tensor_placement
+    return getattr(tensor_placement, name, default)
+
+
+def _strategy_pipeline_setting(program: NvOpProgram, name: str, default: Any) -> Any:
+    strategy = program.attrs.get("strategy_decision")
+    if strategy is None:
+        return default
+    pipeline = getattr(strategy, "pipeline", None)
+    if pipeline is None:
+        return default
+    return getattr(pipeline, name, default)
+
+
+def _strategy_swizzle(
+    state: Optional[LoweringState],
+    name: str,
+    default: Optional[SwizzleLayout],
+) -> Optional[SwizzleLayout]:
+    value = _strategy_tensor_setting(state, name, None)
+    if value in [None, "none"]:
+        return None
+    if value == "swizzle_323":
+        return SwizzleLayout(3, 2, 3)
+    if value == "swizzle_123":
+        return SwizzleLayout(1, 2, 3)
+    return default
 
 
 def _sanitize_identifier(name: str) -> str:
@@ -490,7 +528,13 @@ def _lower_first_for_loop_to_blk_x(
         if i < len(loop_result_sources):
             state.value_sources[result] = loop_result_sources[i]
 
-def generate_nvir(opir: op_ir.MetaOp, format_name: str = "ME_TCF") -> NvOpProgram:
+def generate_nvir(
+    opir: op_ir.MetaOp,
+    format_name: str = "ME_TCF",
+    strategy_config: Optional[StrategyConfig] = None,
+    strategy_decision_override: Optional[StrategyDecision] = None,
+    strategy_log_dir_override: Optional[str] = None,
+) -> NvOpProgram:
     if format_name not in SPARSE_FORMAT_REGISTRY:
         raise ValueError(f"Unsupported format: {format_name}")
         
@@ -505,7 +549,24 @@ def generate_nvir(opir: op_ir.MetaOp, format_name: str = "ME_TCF") -> NvOpProgra
     if program_name in ["", "meta"]: program_name = "generated_kernel"
 
     program = NvOpProgram(name=program_name, gmem_inouts=gmem_inouts)
-    state = LoweringState(program=program) # 自动带上 HardwareMapper
+    if strategy_decision_override is not None:
+        strategy_decision = strategy_decision_override
+        strategy_log_dir = strategy_log_dir_override or ""
+    else:
+        strategy_decision, strategy_log_dir = run_strategy_agent(
+            format_name=format_name,
+            gmem_inouts=gmem_inouts,
+            config=strategy_config,
+        )
+    program.attrs["strategy_decision"] = strategy_decision
+    program.attrs["strategy_log_dir"] = str(strategy_log_dir)
+    program.attrs["generated_tile_b"] = int(
+        getattr(strategy_decision.tensor_placement, "tile_b", 64)
+    )
+    state = LoweringState(
+        program=program,
+        strategy_decision=strategy_decision,
+    ) # 自动带上 HardwareMapper
 
     # 在解析nvir之前，这里首先帮我插入一层 for op 给 y 维度
     blk_y_loop_op = _insert_outer_blk_y_loop(program=program, state=state)
@@ -636,6 +697,8 @@ def _choose_output_mem(
     logical_kind: str,
     result_type: op_ir.Type,
     mem_hint: Optional[IoMemType],
+    *,
+    state: Optional[LoweringState] = None,
 ) -> IoMemType:
     if not isinstance(result_type, op_ir.ArrayType):
         return "rmem"
@@ -645,11 +708,17 @@ def _choose_output_mem(
     if logical_kind in ["coo_atomic_val_restore", "mco_atomic_val_restore"]:
         return "smem"
     if logical_kind in ["coo_atomic_format_load_val", "mco_atomic_format_load_val"]:
-        return "smem"
+        return cast(
+            IoMemType,
+            _strategy_tensor_setting(state, "coo_val_output_mem", "smem"),
+        )
     if logical_kind in ["mco_atomic_format_load_mask", "load_offset"]:
         return "rmem"
     if logical_kind in ["coo_atomic_format_load_idx"] and isinstance(result_type, op_ir.ArrayType):
-        return "smem"
+        return cast(
+            IoMemType,
+            _strategy_tensor_setting(state, "coo_idx_output_mem", "smem"),
+        )
     if logical_kind in ["c_val_load"]:
         return "rmem"
     if logical_kind in ["ldmatrix"]:
@@ -741,6 +810,9 @@ def _insert_ldmatrix_if_needed(
         return source
 
     if operand_index == 0:
+        # The address mapping below assumes the canonical A-tile SMEM layout used
+        # by the working ME_TCF kernel. If the upstream SMEM layout changes, this
+        # ldmatrix path must be updated together with the layout transform.
         op_name = state.unique_name("S2rAValLoadOp")
         output_shape = _fixed_reg_a_shape()
         output_name = "REGA"
@@ -755,6 +827,8 @@ ldmatrix_m8n8k8_x4(
 );"""
         )
     elif operand_index == 1:
+        # Same caveat as the A-side path above: the lane mapping and shuffles are
+        # coupled to the canonical B-side SMEM layout.
         op_name = state.unique_name("S2rBValLoadOp")
         output_shape = _fixed_reg_b_shape()
         output_name = "REGB"
@@ -808,7 +882,13 @@ for (int n_iter = 0; n_iter < get<1>(BLK_MMA_MNK{{}}); n_iter++) {{
     return ldmatrix_op.outputs[0]
 
 
-def _make_impl(logical_kind: str, inputs: List[NvOpInput], outputs: List[NvOpOutput]) -> NvOpImpl:
+def _make_impl(
+    logical_kind: str,
+    inputs: List[NvOpInput],
+    outputs: List[NvOpOutput],
+    *,
+    state: Optional[LoweringState] = None,
+) -> NvOpImpl:
     if logical_kind == "add" and len(inputs) == 2 and len(outputs) == 1:
         return NvOpImpl(f"{outputs[0].name}(0) = {inputs[0].name} + {inputs[1].name};")
     if logical_kind == "sub" and len(inputs) == 2 and len(outputs) == 1:
@@ -835,6 +915,20 @@ def _make_impl(logical_kind: str, inputs: List[NvOpInput], outputs: List[NvOpOut
         return NvOpImpl("//! TODO: tensor load lowering")
 
     if logical_kind == "coo_atomic_format_load_idx" and len(inputs) >= 3 and len(outputs) == 2:
+        coo_load_mode = _strategy_tensor_setting(
+            state,
+            "coo_load_mode",
+            "cp_async_x4_aligned_fallback",
+        )
+        if coo_load_mode != "cp_async_x4_aligned_fallback":
+            return NvOpImpl(
+                f"""{outputs[1].name}(0) = {inputs[2].name} - {inputs[1].name};
+int nnz_tile = get<0>(BLK_MNK{{}}) * get<2>(BLK_MNK{{}});
+for (int i_load = lid; i_load < nnz_tile; i_load += 32) {{
+    int src_idx = {inputs[1].name} + i_load;
+    {outputs[0].name}(i_load, buf_idx) = src_idx < {inputs[2].name} ? {inputs[0].name}(src_idx) : 0;
+}}"""
+            )
         return NvOpImpl(
             f"""{outputs[1].name}(0) = {inputs[2].name} - {inputs[1].name};
 if (({inputs[1].name} & 3) == 0) {{
@@ -864,6 +958,19 @@ for (int i_load = lid; i_load < nnz_tile; i_load += 32) {{
         )
 
     if logical_kind == "coo_atomic_format_load_val" and len(inputs) >= 3 and len(outputs) == 1:
+        coo_load_mode = _strategy_tensor_setting(
+            state,
+            "coo_load_mode",
+            "cp_async_x4_aligned_fallback",
+        )
+        if coo_load_mode != "cp_async_x4_aligned_fallback":
+            return NvOpImpl(
+                f"""int nnz_tile = get<0>(BLK_MNK{{}}) * get<2>(BLK_MNK{{}});
+for (int i_load = lid; i_load < nnz_tile; i_load += 32) {{
+    int src_idx = {inputs[1].name} + i_load;
+    {outputs[0].name}(i_load, buf_idx) = src_idx < {inputs[2].name} ? {inputs[0].name}(src_idx) : float(0);
+}}"""
+            )
         return NvOpImpl(
             f"""if (({inputs[1].name} & 3) == 0) {{
     auto thr_tiler = make_shape(_4{{}});
@@ -1008,7 +1115,11 @@ for (int i_load = lid; i_load < tile_len; i_load += 32) {{
 
 
             if len(outputs[0].tensor.shape) >= 2:
-                if outputs[0].tensor.row_major:
+                if outputs[0].tensor.row_major and _strategy_tensor_setting(
+                    state,
+                    "enable_b_array_ref_cp_async",
+                    True,
+                ):
                     return NvOpImpl(
                         f"""auto load_tile_n = _4{{}};
 for (int iter_i = lid; iter_i < get<0>(shape({out_name})) * get<1>(shape({out_name})) / load_tile_n; iter_i += 32) {{
@@ -1300,13 +1411,20 @@ def _lower_array_ref(
     is_val_sidx_ref = base_tensor_name.startswith("val_sidx")
     is_b_val_ref = base_tensor_name == "B_val"
 
+    materialize_b_to_smem = bool(
+        _strategy_tensor_setting(state, "materialize_b_array_ref_to_smem", True)
+    )
+    materialize_val_sidx_to_smem = bool(
+        _strategy_tensor_setting(state, "materialize_val_sidx_to_smem", True)
+    )
+
     materialize_to_smem = (
         output_origin is not None
         and output_origin.tensor.mem == "gmem"
         and isinstance(op.result.type, op_ir.ArrayType)
         and (
-            is_val_sidx_ref
-            or is_b_val_ref
+            (is_val_sidx_ref and materialize_val_sidx_to_smem)
+            or (is_b_val_ref and materialize_b_to_smem)
             or (
                 any(len(inp.tensor.shape) > 0 for inp in inputs[1:])
                 and len(op.result.type.dims) >= 2
@@ -1339,18 +1457,28 @@ def _lower_array_ref(
                 mem=output_mem,
                 dtype=opir_type_to_nvir_dtype(op.result.type),
                 row_major=is_b_val_ref,
-                swizzle=SwizzleLayout(3, 2, 3) if is_b_val_ref else None,
+                swizzle=(
+                    _strategy_swizzle(
+                        state,
+                        "b_smem_swizzle",
+                        SwizzleLayout(3, 2, 3),
+                    )
+                    if is_b_val_ref
+                    else None
+                ),
             ),
             origin=output_origin,
         )
     ]
 
-    cp_async_enabled = is_b_val_ref
+    cp_async_enabled = is_b_val_ref and bool(
+        _strategy_tensor_setting(state, "enable_b_array_ref_cp_async", True)
+    )
     nvop = NvOp(
         name=op_name,
         inputs=inputs,
         outputs=outputs,
-        impl=_make_impl("array_ref", inputs, outputs),
+        impl=_make_impl("array_ref", inputs, outputs, state=state),
         mem_type=_infer_mem_type(inputs, outputs),
         op_type=(NvOpType.COPY_2D_SP if materialize_to_smem else NvOpType.OTHERS),
         logical_kind="array_ref",
@@ -1359,6 +1487,12 @@ def _lower_array_ref(
     )
     if outputs and outputs[0].tensor.mem == "smem":
         outputs[0].attrs["cp_async"] = cp_async_enabled
+        outputs[0].attrs["align_16"] = (
+            cp_async_enabled
+            and bool(
+                _strategy_tensor_setting(state, "align_cp_async_smem_outputs", True)
+            )
+        )
     target_append(nvop)
     state.value_sources[op.result] = nvop.outputs[0]
 
@@ -1428,11 +1562,20 @@ def _lower_generic_op(
                 name=result.name_hint or op.result_name(idx),
                 tensor=NvOpTensor(
                     shape=output_shape,
-                    mem=_choose_output_mem(logical_kind, result.type, mem_hint),
+                    mem=_choose_output_mem(
+                        logical_kind,
+                        result.type,
+                        mem_hint,
+                        state=state,
+                    ),
                     dtype=opir_type_to_nvir_dtype(result.type),
                     row_major=(logical_kind == "coo_atomic_val_restore"),
                     swizzle=(
-                        SwizzleLayout(1, 2, 3)
+                        _strategy_swizzle(
+                            state,
+                            "coo_restore_swizzle",
+                            SwizzleLayout(1, 2, 3),
+                        )
                         if logical_kind == "coo_atomic_val_restore"
                         else None
                     ),
@@ -1445,16 +1588,26 @@ def _lower_generic_op(
         name=op_name,
         inputs=inputs,
         outputs=outputs,
-        impl=_make_impl(logical_kind, inputs, outputs),
+        impl=_make_impl(logical_kind, inputs, outputs, state=state),
         mem_type=_infer_mem_type(inputs, outputs),
         op_type=_choose_op_type(logical_kind, outputs),
         logical_kind=logical_kind,
     )
     if logical_kind in {"coo_atomic_format_load_idx", "coo_atomic_format_load_val"}:
-        nvop.attrs["cp_async"] = True
+        coo_cp_async_enabled = (
+            _strategy_tensor_setting(state, "coo_load_mode", "cp_async_x4_aligned_fallback")
+            == "cp_async_x4_aligned_fallback"
+        )
+        nvop.attrs["cp_async"] = coo_cp_async_enabled
         for out in outputs:
             if out.tensor.mem == "smem":
-                out.attrs["cp_async"] = True
+                out.attrs["cp_async"] = coo_cp_async_enabled
+                out.attrs["align_16"] = (
+                    coo_cp_async_enabled
+                    and bool(
+                        _strategy_tensor_setting(state, "align_cp_async_smem_outputs", True)
+                    )
+                )
     # Mark non-cp.async ops explicitly to avoid inserting useless pipeline primitives.
     # This is particularly important for ME_TCF, where many helpers write to SMEM
     # but are implemented via normal stores (not cp.async).

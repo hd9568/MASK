@@ -16,6 +16,7 @@ from sparsene.op_gen.opir.cValFlattenPass import CValFlattenPass
 from sparsene.op_gen.nvir.generate import generate_nvir
 from sparsene.op_gen.nvir.printer import NvProgramPrinter
 from sparsene.logging import get_logger, set_logging_level_for_all
+from sparsene.op_gen.strategy_agent import StrategyConfig
 
 from sparsene.formats.ROW_REORDER_SR_BCRS import ROW_REORDER_SR_BCRS_FORMAT
 
@@ -40,6 +41,67 @@ def parse_args():
         type=str,
         default="./me_tcf_nvir_tree.txt",
         help="ME-TCF 的 NVIR 树形 dump 输出文件",
+    )
+    args.add_argument(
+        "--strategy-provider",
+        type=str,
+        default="heuristic",
+        choices=[
+            "heuristic",
+            "manual_json",
+            "openai_http",
+            "anthropic_http",
+            "subprocess_json",
+        ],
+        help="张量放置/流水线策略智能体提供者",
+    )
+    args.add_argument(
+        "--strategy-manual-json",
+        type=str,
+        default=None,
+        help="manual_json provider 使用的策略 JSON 文件",
+    )
+    args.add_argument(
+        "--strategy-agent-command",
+        type=str,
+        default=None,
+        help="subprocess_json provider 使用的外部命令，stdin 输入 request/prompt，stdout 输出 JSON response",
+    )
+    args.add_argument(
+        "--strategy-log-dir",
+        type=str,
+        default="docs/agent_runs",
+        help="智能体 request/response 日志目录",
+    )
+    args.add_argument(
+        "--strategy-api-key",
+        type=str,
+        default=None,
+        help="在线策略智能体使用的 API key，默认使用 strategy_agent.py 中的预设值",
+    )
+    args.add_argument(
+        "--strategy-api-base-url",
+        type=str,
+        default=None,
+        help="OpenAI-compatible API base URL，默认使用预设值",
+    )
+    args.add_argument(
+        "--strategy-anthropic-base-url",
+        type=str,
+        default=None,
+        help="Anthropic-compatible API base URL，默认使用预设的 token-plan anthropic 入口",
+    )
+    args.add_argument(
+        "--strategy-model",
+        type=str,
+        default=None,
+        help="在线策略智能体使用的模型名",
+    )
+    args.add_argument(
+        "--strategy-max-tokens",
+        type=int,
+        default=None,
+        help="在线策略智能体允许返回的最大 token 数",
     )
     return args.parse_args()
 
@@ -69,7 +131,29 @@ if __name__ == "__main__":
     print("[AFTER cValFlattenPass]")
     print(printer.Printer().dump(flattened_ops))
 
-    nvir_program = generate_nvir(opir=flattened_ops, format_name="ME_TCF")
+    default_strategy_config = StrategyConfig()
+    strategy_config = StrategyConfig(
+        provider=args.strategy_provider,
+        manual_json_path=args.strategy_manual_json,
+        agent_command=args.strategy_agent_command,
+        log_dir=args.strategy_log_dir,
+        api_key=args.strategy_api_key or default_strategy_config.api_key,
+        api_base_url=(
+            args.strategy_api_base_url
+            or default_strategy_config.api_base_url
+        ),
+        anthropic_base_url=(
+            args.strategy_anthropic_base_url
+            or default_strategy_config.anthropic_base_url
+        ),
+        model=args.strategy_model or default_strategy_config.model,
+        max_tokens=args.strategy_max_tokens or default_strategy_config.max_tokens,
+    )
+    nvir_program = generate_nvir(
+        opir=flattened_ops,
+        format_name="ME_TCF",
+        strategy_config=strategy_config,
+    )
     print("[AFTER NVIR Lowering]")
     print(f"program={nvir_program.name}, num_ops={len(nvir_program.ops)}")
     print(

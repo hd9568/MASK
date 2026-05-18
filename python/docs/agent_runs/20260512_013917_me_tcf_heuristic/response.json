@@ -1,0 +1,21 @@
+{
+  "provider": "heuristic",
+  "rationale": "Use the current best-known ME_TCF alignment recipe: preserve COO range, keep gathered B tiles in smem, enable cp.async for aligned COO/B-side loads, and keep the pipeline conservative with sync-on-smem-consumption.",
+  "tensor_placement": {
+    "materialize_b_array_ref_to_smem": true,
+    "materialize_val_sidx_to_smem": true,
+    "enable_b_array_ref_cp_async": true,
+    "b_array_ref_mode": "cp_async_1x4",
+    "coo_idx_output_mem": "smem",
+    "coo_val_output_mem": "smem",
+    "coo_load_mode": "cp_async_x4_aligned_fallback",
+    "align_cp_async_smem_outputs": true
+  },
+  "pipeline": {
+    "enable_async_pipeline": true,
+    "sync_threads_on_smem_input": true,
+    "max_wait_prior": null,
+    "stage_shifts": [],
+    "rationale": "Keep the existing dynamic stage partitioning and default shift=1 between adjacent stages."
+  }
+}

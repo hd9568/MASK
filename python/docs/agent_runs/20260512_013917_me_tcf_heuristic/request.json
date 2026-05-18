@@ -1,0 +1,107 @@
+{
+  "request_id": "5f8f2ad0-d8af-4fe9-95ef-4ca752208362",
+  "format_name": "ME_TCF",
+  "hardware": {
+    "gpu_name": "NVIDIA A800 80GB PCIe",
+    "driver_version": "570.86.15",
+    "cuda_arch": "sm_80",
+    "total_memory_mb": 81920,
+    "sm_count": null,
+    "warp_size": 32,
+    "source": "nvidia-smi"
+  },
+  "sparse_format": {
+    "format_name": "ME_TCF",
+    "summary": "ME_TCF is a hierarchical mixed sparse SpMM format. It uses length/offset metadata, sparse row indices (sidx), COO idx/value streams, B-side row gathers, and Tensor Core MMA tiles. The main performance-sensitive decisions are tensor placement, cp.async usage, and software-pipeline synchronization.",
+    "tensors": [
+      {
+        "name": "val_sidx_new",
+        "dtype": "int",
+        "shape": "(Param(BLK_K), Varlen(nnz_dim_K))",
+        "role": "external tensor"
+      },
+      {
+        "name": "val_len_offset",
+        "dtype": "int",
+        "shape": "(Varlen(Mo))",
+        "role": "external tensor"
+      },
+      {
+        "name": "B_val",
+        "dtype": "float",
+        "shape": "(Varlen(K), Varlen(N))",
+        "role": "dense B input matrix"
+      },
+      {
+        "name": "C_val",
+        "dtype": "float",
+        "shape": "(Varlen(N), Varlen(M))",
+        "role": "dense C output matrix"
+      },
+      {
+        "name": "val_coo_idx_new_1",
+        "dtype": "int",
+        "shape": "(Varlen(nnz_dim_nnz))",
+        "role": "external tensor"
+      },
+      {
+        "name": "val_coo_val_new_1",
+        "dtype": "float",
+        "shape": "(Varlen(nnz_dim_nnz))",
+        "role": "external tensor"
+      },
+      {
+        "name": "val_coo_len_new_offset",
+        "dtype": "int",
+        "shape": "(Varlen(nnz_dim_K_o))",
+        "role": "external tensor"
+      }
+    ],
+    "decision_targets": [
+      "tensor placement for gathered/intermediate tensors",
+      "whether B-side gather should materialize to smem",
+      "whether COO idx/value loads should use cp.async",
+      "pipeline wait/commit/sync behavior",
+      "shared-memory alignment requirements for async paths"
+    ]
+  },
+  "task": "Choose code-generation strategy knobs for ME_TCF. Focus on tensor placement, cp.async usage, and pipeline behavior. Return only structured data.",
+  "output_schema": {
+    "provider": "string",
+    "rationale": "string",
+    "tensor_placement": {
+      "materialize_b_array_ref_to_smem": "bool",
+      "materialize_val_sidx_to_smem": "bool",
+      "enable_b_array_ref_cp_async": "bool",
+      "b_array_ref_mode": "enum(cp_async_1x4|sync_scalar)",
+      "coo_idx_output_mem": "enum(smem|rmem)",
+      "coo_val_output_mem": "enum(smem|rmem)",
+      "coo_load_mode": "enum(cp_async_x4_aligned_fallback|sync_scalar)",
+      "align_cp_async_smem_outputs": "bool"
+    },
+    "pipeline": {
+      "enable_async_pipeline": "bool",
+      "sync_threads_on_smem_input": "bool",
+      "max_wait_prior": "int|null",
+      "stage_shifts": "list[int]",
+      "rationale": "string"
+    }
+  },
+  "constraints": [
+    "Must preserve correctness for the current ME_TCF lowering path.",
+    "Should prefer strategies already known to be safe on SM80/A100-like hardware.",
+    "Should only choose from the documented structured schema.",
+    "This is a single-shot strategy decision, not an iterative autotuning loop.",
+    "Need to leave logs of both request and response for later analysis."
+  ],
+  "observations": {
+    "known_good_baseline": {
+      "coo_range_preserved": true,
+      "coo_load_cp_async": true,
+      "b_side_cp_async": true,
+      "cp_async_shared_align_16": true
+    },
+    "current_goal": "drive codegen decisions for tensor placement and pipeline strategy in one pass"
+  },
+  "prompt": "You are a kernel strategy agent for sparse Tensor Core code generation.\n\nHardware:\n- gpu_name: NVIDIA A800 80GB PCIe\n- driver_version: 570.86.15\n- cuda_arch: sm_80\n- total_memory_mb: 81920\n- warp_size: 32\n\nSparse format:\n- format_name: ME_TCF\n- summary: ME_TCF is a hierarchical mixed sparse SpMM format. It uses length/offset metadata, sparse row indices (sidx), COO idx/value streams, B-side row gathers, and Tensor Core MMA tiles. The main performance-sensitive decisions are tensor placement, cp.async usage, and software-pipeline synchronization.\n\nVisible external tensors:\n- val_sidx_new: dtype=int, shape=(Param(BLK_K), Varlen(nnz_dim_K)), role=external tensor\n- val_len_offset: dtype=int, shape=(Varlen(Mo)), role=external tensor\n- B_val: dtype=float, shape=(Varlen(K), Varlen(N)), role=dense B input matrix\n- C_val: dtype=float, shape=(Varlen(N), Varlen(M)), role=dense C output matrix\n- val_coo_idx_new_1: dtype=int, shape=(Varlen(nnz_dim_nnz)), role=external tensor\n- val_coo_val_new_1: dtype=float, shape=(Varlen(nnz_dim_nnz)), role=external tensor\n- val_coo_len_new_offset: dtype=int, shape=(Varlen(nnz_dim_K_o)), role=external tensor\n\nWhat you need to do:\n- tensor placement for gathered/intermediate tensors\n- whether B-side gather should materialize to smem\n- whether COO idx/value loads should use cp.async\n- pipeline wait/commit/sync behavior\n- shared-memory alignment requirements for async paths\n\nConstraints:\n- Must preserve correctness for the current ME_TCF lowering path.\n- Should prefer strategies already known to be safe on SM80/A100-like hardware.\n- Should only choose from the documented structured schema.\n- This is a single-shot strategy decision, not an iterative autotuning loop.\n- Need to leave logs of both request and response for later analysis.\n\nOutput requirements:\n- Return only structured JSON compatible with the provided schema.\n- Keep the strategy conservative: prefer correctness-preserving choices.\n- For cp.async paths, ensure alignment and safe fallback logic are considered.\n- For pipeline decisions, avoid aggressive waits/commits unless justified.\n\nSchema:\n{\n  \"provider\": \"string\",\n  \"rationale\": \"string\",\n  \"tensor_placement\": {\n    \"materialize_b_array_ref_to_smem\": \"bool\",\n    \"materialize_val_sidx_to_smem\": \"bool\",\n    \"enable_b_array_ref_cp_async\": \"bool\",\n    \"b_array_ref_mode\": \"enum(cp_async_1x4|sync_scalar)\",\n    \"coo_idx_output_mem\": \"enum(smem|rmem)\",\n    \"coo_val_output_mem\": \"enum(smem|rmem)\",\n    \"coo_load_mode\": \"enum(cp_async_x4_aligned_fallback|sync_scalar)\",\n    \"align_cp_async_smem_outputs\": \"bool\"\n  },\n  \"pipeline\": {\n    \"enable_async_pipeline\": \"bool\",\n    \"sync_threads_on_smem_input\": \"bool\",\n    \"max_wait_prior\": \"int|null\",\n    \"stage_shifts\": \"list[int]\",\n    \"rationale\": \"string\"\n  }\n}\n"
+}

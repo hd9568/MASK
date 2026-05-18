@@ -17,11 +17,27 @@
 #include "../../../../python/me_tcf_kernel3.inc"
 #endif
 
+#ifndef SPARSENE_GENERATED_TILE_B
+#define SPARSENE_GENERATED_TILE_B 64
+#endif
+
+#ifndef SPARSENE_GENERATED_B_SMEM_SWIZZLE
+#define SPARSENE_GENERATED_B_SMEM_SWIZZLE "swizzle_323"
+#endif
+
+#ifndef SPARSENE_GENERATED_COO_RESTORE_SWIZZLE
+#define SPARSENE_GENERATED_COO_RESTORE_SWIZZLE "swizzle_123"
+#endif
+
 using namespace cute;
 
 #define ROW_WINDOW_M 16
 #define TC_BLOCK_K 8
 #define TC_BLOCK_M 16
+
+int sparsene_generated_tile_b() {
+    return SPARSENE_GENERATED_TILE_B;
+}
 
 namespace {
 

@@ -29,6 +29,7 @@ fi
 export PYTHONPATH="${PY_DIR}:${PYTHONPATH:-}"
 export PATH="$(dirname "${HOST_CXX}"):${PATH}"
 export SPARSENE_DISABLE_MTX_CACHE="${SPARSENE_DISABLE_MTX_CACHE:-1}"
+export SPARSENE_MTX_CACHE_DIR="${SPARSENE_MTX_CACHE_DIR:-/mnt/lustre-client/huoda/mtx_cache}"
 
 timestamp="$(date +%Y%m%d_%H%M%S)"
 RUN_DIR="${RESULT_ROOT}/multi_dataset_${MODE}_${timestamp}"

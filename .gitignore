@@ -48,6 +48,8 @@ examples/**/testbed/build_multi_dataset/
 examples/**/testbed/build_perf_logs/
 
 docs/log/
+docs/agent_runs/
+docs/agent_feedback_runs/
 current_generated_vs_patched.diff
 patches/
 paper/

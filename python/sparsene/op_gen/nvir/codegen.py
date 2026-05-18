@@ -1234,7 +1234,7 @@ class NvIrCodeGenerator:
         for out in smem_outputs:
             if not out.owning:
                 continue
-            align_prefix = "__align__(16) " if out.attrs.get("cp_async", False) else ""
+            align_prefix = "__align__(16) " if out.attrs.get("align_16", out.attrs.get("cp_async", False)) else ""
             smem_output_array_defs.append(
                 f"{align_prefix}__shared__ {out.tensor.dtype} {op.name}_tensor_o{out.idx}[cosize_v<{op.name}_layout_o{out.idx}>];"
             )
@@ -1395,6 +1395,7 @@ class NvIrCodeGenerator:
     def dump_pipelined_for_loop_nvop_methods(self, op: ForLoopNvOp) -> str:
         assert isinstance(op.body, NvOpPipeline)
         pipeline = op.body
+        pipeline_strategy = op.attrs.get("pipeline_strategy")
 
         op_stage_idx_mapping = {
             op: stage_idx
@@ -1498,14 +1499,29 @@ class NvIrCodeGenerator:
             op_calls: List[OpCall], pipeline_history: List[Tuple[NvOp, int]]
         ) -> List[Inst]:
             instructions = []
+            enable_async_pipeline = True
+            sync_threads_on_smem_input = True
+            max_wait_prior = None
+            if pipeline_strategy is not None:
+                enable_async_pipeline = getattr(
+                    pipeline_strategy, "enable_async_pipeline", True
+                )
+                sync_threads_on_smem_input = getattr(
+                    pipeline_strategy, "sync_threads_on_smem_input", True
+                )
+                max_wait_prior = getattr(
+                    pipeline_strategy, "max_wait_prior", None
+                )
             for op_call in op_calls:
-                if has_cp_async_smem_input(op_call.op):
+                if enable_async_pipeline and has_cp_async_smem_input(op_call.op):
                     wait_num = get_wait_num(
                         op_call.op, op_call.buf_idx, pipeline_history
                     )
+                    if max_wait_prior is not None and wait_num != -1:
+                        wait_num = min(wait_num, max_wait_prior)
                     if wait_num != -1:
                         instructions.append(PipelineWait(wait_num=wait_num))
-                if has_smem_input(op_call.op):
+                if sync_threads_on_smem_input and has_smem_input(op_call.op):
                     instructions.append(SyncThreads())
 
                 instructions.append(
@@ -1515,7 +1531,7 @@ class NvIrCodeGenerator:
                 )
                 instructions.append(op_call)
 
-                if has_cp_async_smem_output(op_call.op):
+                if enable_async_pipeline and has_cp_async_smem_output(op_call.op):
                     instructions.append(PipelineCommit())
 
                 pipeline_history.append((op_call.op, op_call.buf_idx))
@@ -2009,10 +2025,23 @@ class NvIrCodeGenerator:
         )
 
     def dump_nvop_program(self, program: NvOpProgram) -> str:
+        strategy = program.attrs.get("strategy_decision")
+        tensor = getattr(strategy, "tensor_placement", None)
+        tile_b = getattr(tensor, "tile_b", 64)
+        b_smem_swizzle = getattr(tensor, "b_smem_swizzle", "swizzle_323")
+        coo_restore_swizzle = getattr(tensor, "coo_restore_swizzle", "swizzle_123")
+        generated_metadata = "\n".join(
+            [
+                f"#define SPARSENE_GENERATED_TILE_B {int(tile_b)}",
+                f'#define SPARSENE_GENERATED_B_SMEM_SWIZZLE "{b_smem_swizzle}"',
+                f'#define SPARSENE_GENERATED_COO_RESTORE_SWIZZLE "{coo_restore_swizzle}"',
+            ]
+        )
         device_helper_functions = templates.DTC_HELPER_FUNCTIONS
         nvop_defs = self.dump_nvop_class_defs(program)
         global_function = self.dump_nvop_global_function(program)
         return templates.CUDA_SOURCE_SKELETON.format(
+            generated_metadata=generated_metadata,
             device_helper_functions=device_helper_functions,
             nvop_defs=nvop_defs,
             global_function=global_function,

@@ -58,6 +58,37 @@ extern template void dtc_spmm_test_val_sidx_bind_reorder<64>(int M,
                                                              bool is_ncu_test,
                                                              int warmup_time,
                                                              int execute_time);
+extern template void dtc_spmm_test_val_sidx_bind_reorder<32>(int M,
+                                                             int N,
+                                                             int K,
+                                                             int TCBlock_num,
+                                                             int nnz,
+                                                             int* val_sidx,
+                                                             int* val_soff,
+                                                             float* B_val,
+                                                             int* val_coo_idx,
+                                                             float* val_coo_val,
+                                                             int* val_coo_off,
+                                                             float* C,
+                                                             bool is_ncu_test,
+                                                             int warmup_time,
+                                                             int execute_time);
+extern template void dtc_spmm_test_val_sidx_bind_reorder<16>(int M,
+                                                             int N,
+                                                             int K,
+                                                             int TCBlock_num,
+                                                             int nnz,
+                                                             int* val_sidx,
+                                                             int* val_soff,
+                                                             float* B_val,
+                                                             int* val_coo_idx,
+                                                             float* val_coo_val,
+                                                             int* val_coo_off,
+                                                             float* C,
+                                                             bool is_ncu_test,
+                                                             int warmup_time,
+                                                             int execute_time);
+extern int sparsene_generated_tile_b();
 
 int binarySearch(int* arr, int l, int r, int target) {
     while (l <= r) {
@@ -142,12 +173,39 @@ bool useCheckpointCache() {
     return true;
 }
 
+std::string formatSparsityToken(float sparsity) {
+    std::ostringstream oss;
+    oss << std::fixed << std::setprecision(4) << sparsity;
+    std::string token = oss.str();
+    while (!token.empty() && token.back() == '0') {
+        token.pop_back();
+    }
+    if (!token.empty() && token.back() == '.') {
+        token.pop_back();
+    }
+    std::replace(token.begin(), token.end(), '.', 'p');
+    return token.empty() ? "unknown" : token;
+}
+
+std::string buildCheckpointStem(const std::string& file_path, int M, int K, float sparsity) {
+    std::string base = extractMatrixName(file_path);
+    if (base.empty()) {
+        base = "synthetic";
+    }
+    std::string stem = base + "_M" + to_string(M) + "_K" + to_string(K);
+    if (file_path.empty()) {
+        stem += "_sp" + formatSparsityToken(sparsity);
+    }
+    return stem + "_METCF.checkpoint";
+}
+
 // -------------------------
 // storeCheckpoint for ME-TCF
 // -------------------------
 int storeCheckpoint(
     string file_path,
     int M, int K,
+    float sparsity,
     vector<int>& val_sidx,
     vector<int>& val_soff,
     vector<int>& val_coo_idx,
@@ -160,10 +218,7 @@ int storeCheckpoint(
         return 0;
     }
 
-    string checkpoint_filename = extractMatrixName(file_path) + 
-                                 "_M" + to_string(M) + 
-                                 "_K" + to_string(K) + 
-                                 "_METCF.checkpoint";
+    string checkpoint_filename = buildCheckpointStem(file_path, M, K, sparsity);
     std::filesystem::path cache_dir = getCheckpointCacheDir();
     std::error_code ec;
     std::filesystem::create_directories(cache_dir, ec);
@@ -202,6 +257,7 @@ int storeCheckpoint(
 int loadCheckpoint(
     string file_path,
     int M, int K,
+    float sparsity,
     vector<int>& val_sidx,
     vector<int>& val_soff,
     vector<int>& val_coo_idx,
@@ -214,10 +270,7 @@ int loadCheckpoint(
         return 0;
     }
 
-    string checkpoint_filename = extractMatrixName(file_path) + 
-                                 "_M" + to_string(M) + 
-                                 "_K" + to_string(K) + 
-                                 "_METCF.checkpoint";
+    string checkpoint_filename = buildCheckpointStem(file_path, M, K, sparsity);
     std::filesystem::path cache_dir = getCheckpointCacheDir();
     string full_path = (cache_dir / checkpoint_filename).string();
 
@@ -283,7 +336,8 @@ void convertToMETCF(
     bool is_ncu_test,
     int warmup_time,
     int execute_time,
-    string file_path
+    string file_path,
+    float sparsity
 ) {
     using dtypeB = float;
     using dtypeC = float;
@@ -312,7 +366,7 @@ void convertToMETCF(
     int total_TCBlock_num = 0;
     int nnz_pad = 0;
 
-    int loaded = loadCheckpoint(file_path, M, K, val_sidx, val_soff, val_coo_idx, val_coo_val, val_coo_off, total_TCBlock_num, nnz_pad);
+    int loaded = loadCheckpoint(file_path, M, K, sparsity, val_sidx, val_soff, val_coo_idx, val_coo_val, val_coo_off, total_TCBlock_num, nnz_pad);
     // int loaded = 0;
     if (!loaded) {
         // -------------------------
@@ -458,14 +512,44 @@ void convertToMETCF(
         delete[] tc_block_nnz_ptr;
 
         // 5. 保存 checkpoint
-        storeCheckpoint(file_path, M, K, val_sidx, val_soff, val_coo_idx, val_coo_val, val_coo_off, total_TCBlock_num, nnz_pad);
+        storeCheckpoint(file_path, M, K, sparsity, val_sidx, val_soff, val_coo_idx, val_coo_val, val_coo_off, total_TCBlock_num, nnz_pad);
     }
 
     // 6. 调用 kernel
-    dtc_spmm_test_val_sidx_bind_reorder<64>(
-        M, N, K, total_TCBlock_num, nnz_pad, val_sidx.data(), val_soff.data(),
-        B_val, val_coo_idx.data(), val_coo_val.data(), val_coo_off.data(),
-        C_val, is_ncu_test, warmup_time, execute_time);
+    int requested_tile_b = sparsene_generated_tile_b();
+    auto launch_with_tile_b = [&](int tile_b) {
+        switch (tile_b) {
+            case 16:
+                dtc_spmm_test_val_sidx_bind_reorder<16>(
+                    M, N, K, total_TCBlock_num, nnz_pad, val_sidx.data(), val_soff.data(),
+                    B_val, val_coo_idx.data(), val_coo_val.data(), val_coo_off.data(),
+                    C_val, is_ncu_test, warmup_time, execute_time);
+                break;
+            case 32:
+                dtc_spmm_test_val_sidx_bind_reorder<32>(
+                    M, N, K, total_TCBlock_num, nnz_pad, val_sidx.data(), val_soff.data(),
+                    B_val, val_coo_idx.data(), val_coo_val.data(), val_coo_off.data(),
+                    C_val, is_ncu_test, warmup_time, execute_time);
+                break;
+            default:
+                dtc_spmm_test_val_sidx_bind_reorder<64>(
+                    M, N, K, total_TCBlock_num, nnz_pad, val_sidx.data(), val_soff.data(),
+                    B_val, val_coo_idx.data(), val_coo_val.data(), val_coo_off.data(),
+                    C_val, is_ncu_test, warmup_time, execute_time);
+                break;
+        }
+    };
+    if (requested_tile_b > 0 && N % requested_tile_b == 0) {
+        launch_with_tile_b(requested_tile_b);
+    } else if (N % 64 == 0) {
+        launch_with_tile_b(64);
+    } else if (N % 32 == 0) {
+        launch_with_tile_b(32);
+    } else if (N % 16 == 0) {
+        launch_with_tile_b(16);
+    } else {
+        throw std::runtime_error("Generated TILE_B does not divide N and no fallback tile is valid.");
+    }
 }
 
 
@@ -832,6 +916,13 @@ int main(int argc, char** argv) {
                sparsity, "-sparsity", is_ncu_test, "-ncu", warmup_time, "-warmup", execute_time,
                "-repeat");
 
+    // Validation scripts often run without a matrix path. In that case,
+    // fall back to the synthetic generator instead of dereferencing an
+    // empty filename through the MatrixMarket loader.
+    if (filename.empty()) {
+        mtx_flag = 0;
+    }
+
     cout << "Filename: " << filename << endl;
     cout << "N: " << N << endl;
 
@@ -889,7 +980,7 @@ int main(int argc, char** argv) {
 
     float* C_cuda = (float*)malloc(sizeof(float) * M * N);
     convertToMETCF(M, N, K, nnz, csrPtrA, csrColIdxA, csrValA, B, C_cuda, (bool)is_ncu_test,
-                   warmup_time, execute_time, filename);
+                   warmup_time, execute_time, filename, sparsity);
 
     // host check
     float* C_cpu = (float*)malloc(sizeof(float) * M * N);

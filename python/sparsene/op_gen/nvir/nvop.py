@@ -644,6 +644,7 @@ class NvOpProgram:
     meta_op: MetaNvOp
     gmem_inouts: Dict[str, GmemInout]
     gmem_tensor_ops: Dict[str, GmemTensorNvOp]
+    attrs: Dict[str, Any]
 
     def __init__(
         self,
@@ -651,6 +652,7 @@ class NvOpProgram:
         gmem_inouts: Dict[str, GmemInout],
     ):
         self.name = name
+        self.attrs = {}
         self.meta_op = MetaNvOp(
             name=name,
             body=NvOpSequence(),

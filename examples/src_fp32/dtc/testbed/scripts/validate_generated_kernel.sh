@@ -20,6 +20,7 @@ fi
 export PYTHONPATH="${PY_DIR}:${PYTHONPATH:-}"
 export PATH="$(dirname "${HOST_CXX}"):${PATH}"
 export SPARSENE_DISABLE_MTX_CACHE="${SPARSENE_DISABLE_MTX_CACHE:-1}"
+export SPARSENE_MTX_CACHE_DIR="${SPARSENE_MTX_CACHE_DIR:-/mnt/lustre-client/huoda/mtx_cache}"
 
 if [[ "${PATCHED_ONLY}" != "1" && "${SKIP_GENERATE}" != "1" ]]; then
   echo "[1/3] Generating ${PY_DIR}/me_tcf_kernel3.inc"

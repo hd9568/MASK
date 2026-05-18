@@ -429,9 +429,23 @@ def apply_software_pipeline_and_codegen(program: NvOpProgram, output_path: Union
     )
     logger.info("Pipeline stages partitioned dynamically: %s", stage_summary)
 
+    strategy = program.attrs.get("strategy_decision")
+    pipeline_strategy = getattr(strategy, "pipeline", None)
+    if pipeline_strategy is not None:
+        main_loop.attrs["pipeline_strategy"] = pipeline_strategy
+
     # 3. 仅当 stage>=2 才应用软件流水线；单 stage 场景直接按顺序代码生成
     if len(stage_sequences) >= 2:
         shifts = [1] * (len(stage_sequences) - 1)
+        if pipeline_strategy is not None and pipeline_strategy.stage_shifts:
+            if len(pipeline_strategy.stage_shifts) == len(stage_sequences) - 1:
+                shifts = list(pipeline_strategy.stage_shifts)
+            else:
+                logger.warning(
+                    "Ignoring invalid strategy stage_shifts=%s for %d stages",
+                    pipeline_strategy.stage_shifts,
+                    len(stage_sequences),
+                )
         plan = PipelinePlan(stage_sequences, shifts)
         apply_pipeline(main_loop, plan)
     else:
