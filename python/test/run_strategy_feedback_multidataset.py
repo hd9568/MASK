@@ -436,6 +436,8 @@ def _build_gmem_inouts():
 
 def _discover_datasets(args: argparse.Namespace) -> List[Path]:
     root = Path(args.dataset_root)
+    if not root.exists():
+        return []
     exclude_substrings = [item.strip() for item in args.exclude_substrings.split(",") if item.strip()]
     prefer_subdirs = [item.strip().replace("\\", "/") for item in args.prefer_subdirs.split(",") if item.strip()]
     discovered = []
@@ -1587,10 +1589,14 @@ def main() -> None:
     _write_json(run_dir / "run_config.json", vars(args))
 
     datasets = _discover_datasets(args)
+    synthetic_cases = _build_synthetic_cases(args)
+    feedback_dataset = None
+    if args.feedback_dataset:
+        feedback_dataset = _resolve_feedback_dataset(args, datasets)
+        if not datasets and feedback_dataset is not None:
+            datasets = [feedback_dataset]
     if not datasets:
         raise RuntimeError(f"No .mtx datasets found under {args.dataset_root}")
-    synthetic_cases = _build_synthetic_cases(args)
-    feedback_dataset = _resolve_feedback_dataset(args, datasets)
     gmem_inouts = _build_gmem_inouts()
     _write_json(run_dir / "datasets.json", [str(path) for path in datasets])
     _write_json(run_dir / "synthetic_cases.json", synthetic_cases)
