@@ -214,14 +214,14 @@ CONSTANT_NVOP_CLASS_DEF_SKELETON = """template <{nbuf_type}class BLK_MNK, class 
 class {op_name} {{
 public:
     // No Inputs
-
+{extern_members}
 {outputs}
     // Hardware parameters
     int tid, lid, wid;
 
     // Constructor
-    CUTE_DEVICE {op_name}(int tid, int lid, int wid, TO0 *{tensor_name})
-    : tid(tid), lid(lid), wid(wid), {tensor_name}(make_tensor(make_{mem_type_str}_ptr({tensor_name}), Layout_o0{{}})) {{}}
+    CUTE_DEVICE {op_name}(int tid, int lid, int wid, TO0 *{tensor_name}{extern_ctor_params})
+    : tid(tid), lid(lid), wid(wid), {tensor_name}(make_tensor(make_{mem_type_str}_ptr({tensor_name}), Layout_o0{{}})){extern_ctor_inits} {{}}
 
     // output
 {get_output_method}
@@ -329,7 +329,7 @@ GMEM_TENSOR_NVOP_CREATE_SKELETON = """using {op_name}_t = {op_name}<BLK_MNK, MMA
 CONSTANT_NVOP_CREATE_SKELETON = """using {op_name}_t = {op_name}<BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK>;
 using {op_name}_layout_o0 = typename {op_name}_t::Layout_o0;
 {dtype} {op_name}_tensor_o0[cosize_v<{op_name}_layout_o0>];
-{op_name}_t {op_name}_v{{tid, lid, wid, {op_name}_tensor_o0}};"""
+{op_name}_t {op_name}_v{{tid, lid, wid, {op_name}_tensor_o0{extern_create_args}}};"""
 
 FOR_LOOP_NVOP_CREATE_SKELETON = """using {op_name}_t = {op_name}<BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK{visible_op_type_template_args}{non_owning_tensor_type_template_args}>;
 {op_name}_t {op_name}_v{{tid, lid, wid{visible_op_as_args}{non_owning_tensor_as_args}}};"""

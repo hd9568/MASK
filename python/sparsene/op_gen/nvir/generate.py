@@ -66,7 +66,61 @@ SPARSE_FORMAT_REGISTRY = {
                 "tensor_type_str": "decltype(logical_divide(make_tensor(make_gmem_ptr((TO0*)nullptr), make_shape(VARLEN, VARLEN)), select<1, 0>(BLK_MNK{}))(make_coord(_, VARLEN), make_coord(_, VARLEN)))"
             }
         }
-    }
+    },
+    "BIT_TCF": {
+        # BIT_TCF uses MCO atomic format; gmem interfaces similar to ME_TCF
+        "shape_overrides": {
+            "val_len": ["Mo"],
+            "val_coo_len": ["nnz_dim_K_o"],
+            "val_sidx": ["BLK_K", "nnz_dim_K"],
+            "C_val": ["N", "M"],
+        },
+        "dtypes": {
+            "mco_mask": "int64_t",
+            "idx": "int",
+            "len": "int",
+            "off": "int",
+            "sidx": "int",
+        },
+        "custom_layouts": {
+            "B_val": {
+                "dtype": "float",
+                "tensor_str": "logical_divide(make_tensor(make_gmem_ptr(d{name}), make_layout(make_shape(K, N), make_stride(N, _1{}))), make_shape(_1{}, get<1>(BLK_MNK{})))(_, make_coord(_, blockIdx.y))",
+                "tensor_type_str": "decltype(logical_divide(make_tensor(make_gmem_ptr((TO0*)nullptr), make_layout(make_shape(VARLEN, VARLEN), make_stride(VARLEN, _1{}))), make_shape(_1{}, get<1>(BLK_MNK{})))(_, make_coord(_, VARLEN)))",
+            },
+            "C_val": {
+                "dtype": "float",
+                "tensor_str": "logical_divide(make_tensor(make_gmem_ptr(d{name}), make_shape(N, M)), select<1, 0>(BLK_MNK{}))(make_coord(_, blockIdx.y), make_coord(_, blockIdx.x))",
+                "tensor_type_str": "decltype(logical_divide(make_tensor(make_gmem_ptr((TO0*)nullptr), make_shape(VARLEN, VARLEN)), select<1, 0>(BLK_MNK{}))(make_coord(_, VARLEN), make_coord(_, VARLEN)))",
+            }
+        }
+    },
+    "SR_BCRS": {
+        # SR_BCRS uses dense atomic format; gmem interfaces similar to ME_TCF
+        "shape_overrides": {
+            "val_len": ["Mo"],
+            "val_sidx": ["BLK_K", "nnz_dim_K"],
+            "C_val": ["N", "M"],
+        },
+        "dtypes": {
+            "idx": "int",
+            "len": "int",
+            "off": "int",
+            "sidx": "int",
+        },
+        "custom_layouts": {
+            "B_val": {
+                "dtype": "float",
+                "tensor_str": "logical_divide(make_tensor(make_gmem_ptr(d{name}), make_layout(make_shape(K, N), make_stride(N, _1{}))), make_shape(_1{}, get<1>(BLK_MNK{})))(_, make_coord(_, blockIdx.y))",
+                "tensor_type_str": "decltype(logical_divide(make_tensor(make_gmem_ptr((TO0*)nullptr), make_layout(make_shape(VARLEN, VARLEN), make_stride(VARLEN, _1{}))), make_shape(_1{}, get<1>(BLK_MNK{})))(_, make_coord(_, VARLEN)))",
+            },
+            "C_val": {
+                "dtype": "float",
+                "tensor_str": "logical_divide(make_tensor(make_gmem_ptr(d{name}), make_shape(N, M)), select<1, 0>(BLK_MNK{}))(make_coord(_, blockIdx.y), make_coord(_, blockIdx.x))",
+                "tensor_type_str": "decltype(logical_divide(make_tensor(make_gmem_ptr((TO0*)nullptr), make_shape(VARLEN, VARLEN)), select<1, 0>(BLK_MNK{}))(make_coord(_, VARLEN), make_coord(_, VARLEN)))",
+            }
+        }
+    },
 }
 
 class HardwareMapper:
@@ -1165,12 +1219,23 @@ def _lower_constant(
     else:
         lowered_value = str(value)
 
+    # Attach sympy free symbols (K, M, N, nnz_dim_*) as external constructor
+    # params.  Convention: value==key → external symbol (ctor arg, not template).
+    # BLK_* symbols are handled by codegen via CUTLASS intrinsics, not here.
+    extra_params: Dict[str, Any] = {}
+    if hasattr(value, "free_symbols"):
+        for sym in value.free_symbols:
+            sym_str = str(sym)
+            if sym_str not in ("_", "") and not sym_str.startswith("BLK"):
+                extra_params[sym_str] = sym_str
+
     const_name = state.unique_name(op.result.name_hint or "const")
     nv_const = ConstantNvOp(
         name=const_name,
         shape=Shape(),
         dtype=opir_type_to_nvir_dtype(op.result.type),
         value=lowered_value,
+        parameters=extra_params,
     )
     target_append(nv_const)
     state.value_sources[op.result] = nv_const.outputs[0]

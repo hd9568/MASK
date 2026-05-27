@@ -1,0 +1,44 @@
+# LLM Models Configuration
+# =========================
+# All models share the OpenAI-compatible /chat/completions API.
+# To add a new model, add a new entry under `models` with:
+#   - provider: always "openai_compatible"
+#   - model: the model name passed to the API
+#   - api_base_url: the endpoint base URL
+#   - api_key_env: environment variable name for the API key (optional)
+#   - api_key: hardcoded API key (optional, api_key_env takes precedence)
+#   - defaults: optional per-model defaults for temperature/max_tokens
+
+models:
+  deepseek-v4-pro:
+    provider: openai_compatible
+    model: deepseek-v4-pro
+    api_base_url: https://api.deepseek.com/v1
+    api_key_env: DEEPSEEK_API_KEY
+    api_key: sk-eb7f7960366d41a5a4310277168e93da
+    defaults:
+      temperature: 0.5
+      max_tokens: 8192
+      timeout_sec: 300
+
+  deepseek-v4-flash:
+    provider: openai_compatible
+    model: deepseek-v4-flash
+    api_base_url: https://api.deepseek.com/v1
+    api_key_env: DEEPSEEK_API_KEY
+    api_key: sk-eb7f7960366d41a5a4310277168e93da
+    defaults:
+      temperature: 0.5
+      max_tokens: 4096
+      timeout_sec: 300
+
+  mimo-v2.5-pro:
+    provider: openai_compatible
+    model: mimo-v2.5-pro
+    api_base_url: https://token-plan-cn.xiaomimimo.com/v1
+    api_key_env: MIMO_API_KEY
+    api_key: tp-ckk8svdzeha2h3dly4ec5984bq914cpty4shelmntgg8c83p
+    defaults:
+      temperature: 0.5
+      max_tokens: 4096
+      timeout_sec: 180

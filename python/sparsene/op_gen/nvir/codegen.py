@@ -241,11 +241,30 @@ class NvIrCodeGenerator:
 
     def dump_constant_nvop_class_def(self, op: ConstantNvOp) -> str:
         nbuf_type_str = "class NBUF, " if op.pipelined else ""
+
+        # Template params (Int<N>) vs external symbol ctor args (value==key).
+        template_params = {k: v for k, v in op.parameters.items() if v != k}
+        extern_params = {k: v for k, v in op.parameters.items() if v == k}
+
         parameter_types_strs = [
-            f"class {param} = Int<{op.parameters[param]}>" for param in op.parameters
+            f"class {param} = Int<{template_params[param]}>" for param in template_params
         ]
         parameter_types_str = ", ".join(parameter_types_strs)
         parameter_types_str = ", " + parameter_types_str if parameter_types_str else ""
+
+        # External symbol members, ctor params, ctor inits (sorted longest-first
+        # so BLK_K replaces before K in source text)
+        extern_names = sorted(extern_params.keys(), key=len, reverse=True)
+        if extern_names:
+            extern_members = "    // External symbols\n" + "".join(
+                f"    int m_{n};\n" for n in extern_names
+            )
+            extern_ctor_params = "".join(f", int {n}" for n in extern_names)
+            extern_ctor_inits = "".join(f", m_{n}({n})" for n in extern_names)
+        else:
+            extern_members = ""
+            extern_ctor_params = ""
+            extern_ctor_inits = ""
 
         in_dtypes_strs = [
             f"class TI{idx} = {inp.tensor.dtype}" for idx, inp in enumerate(op.inputs)
@@ -270,7 +289,19 @@ class NvIrCodeGenerator:
         if op.value == 0:
             f_body = f"clear({tensor_name});"
         else:
-            f_body = f"for (int i = 0; i < {tensor_name}.size(); i++) {{ {tensor_name}(i) = {op.value}; }}"
+            val_str = str(op.value)
+            # Replace BLK_* with CUTLASS intrinsics (standalone tokens only,
+            # \b boundaries prevent BLK_MMA_K from matching BLK_K)
+            import re as _re
+            val_str = _re.sub(r'\bBLK_M\b', 'get<0>(BLK_MNK{})', val_str)
+            val_str = _re.sub(r'\bBLK_K\b', 'get<1>(BLK_MNK{})', val_str)
+            val_str = _re.sub(r'\bBLK_MMA_M\b', 'get<0>(BLK_MMA_MNK{})', val_str)
+            val_str = _re.sub(r'\bBLK_MMA_N\b', 'get<1>(BLK_MMA_MNK{})', val_str)
+            val_str = _re.sub(r'\bBLK_MMA_K\b', 'get<2>(BLK_MMA_MNK{})', val_str)
+            # Replace extern symbols with member vars (word boundaries)
+            for n in extern_names:
+                val_str = _re.sub(r'\b' + n + r'\b', f'm_{n}', val_str)
+            f_body = f"for (int i = 0; i < {tensor_name}.size(); i++) {{ {tensor_name}(i) = {val_str}; }}"
 
         get_output_method_str = self.dump_get_output_method(op)
 
@@ -281,10 +312,13 @@ class NvIrCodeGenerator:
             parameter_types=parameter_types_str,
             io_dtypes=io_dtypes_str,
             op_name=op_name_str,
+            extern_members=extern_members,
             outputs=self._indent_lines(outputs_str),
             make_shape_str=make_shape_str,
             mem_type_str=mem_type_str,
             tensor_name=tensor_name,
+            extern_ctor_params=extern_ctor_params,
+            extern_ctor_inits=extern_ctor_inits,
             f_template_head=f_template_head,
             f_body=f_body,
             get_output_method=self._indent_lines(get_output_method_str),
@@ -640,8 +674,6 @@ class NvIrCodeGenerator:
         buf_idx_str: str,
         shift_constant: Optional[str] = None,
     ) -> str:
-        # g2r_coo_atomic_format_load_off_op.template output<(i - shift1) % nbuf_rmem, 0>()
-        # l + i + shift1 + shift2
         if isinstance(inp.tensor.source, NvOpOutput):
             assert isinstance(inp.tensor.source.op, NvOp)
             if inp.tensor.source.op.pipelined:
@@ -653,6 +685,8 @@ class NvIrCodeGenerator:
                 arg += "(0)"
             return arg
         elif isinstance(inp.tensor.source, str):
+            # BLK_K in a DivOp with offset-style LHS: off_l is already
+            # block-level scaled; the division is identity → return 1.
             if (
                 inp.tensor.source == "BLK_K"
                 and op.attrs.get("logical_kind") == "div"
@@ -1344,11 +1378,15 @@ class NvIrCodeGenerator:
         template_args.extend(["BLK_MNK", "MMA_MNK", "BLK_MMA_MNK", "WARP_MNK"])
         template_args_str = ", ".join(template_args)
 
+        extern_params = {k: v for k, v in op.parameters.items() if v == k}
+        extern_names = sorted(extern_params.keys(), key=len, reverse=True)
+        extern_create_args = "".join(f", {n}" for n in extern_names)
+
         return (
             f"using {op_name}_t = {op_name}<{template_args_str}>;\n"
             f"using {op_name}_layout_o0 = typename {op_name}_t::Layout_o0;\n"
             f"{dtype} {op_name}_tensor_o0[cosize_v<{op_name}_layout_o0>];\n"
-            f"{op_name}_t {op_name}_v{{tid, lid, wid, {op_name}_tensor_o0}};"
+            f"{op_name}_t {op_name}_v{{tid, lid, wid, {op_name}_tensor_o0{extern_create_args}}};"
         )
 
     def dump_for_loop_nvop_create(

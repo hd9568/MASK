@@ -293,7 +293,7 @@ class VarlenLoweringPass:
         base_offset = offset_cache[key]
 
         # 2. 如果不需要缩放 (scale_expr == 1)，直接返回
-        if self._is_one_expr(scale_expr):
+        if self._is_one_expr(scale_expr) or self._is_blk_scaled_one_expr(scale_expr):
             return base_offset
 
         # 3. 检查缩放缓存，避免重复生成相同的 div 指令
@@ -369,10 +369,13 @@ class VarlenLoweringPass:
         
         base_cache_key = (term_a, i_val, str(spec.b_expr))
         if base_cache_key not in flat_index_cache:
-            # 2. 计算 term_b = b * i
-            term_b = self._build_fractional_mul(i_val, spec.b_expr, prefix_ops)
-            # 3. 相加: dim1_base_idx = term_a + term_b
-            dim1_base_idx = self._build_add(term_a, term_b, prefix_ops)
+            if self._is_zero_expr(spec.b_expr):
+                dim1_base_idx = term_a
+            else:
+                # 2. 计算 term_b = b * i
+                term_b = self._build_fractional_mul(i_val, spec.b_expr, prefix_ops)
+                # 3. 相加: dim1_base_idx = term_a + term_b
+                dim1_base_idx = self._build_add(term_a, term_b, prefix_ops)
             flat_index_cache[base_cache_key] = dim1_base_idx
         else:
             dim1_base_idx = flat_index_cache[base_cache_key]
@@ -404,9 +407,10 @@ class VarlenLoweringPass:
         return True
 
     def _build_add(self, lhs: Value, rhs: Value, generated_ops: List[Op]) -> Value:
-        # 简单优化：如果其中一个是常数 0，直接返回另一个
-        if getattr(lhs, "value", None) == 0: return rhs
-        if getattr(rhs, "value", None) == 0: return lhs
+        if self._is_const_int(lhs, 0):
+            return rhs
+        if self._is_const_int(rhs, 0):
+            return lhs
         
         add = AddOp(lhs, rhs)
         generated_ops.append(add)
@@ -639,7 +643,21 @@ class VarlenLoweringPass:
 
     
 
+    def _is_const_int(self, val: Value, target: int) -> bool:
+        """Check if val is a ConstantOp with the given integer value."""
+        if not hasattr(val, "defining_op") or val.defining_op is None:
+            return False
+        op = val.defining_op
+        if not isinstance(op, ConstantOp):
+            return False
+        try:
+            return int(op.attributes.get("value", None)) == target
+        except (TypeError, ValueError):
+            return False
+
     def _build_sub(self, lhs: Value, rhs: Value, generated_ops: List[Op]) -> Value:
+        if self._is_const_int(rhs, 0):
+            return lhs
         sub = SubOp(lhs, rhs)
         generated_ops.append(sub)
         return sub.result
@@ -760,6 +778,20 @@ class VarlenLoweringPass:
             return False
         except Exception:
             return str(expr).strip() == "1"
+
+    def _is_blk_scaled_one_expr(self, expr: Any) -> bool:
+        """Check if expr * BLK_K simplifies to 1 (i.e. expr = 1/BLK_K).
+        This detects stride-scaling that becomes identity at block level."""
+        try:
+            return simplify(sympify(expr) * sympify("BLK_K") - 1) == 0
+        except Exception:
+            return False
+
+    def _is_zero_expr(self, expr: Any) -> bool:
+        try:
+            return simplify(sympify(expr)) == 0
+        except Exception:
+            return False
 
 
     def _dims_equal(self, dims_a: Sequence[Any], dims_b: Sequence[Any]) -> bool:

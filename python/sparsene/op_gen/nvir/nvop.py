@@ -404,8 +404,10 @@ class NvOp:
         return varlens
 
     def all_parameters(self) -> Set[str]:
-        # print("WAKUWAKU", self.name, self.parameters)
-        return set(self.parameters.keys())
+        # External symbol params (value == key, e.g. "K": "K") are passed
+        # as constructor arguments, NOT template parameters.  Only template
+        # params (value != key, e.g. "nbuf": 1) become template classes.
+        return {k for k, v in self.parameters.items() if v != k}
 
 
 class ConstantNvOp(NvOp):

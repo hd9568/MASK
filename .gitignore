@@ -5,30 +5,23 @@ cmake-build-*
 
 **/*.egg-info
 
-logs
+logs/
 **/*.log
-
 
 .VSCodeCounter
 
 python/**/*.pdf
 
 example/build/
-
 example/report/
 
 .vscode
 
 exp/*list*.txt
-
 baseline
-
 example/
-
 examples/reports/
-
 examples/ncu-rep/*
-
 examples/src_fp32/acc/testbed/scripts/motivation_scripts/plan_fig/*
 
 *.checkpoint
@@ -40,19 +33,27 @@ examples/src_fp16/dtc/testbed/scripts/draw_timeline/*
 motivation/TCBlockNum/*
 
 examples/**/testbed/build/*
-
 examples/**/testbed/build_new/*
 examples/**/testbed/build_generated/
 examples/**/testbed/build_reference/
 examples/**/testbed/build_multi_dataset/
 examples/**/testbed/build_perf_logs/
+examples/**/testbed/build_agent_multidataset/
 
 docs/log/
 docs/agent_runs/
 docs/agent_feedback_runs/
+docs/format_design_runs/
 current_generated_vs_patched.diff
+
+python/**/*.inc
+
 patches/
 paper/
 
-python/me_tcf_kernel3_patched.inc
+examples/src_fp32/dtc/testbed/featurize_mtx
 examples/src_fp32/dtc/testbed/me_tcf_kernel_origin.inc
+
+# Deprecated/moved files
+sparsene_llm_sog_deprecated/
+sparsene_llm_sog_logs/
