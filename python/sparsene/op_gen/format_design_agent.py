@@ -15,15 +15,12 @@ they remain heuristic.
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
-from datetime import datetime
 import json
 import os
-from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
-from urllib import error as urllib_error
-from urllib import request as urllib_request
 import uuid
 
+from sparsene.agent.runtime import AgentModelConfig, invoke_json_agent, make_zero_usage
 from sparsene.format.format import (
     Axis,
     AtomicFormat,
@@ -83,10 +80,13 @@ class FormatDesignResponse:
     rationale: str
     confidence: str
     raw_payload: Dict[str, Any] = field(default_factory=dict)
+    token_usage: Dict[str, Any] = field(default_factory=dict)
+    agent_metadata: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
 class FormatDesignConfig:
+    model_name: Optional[str] = DEFAULT_DEEPSEEK_MODEL
     api_key: str = DEFAULT_DEEPSEEK_API_KEY
     api_base_url: str = DEFAULT_DEEPSEEK_BASE_URL
     model: str = DEFAULT_DEEPSEEK_MODEL
@@ -94,6 +94,13 @@ class FormatDesignConfig:
     timeout_sec: int = 180
     temperature: float = 0.1
     max_tokens: int = DEFAULT_MAX_TOKENS
+    model_config_path: Optional[str] = None
+    skill_names: List[str] = field(
+        default_factory=lambda: [
+            "sparsene-framework",
+            "format-design",
+        ]
+    )
 
 
 # ==============================================================================
@@ -474,13 +481,43 @@ def _try_parse_json(text: str) -> Optional[Dict[str, Any]]:
     return None
 
 
-def _ensure_log_dir(log_dir: str) -> Path:
-    p = Path(log_dir)
-    if not p.is_absolute():
-        repo_root = Path(__file__).resolve().parents[3]
-        p = repo_root / log_dir
-    p.mkdir(parents=True, exist_ok=True)
-    return p
+def _fallback_format_response(
+    *,
+    request_id: str,
+    rationale: str,
+    raw_payload: Optional[Dict[str, Any]] = None,
+) -> FormatDesignResponse:
+    return FormatDesignResponse(
+        request_id=request_id,
+        format_name="ME_TCF_fallback",
+        levels=[
+            {
+                "level": 1,
+                "name": "row_window",
+                "axes": [
+                    {"name": "X_o", "type": "df", "direction": "ROW", "length": "M"},
+                    {"name": "Y_s", "type": "sv", "direction": "COL", "length": "K"},
+                    {"name": "X_i", "type": "df", "direction": "ROW", "length": "BLK_M"},
+                ],
+            },
+            {
+                "level": 2,
+                "name": "tc_block",
+                "axes": [
+                    {"name": "Y_so", "type": "df", "direction": "COL", "length": "K/BLK_K"},
+                    {"name": "Y_si", "type": "df", "direction": "COL", "length": "BLK_K"},
+                    {"name": "X_i", "type": "df", "direction": "ROW", "length": "BLK_M"},
+                ],
+            },
+        ],
+        atomic={"type": "coo", "x_axis": "X_i", "y_axis": "Y_si"},
+        params={"BLK_M": 32, "BLK_K": 8},
+        rationale=rationale,
+        confidence="low",
+        raw_payload=raw_payload or {},
+        token_usage=make_zero_usage().to_dict(),
+        agent_metadata={"source": "fallback"},
+    )
 
 
 # ==============================================================================
@@ -516,110 +553,46 @@ def run_format_design_agent(
         rules=FORMAT_DESIGN_RULES,
     )
     req.prompt = render_format_design_prompt(req)
-
-    log_dir = _ensure_log_dir(config.log_dir)
-    run_dir = log_dir / f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_format_design_{matrix_name}"
-    run_dir.mkdir(parents=True, exist_ok=True)
-
-    (run_dir / "request.json").write_text(
-        json.dumps(asdict(req), indent=2, ensure_ascii=False)
-    )
-    (run_dir / "prompt.txt").write_text(req.prompt)
-
-    api_payload = {
-        "model": config.model,
-        "temperature": config.temperature,
-        "max_tokens": config.max_tokens,
-        "messages": [
-            {"role": "system", "content": "You are a sparse-format design expert using the sparsene hierarchical DSL. Output only valid JSON."},
-            {"role": "user", "content": req.prompt},
-        ],
-    }
-
-    api_url = f"{config.api_base_url.rstrip('/')}/chat/completions"
-    raw_response_text = ""
-
     try:
-        data = json.dumps(api_payload).encode("utf-8")
-        http_req = urllib_request.Request(
-            api_url,
-            data=data,
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {config.api_key}",
-            },
-            method="POST",
+        result = invoke_json_agent(
+            agent_name="format_design",
+            subject=matrix_name,
+            log_dir=config.log_dir,
+            model_config=AgentModelConfig(
+                provider="openai_compatible",
+                model_name=config.model_name or config.model,
+                model=config.model,
+                api_key=config.api_key,
+                api_base_url=config.api_base_url,
+                temperature=config.temperature,
+                max_tokens=config.max_tokens,
+                timeout_sec=config.timeout_sec,
+                model_config_path=config.model_config_path,
+            ),
+            system_prompt=(
+                "You are a sparse-format design expert using the sparsene hierarchical DSL. "
+                "Output only valid JSON."
+            ),
+            user_prompt=req.prompt,
+            request_payload=asdict(req),
+            response_parser=lambda text: _try_parse_json(text) or {},
+            skill_names=config.skill_names,
         )
-        with urllib_request.urlopen(http_req, timeout=config.timeout_sec) as resp:
-            raw = json.loads(resp.read().decode("utf-8"))
-            msg = raw["choices"][0]["message"]
-            raw_response_text = msg.get("content", "") or ""
-            if not raw_response_text and msg.get("reasoning_content"):
-                raw_response_text = msg["reasoning_content"]
-
-        (run_dir / "response.json").write_text(
-            json.dumps(raw, indent=2, ensure_ascii=False)
-        )
-    except (urllib_error.URLError, urllib_error.HTTPError) as exc:
+    except Exception as exc:
         logger.error("Format design agent HTTP error: %s", exc)
-        (run_dir / "response_error.txt").write_text(str(exc))
-        return FormatDesignResponse(
+        return _fallback_format_response(
             request_id=request_id,
-            format_name="ME_TCF_fallback",
-            levels=[
-                {
-                    "level": 1, "name": "row_window",
-                    "axes": [
-                        {"name": "X_o", "type": "df", "direction": "ROW", "length": "M"},
-                        {"name": "Y_s", "type": "sv", "direction": "COL", "length": "K"},
-                        {"name": "X_i", "type": "df", "direction": "ROW", "length": "BLK_M"},
-                    ],
-                },
-                {
-                    "level": 2, "name": "tc_block",
-                    "axes": [
-                        {"name": "Y_so", "type": "df", "direction": "COL", "length": "K/BLK_K"},
-                        {"name": "Y_si", "type": "df", "direction": "COL", "length": "BLK_K"},
-                        {"name": "X_i", "type": "df", "direction": "ROW", "length": "BLK_M"},
-                    ],
-                },
-            ],
-            atomic={"type": "coo", "x_axis": "X_i", "y_axis": "Y_si"},
-            params={"BLK_M": 32, "BLK_K": 8},
             rationale=f"Agent call failed: {exc}. Falling back to default ME_TCF.",
-            confidence="low",
         )
 
-    parsed = _try_parse_json(raw_response_text)
+    parsed = result.parsed_payload or {}
 
     if not parsed:
         logger.warning("Format design agent: JSON parse failed. Falling back to ME_TCF.")
-        return FormatDesignResponse(
+        return _fallback_format_response(
             request_id=request_id,
-            format_name="ME_TCF_fallback",
-            levels=[
-                {
-                    "level": 1, "name": "row_window",
-                    "axes": [
-                        {"name": "X_o", "type": "df", "direction": "ROW", "length": "M"},
-                        {"name": "Y_s", "type": "sv", "direction": "COL", "length": "K"},
-                        {"name": "X_i", "type": "df", "direction": "ROW", "length": "BLK_M"},
-                    ],
-                },
-                {
-                    "level": 2, "name": "tc_block",
-                    "axes": [
-                        {"name": "Y_so", "type": "df", "direction": "COL", "length": "K/BLK_K"},
-                        {"name": "Y_si", "type": "df", "direction": "COL", "length": "BLK_K"},
-                        {"name": "X_i", "type": "df", "direction": "ROW", "length": "BLK_M"},
-                    ],
-                },
-            ],
-            atomic={"type": "coo", "x_axis": "X_i", "y_axis": "Y_si"},
-            params={"BLK_M": 32, "BLK_K": 8},
             rationale="JSON parse failed. Falling back to default ME_TCF.",
-            confidence="low",
-            raw_payload={"raw_text": raw_response_text[:500]},
+            raw_payload={"raw_text": result.response_text[:500]},
         )
 
     # Parse levels from LLM response
@@ -664,4 +637,9 @@ def run_format_design_agent(
         rationale=parsed.get("rationale", ""),
         confidence=parsed.get("confidence", "medium"),
         raw_payload=parsed,
+        token_usage=result.usage.to_dict(),
+        agent_metadata={
+            "run_dir": str(result.run_dir),
+            "resolved_model": result.resolved_model.to_dict(),
+        },
     )

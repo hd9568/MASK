@@ -115,10 +115,10 @@ class NvIrCodeGenerator:
             map(lambda out: self.dump_output_decl(out), op.outputs)
         )
 
-        hw_param_str = f"// Hardware parameters\nint tid, lid, wid;"
+        hw_param_str = f"// Hardware parameters\nint lid;"
 
         def dump_constructor_head() -> str:
-            hw_constructor_params = ["int tid", "int lid", "int wid"]
+            hw_constructor_params = ["int lid"]
             output_constructor_params = []
             for out in op.outputs:
                 if not out.owning:
@@ -153,7 +153,7 @@ class NvIrCodeGenerator:
             return f"CUTE_DEVICE {op.name}({constructor_params})"
 
         constructor_head_str = dump_constructor_head()
-        hw_param_constructor_init_list = ["tid(tid)", "lid(lid)", "wid(wid)"]
+        hw_param_constructor_init_list = ["lid(lid)"]
         varlen_shapes_constructor_init_list = self.dump_init_input_varlen_shape(
             op
         ) + self.dump_init_output_varlen_shape(op)
@@ -606,34 +606,7 @@ class NvIrCodeGenerator:
             else:
                 return f"get<{shape_indices[-1]}>({dump_nested_tuple_access(shape, shape_indices[:-1])})"
 
-        static_assert_strs = []
-
-        def dump_static_assert() -> None:
-            def dump_static_assert(
-                shape: Shape, inp: NvOpInput, parent_shape_indices: List[int]
-            ) -> None:
-                for i, s in enumerate(shape):
-                    if isinstance(s, VarlenShape):
-                        continue
-                    elif isinstance(s, Shape):
-                        dump_static_assert(s, inp, parent_shape_indices + [i])
-                    else:
-                        static_assert_strs.append(
-                            f"assert("
-                            f"{dump_nested_tuple_access(f'shape_i{inp.idx}', parent_shape_indices + [i])}"
-                            f" == "
-                            f"{dump_nested_tuple_access(f'shape({inp.name})', parent_shape_indices + [i], size_outside=True)}"
-                            ");"
-                        )
-
-            for inp in op.inputs:
-                dump_static_assert(inp.tensor.shape, inp, [])
-                # f"CUTE_STATIC_ASSERT_V((get<{i}>(shape_i{inp.idx}) == size<{i}>(shape({inp.name}))));"
-                # f"CUTE_STATIC_ASSERT((is_static<decltype(size<{i}>(shape({inp.name})))>::value));"
-
-        dump_static_assert()
-
-        code_str = "\n".join([*static_assert_strs, op.impl.code_template])
+        code_str = op.impl.code_template
         if op.pipelined:
             for out in op.outputs:
                 if len(out.tensor.shape) == 0:
@@ -673,9 +646,18 @@ class NvIrCodeGenerator:
         inp: NvOpInput,
         buf_idx_str: str,
         shift_constant: Optional[str] = None,
+        inline_scalar_bindings: Optional[Dict[Tuple[str, str, int], str]] = None,
     ) -> str:
         if isinstance(inp.tensor.source, NvOpOutput):
             assert isinstance(inp.tensor.source.op, NvOp)
+            if inline_scalar_bindings is not None:
+                inline_key = (
+                    inp.tensor.source.op.name,
+                    buf_idx_str,
+                    inp.tensor.source.idx,
+                )
+                if inline_key in inline_scalar_bindings:
+                    return inline_scalar_bindings[inline_key]
             if inp.tensor.source.op.pipelined:
                 buf_idx_str = ", " + buf_idx_str
             else:
@@ -730,13 +712,20 @@ class NvIrCodeGenerator:
         op: NvOp,
         buf_idx_str: str,
         shift_constant: Optional[str] = None,
+        inline_scalar_bindings: Optional[Dict[Tuple[str, str, int], str]] = None,
     ) -> str:
         # g2s_coo_atomic_format_load_val_op.template f<(i - shift1) % nbuf_rmem>(val_coo_val,
         #     g2r_coo_atomic_format_load_off_op.template output<(i - shift1) % nbuf_rmem, 0>(),
         #     g2r_coo_atomic_format_load_off_op.template output<(i - shift1) % nbuf_rmem, 1>()
         # );
         arg_strs = [
-            self.dump_f_method_call_arg(op, inp, buf_idx_str, shift_constant)
+            self.dump_f_method_call_arg(
+                op,
+                inp,
+                buf_idx_str,
+                shift_constant,
+                inline_scalar_bindings,
+            )
             for inp in op.inputs
         ]
         if not op.pipelined:
@@ -752,6 +741,34 @@ class NvIrCodeGenerator:
             + self._indent_lines(",\n".join(arg_strs))
             + "\n);"
         )
+
+    def dump_inline_load_offset_scalar_call(
+        self,
+        op: NvOp,
+        buf_idx_str: str,
+        shift_constant: Optional[str],
+        inline_id: int,
+    ) -> Tuple[str, Dict[Tuple[str, str, int], str]]:
+        arg_strs = [
+            self.dump_f_method_call_arg(op, inp, buf_idx_str, shift_constant)
+            for inp in op.inputs
+        ]
+        assert len(arg_strs) >= 3
+        idx_name = f"{op.name}_inline_idx_{inline_id}"
+        ll_name = f"{op.name}_inline_o0_{inline_id}"
+        rr_name = f"{op.name}_inline_o1_{inline_id}"
+        code = "\n".join(
+            [
+                f"int {idx_name} = {arg_strs[1]} + {arg_strs[2]};",
+                f"int {ll_name} = {arg_strs[0]}({idx_name});",
+                f"int {rr_name} = {arg_strs[0]}({idx_name} + 1);",
+            ]
+        )
+        bindings = {
+            (op.name, buf_idx_str, 0): ll_name,
+            (op.name, buf_idx_str, 1): rr_name,
+        }
+        return code, bindings
 
     # TODO: 调整commit和wait num的发射逻辑：所有以SMEM为输出的Op都添加commit；wait num每个op判断wait num
     # TODO: short pipe 延长到sum shifts + max shift(现在是sum shifts)
@@ -1305,7 +1322,7 @@ class NvIrCodeGenerator:
                 if isinstance(s, VarlenShape):
                     varlen_modes.append(s.name)
 
-        args_0 = ["tid", "lid", "wid"]
+        args_0 = ["lid"]
         args_1 = outputs
         args_2 = varlen_modes
         if args_0 and args_1 and args_2:
@@ -1386,7 +1403,7 @@ class NvIrCodeGenerator:
             f"using {op_name}_t = {op_name}<{template_args_str}>;\n"
             f"using {op_name}_layout_o0 = typename {op_name}_t::Layout_o0;\n"
             f"{dtype} {op_name}_tensor_o0[cosize_v<{op_name}_layout_o0>];\n"
-            f"{op_name}_t {op_name}_v{{tid, lid, wid, {op_name}_tensor_o0{extern_create_args}}};"
+            f"{op_name}_t {op_name}_v{{lid, {op_name}_tensor_o0{extern_create_args}}};"
         )
 
     def dump_for_loop_nvop_create(
@@ -1578,15 +1595,29 @@ class NvIrCodeGenerator:
 
         def dump_insts(insts: List[Inst]) -> str:
             inst_strs = []
+            inline_scalar_bindings: Dict[Tuple[str, str, int], str] = {}
+            inline_counter = 0
             for inst in insts:
                 if isinstance(inst, OpCall):
-                    inst_strs.append(
-                        self.dump_f_method_call(
+                    if inst.op.attrs.get("inline_scalar_outputs_codegen", False):
+                        inline_code, new_bindings = self.dump_inline_load_offset_scalar_call(
                             inst.op,
                             buf_idx_str=str(inst.buf_idx),
                             shift_constant=inst.shift_constant,
+                            inline_id=inline_counter,
                         )
-                    )
+                        inline_counter += 1
+                        inline_scalar_bindings.update(new_bindings)
+                        inst_strs.append(inline_code)
+                    else:
+                        inst_strs.append(
+                            self.dump_f_method_call(
+                                inst.op,
+                                buf_idx_str=str(inst.buf_idx),
+                                shift_constant=inst.shift_constant,
+                                inline_scalar_bindings=inline_scalar_bindings,
+                            )
+                        )
                 elif isinstance(inst, PipelineWait):
                     inst_strs.append(f"__pipeline_wait_prior({inst.wait_num});")
                 elif isinstance(inst, PipelineCommit):

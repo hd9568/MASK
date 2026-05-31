@@ -2,7 +2,7 @@ from pathlib import Path
 from collections import defaultdict
 from typing import Dict, List, Set, Union, Sequence, Tuple, Optional
 
-from sparsene.op_gen.nvir.nvop import NvOpProgram, ForLoopNvOp, NvOpSequence, NvOp
+from sparsene.op_gen.nvir.nvop import NvOpProgram, ForLoopNvOp, NvOpSequence, NvOp, NvOpImpl, NvOpInput, NvOpTensor, NvOpOutput
 from sparsene.op_gen.nvir.plan import apply_pipeline, PipelinePlan
 from sparsene.op_gen.nvir.codegen import NvIrCodeGenerator
 from sparsene.logging import get_logger
@@ -37,13 +37,16 @@ def _get_logical_kind(op: NvOp) -> str:
     return "unknown"
 
 
-def _preferred_stage(kind: str) -> int:
+def _preferred_stage(kind: str, op: Optional[NvOp] = None) -> int:
+    if kind == "array_ref" and op is not None:
+        role = getattr(op, "attrs", {}).get("array_ref_role")
+        if role == "b_val":
+            return 1
     if kind in {
         "coo_atomic_format_load_idx",
         "coo_atomic_format_load_val",
         "mco_atomic_format_load_mask",
         "mco_atomic_format_load_val",
-        "array_ref",
         "add",
         "sub",
         "mul",
@@ -184,12 +187,17 @@ def _build_fused_groups(
     for gid, group_ops in enumerate(groups):
         kinds = [_get_logical_kind(op) for op in group_ops]
         non_naive_prefs = [
-            _preferred_stage(kind) for kind in kinds if kind not in NAIVE_FUSION_KINDS
+            _preferred_stage(group_ops[i].attrs.get("logical_kind", kinds[i]), group_ops[i])
+            for i in range(len(kinds))
+            if kinds[i] not in NAIVE_FUSION_KINDS
         ]
         if non_naive_prefs:
             group_preferred[gid] = max(non_naive_prefs)
         else:
-            group_preferred[gid] = max((_preferred_stage(kind) for kind in kinds), default=0)
+            group_preferred[gid] = max(
+                (_preferred_stage(group_ops[i].attrs.get("logical_kind", kinds[i]), group_ops[i]) for i in range(len(kinds))),
+                default=0,
+            )
 
     return groups, group_deps, group_preferred, op_to_gid, fusion_pairs
 
@@ -395,12 +403,389 @@ def _select_main_loop(program: NvOpProgram) -> Optional[ForLoopNvOp]:
 
     return max(candidate_loops, key=_score)[0]
 
+
+def _fuse_load_offset_sub_div(program: NvOpProgram) -> None:
+    """Inline gen_sub + gen_div into load_offset by changing out[1] to off_r-off_l.
+
+
+    Before: load_offset(gmem, idx) → (off_l, off_r)
+            off_r → gen_sub(off_r, off_l) → (r-l)
+            (r-l) → gen_div((r-l), BLK_K) → 1*(r-l) → for_loop.r
+
+    After:  load_offset(gmem, idx) → (off_l, off_r - off_l) → for_loop.r
+            gen_sub and gen_div removed.
+
+    This kills 2 template params from the outer for_loop and 2 ops from
+    the non-pipelined computation path.
+    """
+
+    def _walk(body):
+        to_remove = []
+        for op in list(body.ops):
+            if isinstance(op, ForLoopNvOp):
+                _walk(op.body)
+                continue
+
+            kind = _get_logical_kind(op)
+            if kind != "sub":
+                continue
+            gen_sub = op
+            sub_inputs = list(gen_sub.inputs)
+            if len(sub_inputs) != 2:
+                continue
+            sub_src0 = sub_inputs[0].tensor.source  # off_r
+            sub_src1 = sub_inputs[1].tensor.source  # off_l
+            if not isinstance(sub_src0, NvOpOutput) or not isinstance(sub_src1, NvOpOutput):
+                continue
+            if sub_src0.op is None or sub_src1.op is None:
+                continue
+            load_kind0 = _get_logical_kind(sub_src0.op)
+            load_kind1 = _get_logical_kind(sub_src1.op)
+            if load_kind0 != "load_offset" or load_kind1 != "load_offset":
+                continue
+            if sub_src0.op is not sub_src1.op:
+                continue
+            load_off = sub_src0.op
+
+            gen_sub_out = gen_sub.outputs[0]
+            gen_div = None
+            for c in gen_sub_out.consumers:
+                if _get_logical_kind(c) == "div":
+                    gen_div = c
+                    break
+            if gen_div is None:
+                continue
+
+            logger.info("Fusing load_offset+gen_sub+gen_div chain")
+            
+            old_impl = load_off.impl.code_template
+            # Rewrite second line: "r(0) = operand_0(operand_1 + 1);" → "r(0) = operand_0(operand_1 + 1) - l(0);"
+            lines = old_impl.split("\n")
+            lines[1] = lines[1].rstrip(";") + f" - {load_off.outputs[0].name}(0);"
+            load_off.impl = NvOpImpl("\n".join(lines))
+
+            div_out = gen_div.outputs[0]
+            for c in list(div_out.consumers):
+                for inp in c.inputs:
+                    if inp.tensor.source is div_out:
+                        inp.tensor.source = load_off.outputs[1]
+                        inp.tensor.dtype = load_off.outputs[1].tensor.dtype
+                        inp.tensor.shape = load_off.outputs[1].tensor.shape
+
+            to_remove.extend([gen_sub, gen_div])
+
+        for op in to_remove:
+            if op in body.ops:
+                body.ops.remove(op)
+
+    for top_op in program.ops:
+        if isinstance(top_op, ForLoopNvOp):
+            _walk(top_op.body)
+            continue
+        name = getattr(top_op, "name", "")
+        if hasattr(top_op, "body"):
+            _walk(top_op.body)
+
+    logger.info("Fused load_offset+gen_sub+gen_div: removed 2 ops from outer loop")
+
+
+def _fuse_inline_gen_add(main_loop: ForLoopNvOp) -> None:
+    """Inline gen_add into array_ref and load_offset_1, eliminating 36 pipeline calls.
+
+    Before:
+        gen_add(off_l, l+{c}) → idx  (36 pipeline calls per nbuf iteration!)
+        array_ref(val_sidx, idx) → sidx_smem
+        load_offset_1(offset_arr, idx) → (ll, rr)
+
+    After:
+        array_ref(val_sidx, off_l, l+{c}) → internal: idx=off_l+lc
+        load_offset_1(offset_arr, off_l, l+{c}) → internal: idx=off_l+lc
+        gen_add REMOVED
+    """
+
+    body = main_loop.body
+    gen_add = None
+    arr_ref = None
+    load_off1 = None
+
+    for op in list(body.ops):
+        kind = _get_logical_kind(op)
+        if kind == "add":
+            gen_add = op
+        elif kind == "array_ref" and not op.name.startswith("array_ref_1"):
+            arr_ref = op
+        elif kind == "load_offset" and op.name.startswith("load_offset_"):
+            load_off1 = op
+
+    if gen_add is None or arr_ref is None or load_off1 is None:
+        return
+
+    off_l_inp = gen_add.inputs[0]
+    lc_inp = gen_add.inputs[1]
+    ga_out = gen_add.outputs[0]
+
+    # --- Fuse into array_ref ---
+    if any(inp.tensor.source is ga_out for inp in arr_ref.inputs):
+        new_ar: list = []
+        for inp in arr_ref.inputs:
+            if inp.tensor.source is ga_out:
+                continue
+            new_ar.append(NvOpInput(idx=len(new_ar), name=inp.name,
+                tensor=NvOpTensor(shape=inp.tensor.shape, mem=inp.tensor.mem,
+                                  dtype=inp.tensor.dtype, source=inp.tensor.source)))
+        new_ar.append(NvOpInput(idx=len(new_ar), name="off_l",
+            tensor=NvOpTensor(shape=off_l_inp.tensor.shape, mem=off_l_inp.tensor.mem,
+                              dtype=off_l_inp.tensor.dtype, source=off_l_inp.tensor.source)))
+        new_ar.append(NvOpInput(idx=len(new_ar), name="lc",
+            tensor=NvOpTensor(shape=lc_inp.tensor.shape, mem=lc_inp.tensor.mem,
+                              dtype=lc_inp.tensor.dtype, source=lc_inp.tensor.source)))
+        arr_ref.inputs = []
+        for ni in new_ar:
+            arr_ref.add_input(ni)
+        arr_ref.impl = NvOpImpl(
+            "int tile_len = size<0>(shape(result_0));\n"
+            "        int idx = off_l + lc;\n"
+            "        auto thr_tiler = make_shape(Int<4>{});\n"
+            "        for (int i_load = lid; i_load * 4 < tile_len; i_load += 32) {\n"
+            "            auto thr_coord = make_coord(i_load);\n"
+            "            auto src = local_tile(operand_0(_, idx), thr_tiler, thr_coord);\n"
+            "            auto dst = local_tile(result_0(_, buf_idx), thr_tiler, thr_coord);\n"
+            "            sparsene_copy_g2s_128<int>(src, dst);\n"
+            "        }")
+        arr_ref.attrs["cp_async"] = True
+        if arr_ref.outputs:
+            arr_ref.outputs[0].attrs["cp_async"] = True
+            arr_ref.outputs[0].attrs["align_16"] = True
+
+    # --- Fuse into load_offset_1 ---
+    if any(inp.tensor.source is ga_out for inp in load_off1.inputs):
+        new_lo: list = []
+        for inp in load_off1.inputs:
+            if inp.tensor.source is ga_out:
+                continue
+            new_lo.append(NvOpInput(idx=len(new_lo), name=inp.name,
+                tensor=NvOpTensor(shape=inp.tensor.shape, mem=inp.tensor.mem,
+                                  dtype=inp.tensor.dtype, source=inp.tensor.source)))
+        new_lo.append(NvOpInput(idx=len(new_lo), name="off_l",
+            tensor=NvOpTensor(shape=off_l_inp.tensor.shape, mem=off_l_inp.tensor.mem,
+                              dtype=off_l_inp.tensor.dtype, source=off_l_inp.tensor.source)))
+        new_lo.append(NvOpInput(idx=len(new_lo), name="lc",
+            tensor=NvOpTensor(shape=lc_inp.tensor.shape, mem=lc_inp.tensor.mem,
+                              dtype=lc_inp.tensor.dtype, source=lc_inp.tensor.source)))
+        load_off1.inputs = []
+        for ni in new_lo:
+            load_off1.add_input(ni)
+        load_off1.impl = NvOpImpl(
+            "int idx = off_l + lc;\n"
+            "        ll(0, buf_idx) = operand_0(idx);\n"
+            "        rr(0, buf_idx) = operand_0(idx + 1);")
+
+    body.ops.remove(gen_add)
+    logger.info("Inlined gen_add into array_ref + load_offset_1; -1 pipeline op")
+
+
+def _mark_codegen_inline_load_offset(main_loop: ForLoopNvOp) -> None:
+    body = main_loop.body
+    load_off1 = None
+    coo_idx = None
+    coo_val = None
+    for op in body.ops:
+        kind = _get_logical_kind(op)
+        if kind == "load_offset" and op.name.startswith("load_offset_1"):
+            load_off1 = op
+        elif kind == "coo_atomic_format_load_idx":
+            coo_idx = op
+        elif kind == "coo_atomic_format_load_val":
+            coo_val = op
+
+    if load_off1 is None or coo_idx is None or coo_val is None:
+        return
+    if len(load_off1.outputs) < 2:
+        return
+
+    ll_out, rr_out = load_off1.outputs[0], load_off1.outputs[1]
+    expected_consumers = {coo_idx, coo_val}
+    if set(ll_out.consumers) != expected_consumers:
+        return
+    if set(rr_out.consumers) != expected_consumers:
+        return
+
+    load_off1.attrs["inline_scalar_outputs_codegen"] = True
+    logger.info(
+        "Marked %s for codegen-level scalar inlining into coo loaders",
+        load_off1.name,
+    )
+
+
+def _reset_inputs(op: NvOp, new_inputs: List[NvOpInput]) -> None:
+    for old_inp in op.inputs:
+        source = old_inp.tensor.source
+        if isinstance(source, NvOpOutput) and op in source.consumers:
+            source.consumers.remove(op)
+    op.inputs = []
+    for new_inp in new_inputs:
+        op.add_input(new_inp)
+
+
+def _clone_input(inp: NvOpInput, *, idx: int, name: Optional[str] = None) -> NvOpInput:
+    return NvOpInput(
+        idx=idx,
+        name=name or inp.name,
+        tensor=NvOpTensor(
+            shape=inp.tensor.shape,
+            mem=inp.tensor.mem,
+            dtype=inp.tensor.dtype,
+            source=inp.tensor.source,
+            row_major=inp.tensor.row_major,
+            swizzle=inp.tensor.swizzle,
+        ),
+        layout_hint=inp.layout_hint,
+    )
+
+
+def _fuse_load_offset_into_coo_loaders(main_loop: ForLoopNvOp) -> None:
+    body = main_loop.body
+
+    load_off = None
+    arr_ref = None
+    coo_idx = None
+    coo_val = None
+    for op in list(body.ops):
+        kind = _get_logical_kind(op)
+        if kind == "load_offset" and op.name.startswith("load_offset_"):
+            load_off = op
+        elif kind == "array_ref" and not op.name.startswith("array_ref_1"):
+            arr_ref = op
+        elif kind == "coo_atomic_format_load_idx":
+            coo_idx = op
+        elif kind == "coo_atomic_format_load_val":
+            coo_val = op
+
+    if load_off is None or arr_ref is None or coo_idx is None or coo_val is None:
+        return
+    if len(load_off.inputs) < 3 or len(load_off.outputs) < 2:
+        return
+
+    ll_out = load_off.outputs[0]
+    rr_out = load_off.outputs[1]
+    expected_consumers = {coo_idx, coo_val}
+    if set(ll_out.consumers) != expected_consumers or set(rr_out.consumers) != expected_consumers:
+        return
+
+    offset_arr_inp = load_off.inputs[0]
+    new_arr_inputs = [
+        _clone_input(arr_ref.inputs[0], idx=0, name="operand_0"),
+        _clone_input(offset_arr_inp, idx=1, name="offset_arr"),
+        _clone_input(arr_ref.inputs[1], idx=2, name="off_l"),
+        _clone_input(arr_ref.inputs[2], idx=3, name="lc"),
+    ]
+    _reset_inputs(arr_ref, new_arr_inputs)
+
+    cloned_ll_out = NvOpOutput(
+        idx=len(arr_ref.outputs),
+        name="coo_ll",
+        tensor=NvOpTensor(
+            shape=ll_out.tensor.shape,
+            mem=ll_out.tensor.mem,
+            dtype=ll_out.tensor.dtype,
+            row_major=ll_out.tensor.row_major,
+            swizzle=ll_out.tensor.swizzle,
+        ),
+        origin=ll_out.origin,
+        unique=ll_out.unique,
+        layout_hint=ll_out.layout_hint,
+        **ll_out.attrs,
+    )
+    cloned_rr_out = NvOpOutput(
+        idx=len(arr_ref.outputs) + 1,
+        name="coo_rr",
+        tensor=NvOpTensor(
+            shape=rr_out.tensor.shape,
+            mem=rr_out.tensor.mem,
+            dtype=rr_out.tensor.dtype,
+            row_major=rr_out.tensor.row_major,
+            swizzle=rr_out.tensor.swizzle,
+        ),
+        origin=rr_out.origin,
+        unique=rr_out.unique,
+        layout_hint=rr_out.layout_hint,
+        **rr_out.attrs,
+    )
+    arr_ref.add_output(cloned_ll_out)
+    arr_ref.add_output(cloned_rr_out)
+
+    arr_src_name = arr_ref.inputs[0].name
+    arr_offset_name = arr_ref.inputs[1].name
+    arr_off_l_name = arr_ref.inputs[2].name
+    arr_lc_name = arr_ref.inputs[3].name
+    arr_out_name = arr_ref.outputs[0].name
+    arr_ll_name = arr_ref.outputs[1].name
+    arr_rr_name = arr_ref.outputs[2].name
+    arr_ref.impl = NvOpImpl(
+        f"""int tile_len = size<0>(shape({arr_out_name}));
+int idx = {arr_off_l_name} + {arr_lc_name};
+{arr_ll_name}(0, buf_idx) = {arr_offset_name}(idx);
+{arr_rr_name}(0, buf_idx) = {arr_offset_name}(idx + 1);
+auto thr_tiler = make_shape(Int<4>{{}});
+for (int i_load = lid; i_load * 4 < tile_len; i_load += 32) {{
+    auto thr_coord = make_coord(i_load);
+    auto src = local_tile({arr_src_name}(_, idx), thr_tiler, thr_coord);
+    auto dst = local_tile({arr_out_name}(_, buf_idx), thr_tiler, thr_coord);
+    sparsene_copy_g2s_128<int>(src, dst);
+}}"""
+    )
+
+    def _rewrite_coo_scalar_inputs(op: NvOp) -> None:
+        new_inputs: List[NvOpInput] = []
+        for inp in op.inputs:
+            if inp.tensor.source is ll_out:
+                new_inputs.append(
+                    NvOpInput(
+                        idx=len(new_inputs),
+                        name=inp.name,
+                        tensor=NvOpTensor(
+                            shape=cloned_ll_out.tensor.shape,
+                            mem=cloned_ll_out.tensor.mem,
+                            dtype=cloned_ll_out.tensor.dtype,
+                            source=cloned_ll_out,
+                            row_major=cloned_ll_out.tensor.row_major,
+                            swizzle=cloned_ll_out.tensor.swizzle,
+                        ),
+                        layout_hint=inp.layout_hint,
+                    )
+                )
+            elif inp.tensor.source is rr_out:
+                new_inputs.append(
+                    NvOpInput(
+                        idx=len(new_inputs),
+                        name=inp.name,
+                        tensor=NvOpTensor(
+                            shape=cloned_rr_out.tensor.shape,
+                            mem=cloned_rr_out.tensor.mem,
+                            dtype=cloned_rr_out.tensor.dtype,
+                            source=cloned_rr_out,
+                            row_major=cloned_rr_out.tensor.row_major,
+                            swizzle=cloned_rr_out.tensor.swizzle,
+                        ),
+                        layout_hint=inp.layout_hint,
+                    )
+                )
+            else:
+                new_inputs.append(_clone_input(inp, idx=len(new_inputs)))
+        _reset_inputs(op, new_inputs)
+
+    _rewrite_coo_scalar_inputs(coo_idx)
+    _rewrite_coo_scalar_inputs(coo_val)
+    body.ops.remove(load_off)
+    logger.info("Fused load_offset_1 into val_sidx array_ref; -1 pipeline op without adding coo stage dependency")
+
+
 def apply_software_pipeline_and_codegen(program: NvOpProgram, output_path: Union[str, Path]):
     """
     自动寻找主循环，划分流水线阶段，并生成 C++ 代码。
     """
     # 1. 寻找主循环 (Main Loop)
-    # 递归查找并优先最内层、非 blockIdx 映射的计算循环，避免误选外层 blk_x/blk_y 包装循环。
+    _fuse_load_offset_sub_div(program)
     main_loop = _select_main_loop(program)
             
     if main_loop is None:
@@ -415,7 +800,11 @@ def apply_software_pipeline_and_codegen(program: NvOpProgram, output_path: Union
         len(main_loop.body.ops),
     )
 
-    # 2. 按依赖关系进行动态 Stage 划分（满足 producer->consumer 仅允许同 stage 或下一 stage）
+    # 2. 内联融合: gen_add → array_ref + load_offset_1 (消除 36 次 pipeline 调用)
+    _fuse_inline_gen_add(main_loop)
+    _mark_codegen_inline_load_offset(main_loop)
+
+    # 3. 按依赖关系进行动态 Stage 划分（满足 producer->consumer 仅允许同 stage 或下一 stage）
     stage_op_lists = _partition_pipeline_stages(main_loop)
     stage_sequences = [NvOpSequence(*stage_ops) for stage_ops in stage_op_lists if stage_ops]
 

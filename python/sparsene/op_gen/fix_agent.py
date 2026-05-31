@@ -12,16 +12,13 @@ Configurable:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
 import json
-import os
 import re
 import subprocess
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
-from urllib import error as urllib_error
-from urllib import request as urllib_request
 
+from sparsene.agent.runtime import AgentModelConfig, invoke_json_agent, make_zero_usage
 from sparsene.logging import get_logger
 
 logger = get_logger("fix_agent")
@@ -38,6 +35,8 @@ class FixAgentConfig:
     timeout_sec: int = 120
     temperature: float = 0.1
     max_tokens: int = 4096
+    model_config_path: Optional[str] = None
+    skill_names: List[str] = field(default_factory=lambda: ["sparsene-framework", "cuda-fix"])
 
 
 @dataclass
@@ -47,6 +46,8 @@ class FixResult:
     original_error: str
     final_error: str
     patch_applied: bool
+    token_usage: Dict[str, Any] = field(default_factory=dict)
+    agent_metadata: Dict[str, Any] = field(default_factory=dict)
 
 
 FIX_AGENT_SYSTEM_PROMPT = """You are a CUDA kernel debugging expert. You will be given:
@@ -75,40 +76,40 @@ If you cannot fix the error, set "action": "abort".
 """
 
 
-def _call_llm(config: FixAgentConfig, user_content: str, log_dir: Path) -> Optional[Dict[str, Any]]:
-    api_url = f"{config.api_base_url.rstrip('/')}/chat/completions"
-    payload = {
-        "model": config.model,
-        "temperature": config.temperature,
-        "max_tokens": config.max_tokens,
-        "messages": [
-            {"role": "system", "content": FIX_AGENT_SYSTEM_PROMPT},
-            {"role": "user", "content": user_content},
-        ],
-    }
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {config.api_key}",
-    }
+def _call_llm(config: FixAgentConfig, user_content: str, log_dir: Path) -> tuple[Optional[Dict[str, Any]], Dict[str, Any], Dict[str, Any]]:
     try:
-        data = json.dumps(payload).encode("utf-8")
-        req = urllib_request.Request(api_url, data=data, headers=headers, method="POST")
-        with urllib_request.urlopen(req, timeout=config.timeout_sec) as resp:
-            raw = json.loads(resp.read().decode("utf-8"))
-        (log_dir / f"{datetime.now().strftime('%H%M%S')}_response.json").write_text(
-            json.dumps(raw, indent=2, ensure_ascii=False)
+        result = invoke_json_agent(
+            agent_name="fix_agent",
+            subject="generated_kernel",
+            log_dir=str(log_dir),
+            model_config=AgentModelConfig(
+                provider="openai_compatible",
+                model_name=config.model_name or config.model,
+                model=config.model,
+                api_key=config.api_key,
+                api_base_url=config.api_base_url,
+                temperature=config.temperature,
+                max_tokens=config.max_tokens,
+                timeout_sec=config.timeout_sec,
+                model_config_path=config.model_config_path,
+            ),
+            system_prompt=FIX_AGENT_SYSTEM_PROMPT,
+            user_prompt=user_content,
+            request_payload={"kernel_prompt": user_content},
+            response_parser=lambda text: json.loads(
+                re.sub(r"\s*```$", "", re.sub(r"^```(?:json)?\s*", "", text.strip()))
+            ),
+            skill_names=config.skill_names,
         )
-        msg = raw["choices"][0]["message"]
-        content = msg.get("content", "") or msg.get("reasoning_content", "") or ""
-        content = content.strip()
-        if content.startswith("```"):
-            content = re.sub(r"^```(?:json)?\s*", "", content)
-            content = re.sub(r"\s*```$", "", content)
-        return json.loads(content)
+        return (
+            result.parsed_payload,
+            result.usage.to_dict(),
+            {"run_dir": str(result.run_dir), "resolved_model": result.resolved_model.to_dict()},
+        )
     except Exception as e:
         logger.error("Fix agent LLM call failed: %s", e)
-        (log_dir / f"{datetime.now().strftime('%H%M%S')}_error.txt").write_text(str(e))
-        return None
+        (log_dir / "fix_agent_error.txt").write_text(str(e))
+        return None, make_zero_usage().to_dict(), {"error": str(e)}
 
 
 def _apply_patch(kernel_path: Path, patches: List[Dict[str, str]]) -> bool:
@@ -168,9 +169,9 @@ def run_fix_agent(
 """
         (log_dir / f"iter{iteration:02d}_prompt.txt").write_text(user_prompt)
 
-        response = _call_llm(config, user_prompt, log_dir)
+        response, token_usage, agent_metadata = _call_llm(config, user_prompt, log_dir)
         if response is None:
-            return FixResult(False, iteration, error_log, "LLM call failed", False)
+            return FixResult(False, iteration, error_log, "LLM call failed", False, token_usage, agent_metadata)
 
         (log_dir / f"iter{iteration:02d}_response.json").write_text(
             json.dumps(response, indent=2, ensure_ascii=False)
@@ -179,23 +180,30 @@ def run_fix_agent(
         if response.get("action") != "patch":
             logger.info("  Agent chose 'abort' — cannot fix")
             return FixResult(False, iteration, error_log,
-                             response.get("rationale", "agent aborted"), False)
+                             response.get("rationale", "agent aborted"), False, token_usage, agent_metadata)
 
         patches = response.get("patches", [])
         if not patches:
             logger.info("  No patches provided")
-            return FixResult(False, iteration, error_log, "no patches", False)
+            return FixResult(False, iteration, error_log, "no patches", False, token_usage, agent_metadata)
 
         if not _apply_patch(kernel_path, patches):
-            return FixResult(False, iteration, error_log, "patch apply failed", False)
+            return FixResult(False, iteration, error_log, "patch apply failed", False, token_usage, agent_metadata)
 
         success, new_error = compile_fn()
         if success:
             logger.info("  Fix SUCCESS at iteration %d", iteration)
-            return FixResult(True, iteration, error_log, "", True)
+            return FixResult(True, iteration, error_log, "", True, token_usage, agent_metadata)
 
         error_log = new_error
         logger.info("  Fix iteration %d: still failing. %s", iteration, new_error[:120])
 
-    return FixResult(False, config.max_iterations, error_log,
-                     f"still failing after {config.max_iterations} iterations", True)
+    return FixResult(
+        False,
+        config.max_iterations,
+        error_log,
+        f"still failing after {config.max_iterations} iterations",
+        True,
+        make_zero_usage().to_dict(),
+        {"source": "max_iterations_exhausted"},
+    )

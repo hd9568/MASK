@@ -1,16 +1,17 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
+import ast
 from datetime import datetime
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
-from urllib import error as urllib_error
-from urllib import request as urllib_request
 from typing import Any, Dict, List, Optional
 import uuid
 
+from sparsene.agent.runtime import AgentModelConfig, invoke_json_agent, make_zero_usage
 from sparsene.logging import get_logger
 from sparsene.op_gen.nvir.nvop import GmemInout
 
@@ -101,6 +102,8 @@ class StrategyDecision:
     rationale: str
     tensor_placement: TensorPlacementStrategy
     pipeline: PipelineStrategy
+    token_usage: Dict[str, Any] = field(default_factory=dict)
+    agent_metadata: Dict[str, Any] = field(default_factory=dict)
 
     @classmethod
     def from_dict(cls, payload: Dict[str, Any]) -> "StrategyDecision":
@@ -138,11 +141,38 @@ class StrategyDecision:
             tensor_payload["b_array_ref_mode"] = "sync_scalar"
             if tensor_payload.get("coo_load_mode", "cp_async_x4_aligned_fallback") == "cp_async_x4_aligned_fallback":
                 tensor_payload["coo_load_mode"] = "sync_scalar"
+        max_wait_prior = pipeline_payload.get("max_wait_prior", None)
+        if max_wait_prior is not None:
+            try:
+                max_wait_prior = int(max_wait_prior)
+            except (TypeError, ValueError):
+                max_wait_prior = None
+        if max_wait_prior not in {None, 0, 1, 2, 3}:
+            max_wait_prior = None
+        pipeline_payload["max_wait_prior"] = max_wait_prior
+        raw_stage_shifts = pipeline_payload.get("stage_shifts", [])
+        if not isinstance(raw_stage_shifts, list):
+            raw_stage_shifts = []
+        normalized_stage_shifts: List[int] = []
+        for item in raw_stage_shifts[:1]:
+            try:
+                shift = int(item)
+            except (TypeError, ValueError):
+                continue
+            if shift == 1:
+                # `[]` already means the default shift=1. Keep the canonical form
+                # to avoid wasting tuning iterations on an equivalent configuration.
+                continue
+            if shift in {0, 2}:
+                normalized_stage_shifts = [shift]
+        pipeline_payload["stage_shifts"] = normalized_stage_shifts
         return cls(
             provider=payload.get("provider", "unknown"),
             rationale=payload.get("rationale", ""),
             tensor_placement=TensorPlacementStrategy(**tensor_payload),
             pipeline=PipelineStrategy(**pipeline_payload),
+            token_usage=dict(payload.get("token_usage", {}) or {}),
+            agent_metadata=dict(payload.get("agent_metadata", {}) or {}),
         )
 
     def to_dict(self) -> Dict[str, Any]:
@@ -188,6 +218,7 @@ class StrategyRequest:
 @dataclass
 class StrategyConfig:
     provider: str = "heuristic"
+    model_name: Optional[str] = DEFAULT_TOKEN_PLAN_MODEL
     manual_json_path: Optional[str] = None
     agent_command: Optional[str] = None
     log_dir: str = "docs/agent_runs"
@@ -197,13 +228,22 @@ class StrategyConfig:
     model: str = DEFAULT_TOKEN_PLAN_MODEL
     timeout_sec: int = 60
     temperature: float = 0.1
-    max_tokens: int = 1200
+    max_tokens: int = 4096
     anthropic_version: str = DEFAULT_ANTHROPIC_VERSION
+    model_config_path: Optional[str] = None
+    skill_names: List[str] = field(
+        default_factory=lambda: [
+            "sparsene-framework",
+            "strategy-optimization",
+            "feedback-loop",
+        ]
+    )
 
     @classmethod
     def from_env(cls) -> "StrategyConfig":
         return cls(
             provider=os.environ.get("SPARSENE_STRATEGY_PROVIDER", "heuristic"),
+            model_name=os.environ.get("SPARSENE_STRATEGY_MODEL_NAME", DEFAULT_TOKEN_PLAN_MODEL),
             manual_json_path=os.environ.get("SPARSENE_STRATEGY_MANUAL_JSON"),
             agent_command=os.environ.get("SPARSENE_STRATEGY_AGENT_COMMAND"),
             log_dir=os.environ.get("SPARSENE_STRATEGY_LOG_DIR", "docs/agent_runs"),
@@ -222,6 +262,7 @@ class StrategyConfig:
             anthropic_version=os.environ.get(
                 "SPARSENE_STRATEGY_ANTHROPIC_VERSION", DEFAULT_ANTHROPIC_VERSION
             ),
+            model_config_path=os.environ.get("SPARSENE_MODEL_CONFIG_PATH"),
         )
 
 
@@ -440,7 +481,7 @@ def render_strategy_prompt(request: StrategyRequest) -> str:
             "- The current ldmatrix lowering assumes fixed canonical swizzles. Do not vary B staging or COO restore swizzles until the S2R path becomes layout-aware.",
             "- COO staging: smem with cp.async gives best throughput; rmem is valid but forces sync_scalar loads which trade bandwidth for lower register/sync pressure.",
             "- pipeline max_wait_prior: None (unbounded), 0-3 (bounded depth). Lower values reduce occupancy pressure but limit async overlap. Values 1-3 are all valid.",
-            "- stage_shifts: [] (default shift 1), [0] (no shift), [1] (explicit 1), [2] (double shift). Different shifts relocate sync points in the pipeline.",
+            "- stage_shifts: [] (default shift 1), [0] (no shift), [2] (double shift). Do not emit [1]; it is equivalent to [] and wastes an iteration.",
             "- sync_threads_on_smem_input can be toggled independently; disabling it removes a __syncthreads before B/COO consumption.",
             "- align_cp_async_smem_outputs can be toggled; disabling it may save shared memory but risks misaligned cp.async on some problem sizes.",
             "- Change only a small number of knobs between adjacent iterations unless profile evidence strongly suggests a larger change.",
@@ -564,14 +605,33 @@ def _extract_json_object(text: str) -> Dict[str, Any]:
             stripped = "\n".join(lines[1:-1]).strip()
             if stripped.lower().startswith("json"):
                 stripped = stripped[4:].strip()
+    def _attempt_parse(candidate: str) -> Dict[str, Any]:
+        try:
+            return json.loads(candidate)
+        except json.JSONDecodeError:
+            sanitized = candidate
+            sanitized = sanitized.replace("\r", "")
+            sanitized = sanitized.replace(": True", ": true").replace(": False", ": false").replace(": None", ": null")
+            sanitized = sanitized.replace(":True", ":true").replace(":False", ":false").replace(":None", ":null")
+            sanitized = sanitized.replace(",}", "}").replace(",]", "]")
+            try:
+                return json.loads(sanitized)
+            except json.JSONDecodeError:
+                python_candidate = re.sub(r"\btrue\b", "True", sanitized, flags=re.IGNORECASE)
+                python_candidate = re.sub(r"\bfalse\b", "False", python_candidate, flags=re.IGNORECASE)
+                python_candidate = re.sub(r"\bnull\b", "None", python_candidate, flags=re.IGNORECASE)
+                parsed = ast.literal_eval(python_candidate)
+                if not isinstance(parsed, dict):
+                    raise
+                return parsed
     try:
-        return json.loads(stripped)
+        return _attempt_parse(stripped)
     except json.JSONDecodeError:
         start = stripped.find("{")
         end = stripped.rfind("}")
         if start == -1 or end == -1 or end <= start:
             raise
-        return json.loads(stripped[start : end + 1])
+        return _attempt_parse(stripped[start : end + 1])
 
 
 def _heuristic_strategy_response(request: StrategyRequest) -> StrategyDecision:
@@ -600,155 +660,53 @@ def _load_manual_strategy(config: StrategyConfig) -> StrategyDecision:
     if not config.manual_json_path:
         raise ValueError("manual_json provider requires manual_json_path")
     payload = json.loads(Path(config.manual_json_path).read_text())
+    payload.setdefault("token_usage", make_zero_usage().to_dict())
+    payload.setdefault("agent_metadata", {"source": "manual_json", "path": config.manual_json_path})
     return StrategyDecision.from_dict(payload)
 
 
-def _normalize_base_url(url: str) -> str:
-    return url.strip().rstrip("/").replace("；", "").replace("\r", "")
-
-
-def _openai_chat_completions_url(config: StrategyConfig) -> str:
-    base_url = config.api_base_url or DEFAULT_TOKEN_PLAN_BASE_URL
-    normalized = _normalize_base_url(base_url)
-    if normalized.endswith("/chat/completions"):
-        return normalized
-    return f"{normalized}/chat/completions"
-
-
-def _anthropic_messages_url(config: StrategyConfig) -> str:
-    base_url = config.anthropic_base_url or config.api_base_url or DEFAULT_TOKEN_PLAN_ANTHROPIC_URL
-    normalized = _normalize_base_url(base_url)
-    if normalized.endswith("/v1/messages"):
-        return normalized
-    if normalized.endswith("/anthropic"):
-        return f"{normalized}/v1/messages"
-    return f"{normalized}/messages"
-
-
-def _run_anthropic_http_strategy(
+def _run_llm_strategy(
     *,
     config: StrategyConfig,
     request: StrategyRequest,
-) -> StrategyDecision:
-    if not config.api_key:
-        raise ValueError("anthropic_http provider requires api_key")
-
-    system_prompt = (
-        "You are a conservative sparse kernel strategy planner and CUDA/Tensor Core optimization expert. "
-        "Return only valid JSON matching the requested schema. "
-        "Do not include markdown fences, prose, or extra keys."
+) -> tuple[StrategyDecision, Path]:
+    provider = "anthropic_compatible" if config.provider == "anthropic_http" else "openai_compatible"
+    result = invoke_json_agent(
+        agent_name="strategy_agent",
+        subject=request.format_name.lower(),
+        log_dir=config.log_dir,
+        model_config=AgentModelConfig(
+            provider=provider,
+            model_name=config.model_name or config.model,
+            model=config.model,
+            api_key=config.api_key,
+            api_base_url=config.api_base_url,
+            anthropic_base_url=config.anthropic_base_url,
+            anthropic_version=config.anthropic_version,
+            temperature=config.temperature,
+            max_tokens=config.max_tokens,
+            timeout_sec=config.timeout_sec,
+            model_config_path=config.model_config_path,
+        ),
+        system_prompt=(
+            "You are a conservative sparse kernel strategy planner and CUDA/Tensor Core optimization expert. "
+            "Return only valid JSON matching the requested schema. "
+            "Do not include markdown fences, prose, or extra keys."
+        ),
+        user_prompt=request.prompt,
+        request_payload=request.to_dict(),
+        response_parser=_extract_json_object,
+        skill_names=config.skill_names,
     )
-    payload = {
-        "model": config.model,
-        "max_tokens": config.max_tokens,
-        "temperature": config.temperature,
-        "system": system_prompt,
-        "messages": [
-            {
-                "role": "user",
-                "content": request.prompt,
-            }
-        ],
-    }
-    raw_request = urllib_request.Request(
-        _anthropic_messages_url(config),
-        data=json.dumps(payload).encode("utf-8"),
-        headers={
-            "content-type": "application/json",
-            "x-api-key": config.api_key,
-            "anthropic-version": config.anthropic_version,
-        },
-        method="POST",
-    )
-    try:
-        with urllib_request.urlopen(raw_request, timeout=config.timeout_sec) as response:
-            response_payload = json.loads(response.read().decode("utf-8"))
-    except urllib_error.HTTPError as exc:
-        detail = exc.read().decode("utf-8", errors="replace")
-        raise RuntimeError(
-            f"anthropic_http provider failed with status={exc.code}: {detail}"
-        ) from exc
-    except urllib_error.URLError as exc:
-        raise RuntimeError(
-            f"anthropic_http provider could not reach endpoint: {exc.reason}"
-        ) from exc
-
-    content = response_payload.get("content", [])
-    text_chunks = [
-        part.get("text", "")
-        for part in content
-        if isinstance(part, dict) and part.get("type") == "text"
-    ]
-    if not text_chunks:
-        raise RuntimeError(
-            f"anthropic_http provider returned no text content: {response_payload}"
-        )
-
-    decision_payload = _extract_json_object("\n".join(text_chunks))
+    decision_payload = dict(result.parsed_payload)
     if "provider" not in decision_payload:
-        decision_payload["provider"] = "anthropic_http"
-    return StrategyDecision.from_dict(decision_payload)
-
-
-def _run_openai_http_strategy(
-    *,
-    config: StrategyConfig,
-    request: StrategyRequest,
-) -> StrategyDecision:
-    if not config.api_key:
-        raise ValueError("openai_http provider requires api_key")
-
-    system_prompt = (
-        "You are a conservative sparse kernel strategy planner and CUDA/Tensor Core optimization expert. "
-        "Return only valid JSON matching the requested schema. "
-        "Do not include markdown fences, prose, or extra keys."
-    )
-    payload = {
-        "model": config.model,
-        "temperature": config.temperature,
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": request.prompt},
-        ],
+        decision_payload["provider"] = config.provider
+    decision_payload["token_usage"] = result.usage.to_dict()
+    decision_payload["agent_metadata"] = {
+        "run_dir": str(result.run_dir),
+        "resolved_model": result.resolved_model.to_dict(),
     }
-    raw_request = urllib_request.Request(
-        _openai_chat_completions_url(config),
-        data=json.dumps(payload).encode("utf-8"),
-        headers={
-            "content-type": "application/json",
-            "authorization": f"Bearer {config.api_key}",
-        },
-        method="POST",
-    )
-    try:
-        with urllib_request.urlopen(raw_request, timeout=config.timeout_sec) as response:
-            response_payload = json.loads(response.read().decode("utf-8"))
-    except urllib_error.HTTPError as exc:
-        detail = exc.read().decode("utf-8", errors="replace")
-        raise RuntimeError(
-            f"openai_http provider failed with status={exc.code}: {detail}"
-        ) from exc
-    except urllib_error.URLError as exc:
-        raise RuntimeError(
-            f"openai_http provider could not reach endpoint: {exc.reason}"
-        ) from exc
-
-    choices = response_payload.get("choices", [])
-    if not choices:
-        raise RuntimeError(
-            f"openai_http provider returned no choices: {response_payload}"
-        )
-    message = choices[0].get("message", {})
-    content = message.get("content", "")
-    if not isinstance(content, str) or not content.strip():
-        raise RuntimeError(
-            f"openai_http provider returned empty message content: {response_payload}"
-        )
-
-    decision_payload = _extract_json_object(content)
-    if "provider" not in decision_payload:
-        decision_payload["provider"] = "openai_http"
-    return StrategyDecision.from_dict(decision_payload)
+    return StrategyDecision.from_dict(decision_payload), result.run_dir
 
 
 def _run_subprocess_strategy(
@@ -772,6 +730,8 @@ def _run_subprocess_strategy(
         text=True,
     )
     response = json.loads(result.stdout)
+    response.setdefault("token_usage", make_zero_usage().to_dict())
+    response.setdefault("agent_metadata", {"source": "subprocess_json"})
     return StrategyDecision.from_dict(response)
 
 
@@ -820,12 +780,26 @@ def run_strategy_agent(
     )
     if config.provider == "heuristic":
         response = _heuristic_strategy_response(request)
+        response.token_usage = make_zero_usage().to_dict()
+        response.agent_metadata = {"source": "heuristic"}
     elif config.provider == "manual_json":
         response = _load_manual_strategy(config)
     elif config.provider == "openai_http":
-        response = _run_openai_http_strategy(config=config, request=request)
+        response, run_dir = _run_llm_strategy(config=config, request=request)
+        logger.info(
+            "Strategy agent provider=%s logged request/response to %s",
+            response.provider,
+            run_dir,
+        )
+        return response, run_dir
     elif config.provider == "anthropic_http":
-        response = _run_anthropic_http_strategy(config=config, request=request)
+        response, run_dir = _run_llm_strategy(config=config, request=request)
+        logger.info(
+            "Strategy agent provider=%s logged request/response to %s",
+            response.provider,
+            run_dir,
+        )
+        return response, run_dir
     elif config.provider == "subprocess_json":
         response = _run_subprocess_strategy(config=config, request=request)
     else:

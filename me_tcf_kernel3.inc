@@ -102,6 +102,15 @@ __device__ __forceinline__ void unpack_half_short(uint32_t packed, half& h, shor
     s = static_cast<short>(short_bits);
 }
 
+template <class TElem, class TSrc, class TDst>
+__device__ __forceinline__ void sparsene_copy_g2s_128(TSrc&& src, TDst&& dst) {
+#if defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 800)
+    copy(Copy_Atom<SM80_CP_ASYNC_CACHEGLOBAL<cute::uint128_t>, TElem>{}, src, dst);
+#else
+    copy(src, dst);
+#endif
+}
+
 
 template <class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class WARP_MNK, class TO0 = float>
 class B_valOp {
@@ -115,11 +124,11 @@ public:
     Tensor_o0 B_val;
 
     // Hardware parameters
-    int tid, lid, wid;
+    int lid;
 
     // Constructor
-    CUTE_DEVICE B_valOp(int tid, int lid, int wid, int K, int N, TO0 *dB_val)
-    : tid(tid), lid(lid), wid(wid),
+    CUTE_DEVICE B_valOp(int lid, int K, int N, TO0 *dB_val)
+    : lid(lid),
     shape_o0(logical_divide(make_tensor(make_gmem_ptr(dB_val), make_layout(make_shape(K, N), make_stride(N, _1{}))), make_shape(_1{}, get<1>(BLK_MNK{})))(_, make_coord(_, blockIdx.y)).shape()),
     layout_o0(logical_divide(make_tensor(make_gmem_ptr(dB_val), make_layout(make_shape(K, N), make_stride(N, _1{}))), make_shape(_1{}, get<1>(BLK_MNK{})))(_, make_coord(_, blockIdx.y)).layout()),
     B_val(logical_divide(make_tensor(make_gmem_ptr(dB_val), make_layout(make_shape(K, N), make_stride(N, _1{}))), make_shape(_1{}, get<1>(BLK_MNK{})))(_, make_coord(_, blockIdx.y))) {}
@@ -145,11 +154,11 @@ public:
     Tensor_o0 C_val;
 
     // Hardware parameters
-    int tid, lid, wid;
+    int lid;
 
     // Constructor
-    CUTE_DEVICE C_valOp(int tid, int lid, int wid, int N, int M, TO0 *dC_val)
-    : tid(tid), lid(lid), wid(wid),
+    CUTE_DEVICE C_valOp(int lid, int N, int M, TO0 *dC_val)
+    : lid(lid),
     shape_o0(logical_divide(make_tensor(make_gmem_ptr(dC_val), make_shape(N, M)), select<1, 0>(BLK_MNK{}))(make_coord(_, blockIdx.y), make_coord(_, blockIdx.x)).shape()),
     layout_o0(logical_divide(make_tensor(make_gmem_ptr(dC_val), make_shape(N, M)), select<1, 0>(BLK_MNK{}))(make_coord(_, blockIdx.y), make_coord(_, blockIdx.x)).layout()),
     C_val(logical_divide(make_tensor(make_gmem_ptr(dC_val), make_shape(N, M)), select<1, 0>(BLK_MNK{}))(make_coord(_, blockIdx.y), make_coord(_, blockIdx.x))) {}
@@ -175,11 +184,11 @@ public:
     Tensor_o0 val_coo_idx_new_1;
 
     // Hardware parameters
-    int tid, lid, wid;
+    int lid;
 
     // Constructor
-    CUTE_DEVICE val_coo_idx_new_1Op(int tid, int lid, int wid, int nnz_dim_nnz, TO0 *dval_coo_idx_new_1)
-    : tid(tid), lid(lid), wid(wid),
+    CUTE_DEVICE val_coo_idx_new_1Op(int lid, int nnz_dim_nnz, TO0 *dval_coo_idx_new_1)
+    : lid(lid),
     shape_o0(make_tensor(make_gmem_ptr(dval_coo_idx_new_1), make_shape(nnz_dim_nnz)).shape()),
     layout_o0(make_tensor(make_gmem_ptr(dval_coo_idx_new_1), make_shape(nnz_dim_nnz)).layout()),
     val_coo_idx_new_1(make_tensor(make_gmem_ptr(dval_coo_idx_new_1), make_shape(nnz_dim_nnz))) {}
@@ -205,11 +214,11 @@ public:
     Tensor_o0 val_coo_len_new_offset;
 
     // Hardware parameters
-    int tid, lid, wid;
+    int lid;
 
     // Constructor
-    CUTE_DEVICE val_coo_len_new_offsetOp(int tid, int lid, int wid, int nnz_dim_K_o, TO0 *dval_coo_len_new_offset)
-    : tid(tid), lid(lid), wid(wid),
+    CUTE_DEVICE val_coo_len_new_offsetOp(int lid, int nnz_dim_K_o, TO0 *dval_coo_len_new_offset)
+    : lid(lid),
     shape_o0(make_tensor(make_gmem_ptr(dval_coo_len_new_offset), make_shape(nnz_dim_K_o)).shape()),
     layout_o0(make_tensor(make_gmem_ptr(dval_coo_len_new_offset), make_shape(nnz_dim_K_o)).layout()),
     val_coo_len_new_offset(make_tensor(make_gmem_ptr(dval_coo_len_new_offset), make_shape(nnz_dim_K_o))) {}
@@ -235,11 +244,11 @@ public:
     Tensor_o0 val_coo_val_new_1;
 
     // Hardware parameters
-    int tid, lid, wid;
+    int lid;
 
     // Constructor
-    CUTE_DEVICE val_coo_val_new_1Op(int tid, int lid, int wid, int nnz_dim_nnz, TO0 *dval_coo_val_new_1)
-    : tid(tid), lid(lid), wid(wid),
+    CUTE_DEVICE val_coo_val_new_1Op(int lid, int nnz_dim_nnz, TO0 *dval_coo_val_new_1)
+    : lid(lid),
     shape_o0(make_tensor(make_gmem_ptr(dval_coo_val_new_1), make_shape(nnz_dim_nnz)).shape()),
     layout_o0(make_tensor(make_gmem_ptr(dval_coo_val_new_1), make_shape(nnz_dim_nnz)).layout()),
     val_coo_val_new_1(make_tensor(make_gmem_ptr(dval_coo_val_new_1), make_shape(nnz_dim_nnz))) {}
@@ -265,11 +274,11 @@ public:
     Tensor_o0 val_len_offset;
 
     // Hardware parameters
-    int tid, lid, wid;
+    int lid;
 
     // Constructor
-    CUTE_DEVICE val_len_offsetOp(int tid, int lid, int wid, int Mo, TO0 *dval_len_offset)
-    : tid(tid), lid(lid), wid(wid),
+    CUTE_DEVICE val_len_offsetOp(int lid, int Mo, TO0 *dval_len_offset)
+    : lid(lid),
     shape_o0(make_tensor(make_gmem_ptr(dval_len_offset), make_shape(Mo)).shape()),
     layout_o0(make_tensor(make_gmem_ptr(dval_len_offset), make_shape(Mo)).layout()),
     val_len_offset(make_tensor(make_gmem_ptr(dval_len_offset), make_shape(Mo))) {}
@@ -295,11 +304,11 @@ public:
     Tensor_o0 val_sidx_new;
 
     // Hardware parameters
-    int tid, lid, wid;
+    int lid;
 
     // Constructor
-    CUTE_DEVICE val_sidx_newOp(int tid, int lid, int wid, int nnz_dim_K, TO0 *dval_sidx_new)
-    : tid(tid), lid(lid), wid(wid),
+    CUTE_DEVICE val_sidx_newOp(int lid, int nnz_dim_K, TO0 *dval_sidx_new)
+    : lid(lid),
     shape_o0(make_tensor(make_gmem_ptr(dval_sidx_new), make_shape(get<2>(BLK_MNK{}), nnz_dim_K)).shape()),
     layout_o0(make_tensor(make_gmem_ptr(dval_sidx_new), make_shape(get<2>(BLK_MNK{}), nnz_dim_K)).layout()),
     val_sidx_new(make_tensor(make_gmem_ptr(dval_sidx_new), make_shape(get<2>(BLK_MNK{}), nnz_dim_K))) {}
@@ -327,11 +336,11 @@ public:
     Layout_o0 layout_o0;
     Tensor_o0 BlkYLoopZeroOp_out;
     // Hardware parameters
-    int tid, lid, wid;
+    int lid;
 
     // Constructor
-    CUTE_DEVICE BlkYLoopZeroOp(int tid, int lid, int wid, TO0 *BlkYLoopZeroOp_out)
-    : tid(tid), lid(lid), wid(wid), BlkYLoopZeroOp_out(make_tensor(make_rmem_ptr(BlkYLoopZeroOp_out), Layout_o0{})) {}
+    CUTE_DEVICE BlkYLoopZeroOp(int lid, TO0 *BlkYLoopZeroOp_out)
+    : lid(lid), BlkYLoopZeroOp_out(make_tensor(make_rmem_ptr(BlkYLoopZeroOp_out), Layout_o0{})) {}
 
     // output
     template<int output_idx>
@@ -362,11 +371,11 @@ public:
     Layout_o0 layout_o0;
     Tensor_o0 BlockDimYOp_out;
     // Hardware parameters
-    int tid, lid, wid;
+    int lid;
 
     // Constructor
-    CUTE_DEVICE BlockDimYOp(int tid, int lid, int wid, TO0 *BlockDimYOp_out)
-    : tid(tid), lid(lid), wid(wid), BlockDimYOp_out(make_tensor(make_rmem_ptr(BlockDimYOp_out), Layout_o0{})) {}
+    CUTE_DEVICE BlockDimYOp(int lid, TO0 *BlockDimYOp_out)
+    : lid(lid), BlockDimYOp_out(make_tensor(make_rmem_ptr(BlockDimYOp_out), Layout_o0{})) {}
 
     // output
     template<int output_idx>
@@ -397,11 +406,11 @@ public:
     Layout_o0 layout_o0;
     Tensor_o0 BlkXLoopZeroOp_out;
     // Hardware parameters
-    int tid, lid, wid;
+    int lid;
 
     // Constructor
-    CUTE_DEVICE BlkXLoopZeroOp(int tid, int lid, int wid, TO0 *BlkXLoopZeroOp_out)
-    : tid(tid), lid(lid), wid(wid), BlkXLoopZeroOp_out(make_tensor(make_rmem_ptr(BlkXLoopZeroOp_out), Layout_o0{})) {}
+    CUTE_DEVICE BlkXLoopZeroOp(int lid, TO0 *BlkXLoopZeroOp_out)
+    : lid(lid), BlkXLoopZeroOp_out(make_tensor(make_rmem_ptr(BlkXLoopZeroOp_out), Layout_o0{})) {}
 
     // output
     template<int output_idx>
@@ -432,11 +441,11 @@ public:
     Layout_o0 layout_o0;
     Tensor_o0 BlockDimXOp_out;
     // Hardware parameters
-    int tid, lid, wid;
+    int lid;
 
     // Constructor
-    CUTE_DEVICE BlockDimXOp(int tid, int lid, int wid, TO0 *BlockDimXOp_out)
-    : tid(tid), lid(lid), wid(wid), BlockDimXOp_out(make_tensor(make_rmem_ptr(BlockDimXOp_out), Layout_o0{})) {}
+    CUTE_DEVICE BlockDimXOp(int lid, TO0 *BlockDimXOp_out)
+    : lid(lid), BlockDimXOp_out(make_tensor(make_rmem_ptr(BlockDimXOp_out), Layout_o0{})) {}
 
     // output
     template<int output_idx>
@@ -467,11 +476,11 @@ public:
     Layout_o0 layout_o0;
     Tensor_o0 ZerosOp_out;
     // Hardware parameters
-    int tid, lid, wid;
+    int lid;
 
     // Constructor
-    CUTE_DEVICE ZerosOp(int tid, int lid, int wid, TO0 *ZerosOp_out)
-    : tid(tid), lid(lid), wid(wid), ZerosOp_out(make_tensor(make_rmem_ptr(ZerosOp_out), Layout_o0{})) {}
+    CUTE_DEVICE ZerosOp(int lid, TO0 *ZerosOp_out)
+    : lid(lid), ZerosOp_out(make_tensor(make_rmem_ptr(ZerosOp_out), Layout_o0{})) {}
 
     // output
     template<int output_idx>
@@ -502,11 +511,11 @@ public:
     Layout_o0 layout_o0;
     Tensor_o0 zero_out;
     // Hardware parameters
-    int tid, lid, wid;
+    int lid;
 
     // Constructor
-    CUTE_DEVICE zero(int tid, int lid, int wid, TO0 *zero_out)
-    : tid(tid), lid(lid), wid(wid), zero_out(make_tensor(make_rmem_ptr(zero_out), Layout_o0{})) {}
+    CUTE_DEVICE zero(int lid, TO0 *zero_out)
+    : lid(lid), zero_out(make_tensor(make_rmem_ptr(zero_out), Layout_o0{})) {}
 
     // output
     template<int output_idx>
@@ -549,10 +558,10 @@ public:
     Tensor_o1 r;
 
     // Hardware parameters
-    int tid, lid, wid;
+    int lid;
 
-    CUTE_DEVICE load_offset(int tid, int lid, int wid, TO0 *l, TO1 *r, int mode_i0_0)
-    : tid(tid), lid(lid), wid(wid), shape_i0(make_shape(mode_i0_0)), l(make_tensor(make_rmem_ptr(l), Layout_o0{})), r(make_tensor(make_rmem_ptr(r), Layout_o1{})) {}
+    CUTE_DEVICE load_offset(int lid, TO0 *l, TO1 *r, int mode_i0_0)
+    : lid(lid), shape_i0(make_shape(mode_i0_0)), l(make_tensor(make_rmem_ptr(l), Layout_o0{})), r(make_tensor(make_rmem_ptr(r), Layout_o1{})) {}
 
     template<int output_idx>
     CUTE_DEVICE auto output() {
@@ -566,130 +575,19 @@ public:
     template<class Tensor_i0, typename = void>
     CUTE_DEVICE void f(Tensor_i0 operand_0, TI1 operand_1) {
         l(0) = operand_0(operand_1);
-        r(0) = operand_0(operand_1 + 1);
+        r(0) = operand_0(operand_1 + 1) - l(0);
     }
 };
 
-template<class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class WARP_MNK, class TI0 = int, class TI1 = int, class TO0 = int>
-class gen_sub {
-public:
-    // Inputs
-    // TI0 operand_0;
-    // TI1 operand_1;
-
-    // Outputs
-    using Shape_o0 = decltype(make_shape(_1{}));
-    using Stride_o0 = decltype(make_stride(_0{}));
-    using Layout_o0 = decltype(make_layout(Shape_o0{}, Stride_o0{}));
-    using Tensor_o0 = decltype(make_tensor(make_rmem_ptr((TO0*)nullptr), Layout_o0{}));
-    Shape_o0 shape_o0;
-    Layout_o0 layout_o0;
-    Tensor_o0 result_0;
-
-    // Hardware parameters
-    int tid, lid, wid;
-
-    CUTE_DEVICE gen_sub(int tid, int lid, int wid, TO0 *result_0)
-    : tid(tid), lid(lid), wid(wid), result_0(make_tensor(make_rmem_ptr(result_0), Layout_o0{})) {}
-
-    template<int output_idx>
-    CUTE_DEVICE auto output() {
-        if constexpr (output_idx == 0) {
-            return result_0;
-        }
-    }
-
-    template<typename = void>
-    CUTE_DEVICE void f(TI0 operand_0, TI1 operand_1) {
-        result_0(0) = operand_0 - operand_1;
-    }
-};
-
-template<class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class WARP_MNK, class TI0 = int, class TI1 = int, class TO0 = int>
-class gen_div {
-public:
-    // Inputs
-    // TI0 operand_0;
-    // TI1 operand_1;
-
-    // Outputs
-    using Shape_o0 = decltype(make_shape(_1{}));
-    using Stride_o0 = decltype(make_stride(_0{}));
-    using Layout_o0 = decltype(make_layout(Shape_o0{}, Stride_o0{}));
-    using Tensor_o0 = decltype(make_tensor(make_rmem_ptr((TO0*)nullptr), Layout_o0{}));
-    Shape_o0 shape_o0;
-    Layout_o0 layout_o0;
-    Tensor_o0 result_0;
-
-    // Hardware parameters
-    int tid, lid, wid;
-
-    CUTE_DEVICE gen_div(int tid, int lid, int wid, TO0 *result_0)
-    : tid(tid), lid(lid), wid(wid), result_0(make_tensor(make_rmem_ptr(result_0), Layout_o0{})) {}
-
-    template<int output_idx>
-    CUTE_DEVICE auto output() {
-        if constexpr (output_idx == 0) {
-            return result_0;
-        }
-    }
-
-    template<typename = void>
-    CUTE_DEVICE void f(TI0 operand_0, TI1 operand_1) {
-        result_0(0) = operand_0 / operand_1;
-    }
-};
-
-template<class NBUF, class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class WARP_MNK, class TI0 = int, class TI1 = int, class TO0 = int>
-class gen_add {
-public:
-    // Inputs
-    // TI0 operand_0;
-    // TI1 operand_1;
-
-    // Outputs
-    using Shape_o0 = decltype(make_shape(_1{}, NBUF{}));
-    using Stride_o0 = decltype(make_stride(_0{}, _1{}));
-    using Layout_o0 = decltype(make_layout(Shape_o0{}, Stride_o0{}));
-    using Tensor_o0 = decltype(make_tensor(make_rmem_ptr((TO0*)nullptr), Layout_o0{}));
-    Shape_o0 shape_o0;
-    Layout_o0 layout_o0;
-    Tensor_o0 result_0;
-
-    // Hardware parameters
-    int tid, lid, wid;
-
-    CUTE_DEVICE gen_add(int tid, int lid, int wid, TO0 *result_0)
-    : tid(tid), lid(lid), wid(wid), result_0(make_tensor(make_rmem_ptr(result_0), Layout_o0{})) {}
-
-    template<int output_idx, int buf_idx>
-    CUTE_DEVICE auto output() {
-        if constexpr (output_idx == 0) {
-            return result_0(_, buf_idx);
-        }
-    }
-    
-    template<int output_idx>
-    CUTE_DEVICE auto output() {
-        if constexpr (output_idx == 0) {
-            return result_0;
-        }
-    }
-
-    template<int buf_idx, typename = void>
-    CUTE_DEVICE void f(TI0 operand_0, TI1 operand_1) {
-        result_0(0, buf_idx) = operand_0 + operand_1;
-    }
-};
-
-template<class NBUF, class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class WARP_MNK, class TI0 = int, class TI1 = int, class TO0 = int>
+template<class NBUF, class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class WARP_MNK, class TI0 = int, class TI1 = int, class TI2 = int, class TO0 = int>
 class array_ref {
 public:
     // Inputs
     using Shape_i0 = decltype(make_shape(get<2>(BLK_MNK{}), VARLEN));
     Shape_i0 shape_i0;
     // Tensor_i0 operand_0;
-    // TI1 operand_1;
+    // TI1 off_l;
+    // TI2 lc;
 
     // Outputs
     using Shape_o0 = decltype(make_shape(get<2>(BLK_MNK{}), NBUF{}));
@@ -701,10 +599,10 @@ public:
     Tensor_o0 result_0;
 
     // Hardware parameters
-    int tid, lid, wid;
+    int lid;
 
-    CUTE_DEVICE array_ref(int tid, int lid, int wid, TO0 *result_0, int mode_i0_0)
-    : tid(tid), lid(lid), wid(wid), shape_i0(make_shape(get<2>(BLK_MNK{}), mode_i0_0)), result_0(make_tensor(make_smem_ptr(result_0), Layout_o0{})) {}
+    CUTE_DEVICE array_ref(int lid, TO0 *result_0, int mode_i0_0)
+    : lid(lid), shape_i0(make_shape(get<2>(BLK_MNK{}), mode_i0_0)), result_0(make_tensor(make_smem_ptr(result_0), Layout_o0{})) {}
 
     template<int output_idx, int buf_idx>
     CUTE_DEVICE auto output() {
@@ -721,82 +619,28 @@ public:
     }
 
     template<int buf_idx, class Tensor_i0, typename = void>
-    CUTE_DEVICE void f(Tensor_i0 operand_0, TI1 operand_1) {
-        assert(get<0>(shape_i0) == size<0>(shape(operand_0)));
+    CUTE_DEVICE void f(Tensor_i0 operand_0, TI1 off_l, TI2 lc) {
         int tile_len = size<0>(shape(result_0));
-        for (int i_load = lid; i_load < tile_len; i_load += 32) {
-            result_0(i_load, buf_idx) = operand_0(i_load, operand_1);
-        }
+                int idx = off_l + lc;
+                auto thr_tiler = make_shape(Int<4>{});
+                for (int i_load = lid; i_load * 4 < tile_len; i_load += 32) {
+                    auto thr_coord = make_coord(i_load);
+                    auto src = local_tile(operand_0(_, idx), thr_tiler, thr_coord);
+                    auto dst = local_tile(result_0(_, buf_idx), thr_tiler, thr_coord);
+                    sparsene_copy_g2s_128<int>(src, dst);
+                }
     }
 };
 
-template<class NBUF, class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class WARP_MNK, class TI0 = float, class TI1 = int, class TO0 = float>
-class array_ref_1 {
-public:
-    // Inputs
-    using Shape_i0 = decltype(make_shape(VARLEN, VARLEN));
-    Shape_i0 shape_i0;
-    // Tensor_i0 operand_0;
-    using Shape_i1 = decltype(make_shape(get<2>(BLK_MNK{})));
-    Shape_i1 shape_i1;
-    // Tensor_i1 operand_1;
-
-    // Outputs
-    using Shape_o0 = decltype(make_shape(get<2>(BLK_MNK{}), get<1>(BLK_MNK{}), NBUF{}));
-    using Stride_o0 = decltype(make_stride(get<1>(BLK_MNK{}), _1{}, get<2>(BLK_MNK{}) * get<1>(BLK_MNK{})));
-    using Layout_o0 = decltype(composition(Swizzle<3, 2, 3>{}, make_layout(Shape_o0{}, Stride_o0{})));
-    using Tensor_o0 = decltype(make_tensor(make_smem_ptr((TO0*)nullptr), Layout_o0{}));
-    Shape_o0 shape_o0;
-    Layout_o0 layout_o0;
-    Tensor_o0 result_0;
-
-    // Hardware parameters
-    int tid, lid, wid;
-
-    CUTE_DEVICE array_ref_1(int tid, int lid, int wid, TO0 *result_0, int mode_i0_0, int mode_i0_1)
-    : tid(tid), lid(lid), wid(wid), shape_i0(make_shape(mode_i0_0, mode_i0_1)), result_0(make_tensor(make_smem_ptr(result_0), Layout_o0{})) {}
-
-    template<int output_idx, int buf_idx>
-    CUTE_DEVICE auto output() {
-        if constexpr (output_idx == 0) {
-            return result_0(_, _, buf_idx);
-        }
-    }
-    
-    template<int output_idx>
-    CUTE_DEVICE auto output() {
-        if constexpr (output_idx == 0) {
-            return result_0;
-        }
-    }
-
-    template<int buf_idx, class Tensor_i0, class Tensor_i1, typename = void>
-    CUTE_DEVICE void f(Tensor_i0 operand_0, Tensor_i1 operand_1) {
-        assert(get<0>(shape_i1) == size<0>(shape(operand_1)));
-        auto load_tile_n = _4{};
-        for (int iter_i = lid; iter_i < get<0>(shape(result_0)) * get<1>(shape(result_0)) / load_tile_n; iter_i += 32) {
-            int row = iter_i / (get<1>(shape(result_0)) / load_tile_n);
-            int col = iter_i % (get<1>(shape(result_0)) / load_tile_n);
-            int src_row = operand_1(row);
-            auto thr_tiler_gmem = make_shape(_1{}, _4{});
-            auto thr_coord_gmem = make_coord(src_row, col);
-            auto src = local_tile(operand_0, thr_tiler_gmem, thr_coord_gmem);
-            auto thr_tiler_smem = make_shape(_1{}, _4{});
-            auto thr_coord_smem = make_coord(row, col);
-            auto dst = local_tile(result_0(_, _, buf_idx), thr_tiler_smem, thr_coord_smem);
-            copy(Copy_Atom<SM80_CP_ASYNC_CACHEGLOBAL<cute::uint128_t>, float>{}, src(0, _), dst(0, _));
-        }
-    }
-};
-
-template<class NBUF, class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class WARP_MNK, class TI0 = int, class TI1 = int, class TO0 = int, class TO1 = int>
+template<class NBUF, class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class WARP_MNK, class TI0 = int, class TI1 = int, class TI2 = int, class TO0 = int, class TO1 = int>
 class load_offset_1 {
 public:
     // Inputs
     using Shape_i0 = decltype(make_shape(VARLEN));
     Shape_i0 shape_i0;
     // Tensor_i0 operand_0;
-    // TI1 operand_1;
+    // TI1 off_l;
+    // TI2 lc;
 
     // Outputs
     using Shape_o0 = decltype(make_shape(_1{}, NBUF{}));
@@ -815,10 +659,10 @@ public:
     Tensor_o1 rr;
 
     // Hardware parameters
-    int tid, lid, wid;
+    int lid;
 
-    CUTE_DEVICE load_offset_1(int tid, int lid, int wid, TO0 *ll, TO1 *rr, int mode_i0_0)
-    : tid(tid), lid(lid), wid(wid), shape_i0(make_shape(mode_i0_0)), ll(make_tensor(make_rmem_ptr(ll), Layout_o0{})), rr(make_tensor(make_rmem_ptr(rr), Layout_o1{})) {}
+    CUTE_DEVICE load_offset_1(int lid, TO0 *ll, TO1 *rr, int mode_i0_0)
+    : lid(lid), shape_i0(make_shape(mode_i0_0)), ll(make_tensor(make_rmem_ptr(ll), Layout_o0{})), rr(make_tensor(make_rmem_ptr(rr), Layout_o1{})) {}
 
     template<int output_idx, int buf_idx>
     CUTE_DEVICE auto output() {
@@ -839,9 +683,10 @@ public:
     }
 
     template<int buf_idx, class Tensor_i0, typename = void>
-    CUTE_DEVICE void f(Tensor_i0 operand_0, TI1 operand_1) {
-        ll(0, buf_idx) = operand_0(operand_1);
-        rr(0, buf_idx) = operand_0(operand_1 + 1);
+    CUTE_DEVICE void f(Tensor_i0 operand_0, TI1 off_l, TI2 lc) {
+        int idx = off_l + lc;
+                ll(0, buf_idx) = operand_0(idx);
+                rr(0, buf_idx) = operand_0(idx + 1);
     }
 };
 
@@ -872,10 +717,10 @@ public:
     Tensor_o1 coo_range;
 
     // Hardware parameters
-    int tid, lid, wid;
+    int lid;
 
-    CUTE_DEVICE coo_atomic_format_load_idx(int tid, int lid, int wid, TO0 *coo_idx, TO1 *coo_range, int mode_i0_0)
-    : tid(tid), lid(lid), wid(wid), shape_i0(make_shape(mode_i0_0)), coo_idx(make_tensor(make_smem_ptr(coo_idx), Layout_o0{})), coo_range(make_tensor(make_rmem_ptr(coo_range), Layout_o1{})) {}
+    CUTE_DEVICE coo_atomic_format_load_idx(int lid, TO0 *coo_idx, TO1 *coo_range, int mode_i0_0)
+    : lid(lid), shape_i0(make_shape(mode_i0_0)), coo_idx(make_tensor(make_smem_ptr(coo_idx), Layout_o0{})), coo_range(make_tensor(make_rmem_ptr(coo_range), Layout_o1{})) {}
 
     template<int output_idx, int buf_idx>
     CUTE_DEVICE auto output() {
@@ -937,10 +782,10 @@ public:
     Tensor_o0 coo_val;
 
     // Hardware parameters
-    int tid, lid, wid;
+    int lid;
 
-    CUTE_DEVICE coo_atomic_format_load_val(int tid, int lid, int wid, TO0 *coo_val, int mode_i0_0)
-    : tid(tid), lid(lid), wid(wid), shape_i0(make_shape(mode_i0_0)), coo_val(make_tensor(make_smem_ptr(coo_val), Layout_o0{})) {}
+    CUTE_DEVICE coo_atomic_format_load_val(int lid, TO0 *coo_val, int mode_i0_0)
+    : lid(lid), shape_i0(make_shape(mode_i0_0)), coo_val(make_tensor(make_smem_ptr(coo_val), Layout_o0{})) {}
 
     template<int output_idx, int buf_idx>
     CUTE_DEVICE auto output() {
@@ -977,6 +822,64 @@ public:
     }
 };
 
+template<class NBUF, class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class WARP_MNK, class TI0 = float, class TI1 = int, class TO0 = float>
+class array_ref_1 {
+public:
+    // Inputs
+    using Shape_i0 = decltype(make_shape(VARLEN, VARLEN));
+    Shape_i0 shape_i0;
+    // Tensor_i0 operand_0;
+    using Shape_i1 = decltype(make_shape(get<2>(BLK_MNK{})));
+    Shape_i1 shape_i1;
+    // Tensor_i1 operand_1;
+
+    // Outputs
+    using Shape_o0 = decltype(make_shape(get<2>(BLK_MNK{}), get<1>(BLK_MNK{}), NBUF{}));
+    using Stride_o0 = decltype(make_stride(get<1>(BLK_MNK{}), _1{}, get<2>(BLK_MNK{}) * get<1>(BLK_MNK{})));
+    using Layout_o0 = decltype(composition(Swizzle<3, 2, 3>{}, make_layout(Shape_o0{}, Stride_o0{})));
+    using Tensor_o0 = decltype(make_tensor(make_smem_ptr((TO0*)nullptr), Layout_o0{}));
+    Shape_o0 shape_o0;
+    Layout_o0 layout_o0;
+    Tensor_o0 result_0;
+
+    // Hardware parameters
+    int lid;
+
+    CUTE_DEVICE array_ref_1(int lid, TO0 *result_0, int mode_i0_0, int mode_i0_1)
+    : lid(lid), shape_i0(make_shape(mode_i0_0, mode_i0_1)), result_0(make_tensor(make_smem_ptr(result_0), Layout_o0{})) {}
+
+    template<int output_idx, int buf_idx>
+    CUTE_DEVICE auto output() {
+        if constexpr (output_idx == 0) {
+            return result_0(_, _, buf_idx);
+        }
+    }
+    
+    template<int output_idx>
+    CUTE_DEVICE auto output() {
+        if constexpr (output_idx == 0) {
+            return result_0;
+        }
+    }
+
+    template<int buf_idx, class Tensor_i0, class Tensor_i1, typename = void>
+    CUTE_DEVICE void f(Tensor_i0 operand_0, Tensor_i1 operand_1) {
+        auto load_tile_n = _4{};
+        for (int iter_i = lid; iter_i < get<0>(shape(result_0)) * get<1>(shape(result_0)) / load_tile_n; iter_i += 32) {
+            int row = iter_i / (get<1>(shape(result_0)) / load_tile_n);
+            int col = iter_i % (get<1>(shape(result_0)) / load_tile_n);
+            int src_row = operand_1(row);
+            auto thr_tiler_gmem = make_shape(_1{}, _4{});
+            auto thr_coord_gmem = make_coord(src_row, col);
+            auto src = local_tile(operand_0, thr_tiler_gmem, thr_coord_gmem);
+            auto thr_tiler_smem = make_shape(_1{}, _4{});
+            auto thr_coord_smem = make_coord(row, col);
+            auto dst = local_tile(result_0(_, _, buf_idx), thr_tiler_smem, thr_coord_smem);
+            copy(Copy_Atom<SM80_CP_ASYNC_CACHEGLOBAL<cute::uint128_t>, float>{}, src(0, _), dst(0, _));
+        }
+    }
+};
+
 template<class NBUF, class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class WARP_MNK, class TI0 = float, class TI1 = int, class TI2 = int, class TO0 = float>
 class coo_atomic_val_restore {
 public:
@@ -999,10 +902,10 @@ public:
     Tensor_o0 A_val_tile;
 
     // Hardware parameters
-    int tid, lid, wid;
+    int lid;
 
-    CUTE_DEVICE coo_atomic_val_restore(int tid, int lid, int wid, TO0 *A_val_tile)
-    : tid(tid), lid(lid), wid(wid), A_val_tile(make_tensor(make_smem_ptr(A_val_tile), Layout_o0{})) {}
+    CUTE_DEVICE coo_atomic_val_restore(int lid, TO0 *A_val_tile)
+    : lid(lid), A_val_tile(make_tensor(make_smem_ptr(A_val_tile), Layout_o0{})) {}
 
     template<int output_idx, int buf_idx>
     CUTE_DEVICE auto output() {
@@ -1020,8 +923,6 @@ public:
 
     template<int buf_idx, class Tensor_i0, class Tensor_i1, typename = void>
     CUTE_DEVICE void f(Tensor_i0 operand_0, Tensor_i1 operand_1, TI2 operand_2) {
-        assert(get<0>(shape_i0) == size<0>(shape(operand_0)));
-        assert(get<0>(shape_i1) == size<0>(shape(operand_1)));
         int tile_elems = get<0>(shape(A_val_tile)) * get<1>(shape(A_val_tile));
         for (int i_clear = lid; i_clear < tile_elems; i_clear += 32) {
             *((float*)(A_val_tile(_, _, buf_idx).data().get() + i_clear)) = float(0);
@@ -1033,60 +934,6 @@ public:
             if (idx < tile_elems) {
                 *((float*)(A_val_tile(_, _, buf_idx).data().get() + idx)) = value;
             }
-        }
-    }
-};
-
-template<class NBUF, class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class WARP_MNK, class TI0 = float, class TO0 = float>
-class S2rBValLoadOp {
-public:
-    // Inputs
-    using Shape_i0 = decltype(make_shape(get<2>(BLK_MNK{}), VARLEN));
-    Shape_i0 shape_i0;
-    // Tensor_i0 tileB;
-
-    // Outputs
-    using Shape_o0 = decltype(make_shape(Int<2>{}, get<1>(BLK_MMA_MNK{}), NBUF{}));
-    using Stride_o0 = decltype(make_stride(_1{}, Int<2>{}, Int<2>{} * get<1>(BLK_MMA_MNK{})));
-    using Layout_o0 = decltype(make_layout(Shape_o0{}, Stride_o0{}));
-    using Tensor_o0 = decltype(make_tensor(make_rmem_ptr((TO0*)nullptr), Layout_o0{}));
-    Shape_o0 shape_o0;
-    Layout_o0 layout_o0;
-    Tensor_o0 REGB;
-
-    // Hardware parameters
-    int tid, lid, wid;
-
-    CUTE_DEVICE S2rBValLoadOp(int tid, int lid, int wid, TO0 *REGB, int mode_i0_0)
-    : tid(tid), lid(lid), wid(wid), shape_i0(make_shape(get<2>(BLK_MNK{}), mode_i0_0)), REGB(make_tensor(make_rmem_ptr(REGB), Layout_o0{})) {}
-
-    template<int output_idx, int buf_idx>
-    CUTE_DEVICE auto output() {
-        if constexpr (output_idx == 0) {
-            return REGB(_, _, buf_idx);
-        }
-    }
-    
-    template<int output_idx>
-    CUTE_DEVICE auto output() {
-        if constexpr (output_idx == 0) {
-            return REGB;
-        }
-    }
-
-    template<int buf_idx, class Tensor_i0, typename = void>
-    CUTE_DEVICE void f(Tensor_i0 tileB) {
-        assert(get<0>(shape_i0) == size<0>(shape(tileB)));
-        __syncthreads();
-        for (int n_iter = 0; n_iter < get<1>(BLK_MMA_MNK{}); n_iter++) {
-            int row_b = lid / 2;
-            int col_b = lid % 2;
-            ldmatrix_m8n8k8_x2(
-                (uint32_t*)(REGB(_, n_iter, buf_idx).data()),
-                (void*)(&tileB(row_b, col_b * 4 + n_iter * 8))
-            );
-            REGB(_0{}, n_iter, buf_idx) = __shfl_sync(0xffffffff, REGB(_0{}, n_iter, buf_idx), lid / 4 + lid % 4 * 8);
-            REGB(_1{}, n_iter, buf_idx) = __shfl_sync(0xffffffff, REGB(_1{}, n_iter, buf_idx), lid / 4 + lid % 4 * 8);
         }
     }
 };
@@ -1109,10 +956,10 @@ public:
     Tensor_o0 REGA;
 
     // Hardware parameters
-    int tid, lid, wid;
+    int lid;
 
-    CUTE_DEVICE S2rAValLoadOp(int tid, int lid, int wid, TO0 *REGA)
-    : tid(tid), lid(lid), wid(wid), REGA(make_tensor(make_rmem_ptr(REGA), Layout_o0{})) {}
+    CUTE_DEVICE S2rAValLoadOp(int lid, TO0 *REGA)
+    : lid(lid), REGA(make_tensor(make_rmem_ptr(REGA), Layout_o0{})) {}
 
     template<int output_idx, int buf_idx>
     CUTE_DEVICE auto output() {
@@ -1130,8 +977,6 @@ public:
 
     template<int buf_idx, class Tensor_i0, typename = void>
     CUTE_DEVICE void f(Tensor_i0 tileA) {
-        assert(get<0>(shape_i0) == size<0>(shape(tileA)));
-        assert(get<1>(shape_i0) == size<1>(shape(tileA)));
         __syncthreads();
         int row = lid % 16;
         int col = lid / 16;
@@ -1139,6 +984,59 @@ public:
             (uint32_t*)(REGA(_, _0{}, buf_idx).data()),
             (void*)(&tileA(row, col * 4))
         );
+    }
+};
+
+template<class NBUF, class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class WARP_MNK, class TI0 = float, class TO0 = float>
+class S2rBValLoadOp {
+public:
+    // Inputs
+    using Shape_i0 = decltype(make_shape(get<2>(BLK_MNK{}), VARLEN));
+    Shape_i0 shape_i0;
+    // Tensor_i0 tileB;
+
+    // Outputs
+    using Shape_o0 = decltype(make_shape(Int<2>{}, get<1>(BLK_MMA_MNK{}), NBUF{}));
+    using Stride_o0 = decltype(make_stride(_1{}, Int<2>{}, Int<2>{} * get<1>(BLK_MMA_MNK{})));
+    using Layout_o0 = decltype(make_layout(Shape_o0{}, Stride_o0{}));
+    using Tensor_o0 = decltype(make_tensor(make_rmem_ptr((TO0*)nullptr), Layout_o0{}));
+    Shape_o0 shape_o0;
+    Layout_o0 layout_o0;
+    Tensor_o0 REGB;
+
+    // Hardware parameters
+    int lid;
+
+    CUTE_DEVICE S2rBValLoadOp(int lid, TO0 *REGB, int mode_i0_0)
+    : lid(lid), shape_i0(make_shape(get<2>(BLK_MNK{}), mode_i0_0)), REGB(make_tensor(make_rmem_ptr(REGB), Layout_o0{})) {}
+
+    template<int output_idx, int buf_idx>
+    CUTE_DEVICE auto output() {
+        if constexpr (output_idx == 0) {
+            return REGB(_, _, buf_idx);
+        }
+    }
+    
+    template<int output_idx>
+    CUTE_DEVICE auto output() {
+        if constexpr (output_idx == 0) {
+            return REGB;
+        }
+    }
+
+    template<int buf_idx, class Tensor_i0, typename = void>
+    CUTE_DEVICE void f(Tensor_i0 tileB) {
+        __syncthreads();
+        for (int n_iter = 0; n_iter < get<1>(BLK_MMA_MNK{}); n_iter++) {
+            int row_b = lid / 2;
+            int col_b = lid % 2;
+            ldmatrix_m8n8k8_x2(
+                (uint32_t*)(REGB(_, n_iter, buf_idx).data()),
+                (void*)(&tileB(row_b, col_b * 4 + n_iter * 8))
+            );
+            REGB(_0{}, n_iter, buf_idx) = __shfl_sync(0xffffffff, REGB(_0{}, n_iter, buf_idx), lid / 4 + lid % 4 * 8);
+            REGB(_1{}, n_iter, buf_idx) = __shfl_sync(0xffffffff, REGB(_1{}, n_iter, buf_idx), lid / 4 + lid % 4 * 8);
+        }
     }
 };
 
@@ -1162,10 +1060,10 @@ public:
     Tensor_o0 C_val_tile;
 
     // Hardware parameters
-    int tid, lid, wid;
+    int lid;
 
-    CUTE_DEVICE mma(int tid, int lid, int wid, Tensor_o0 C_val_tile)
-    : tid(tid), lid(lid), wid(wid), C_val_tile(C_val_tile) {}
+    CUTE_DEVICE mma(int lid, Tensor_o0 C_val_tile)
+    : lid(lid), C_val_tile(C_val_tile) {}
 
     template<int output_idx, int buf_idx>
     CUTE_DEVICE auto output() {
@@ -1183,13 +1081,6 @@ public:
 
     template<int buf_idx, class Tensor_i0, class Tensor_i1, class Tensor_i2, typename = void>
     CUTE_DEVICE void f(Tensor_i0 operand_0, Tensor_i1 operand_1, Tensor_i2 operand_2) {
-        assert(get<0>(shape_i0) == size<0>(shape(operand_0)));
-        assert(get<1>(shape_i0) == size<1>(shape(operand_0)));
-        assert(get<0>(shape_i1) == size<0>(shape(operand_1)));
-        assert(get<1>(shape_i1) == size<1>(shape(operand_1)));
-        assert(get<0>(shape_i2) == size<0>(shape(operand_2)));
-        assert(get<0>(get<1>(shape_i2)) == size<0>(get<1>(shape(operand_2))));
-        assert(get<1>(get<1>(shape_i2)) == size<1>(get<1>(shape(operand_2))));
         for (int m_iter = 0; m_iter < get<0>(BLK_MMA_MNK{}); m_iter++) {
             for (int n_iter = 0; n_iter < get<1>(BLK_MMA_MNK{}); n_iter++) {
                 uint32_t frag_A[4];
@@ -1206,7 +1097,7 @@ public:
     }
 };
 
-template <class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class WARP_MNK, class T_B_valOp, class T_C_valOp, class T_val_coo_idx_new_1Op, class T_val_coo_len_new_offsetOp, class T_val_coo_val_new_1Op, class T_val_len_offsetOp, class T_val_sidx_newOp, class T_BlkYLoopZeroOp, class T_BlockDimYOp, class T_BlkXLoopZeroOp, class T_BlockDimXOp, class T_ZerosOp, class T_zero, class T_load_offset, class T_gen_sub, class T_gen_div, class T_gen_add, class T_array_ref, class T_array_ref_1, class T_load_offset_1, class T_coo_atomic_format_load_idx, class T_coo_atomic_format_load_val, class T_coo_atomic_val_restore, class T_S2rBValLoadOp, class T_S2rAValLoadOp, class T_mma, class Tensor_o0, class TI0 = int, class TI1 = int, class TI2 = int, class TO0 = float>
+template <class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class WARP_MNK, class T_B_valOp, class T_C_valOp, class T_val_coo_idx_new_1Op, class T_val_coo_len_new_offsetOp, class T_val_coo_val_new_1Op, class T_val_len_offsetOp, class T_val_sidx_newOp, class T_BlkYLoopZeroOp, class T_BlockDimYOp, class T_BlkXLoopZeroOp, class T_BlockDimXOp, class T_ZerosOp, class T_zero, class T_load_offset, class T_array_ref, class T_load_offset_1, class T_coo_atomic_format_load_idx, class T_coo_atomic_format_load_val, class T_array_ref_1, class T_coo_atomic_val_restore, class T_S2rAValLoadOp, class T_S2rBValLoadOp, class T_mma, class Tensor_o0, class TI0 = int, class TI1 = int, class TI2 = int, class TO0 = float>
 class for_loop {
 public:
     // Inputs
@@ -1222,7 +1113,7 @@ public:
     Tensor_o0 for_loop_result_0;
 
     // Hardware parameters
-    int tid, lid, wid;
+    int lid;
 
     // Body Ops
     T_B_valOp &B_valOp_v;
@@ -1239,22 +1130,19 @@ public:
     T_ZerosOp &ZerosOp_v;
     T_zero &zero_v;
     T_load_offset &load_offset_v;
-    T_gen_sub &gen_sub_v;
-    T_gen_div &gen_div_v;
-    T_gen_add &gen_add_v;
     T_array_ref &array_ref_v;
-    T_array_ref_1 &array_ref_1_v;
     T_load_offset_1 &load_offset_1_v;
     T_coo_atomic_format_load_idx &coo_atomic_format_load_idx_v;
     T_coo_atomic_format_load_val &coo_atomic_format_load_val_v;
+    T_array_ref_1 &array_ref_1_v;
     T_coo_atomic_val_restore &coo_atomic_val_restore_v;
-    T_S2rBValLoadOp &S2rBValLoadOp_v;
     T_S2rAValLoadOp &S2rAValLoadOp_v;
+    T_S2rBValLoadOp &S2rBValLoadOp_v;
     T_mma &mma_v;
 
     // Constructor
-    CUTE_DEVICE for_loop(int tid, int lid, int wid, T_B_valOp &B_valOp_v, T_C_valOp &C_valOp_v, T_val_coo_idx_new_1Op &val_coo_idx_new_1Op_v, T_val_coo_len_new_offsetOp &val_coo_len_new_offsetOp_v, T_val_coo_val_new_1Op &val_coo_val_new_1Op_v, T_val_len_offsetOp &val_len_offsetOp_v, T_val_sidx_newOp &val_sidx_newOp_v, T_BlkYLoopZeroOp &BlkYLoopZeroOp_v, T_BlockDimYOp &BlockDimYOp_v, T_BlkXLoopZeroOp &BlkXLoopZeroOp_v, T_BlockDimXOp &BlockDimXOp_v, T_ZerosOp &ZerosOp_v, T_zero &zero_v, T_load_offset &load_offset_v, T_gen_sub &gen_sub_v, T_gen_div &gen_div_v, T_gen_add &gen_add_v, T_array_ref &array_ref_v, T_array_ref_1 &array_ref_1_v, T_load_offset_1 &load_offset_1_v, T_coo_atomic_format_load_idx &coo_atomic_format_load_idx_v, T_coo_atomic_format_load_val &coo_atomic_format_load_val_v, T_coo_atomic_val_restore &coo_atomic_val_restore_v, T_S2rBValLoadOp &S2rBValLoadOp_v, T_S2rAValLoadOp &S2rAValLoadOp_v, T_mma &mma_v, Tensor_o0 for_loop_result_0)
-    : tid(tid), lid(lid), wid(wid), B_valOp_v(B_valOp_v), C_valOp_v(C_valOp_v), val_coo_idx_new_1Op_v(val_coo_idx_new_1Op_v), val_coo_len_new_offsetOp_v(val_coo_len_new_offsetOp_v), val_coo_val_new_1Op_v(val_coo_val_new_1Op_v), val_len_offsetOp_v(val_len_offsetOp_v), val_sidx_newOp_v(val_sidx_newOp_v), BlkYLoopZeroOp_v(BlkYLoopZeroOp_v), BlockDimYOp_v(BlockDimYOp_v), BlkXLoopZeroOp_v(BlkXLoopZeroOp_v), BlockDimXOp_v(BlockDimXOp_v), ZerosOp_v(ZerosOp_v), zero_v(zero_v), load_offset_v(load_offset_v), gen_sub_v(gen_sub_v), gen_div_v(gen_div_v), gen_add_v(gen_add_v), array_ref_v(array_ref_v), array_ref_1_v(array_ref_1_v), load_offset_1_v(load_offset_1_v), coo_atomic_format_load_idx_v(coo_atomic_format_load_idx_v), coo_atomic_format_load_val_v(coo_atomic_format_load_val_v), coo_atomic_val_restore_v(coo_atomic_val_restore_v), S2rBValLoadOp_v(S2rBValLoadOp_v), S2rAValLoadOp_v(S2rAValLoadOp_v), mma_v(mma_v), for_loop_result_0(for_loop_result_0) {}
+    CUTE_DEVICE for_loop(int lid, T_B_valOp &B_valOp_v, T_C_valOp &C_valOp_v, T_val_coo_idx_new_1Op &val_coo_idx_new_1Op_v, T_val_coo_len_new_offsetOp &val_coo_len_new_offsetOp_v, T_val_coo_val_new_1Op &val_coo_val_new_1Op_v, T_val_len_offsetOp &val_len_offsetOp_v, T_val_sidx_newOp &val_sidx_newOp_v, T_BlkYLoopZeroOp &BlkYLoopZeroOp_v, T_BlockDimYOp &BlockDimYOp_v, T_BlkXLoopZeroOp &BlkXLoopZeroOp_v, T_BlockDimXOp &BlockDimXOp_v, T_ZerosOp &ZerosOp_v, T_zero &zero_v, T_load_offset &load_offset_v, T_array_ref &array_ref_v, T_load_offset_1 &load_offset_1_v, T_coo_atomic_format_load_idx &coo_atomic_format_load_idx_v, T_coo_atomic_format_load_val &coo_atomic_format_load_val_v, T_array_ref_1 &array_ref_1_v, T_coo_atomic_val_restore &coo_atomic_val_restore_v, T_S2rAValLoadOp &S2rAValLoadOp_v, T_S2rBValLoadOp &S2rBValLoadOp_v, T_mma &mma_v, Tensor_o0 for_loop_result_0)
+    : lid(lid), B_valOp_v(B_valOp_v), C_valOp_v(C_valOp_v), val_coo_idx_new_1Op_v(val_coo_idx_new_1Op_v), val_coo_len_new_offsetOp_v(val_coo_len_new_offsetOp_v), val_coo_val_new_1Op_v(val_coo_val_new_1Op_v), val_len_offsetOp_v(val_len_offsetOp_v), val_sidx_newOp_v(val_sidx_newOp_v), BlkYLoopZeroOp_v(BlkYLoopZeroOp_v), BlockDimYOp_v(BlockDimYOp_v), BlkXLoopZeroOp_v(BlkXLoopZeroOp_v), BlockDimXOp_v(BlockDimXOp_v), ZerosOp_v(ZerosOp_v), zero_v(zero_v), load_offset_v(load_offset_v), array_ref_v(array_ref_v), load_offset_1_v(load_offset_1_v), coo_atomic_format_load_idx_v(coo_atomic_format_load_idx_v), coo_atomic_format_load_val_v(coo_atomic_format_load_val_v), array_ref_1_v(array_ref_1_v), coo_atomic_val_restore_v(coo_atomic_val_restore_v), S2rAValLoadOp_v(S2rAValLoadOp_v), S2rBValLoadOp_v(S2rBValLoadOp_v), mma_v(mma_v), for_loop_result_0(for_loop_result_0) {}
 
     // Pipeline methods
     // short pipe
@@ -1268,23 +1156,15 @@ public:
         }
         else if (k == 1) {
             // i = 0
-            gen_add_v.template f<0>(
+            array_ref_v.template f<0>(
+                val_sidx_newOp_v.template output<0>(),
                 off_l,
                 l + 0
             );
-            array_ref_v.template f<0>(
-                val_sidx_newOp_v.template output<0>(),
-                gen_add_v.template output<0, 0>()(0)
-            );
-            __syncthreads();
-            array_ref_1_v.template f<0>(
-                B_valOp_v.template output<0>(),
-                array_ref_v.template output<0, 0>()
-            );
-            __pipeline_commit();
             load_offset_1_v.template f<0>(
                 val_coo_len_new_offsetOp_v.template output<0>(),
-                gen_add_v.template output<0, 0>()(0)
+                off_l,
+                l + 0
             );
             coo_atomic_format_load_idx_v.template f<0>(
                 val_coo_idx_new_1Op_v.template output<0>(),
@@ -1301,17 +1181,18 @@ public:
             
             
             // i = 1
-            __pipeline_wait_prior(0);
+            __syncthreads();
+            array_ref_1_v.template f<0>(
+                B_valOp_v.template output<0>(),
+                array_ref_v.template output<0, 0>()
+            );
+            __pipeline_commit();
+            __pipeline_wait_prior(1);
             __syncthreads();
             coo_atomic_val_restore_v.template f<0>(
                 coo_atomic_format_load_val_v.template output<0, 0>(),
                 coo_atomic_format_load_idx_v.template output<0, 0>(),
                 coo_atomic_format_load_idx_v.template output<1, 0>()(0)
-            );
-            __pipeline_wait_prior(2);
-            __syncthreads();
-            S2rBValLoadOp_v.template f<0>(
-                array_ref_1_v.template output<0, 0>()
             );
             
             
@@ -1319,6 +1200,11 @@ public:
             __syncthreads();
             S2rAValLoadOp_v.template f<0>(
                 coo_atomic_val_restore_v.template output<0, 0>()
+            );
+            __pipeline_wait_prior(0);
+            __syncthreads();
+            S2rBValLoadOp_v.template f<0>(
+                array_ref_1_v.template output<0, 0>()
             );
             mma_v.template f<0>(
                 S2rAValLoadOp_v.template output<0, 0>(),
@@ -1329,23 +1215,15 @@ public:
         }
         else if (k == 2) {
             // i = 0
-            gen_add_v.template f<0>(
+            array_ref_v.template f<0>(
+                val_sidx_newOp_v.template output<0>(),
                 off_l,
                 l + 0
             );
-            array_ref_v.template f<0>(
-                val_sidx_newOp_v.template output<0>(),
-                gen_add_v.template output<0, 0>()(0)
-            );
-            __syncthreads();
-            array_ref_1_v.template f<0>(
-                B_valOp_v.template output<0>(),
-                array_ref_v.template output<0, 0>()
-            );
-            __pipeline_commit();
             load_offset_1_v.template f<0>(
                 val_coo_len_new_offsetOp_v.template output<0>(),
-                gen_add_v.template output<0, 0>()(0)
+                off_l,
+                l + 0
             );
             coo_atomic_format_load_idx_v.template f<0>(
                 val_coo_idx_new_1Op_v.template output<0>(),
@@ -1362,23 +1240,15 @@ public:
             
             
             // i = 1
-            gen_add_v.template f<1>(
+            array_ref_v.template f<1>(
+                val_sidx_newOp_v.template output<0>(),
                 off_l,
                 l + 1
             );
-            array_ref_v.template f<1>(
-                val_sidx_newOp_v.template output<0>(),
-                gen_add_v.template output<0, 1>()(0)
-            );
-            __syncthreads();
-            array_ref_1_v.template f<1>(
-                B_valOp_v.template output<0>(),
-                array_ref_v.template output<0, 1>()
-            );
-            __pipeline_commit();
             load_offset_1_v.template f<1>(
                 val_coo_len_new_offsetOp_v.template output<0>(),
-                gen_add_v.template output<0, 1>()(0)
+                off_l,
+                l + 1
             );
             coo_atomic_format_load_idx_v.template f<1>(
                 val_coo_idx_new_1Op_v.template output<0>(),
@@ -1392,6 +1262,12 @@ public:
                 load_offset_1_v.template output<1, 1>()(0)
             );
             __pipeline_commit();
+            __syncthreads();
+            array_ref_1_v.template f<0>(
+                B_valOp_v.template output<0>(),
+                array_ref_v.template output<0, 0>()
+            );
+            __pipeline_commit();
             __pipeline_wait_prior(3);
             __syncthreads();
             coo_atomic_val_restore_v.template f<0>(
@@ -1399,29 +1275,30 @@ public:
                 coo_atomic_format_load_idx_v.template output<0, 0>(),
                 coo_atomic_format_load_idx_v.template output<1, 0>()(0)
             );
-            __pipeline_wait_prior(5);
-            __syncthreads();
-            S2rBValLoadOp_v.template f<0>(
-                array_ref_1_v.template output<0, 0>()
-            );
             
             
             // i = 2
-            __pipeline_wait_prior(0);
+            __syncthreads();
+            array_ref_1_v.template f<1>(
+                B_valOp_v.template output<0>(),
+                array_ref_v.template output<0, 1>()
+            );
+            __pipeline_commit();
+            __pipeline_wait_prior(2);
             __syncthreads();
             coo_atomic_val_restore_v.template f<1>(
                 coo_atomic_format_load_val_v.template output<0, 1>(),
                 coo_atomic_format_load_idx_v.template output<0, 1>(),
                 coo_atomic_format_load_idx_v.template output<1, 1>()(0)
             );
-            __pipeline_wait_prior(2);
-            __syncthreads();
-            S2rBValLoadOp_v.template f<1>(
-                array_ref_1_v.template output<0, 1>()
-            );
             __syncthreads();
             S2rAValLoadOp_v.template f<0>(
                 coo_atomic_val_restore_v.template output<0, 0>()
+            );
+            __pipeline_wait_prior(1);
+            __syncthreads();
+            S2rBValLoadOp_v.template f<0>(
+                array_ref_1_v.template output<0, 0>()
             );
             mma_v.template f<0>(
                 S2rAValLoadOp_v.template output<0, 0>(),
@@ -1434,6 +1311,11 @@ public:
             __syncthreads();
             S2rAValLoadOp_v.template f<1>(
                 coo_atomic_val_restore_v.template output<0, 1>()
+            );
+            __pipeline_wait_prior(0);
+            __syncthreads();
+            S2rBValLoadOp_v.template f<1>(
+                array_ref_1_v.template output<0, 1>()
             );
             mma_v.template f<1>(
                 S2rAValLoadOp_v.template output<0, 1>(),
@@ -1444,23 +1326,15 @@ public:
         }
         else if (k == 3) {
             // i = 0
-            gen_add_v.template f<0>(
+            array_ref_v.template f<0>(
+                val_sidx_newOp_v.template output<0>(),
                 off_l,
                 l + 0
             );
-            array_ref_v.template f<0>(
-                val_sidx_newOp_v.template output<0>(),
-                gen_add_v.template output<0, 0>()(0)
-            );
-            __syncthreads();
-            array_ref_1_v.template f<0>(
-                B_valOp_v.template output<0>(),
-                array_ref_v.template output<0, 0>()
-            );
-            __pipeline_commit();
             load_offset_1_v.template f<0>(
                 val_coo_len_new_offsetOp_v.template output<0>(),
-                gen_add_v.template output<0, 0>()(0)
+                off_l,
+                l + 0
             );
             coo_atomic_format_load_idx_v.template f<0>(
                 val_coo_idx_new_1Op_v.template output<0>(),
@@ -1477,23 +1351,15 @@ public:
             
             
             // i = 1
-            gen_add_v.template f<1>(
+            array_ref_v.template f<1>(
+                val_sidx_newOp_v.template output<0>(),
                 off_l,
                 l + 1
             );
-            array_ref_v.template f<1>(
-                val_sidx_newOp_v.template output<0>(),
-                gen_add_v.template output<0, 1>()(0)
-            );
-            __syncthreads();
-            array_ref_1_v.template f<1>(
-                B_valOp_v.template output<0>(),
-                array_ref_v.template output<0, 1>()
-            );
-            __pipeline_commit();
             load_offset_1_v.template f<1>(
                 val_coo_len_new_offsetOp_v.template output<0>(),
-                gen_add_v.template output<0, 1>()(0)
+                off_l,
+                l + 1
             );
             coo_atomic_format_load_idx_v.template f<1>(
                 val_coo_idx_new_1Op_v.template output<0>(),
@@ -1507,6 +1373,12 @@ public:
                 load_offset_1_v.template output<1, 1>()(0)
             );
             __pipeline_commit();
+            __syncthreads();
+            array_ref_1_v.template f<0>(
+                B_valOp_v.template output<0>(),
+                array_ref_v.template output<0, 0>()
+            );
+            __pipeline_commit();
             __pipeline_wait_prior(3);
             __syncthreads();
             coo_atomic_val_restore_v.template f<0>(
@@ -1514,31 +1386,18 @@ public:
                 coo_atomic_format_load_idx_v.template output<0, 0>(),
                 coo_atomic_format_load_idx_v.template output<1, 0>()(0)
             );
-            __pipeline_wait_prior(5);
-            __syncthreads();
-            S2rBValLoadOp_v.template f<0>(
-                array_ref_1_v.template output<0, 0>()
-            );
             
             
             // i = 2
-            gen_add_v.template f<0>(
+            array_ref_v.template f<0>(
+                val_sidx_newOp_v.template output<0>(),
                 off_l,
                 l + 2
             );
-            array_ref_v.template f<0>(
-                val_sidx_newOp_v.template output<0>(),
-                gen_add_v.template output<0, 0>()(0)
-            );
-            __syncthreads();
-            array_ref_1_v.template f<0>(
-                B_valOp_v.template output<0>(),
-                array_ref_v.template output<0, 0>()
-            );
-            __pipeline_commit();
             load_offset_1_v.template f<0>(
                 val_coo_len_new_offsetOp_v.template output<0>(),
-                gen_add_v.template output<0, 0>()(0)
+                off_l,
+                l + 2
             );
             coo_atomic_format_load_idx_v.template f<0>(
                 val_coo_idx_new_1Op_v.template output<0>(),
@@ -1552,21 +1411,27 @@ public:
                 load_offset_1_v.template output<1, 0>()(0)
             );
             __pipeline_commit();
-            __pipeline_wait_prior(3);
+            __syncthreads();
+            array_ref_1_v.template f<1>(
+                B_valOp_v.template output<0>(),
+                array_ref_v.template output<0, 1>()
+            );
+            __pipeline_commit();
+            __pipeline_wait_prior(4);
             __syncthreads();
             coo_atomic_val_restore_v.template f<1>(
                 coo_atomic_format_load_val_v.template output<0, 1>(),
                 coo_atomic_format_load_idx_v.template output<0, 1>(),
                 coo_atomic_format_load_idx_v.template output<1, 1>()(0)
             );
-            __pipeline_wait_prior(5);
-            __syncthreads();
-            S2rBValLoadOp_v.template f<1>(
-                array_ref_1_v.template output<0, 1>()
-            );
             __syncthreads();
             S2rAValLoadOp_v.template f<0>(
                 coo_atomic_val_restore_v.template output<0, 0>()
+            );
+            __pipeline_wait_prior(3);
+            __syncthreads();
+            S2rBValLoadOp_v.template f<0>(
+                array_ref_1_v.template output<0, 0>()
             );
             mma_v.template f<0>(
                 S2rAValLoadOp_v.template output<0, 0>(),
@@ -1576,21 +1441,27 @@ public:
             
             
             // i = 3
-            __pipeline_wait_prior(0);
+            __syncthreads();
+            array_ref_1_v.template f<0>(
+                B_valOp_v.template output<0>(),
+                array_ref_v.template output<0, 0>()
+            );
+            __pipeline_commit();
+            __pipeline_wait_prior(2);
             __syncthreads();
             coo_atomic_val_restore_v.template f<0>(
                 coo_atomic_format_load_val_v.template output<0, 0>(),
                 coo_atomic_format_load_idx_v.template output<0, 0>(),
                 coo_atomic_format_load_idx_v.template output<1, 0>()(0)
             );
-            __pipeline_wait_prior(2);
-            __syncthreads();
-            S2rBValLoadOp_v.template f<0>(
-                array_ref_1_v.template output<0, 0>()
-            );
             __syncthreads();
             S2rAValLoadOp_v.template f<1>(
                 coo_atomic_val_restore_v.template output<0, 1>()
+            );
+            __pipeline_wait_prior(1);
+            __syncthreads();
+            S2rBValLoadOp_v.template f<1>(
+                array_ref_1_v.template output<0, 1>()
             );
             mma_v.template f<1>(
                 S2rAValLoadOp_v.template output<0, 1>(),
@@ -1603,6 +1474,11 @@ public:
             __syncthreads();
             S2rAValLoadOp_v.template f<0>(
                 coo_atomic_val_restore_v.template output<0, 0>()
+            );
+            __pipeline_wait_prior(0);
+            __syncthreads();
+            S2rBValLoadOp_v.template f<0>(
+                array_ref_1_v.template output<0, 0>()
             );
             mma_v.template f<0>(
                 S2rAValLoadOp_v.template output<0, 0>(),
@@ -1617,27 +1493,17 @@ public:
     // fill
     CUTE_DEVICE void fill(int l, int r) {
         // stage 0..0
-        // op_call |buf_idx=0| 0 gen_add 
-        gen_add_v.template f<0>(
-            off_l,
-            l + 0
-        );
         // op_call |buf_idx=0| 0 array_ref 
         array_ref_v.template f<0>(
             val_sidx_newOp_v.template output<0>(),
-            gen_add_v.template output<0, 0>()(0)
+            off_l,
+            l + 0
         );
-        __syncthreads();
-        // op_call |buf_idx=0| 0 array_ref_1 
-        array_ref_1_v.template f<0>(
-            B_valOp_v.template output<0>(),
-            array_ref_v.template output<0, 0>()
-        );
-        __pipeline_commit();
         // op_call |buf_idx=0| 0 load_offset_1 
         load_offset_1_v.template f<0>(
             val_coo_len_new_offsetOp_v.template output<0>(),
-            gen_add_v.template output<0, 0>()(0)
+            off_l,
+            l + 0
         );
         // op_call |buf_idx=0| 0 coo_atomic_format_load_idx 
         coo_atomic_format_load_idx_v.template f<0>(
@@ -1654,27 +1520,17 @@ public:
         );
         __pipeline_commit();
         // stage 0..1
-        // op_call |buf_idx=1| 1 gen_add 
-        gen_add_v.template f<1>(
-            off_l,
-            l + 1
-        );
         // op_call |buf_idx=1| 1 array_ref 
         array_ref_v.template f<1>(
             val_sidx_newOp_v.template output<0>(),
-            gen_add_v.template output<0, 1>()(0)
+            off_l,
+            l + 1
         );
-        __syncthreads();
-        // op_call |buf_idx=1| 1 array_ref_1 
-        array_ref_1_v.template f<1>(
-            B_valOp_v.template output<0>(),
-            array_ref_v.template output<0, 1>()
-        );
-        __pipeline_commit();
         // op_call |buf_idx=1| 1 load_offset_1 
         load_offset_1_v.template f<1>(
             val_coo_len_new_offsetOp_v.template output<0>(),
-            gen_add_v.template output<0, 1>()(0)
+            off_l,
+            l + 1
         );
         // op_call |buf_idx=1| 1 coo_atomic_format_load_idx 
         coo_atomic_format_load_idx_v.template f<1>(
@@ -1690,6 +1546,13 @@ public:
             load_offset_1_v.template output<1, 1>()(0)
         );
         __pipeline_commit();
+        __syncthreads();
+        // op_call |buf_idx=0| 0 array_ref_1 
+        array_ref_1_v.template f<0>(
+            B_valOp_v.template output<0>(),
+            array_ref_v.template output<0, 0>()
+        );
+        __pipeline_commit();
         __pipeline_wait_prior(3);
         __syncthreads();
         // op_call |buf_idx=0| 0 coo_atomic_val_restore 
@@ -1698,34 +1561,18 @@ public:
             coo_atomic_format_load_idx_v.template output<0, 0>(),
             coo_atomic_format_load_idx_v.template output<1, 0>()(0)
         );
-        __pipeline_wait_prior(5);
-        __syncthreads();
-        // op_call |buf_idx=0| 0 S2rBValLoadOp 
-        S2rBValLoadOp_v.template f<0>(
-            array_ref_1_v.template output<0, 0>()
-        );
         // stage 0..2
-        // op_call |buf_idx=0| 2 gen_add 
-        gen_add_v.template f<0>(
-            off_l,
-            l + 2
-        );
         // op_call |buf_idx=0| 2 array_ref 
         array_ref_v.template f<0>(
             val_sidx_newOp_v.template output<0>(),
-            gen_add_v.template output<0, 0>()(0)
+            off_l,
+            l + 2
         );
-        __syncthreads();
-        // op_call |buf_idx=0| 2 array_ref_1 
-        array_ref_1_v.template f<0>(
-            B_valOp_v.template output<0>(),
-            array_ref_v.template output<0, 0>()
-        );
-        __pipeline_commit();
         // op_call |buf_idx=0| 2 load_offset_1 
         load_offset_1_v.template f<0>(
             val_coo_len_new_offsetOp_v.template output<0>(),
-            gen_add_v.template output<0, 0>()(0)
+            off_l,
+            l + 2
         );
         // op_call |buf_idx=0| 2 coo_atomic_format_load_idx 
         coo_atomic_format_load_idx_v.template f<0>(
@@ -1741,7 +1588,14 @@ public:
             load_offset_1_v.template output<1, 0>()(0)
         );
         __pipeline_commit();
-        __pipeline_wait_prior(3);
+        __syncthreads();
+        // op_call |buf_idx=1| 1 array_ref_1 
+        array_ref_1_v.template f<1>(
+            B_valOp_v.template output<0>(),
+            array_ref_v.template output<0, 1>()
+        );
+        __pipeline_commit();
+        __pipeline_wait_prior(4);
         __syncthreads();
         // op_call |buf_idx=1| 1 coo_atomic_val_restore 
         coo_atomic_val_restore_v.template f<1>(
@@ -1749,16 +1603,16 @@ public:
             coo_atomic_format_load_idx_v.template output<0, 1>(),
             coo_atomic_format_load_idx_v.template output<1, 1>()(0)
         );
-        __pipeline_wait_prior(5);
-        __syncthreads();
-        // op_call |buf_idx=1| 1 S2rBValLoadOp 
-        S2rBValLoadOp_v.template f<1>(
-            array_ref_1_v.template output<0, 1>()
-        );
         __syncthreads();
         // op_call |buf_idx=0| 0 S2rAValLoadOp 
         S2rAValLoadOp_v.template f<0>(
             coo_atomic_val_restore_v.template output<0, 0>()
+        );
+        __pipeline_wait_prior(3);
+        __syncthreads();
+        // op_call |buf_idx=0| 0 S2rBValLoadOp 
+        S2rBValLoadOp_v.template f<0>(
+            array_ref_1_v.template output<0, 0>()
         );
         // op_call |buf_idx=0| 0 mma 
         mma_v.template f<0>(
@@ -1771,27 +1625,17 @@ public:
     // loop_step
     CUTE_DEVICE void loop_step(int i, int l, int r) {
         // step 0
-        // op_call |buf_idx=1| i + (0) gen_add 
-        gen_add_v.template f<1>(
-            off_l,
-            l + i + (0)
-        );
         // op_call |buf_idx=1| i + (0) array_ref 
         array_ref_v.template f<1>(
             val_sidx_newOp_v.template output<0>(),
-            gen_add_v.template output<0, 1>()(0)
+            off_l,
+            l + i + (0)
         );
-        __syncthreads();
-        // op_call |buf_idx=1| i + (0) array_ref_1 
-        array_ref_1_v.template f<1>(
-            B_valOp_v.template output<0>(),
-            array_ref_v.template output<0, 1>()
-        );
-        __pipeline_commit();
         // op_call |buf_idx=1| i + (0) load_offset_1 
         load_offset_1_v.template f<1>(
             val_coo_len_new_offsetOp_v.template output<0>(),
-            gen_add_v.template output<0, 1>()(0)
+            off_l,
+            l + i + (0)
         );
         // op_call |buf_idx=1| i + (0) coo_atomic_format_load_idx 
         coo_atomic_format_load_idx_v.template f<1>(
@@ -1807,7 +1651,14 @@ public:
             load_offset_1_v.template output<1, 1>()(0)
         );
         __pipeline_commit();
-        __pipeline_wait_prior(3);
+        __syncthreads();
+        // op_call |buf_idx=0| i + (-1) array_ref_1 
+        array_ref_1_v.template f<0>(
+            B_valOp_v.template output<0>(),
+            array_ref_v.template output<0, 0>()
+        );
+        __pipeline_commit();
+        __pipeline_wait_prior(4);
         __syncthreads();
         // op_call |buf_idx=0| i + (-1) coo_atomic_val_restore 
         coo_atomic_val_restore_v.template f<0>(
@@ -1815,16 +1666,16 @@ public:
             coo_atomic_format_load_idx_v.template output<0, 0>(),
             coo_atomic_format_load_idx_v.template output<1, 0>()(0)
         );
-        __pipeline_wait_prior(5);
-        __syncthreads();
-        // op_call |buf_idx=0| i + (-1) S2rBValLoadOp 
-        S2rBValLoadOp_v.template f<0>(
-            array_ref_1_v.template output<0, 0>()
-        );
         __syncthreads();
         // op_call |buf_idx=1| i + (-2) S2rAValLoadOp 
         S2rAValLoadOp_v.template f<1>(
             coo_atomic_val_restore_v.template output<0, 1>()
+        );
+        __pipeline_wait_prior(3);
+        __syncthreads();
+        // op_call |buf_idx=1| i + (-2) S2rBValLoadOp 
+        S2rBValLoadOp_v.template f<1>(
+            array_ref_1_v.template output<0, 1>()
         );
         // op_call |buf_idx=1| i + (-2) mma 
         mma_v.template f<1>(
@@ -1833,27 +1684,17 @@ public:
             ZerosOp_v.template output<0>()
         );
         // step 1
-        // op_call |buf_idx=0| i + (1) gen_add 
-        gen_add_v.template f<0>(
-            off_l,
-            l + i + (1)
-        );
         // op_call |buf_idx=0| i + (1) array_ref 
         array_ref_v.template f<0>(
             val_sidx_newOp_v.template output<0>(),
-            gen_add_v.template output<0, 0>()(0)
+            off_l,
+            l + i + (1)
         );
-        __syncthreads();
-        // op_call |buf_idx=0| i + (1) array_ref_1 
-        array_ref_1_v.template f<0>(
-            B_valOp_v.template output<0>(),
-            array_ref_v.template output<0, 0>()
-        );
-        __pipeline_commit();
         // op_call |buf_idx=0| i + (1) load_offset_1 
         load_offset_1_v.template f<0>(
             val_coo_len_new_offsetOp_v.template output<0>(),
-            gen_add_v.template output<0, 0>()(0)
+            off_l,
+            l + i + (1)
         );
         // op_call |buf_idx=0| i + (1) coo_atomic_format_load_idx 
         coo_atomic_format_load_idx_v.template f<0>(
@@ -1869,7 +1710,14 @@ public:
             load_offset_1_v.template output<1, 0>()(0)
         );
         __pipeline_commit();
-        __pipeline_wait_prior(3);
+        __syncthreads();
+        // op_call |buf_idx=1| i + (0) array_ref_1 
+        array_ref_1_v.template f<1>(
+            B_valOp_v.template output<0>(),
+            array_ref_v.template output<0, 1>()
+        );
+        __pipeline_commit();
+        __pipeline_wait_prior(4);
         __syncthreads();
         // op_call |buf_idx=1| i + (0) coo_atomic_val_restore 
         coo_atomic_val_restore_v.template f<1>(
@@ -1877,16 +1725,16 @@ public:
             coo_atomic_format_load_idx_v.template output<0, 1>(),
             coo_atomic_format_load_idx_v.template output<1, 1>()(0)
         );
-        __pipeline_wait_prior(5);
-        __syncthreads();
-        // op_call |buf_idx=1| i + (0) S2rBValLoadOp 
-        S2rBValLoadOp_v.template f<1>(
-            array_ref_1_v.template output<0, 1>()
-        );
         __syncthreads();
         // op_call |buf_idx=0| i + (-1) S2rAValLoadOp 
         S2rAValLoadOp_v.template f<0>(
             coo_atomic_val_restore_v.template output<0, 0>()
+        );
+        __pipeline_wait_prior(3);
+        __syncthreads();
+        // op_call |buf_idx=0| i + (-1) S2rBValLoadOp 
+        S2rBValLoadOp_v.template f<0>(
+            array_ref_1_v.template output<0, 0>()
         );
         // op_call |buf_idx=0| i + (-1) mma 
         mma_v.template f<0>(
@@ -1899,27 +1747,17 @@ public:
     // remainder
     CUTE_DEVICE void remains_1(int i, int l, int r) {
         // total remains 1, current 0
-        // op_call |buf_idx=1| i + (0) gen_add 
-        gen_add_v.template f<1>(
-            off_l,
-            l + i + (0)
-        );
         // op_call |buf_idx=1| i + (0) array_ref 
         array_ref_v.template f<1>(
             val_sidx_newOp_v.template output<0>(),
-            gen_add_v.template output<0, 1>()(0)
+            off_l,
+            l + i + (0)
         );
-        __syncthreads();
-        // op_call |buf_idx=1| i + (0) array_ref_1 
-        array_ref_1_v.template f<1>(
-            B_valOp_v.template output<0>(),
-            array_ref_v.template output<0, 1>()
-        );
-        __pipeline_commit();
         // op_call |buf_idx=1| i + (0) load_offset_1 
         load_offset_1_v.template f<1>(
             val_coo_len_new_offsetOp_v.template output<0>(),
-            gen_add_v.template output<0, 1>()(0)
+            off_l,
+            l + i + (0)
         );
         // op_call |buf_idx=1| i + (0) coo_atomic_format_load_idx 
         coo_atomic_format_load_idx_v.template f<1>(
@@ -1935,7 +1773,14 @@ public:
             load_offset_1_v.template output<1, 1>()(0)
         );
         __pipeline_commit();
-        __pipeline_wait_prior(3);
+        __syncthreads();
+        // op_call |buf_idx=0| i + (-1) array_ref_1 
+        array_ref_1_v.template f<0>(
+            B_valOp_v.template output<0>(),
+            array_ref_v.template output<0, 0>()
+        );
+        __pipeline_commit();
+        __pipeline_wait_prior(4);
         __syncthreads();
         // op_call |buf_idx=0| i + (-1) coo_atomic_val_restore 
         coo_atomic_val_restore_v.template f<0>(
@@ -1943,16 +1788,16 @@ public:
             coo_atomic_format_load_idx_v.template output<0, 0>(),
             coo_atomic_format_load_idx_v.template output<1, 0>()(0)
         );
-        __pipeline_wait_prior(5);
-        __syncthreads();
-        // op_call |buf_idx=0| i + (-1) S2rBValLoadOp 
-        S2rBValLoadOp_v.template f<0>(
-            array_ref_1_v.template output<0, 0>()
-        );
         __syncthreads();
         // op_call |buf_idx=1| i + (-2) S2rAValLoadOp 
         S2rAValLoadOp_v.template f<1>(
             coo_atomic_val_restore_v.template output<0, 1>()
+        );
+        __pipeline_wait_prior(3);
+        __syncthreads();
+        // op_call |buf_idx=1| i + (-2) S2rBValLoadOp 
+        S2rBValLoadOp_v.template f<1>(
+            array_ref_1_v.template output<0, 1>()
         );
         // op_call |buf_idx=1| i + (-2) mma 
         mma_v.template f<1>(
@@ -1971,7 +1816,14 @@ public:
     // empties
     CUTE_DEVICE void empty_after_remain_0(int i, int l, int r) {
         // stage 1..2
-        __pipeline_wait_prior(0);
+        __syncthreads();
+        // op_call |buf_idx=0| i + (-1) array_ref_1 
+        array_ref_1_v.template f<0>(
+            B_valOp_v.template output<0>(),
+            array_ref_v.template output<0, 0>()
+        );
+        __pipeline_commit();
+        __pipeline_wait_prior(2);
         __syncthreads();
         // op_call |buf_idx=0| i + (-1) coo_atomic_val_restore 
         coo_atomic_val_restore_v.template f<0>(
@@ -1979,16 +1831,16 @@ public:
             coo_atomic_format_load_idx_v.template output<0, 0>(),
             coo_atomic_format_load_idx_v.template output<1, 0>()(0)
         );
-        __pipeline_wait_prior(2);
-        __syncthreads();
-        // op_call |buf_idx=0| i + (-1) S2rBValLoadOp 
-        S2rBValLoadOp_v.template f<0>(
-            array_ref_1_v.template output<0, 0>()
-        );
         __syncthreads();
         // op_call |buf_idx=1| i + (-2) S2rAValLoadOp 
         S2rAValLoadOp_v.template f<1>(
             coo_atomic_val_restore_v.template output<0, 1>()
+        );
+        __pipeline_wait_prior(1);
+        __syncthreads();
+        // op_call |buf_idx=1| i + (-2) S2rBValLoadOp 
+        S2rBValLoadOp_v.template f<1>(
+            array_ref_1_v.template output<0, 1>()
         );
         // op_call |buf_idx=1| i + (-2) mma 
         mma_v.template f<1>(
@@ -2002,6 +1854,12 @@ public:
         S2rAValLoadOp_v.template f<0>(
             coo_atomic_val_restore_v.template output<0, 0>()
         );
+        __pipeline_wait_prior(0);
+        __syncthreads();
+        // op_call |buf_idx=0| i + (-1) S2rBValLoadOp 
+        S2rBValLoadOp_v.template f<0>(
+            array_ref_1_v.template output<0, 0>()
+        );
         // op_call |buf_idx=0| i + (-1) mma 
         mma_v.template f<0>(
             S2rAValLoadOp_v.template output<0, 0>(),
@@ -2012,7 +1870,14 @@ public:
     
     CUTE_DEVICE void empty_after_remain_1(int i, int l, int r) {
         // stage 1..2
-        __pipeline_wait_prior(0);
+        __syncthreads();
+        // op_call |buf_idx=1| i + (0) array_ref_1 
+        array_ref_1_v.template f<1>(
+            B_valOp_v.template output<0>(),
+            array_ref_v.template output<0, 1>()
+        );
+        __pipeline_commit();
+        __pipeline_wait_prior(2);
         __syncthreads();
         // op_call |buf_idx=1| i + (0) coo_atomic_val_restore 
         coo_atomic_val_restore_v.template f<1>(
@@ -2020,16 +1885,16 @@ public:
             coo_atomic_format_load_idx_v.template output<0, 1>(),
             coo_atomic_format_load_idx_v.template output<1, 1>()(0)
         );
-        __pipeline_wait_prior(2);
-        __syncthreads();
-        // op_call |buf_idx=1| i + (0) S2rBValLoadOp 
-        S2rBValLoadOp_v.template f<1>(
-            array_ref_1_v.template output<0, 1>()
-        );
         __syncthreads();
         // op_call |buf_idx=0| i + (-1) S2rAValLoadOp 
         S2rAValLoadOp_v.template f<0>(
             coo_atomic_val_restore_v.template output<0, 0>()
+        );
+        __pipeline_wait_prior(1);
+        __syncthreads();
+        // op_call |buf_idx=0| i + (-1) S2rBValLoadOp 
+        S2rBValLoadOp_v.template f<0>(
+            array_ref_1_v.template output<0, 0>()
         );
         // op_call |buf_idx=0| i + (-1) mma 
         mma_v.template f<0>(
@@ -2042,6 +1907,12 @@ public:
         // op_call |buf_idx=1| i + (0) S2rAValLoadOp 
         S2rAValLoadOp_v.template f<1>(
             coo_atomic_val_restore_v.template output<0, 1>()
+        );
+        __pipeline_wait_prior(0);
+        __syncthreads();
+        // op_call |buf_idx=1| i + (0) S2rBValLoadOp 
+        S2rBValLoadOp_v.template f<1>(
+            array_ref_1_v.template output<0, 1>()
         );
         // op_call |buf_idx=1| i + (0) mma 
         mma_v.template f<1>(
@@ -2113,10 +1984,10 @@ public:
     Tensor_o0 result_0;
 
     // Hardware parameters
-    int tid, lid, wid;
+    int lid;
 
-    CUTE_DEVICE gen_mul(int tid, int lid, int wid, TO0 *result_0)
-    : tid(tid), lid(lid), wid(wid), result_0(make_tensor(make_rmem_ptr(result_0), Layout_o0{})) {}
+    CUTE_DEVICE gen_mul(int lid, TO0 *result_0)
+    : lid(lid), result_0(make_tensor(make_rmem_ptr(result_0), Layout_o0{})) {}
 
     template<int output_idx>
     CUTE_DEVICE auto output() {
@@ -2147,10 +2018,10 @@ public:
     
 
     // Hardware parameters
-    int tid, lid, wid;
+    int lid;
 
-    CUTE_DEVICE c_val_store(int tid, int lid, int wid, int mode_i1_0, int mode_i1_1)
-    : tid(tid), lid(lid), wid(wid), shape_i1(make_shape(mode_i1_0, mode_i1_1)) {}
+    CUTE_DEVICE c_val_store(int lid, int mode_i1_0, int mode_i1_1)
+    : lid(lid), shape_i1(make_shape(mode_i1_0, mode_i1_1)) {}
 
     template<int output_idx>
     CUTE_DEVICE auto output() {
@@ -2159,9 +2030,6 @@ public:
 
     template<class Tensor_i0, class Tensor_i1, typename = void>
     CUTE_DEVICE void f(Tensor_i0 operand_0, Tensor_i1 operand_1, TI2 operand_2) {
-        assert(get<0>(shape_i0) == size<0>(shape(operand_0)));
-        assert(get<0>(get<1>(shape_i0)) == size<0>(get<1>(shape(operand_0))));
-        assert(get<1>(get<1>(shape_i0)) == size<1>(get<1>(shape(operand_0))));
         for (int i_tileN = 0; i_tileN < get<1>(BLK_MNK{}) / 8; i_tileN++) {
             int row = lid / 4;
             int col = i_tileN * 8 + lid % 4 * 2;
@@ -2173,14 +2041,14 @@ public:
     }
 };
 
-template <class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class WARP_MNK, class T_B_valOp, class T_C_valOp, class T_val_coo_idx_new_1Op, class T_val_coo_len_new_offsetOp, class T_val_coo_val_new_1Op, class T_val_len_offsetOp, class T_val_sidx_newOp, class T_BlkYLoopZeroOp, class T_BlockDimYOp, class T_BlkXLoopZeroOp, class T_BlockDimXOp, class T_ZerosOp, class T_zero, class T_load_offset, class T_gen_sub, class T_gen_div, class T_for_loop, class T_gen_mul, class T_c_val_store>
+template <class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class WARP_MNK, class T_B_valOp, class T_C_valOp, class T_val_coo_idx_new_1Op, class T_val_coo_len_new_offsetOp, class T_val_coo_val_new_1Op, class T_val_len_offsetOp, class T_val_sidx_newOp, class T_BlkYLoopZeroOp, class T_BlockDimYOp, class T_BlkXLoopZeroOp, class T_BlockDimXOp, class T_ZerosOp, class T_zero, class T_load_offset, class T_for_loop, class T_gen_mul, class T_c_val_store>
 class generated_kernel_blk_y_loop_blk_x_loop {
 public:
     // Inputs
     int _idx;
 
     // Hardware parameters
-    int tid, lid, wid;
+    int lid;
 
     // Body Ops
     T_B_valOp &B_valOp_v;
@@ -2197,15 +2065,13 @@ public:
     T_ZerosOp &ZerosOp_v;
     T_zero &zero_v;
     T_load_offset &load_offset_v;
-    T_gen_sub &gen_sub_v;
-    T_gen_div &gen_div_v;
     T_for_loop &for_loop_v;
     T_gen_mul &gen_mul_v;
     T_c_val_store &c_val_store_v;
 
     // Constructor
-    CUTE_DEVICE generated_kernel_blk_y_loop_blk_x_loop(int tid, int lid, int wid, T_B_valOp &B_valOp_v, T_C_valOp &C_valOp_v, T_val_coo_idx_new_1Op &val_coo_idx_new_1Op_v, T_val_coo_len_new_offsetOp &val_coo_len_new_offsetOp_v, T_val_coo_val_new_1Op &val_coo_val_new_1Op_v, T_val_len_offsetOp &val_len_offsetOp_v, T_val_sidx_newOp &val_sidx_newOp_v, T_BlkYLoopZeroOp &BlkYLoopZeroOp_v, T_BlockDimYOp &BlockDimYOp_v, T_BlkXLoopZeroOp &BlkXLoopZeroOp_v, T_BlockDimXOp &BlockDimXOp_v, T_ZerosOp &ZerosOp_v, T_zero &zero_v, T_load_offset &load_offset_v, T_gen_sub &gen_sub_v, T_gen_div &gen_div_v, T_for_loop &for_loop_v, T_gen_mul &gen_mul_v, T_c_val_store &c_val_store_v)
-    : tid(tid), lid(lid), wid(wid), B_valOp_v(B_valOp_v), C_valOp_v(C_valOp_v), val_coo_idx_new_1Op_v(val_coo_idx_new_1Op_v), val_coo_len_new_offsetOp_v(val_coo_len_new_offsetOp_v), val_coo_val_new_1Op_v(val_coo_val_new_1Op_v), val_len_offsetOp_v(val_len_offsetOp_v), val_sidx_newOp_v(val_sidx_newOp_v), BlkYLoopZeroOp_v(BlkYLoopZeroOp_v), BlockDimYOp_v(BlockDimYOp_v), BlkXLoopZeroOp_v(BlkXLoopZeroOp_v), BlockDimXOp_v(BlockDimXOp_v), ZerosOp_v(ZerosOp_v), zero_v(zero_v), load_offset_v(load_offset_v), gen_sub_v(gen_sub_v), gen_div_v(gen_div_v), for_loop_v(for_loop_v), gen_mul_v(gen_mul_v), c_val_store_v(c_val_store_v) {}
+    CUTE_DEVICE generated_kernel_blk_y_loop_blk_x_loop(int lid, T_B_valOp &B_valOp_v, T_C_valOp &C_valOp_v, T_val_coo_idx_new_1Op &val_coo_idx_new_1Op_v, T_val_coo_len_new_offsetOp &val_coo_len_new_offsetOp_v, T_val_coo_val_new_1Op &val_coo_val_new_1Op_v, T_val_len_offsetOp &val_len_offsetOp_v, T_val_sidx_newOp &val_sidx_newOp_v, T_BlkYLoopZeroOp &BlkYLoopZeroOp_v, T_BlockDimYOp &BlockDimYOp_v, T_BlkXLoopZeroOp &BlkXLoopZeroOp_v, T_BlockDimXOp &BlockDimXOp_v, T_ZerosOp &ZerosOp_v, T_zero &zero_v, T_load_offset &load_offset_v, T_for_loop &for_loop_v, T_gen_mul &gen_mul_v, T_c_val_store &c_val_store_v)
+    : lid(lid), B_valOp_v(B_valOp_v), C_valOp_v(C_valOp_v), val_coo_idx_new_1Op_v(val_coo_idx_new_1Op_v), val_coo_len_new_offsetOp_v(val_coo_len_new_offsetOp_v), val_coo_val_new_1Op_v(val_coo_val_new_1Op_v), val_len_offsetOp_v(val_len_offsetOp_v), val_sidx_newOp_v(val_sidx_newOp_v), BlkYLoopZeroOp_v(BlkYLoopZeroOp_v), BlockDimYOp_v(BlockDimYOp_v), BlkXLoopZeroOp_v(BlkXLoopZeroOp_v), BlockDimXOp_v(BlockDimXOp_v), ZerosOp_v(ZerosOp_v), zero_v(zero_v), load_offset_v(load_offset_v), for_loop_v(for_loop_v), gen_mul_v(gen_mul_v), c_val_store_v(c_val_store_v) {}
 
     // Body
     CUTE_DEVICE void body() {
@@ -2215,17 +2081,9 @@ public:
             val_len_offsetOp_v.template output<0>(),
             blockIdx.x
         );
-        gen_sub_v.template f<>(
-            load_offset_v.template output<1>()(0),
-            load_offset_v.template output<0>()(0)
-        );
-        gen_div_v.template f<>(
-            gen_sub_v.template output<0>()(0),
-            1
-        );
         for_loop_v.template f<>(
             zero_v.template output<0>()(0),
-            gen_div_v.template output<0>()(0),
+            load_offset_v.template output<1>()(0),
             load_offset_v.template output<0>()(0)
         );
         gen_mul_v.template f<>(
@@ -2254,7 +2112,7 @@ public:
     int _idx;
 
     // Hardware parameters
-    int tid, lid, wid;
+    int lid;
 
     // Body Ops
     T_B_valOp &B_valOp_v;
@@ -2271,8 +2129,8 @@ public:
     T_generated_kernel_blk_y_loop_blk_x_loop &generated_kernel_blk_y_loop_blk_x_loop_v;
 
     // Constructor
-    CUTE_DEVICE generated_kernel_blk_y_loop(int tid, int lid, int wid, T_B_valOp &B_valOp_v, T_C_valOp &C_valOp_v, T_val_coo_idx_new_1Op &val_coo_idx_new_1Op_v, T_val_coo_len_new_offsetOp &val_coo_len_new_offsetOp_v, T_val_coo_val_new_1Op &val_coo_val_new_1Op_v, T_val_len_offsetOp &val_len_offsetOp_v, T_val_sidx_newOp &val_sidx_newOp_v, T_BlkYLoopZeroOp &BlkYLoopZeroOp_v, T_BlockDimYOp &BlockDimYOp_v, T_BlkXLoopZeroOp &BlkXLoopZeroOp_v, T_BlockDimXOp &BlockDimXOp_v, T_generated_kernel_blk_y_loop_blk_x_loop &generated_kernel_blk_y_loop_blk_x_loop_v)
-    : tid(tid), lid(lid), wid(wid), B_valOp_v(B_valOp_v), C_valOp_v(C_valOp_v), val_coo_idx_new_1Op_v(val_coo_idx_new_1Op_v), val_coo_len_new_offsetOp_v(val_coo_len_new_offsetOp_v), val_coo_val_new_1Op_v(val_coo_val_new_1Op_v), val_len_offsetOp_v(val_len_offsetOp_v), val_sidx_newOp_v(val_sidx_newOp_v), BlkYLoopZeroOp_v(BlkYLoopZeroOp_v), BlockDimYOp_v(BlockDimYOp_v), BlkXLoopZeroOp_v(BlkXLoopZeroOp_v), BlockDimXOp_v(BlockDimXOp_v), generated_kernel_blk_y_loop_blk_x_loop_v(generated_kernel_blk_y_loop_blk_x_loop_v) {}
+    CUTE_DEVICE generated_kernel_blk_y_loop(int lid, T_B_valOp &B_valOp_v, T_C_valOp &C_valOp_v, T_val_coo_idx_new_1Op &val_coo_idx_new_1Op_v, T_val_coo_len_new_offsetOp &val_coo_len_new_offsetOp_v, T_val_coo_val_new_1Op &val_coo_val_new_1Op_v, T_val_len_offsetOp &val_len_offsetOp_v, T_val_sidx_newOp &val_sidx_newOp_v, T_BlkYLoopZeroOp &BlkYLoopZeroOp_v, T_BlockDimYOp &BlockDimYOp_v, T_BlkXLoopZeroOp &BlkXLoopZeroOp_v, T_BlockDimXOp &BlockDimXOp_v, T_generated_kernel_blk_y_loop_blk_x_loop &generated_kernel_blk_y_loop_blk_x_loop_v)
+    : lid(lid), B_valOp_v(B_valOp_v), C_valOp_v(C_valOp_v), val_coo_idx_new_1Op_v(val_coo_idx_new_1Op_v), val_coo_len_new_offsetOp_v(val_coo_len_new_offsetOp_v), val_coo_val_new_1Op_v(val_coo_val_new_1Op_v), val_len_offsetOp_v(val_len_offsetOp_v), val_sidx_newOp_v(val_sidx_newOp_v), BlkYLoopZeroOp_v(BlkYLoopZeroOp_v), BlockDimYOp_v(BlockDimYOp_v), BlkXLoopZeroOp_v(BlkXLoopZeroOp_v), BlockDimXOp_v(BlockDimXOp_v), generated_kernel_blk_y_loop_blk_x_loop_v(generated_kernel_blk_y_loop_blk_x_loop_v) {}
 
     // Body
     CUTE_DEVICE void body() {
@@ -2291,7 +2149,7 @@ public:
 
 // GLOBAL FUNCTION
 template <class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class WARP_MNK>
-__global__ void generated_kernel(
+__global__ __launch_bounds__(32, 20) void generated_kernel(
     float *dB_val,
     float *dC_val,
     int *dval_coo_idx_new_1,
@@ -2306,89 +2164,60 @@ __global__ void generated_kernel(
     const int wid = tid / 32;
 
     using B_valOp_t = B_valOp<BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK>;
-    B_valOp_t B_valOp_v{tid, lid, wid, K, N, dB_val};
+    B_valOp_t B_valOp_v{lid, K, N, dB_val};
     using C_valOp_t = C_valOp<BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK>;
-    C_valOp_t C_valOp_v{tid, lid, wid, N, M, dC_val};
+    C_valOp_t C_valOp_v{lid, N, M, dC_val};
     using val_coo_idx_new_1Op_t = val_coo_idx_new_1Op<BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK>;
-    val_coo_idx_new_1Op_t val_coo_idx_new_1Op_v{tid, lid, wid, nnz_dim_nnz, dval_coo_idx_new_1};
+    val_coo_idx_new_1Op_t val_coo_idx_new_1Op_v{lid, nnz_dim_nnz, dval_coo_idx_new_1};
     using val_coo_len_new_offsetOp_t = val_coo_len_new_offsetOp<BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK>;
-    val_coo_len_new_offsetOp_t val_coo_len_new_offsetOp_v{tid, lid, wid, nnz_dim_K_o, dval_coo_len_new_offset};
+    val_coo_len_new_offsetOp_t val_coo_len_new_offsetOp_v{lid, nnz_dim_K_o, dval_coo_len_new_offset};
     using val_coo_val_new_1Op_t = val_coo_val_new_1Op<BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK>;
-    val_coo_val_new_1Op_t val_coo_val_new_1Op_v{tid, lid, wid, nnz_dim_nnz, dval_coo_val_new_1};
+    val_coo_val_new_1Op_t val_coo_val_new_1Op_v{lid, nnz_dim_nnz, dval_coo_val_new_1};
     using val_len_offsetOp_t = val_len_offsetOp<BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK>;
-    val_len_offsetOp_t val_len_offsetOp_v{tid, lid, wid, Mo, dval_len_offset};
+    val_len_offsetOp_t val_len_offsetOp_v{lid, Mo, dval_len_offset};
     using val_sidx_newOp_t = val_sidx_newOp<BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK>;
-    val_sidx_newOp_t val_sidx_newOp_v{tid, lid, wid, nnz_dim_K, dval_sidx_new};
+    val_sidx_newOp_t val_sidx_newOp_v{lid, nnz_dim_K, dval_sidx_new};
     using BlkYLoopZeroOp_t = BlkYLoopZeroOp<BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK>;
     using BlkYLoopZeroOp_layout_o0 = typename BlkYLoopZeroOp_t::Layout_o0;
     int BlkYLoopZeroOp_tensor_o0[cosize_v<BlkYLoopZeroOp_layout_o0>];
-    BlkYLoopZeroOp_t BlkYLoopZeroOp_v{tid, lid, wid, BlkYLoopZeroOp_tensor_o0};
+    BlkYLoopZeroOp_t BlkYLoopZeroOp_v{lid, BlkYLoopZeroOp_tensor_o0};
     using BlockDimYOp_t = BlockDimYOp<BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK>;
     using BlockDimYOp_layout_o0 = typename BlockDimYOp_t::Layout_o0;
     int BlockDimYOp_tensor_o0[cosize_v<BlockDimYOp_layout_o0>];
-    BlockDimYOp_t BlockDimYOp_v{tid, lid, wid, BlockDimYOp_tensor_o0};
+    BlockDimYOp_t BlockDimYOp_v{lid, BlockDimYOp_tensor_o0};
     using BlkXLoopZeroOp_t = BlkXLoopZeroOp<BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK>;
     using BlkXLoopZeroOp_layout_o0 = typename BlkXLoopZeroOp_t::Layout_o0;
     int BlkXLoopZeroOp_tensor_o0[cosize_v<BlkXLoopZeroOp_layout_o0>];
-    BlkXLoopZeroOp_t BlkXLoopZeroOp_v{tid, lid, wid, BlkXLoopZeroOp_tensor_o0};
+    BlkXLoopZeroOp_t BlkXLoopZeroOp_v{lid, BlkXLoopZeroOp_tensor_o0};
     using BlockDimXOp_t = BlockDimXOp<BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK>;
     using BlockDimXOp_layout_o0 = typename BlockDimXOp_t::Layout_o0;
     int BlockDimXOp_tensor_o0[cosize_v<BlockDimXOp_layout_o0>];
-    BlockDimXOp_t BlockDimXOp_v{tid, lid, wid, BlockDimXOp_tensor_o0};
+    BlockDimXOp_t BlockDimXOp_v{lid, BlockDimXOp_tensor_o0};
     using ZerosOp_t = ZerosOp<BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK>;
     using ZerosOp_layout_o0 = typename ZerosOp_t::Layout_o0;
     float ZerosOp_tensor_o0[cosize_v<ZerosOp_layout_o0>];
-    ZerosOp_t ZerosOp_v{tid, lid, wid, ZerosOp_tensor_o0};
+    ZerosOp_t ZerosOp_v{lid, ZerosOp_tensor_o0};
     using zero_t = zero<BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK>;
     using zero_layout_o0 = typename zero_t::Layout_o0;
     int zero_tensor_o0[cosize_v<zero_layout_o0>];
-    zero_t zero_v{tid, lid, wid, zero_tensor_o0};
+    zero_t zero_v{lid, zero_tensor_o0};
     using load_offset_t = load_offset<BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK>;
     using load_offset_layout_o0 = typename load_offset_t::Layout_o0;
     using load_offset_layout_o1 = typename load_offset_t::Layout_o1;
     int load_offset_tensor_o0[cosize_v<load_offset_layout_o0>];
     int load_offset_tensor_o1[cosize_v<load_offset_layout_o1>];
     load_offset_t load_offset_v{
-        tid, lid, wid, 
+        lid, 
         load_offset_tensor_o0, load_offset_tensor_o1, 
         Mo,
-    };
-    using gen_sub_t = gen_sub<BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK>;
-    using gen_sub_layout_o0 = typename gen_sub_t::Layout_o0;
-    int gen_sub_tensor_o0[cosize_v<gen_sub_layout_o0>];
-    gen_sub_t gen_sub_v{
-        tid, lid, wid, 
-        gen_sub_tensor_o0,
-    };
-    using gen_div_t = gen_div<BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK>;
-    using gen_div_layout_o0 = typename gen_div_t::Layout_o0;
-    int gen_div_tensor_o0[cosize_v<gen_div_layout_o0>];
-    gen_div_t gen_div_v{
-        tid, lid, wid, 
-        gen_div_tensor_o0,
-    };
-    using gen_add_t = gen_add<Int<2>, BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK>;
-    using gen_add_layout_o0 = typename gen_add_t::Layout_o0;
-    int gen_add_tensor_o0[cosize_v<gen_add_layout_o0>];
-    gen_add_t gen_add_v{
-        tid, lid, wid, 
-        gen_add_tensor_o0,
     };
     using array_ref_t = array_ref<Int<2>, BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK>;
     using array_ref_layout_o0 = typename array_ref_t::Layout_o0;
     __shared__ int array_ref_tensor_o0[cosize_v<array_ref_layout_o0>];
     array_ref_t array_ref_v{
-        tid, lid, wid, 
+        lid, 
         array_ref_tensor_o0, 
         nnz_dim_K,
-    };
-    using array_ref_1_t = array_ref_1<Int<2>, BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK>;
-    using array_ref_1_layout_o0 = typename array_ref_1_t::Layout_o0;
-    __align__(16) __shared__ float array_ref_1_tensor_o0[cosize_v<array_ref_1_layout_o0>];
-    array_ref_1_t array_ref_1_v{
-        tid, lid, wid, 
-        array_ref_1_tensor_o0, 
-        K, N,
     };
     using load_offset_1_t = load_offset_1<Int<2>, BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK>;
     using load_offset_1_layout_o0 = typename load_offset_1_t::Layout_o0;
@@ -2396,7 +2225,7 @@ __global__ void generated_kernel(
     int load_offset_1_tensor_o0[cosize_v<load_offset_1_layout_o0>];
     int load_offset_1_tensor_o1[cosize_v<load_offset_1_layout_o1>];
     load_offset_1_t load_offset_1_v{
-        tid, lid, wid, 
+        lid, 
         load_offset_1_tensor_o0, load_offset_1_tensor_o1, 
         nnz_dim_K_o,
     };
@@ -2406,7 +2235,7 @@ __global__ void generated_kernel(
     using coo_atomic_format_load_idx_layout_o1 = typename coo_atomic_format_load_idx_t::Layout_o1;
     int coo_atomic_format_load_idx_tensor_o1[cosize_v<coo_atomic_format_load_idx_layout_o1>];
     coo_atomic_format_load_idx_t coo_atomic_format_load_idx_v{
-        tid, lid, wid, 
+        lid, 
         coo_atomic_format_load_idx_tensor_o0, coo_atomic_format_load_idx_tensor_o1, 
         nnz_dim_nnz,
     };
@@ -2414,55 +2243,63 @@ __global__ void generated_kernel(
     using coo_atomic_format_load_val_layout_o0 = typename coo_atomic_format_load_val_t::Layout_o0;
     __align__(16) __shared__ float coo_atomic_format_load_val_tensor_o0[cosize_v<coo_atomic_format_load_val_layout_o0>];
     coo_atomic_format_load_val_t coo_atomic_format_load_val_v{
-        tid, lid, wid, 
+        lid, 
         coo_atomic_format_load_val_tensor_o0, 
         nnz_dim_nnz,
+    };
+    using array_ref_1_t = array_ref_1<Int<2>, BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK>;
+    using array_ref_1_layout_o0 = typename array_ref_1_t::Layout_o0;
+    __align__(16) __shared__ float array_ref_1_tensor_o0[cosize_v<array_ref_1_layout_o0>];
+    array_ref_1_t array_ref_1_v{
+        lid, 
+        array_ref_1_tensor_o0, 
+        K, N,
     };
     using coo_atomic_val_restore_t = coo_atomic_val_restore<Int<2>, BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK>;
     using coo_atomic_val_restore_layout_o0 = typename coo_atomic_val_restore_t::Layout_o0;
     __shared__ float coo_atomic_val_restore_tensor_o0[cosize_v<coo_atomic_val_restore_layout_o0>];
     coo_atomic_val_restore_t coo_atomic_val_restore_v{
-        tid, lid, wid, 
+        lid, 
         coo_atomic_val_restore_tensor_o0,
-    };
-    using S2rBValLoadOp_t = S2rBValLoadOp<Int<2>, BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK>;
-    using S2rBValLoadOp_layout_o0 = typename S2rBValLoadOp_t::Layout_o0;
-    float S2rBValLoadOp_tensor_o0[cosize_v<S2rBValLoadOp_layout_o0>];
-    S2rBValLoadOp_t S2rBValLoadOp_v{
-        tid, lid, wid, 
-        S2rBValLoadOp_tensor_o0, 
-        N,
     };
     using S2rAValLoadOp_t = S2rAValLoadOp<Int<2>, BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK>;
     using S2rAValLoadOp_layout_o0 = typename S2rAValLoadOp_t::Layout_o0;
     float S2rAValLoadOp_tensor_o0[cosize_v<S2rAValLoadOp_layout_o0>];
     S2rAValLoadOp_t S2rAValLoadOp_v{
-        tid, lid, wid, 
+        lid, 
         S2rAValLoadOp_tensor_o0,
+    };
+    using S2rBValLoadOp_t = S2rBValLoadOp<Int<2>, BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK>;
+    using S2rBValLoadOp_layout_o0 = typename S2rBValLoadOp_t::Layout_o0;
+    float S2rBValLoadOp_tensor_o0[cosize_v<S2rBValLoadOp_layout_o0>];
+    S2rBValLoadOp_t S2rBValLoadOp_v{
+        lid, 
+        S2rBValLoadOp_tensor_o0, 
+        N,
     };
     using mma_t = mma<Int<2>, BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK, std::decay_t<decltype(ZerosOp_v.template output<0>())>>;
     mma_t mma_v{
-        tid, lid, wid, 
+        lid, 
         ZerosOp_v.template output<0>(),
     };
-    using for_loop_t = for_loop<BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK, B_valOp_t, C_valOp_t, val_coo_idx_new_1Op_t, val_coo_len_new_offsetOp_t, val_coo_val_new_1Op_t, val_len_offsetOp_t, val_sidx_newOp_t, BlkYLoopZeroOp_t, BlockDimYOp_t, BlkXLoopZeroOp_t, BlockDimXOp_t, ZerosOp_t, zero_t, load_offset_t, gen_sub_t, gen_div_t, gen_add_t, array_ref_t, array_ref_1_t, load_offset_1_t, coo_atomic_format_load_idx_t, coo_atomic_format_load_val_t, coo_atomic_val_restore_t, S2rBValLoadOp_t, S2rAValLoadOp_t, mma_t, std::decay_t<decltype(mma_v.template output<0>())>>;
-    for_loop_t for_loop_v{tid, lid, wid, B_valOp_v, C_valOp_v, val_coo_idx_new_1Op_v, val_coo_len_new_offsetOp_v, val_coo_val_new_1Op_v, val_len_offsetOp_v, val_sidx_newOp_v, BlkYLoopZeroOp_v, BlockDimYOp_v, BlkXLoopZeroOp_v, BlockDimXOp_v, ZerosOp_v, zero_v, load_offset_v, gen_sub_v, gen_div_v, gen_add_v, array_ref_v, array_ref_1_v, load_offset_1_v, coo_atomic_format_load_idx_v, coo_atomic_format_load_val_v, coo_atomic_val_restore_v, S2rBValLoadOp_v, S2rAValLoadOp_v, mma_v, mma_v.template output<0>()};
+    using for_loop_t = for_loop<BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK, B_valOp_t, C_valOp_t, val_coo_idx_new_1Op_t, val_coo_len_new_offsetOp_t, val_coo_val_new_1Op_t, val_len_offsetOp_t, val_sidx_newOp_t, BlkYLoopZeroOp_t, BlockDimYOp_t, BlkXLoopZeroOp_t, BlockDimXOp_t, ZerosOp_t, zero_t, load_offset_t, array_ref_t, load_offset_1_t, coo_atomic_format_load_idx_t, coo_atomic_format_load_val_t, array_ref_1_t, coo_atomic_val_restore_t, S2rAValLoadOp_t, S2rBValLoadOp_t, mma_t, std::decay_t<decltype(mma_v.template output<0>())>>;
+    for_loop_t for_loop_v{lid, B_valOp_v, C_valOp_v, val_coo_idx_new_1Op_v, val_coo_len_new_offsetOp_v, val_coo_val_new_1Op_v, val_len_offsetOp_v, val_sidx_newOp_v, BlkYLoopZeroOp_v, BlockDimYOp_v, BlkXLoopZeroOp_v, BlockDimXOp_v, ZerosOp_v, zero_v, load_offset_v, array_ref_v, load_offset_1_v, coo_atomic_format_load_idx_v, coo_atomic_format_load_val_v, array_ref_1_v, coo_atomic_val_restore_v, S2rAValLoadOp_v, S2rBValLoadOp_v, mma_v, mma_v.template output<0>()};
     using gen_mul_t = gen_mul<BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK>;
     using gen_mul_layout_o0 = typename gen_mul_t::Layout_o0;
     int gen_mul_tensor_o0[cosize_v<gen_mul_layout_o0>];
     gen_mul_t gen_mul_v{
-        tid, lid, wid, 
+        lid, 
         gen_mul_tensor_o0,
     };
     using c_val_store_t = c_val_store<BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK>;
     c_val_store_t c_val_store_v{
-        tid, lid, wid, 
+        lid, 
         N, M,
     };
-    using generated_kernel_blk_y_loop_blk_x_loop_t = generated_kernel_blk_y_loop_blk_x_loop<BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK, B_valOp_t, C_valOp_t, val_coo_idx_new_1Op_t, val_coo_len_new_offsetOp_t, val_coo_val_new_1Op_t, val_len_offsetOp_t, val_sidx_newOp_t, BlkYLoopZeroOp_t, BlockDimYOp_t, BlkXLoopZeroOp_t, BlockDimXOp_t, ZerosOp_t, zero_t, load_offset_t, gen_sub_t, gen_div_t, for_loop_t, gen_mul_t, c_val_store_t>;
-    generated_kernel_blk_y_loop_blk_x_loop_t generated_kernel_blk_y_loop_blk_x_loop_v{tid, lid, wid, B_valOp_v, C_valOp_v, val_coo_idx_new_1Op_v, val_coo_len_new_offsetOp_v, val_coo_val_new_1Op_v, val_len_offsetOp_v, val_sidx_newOp_v, BlkYLoopZeroOp_v, BlockDimYOp_v, BlkXLoopZeroOp_v, BlockDimXOp_v, ZerosOp_v, zero_v, load_offset_v, gen_sub_v, gen_div_v, for_loop_v, gen_mul_v, c_val_store_v};
+    using generated_kernel_blk_y_loop_blk_x_loop_t = generated_kernel_blk_y_loop_blk_x_loop<BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK, B_valOp_t, C_valOp_t, val_coo_idx_new_1Op_t, val_coo_len_new_offsetOp_t, val_coo_val_new_1Op_t, val_len_offsetOp_t, val_sidx_newOp_t, BlkYLoopZeroOp_t, BlockDimYOp_t, BlkXLoopZeroOp_t, BlockDimXOp_t, ZerosOp_t, zero_t, load_offset_t, for_loop_t, gen_mul_t, c_val_store_t>;
+    generated_kernel_blk_y_loop_blk_x_loop_t generated_kernel_blk_y_loop_blk_x_loop_v{lid, B_valOp_v, C_valOp_v, val_coo_idx_new_1Op_v, val_coo_len_new_offsetOp_v, val_coo_val_new_1Op_v, val_len_offsetOp_v, val_sidx_newOp_v, BlkYLoopZeroOp_v, BlockDimYOp_v, BlkXLoopZeroOp_v, BlockDimXOp_v, ZerosOp_v, zero_v, load_offset_v, for_loop_v, gen_mul_v, c_val_store_v};
     using generated_kernel_blk_y_loop_t = generated_kernel_blk_y_loop<BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK, B_valOp_t, C_valOp_t, val_coo_idx_new_1Op_t, val_coo_len_new_offsetOp_t, val_coo_val_new_1Op_t, val_len_offsetOp_t, val_sidx_newOp_t, BlkYLoopZeroOp_t, BlockDimYOp_t, BlkXLoopZeroOp_t, BlockDimXOp_t, generated_kernel_blk_y_loop_blk_x_loop_t>;
-    generated_kernel_blk_y_loop_t generated_kernel_blk_y_loop_v{tid, lid, wid, B_valOp_v, C_valOp_v, val_coo_idx_new_1Op_v, val_coo_len_new_offsetOp_v, val_coo_val_new_1Op_v, val_len_offsetOp_v, val_sidx_newOp_v, BlkYLoopZeroOp_v, BlockDimYOp_v, BlkXLoopZeroOp_v, BlockDimXOp_v, generated_kernel_blk_y_loop_blk_x_loop_v};
+    generated_kernel_blk_y_loop_t generated_kernel_blk_y_loop_v{lid, B_valOp_v, C_valOp_v, val_coo_idx_new_1Op_v, val_coo_len_new_offsetOp_v, val_coo_val_new_1Op_v, val_len_offsetOp_v, val_sidx_newOp_v, BlkYLoopZeroOp_v, BlockDimYOp_v, BlkXLoopZeroOp_v, BlockDimXOp_v, generated_kernel_blk_y_loop_blk_x_loop_v};
 
     BlkYLoopZeroOp_v.template f<>();
     BlockDimYOp_v.template f<>();
