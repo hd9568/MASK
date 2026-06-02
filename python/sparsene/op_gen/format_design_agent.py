@@ -198,8 +198,9 @@ FORMAT_DESIGN_RULES = [
     "2-level ME_TCF structure. You MUST use exactly these axes and nesting: "
     "  Level 1 (outer):  df(X_o,ROW,M) + sv(Y_s,COL,K) + df(X_i,ROW,BLK_M) "
     "  Level 2 (inner):  df(Y_so,COL,K/BLK_K) + df(Y_si,COL,BLK_K) + df(X_i,ROW,BLK_M) "
-    "  Atomic:            coo(X_i,Y_si) or mco(X_i,Y_si) or dense(X_i,Y_si) "
-    "You CAN and SHOULD optimize: BLK_M ∈ {8,16,32}, BLK_K ∈ {8,16}, and atomic type. "
+    "  Atomic:            coo(X_i,Y_si)  ← ONLY coo is currently supported!"
+    "  Do NOT use mco, dense, bitmask, or reorder — they will be ignored and could break compilation. "
+    "You CAN and SHOULD optimize: BLK_M ∈ {8,16,32}, BLK_K ∈ {8,16}. "
     "Do NOT change axis names, directions, level count, or axis types.",
 
     "BLK_M: row tile size.  Use smaller (8) for short rows (<16 avg NNZ/row), "
@@ -211,11 +212,12 @@ FORMAT_DESIGN_RULES = [
     "8 may offer slightly higher density.",
 
     "Atomic format selection by density percentile: "
-    "  density_p50 < 5%     → mco (bitmask more compact than int indices) "
-    "  density_p50 5-30%    → coo (balanced) "
-    "  density_p50 > 30%    → dense (padding acceptable, no indirection) "
-    "  density_p90 > 50%    → dense may be viable even if median is low "
-    "  Wide gap p50–p90     → prefer coo for flexibility",
+    "  Use coo always — it is the only atomic type supported by the current pipeline. "
+    "  Density info still informs BLK_M/BLK_K choices: "
+    "  density_p50 < 5%     → prefer smaller BLK_K=8 (less padding per sparse block) "
+    "  density_p50 5-30%    → BLK_K=16 works well "
+    "  density_p50 > 30%    → BLK_K=8 to limit total block count "
+    "  Wide gap p50–p90     → prefer BLK_K=8 for flexibility",
 
     "Format depth (number of levels): "
     "  Use 2-level (outer row-window + inner TC-block) for most cases. "
@@ -233,9 +235,9 @@ FORMAT_DESIGN_RULES = [
     "  top5_window_share > 40% → extreme skew, consider 3-level nesting",
 
     "Row correlation: "
-    "  |row_corr| > 0.7 → strong correlation, consider row reorder or smaller BLK_M "
+    "  |row_corr| > 0.7 → strong correlation, consider smaller BLK_M "
     "  Positive → later rows denser; Negative → earlier rows denser. "
-    "  If reorder is beneficial, set reorder: true in the response.",
+    "  Do NOT set reorder=true — reordering is not implemented.",
 
     "Symmetry: "
     "  If matrix is symmetric, column stats mirror row stats. "
@@ -571,7 +573,11 @@ def run_format_design_agent(
             ),
             system_prompt=(
                 "You are a sparse-format design expert using the sparsene hierarchical DSL. "
-                "Output only valid JSON."
+                "Output only valid JSON. "
+                "Currently only 'coo' atomic format is supported by the code generator. "
+                "Use atomic.type='coo' with x_axis='X_i', y_axis='Y_si' always. "
+                "Do not output 'mco', 'dense', or 'bitmask' atomic types. "
+                "Do not propose reordering—it is not implemented in the pipeline."
             ),
             user_prompt=req.prompt,
             request_payload=asdict(req),
@@ -619,6 +625,12 @@ def run_format_design_agent(
         ]
 
     atomic = parsed.get("atomic", {"type": "coo", "x_axis": "X_i", "y_axis": "Y_si"})
+    atomic["type"] = "coo"
+    for level in levels:
+        for ax in level.get("axes", []):
+            ax.pop("reorder", None)
+            ax.pop("reorder_strategy", None)
+    parsed.pop("reorder", None)
     params = parsed.get("params", {"BLK_M": 32, "BLK_K": 8})
 
     blk_m = int(params.get("BLK_M", 32))

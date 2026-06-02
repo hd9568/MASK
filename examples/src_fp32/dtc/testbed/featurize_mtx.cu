@@ -121,200 +121,117 @@ __global__ void col_hist_kernel(
 }
 
 // ---------------------------------------------------------------------------
-// GPU kernels — Phase 2: per-block NNZ counting
+// GPU kernels — Phase 2: collect block indices (O(nnz) memory, never OOM)
 // ---------------------------------------------------------------------------
 
-// Compute per-block NNZ and per-window TC-block count.
-// Uses atomic operations on global memory (acceptable for single pass).
-__global__ void block_nnz_kernel(
+// Write the linear block index for each NNZ element into d_block_ids.
+// d_block_ids needs nnz ints — a few million even for the largest matrices,
+// whereas the old d_block_nnz[total_blocks] could require billions of entries.
+__global__ void collect_block_ids_kernel(
     const int* __restrict__ rows,
     const int* __restrict__ cols,
-    int* __restrict__ block_nnz,
-    int* __restrict__ block_flags,
+    int* __restrict__ block_ids,
     int nnz,
     int blk_m, int blk_k,
-    int num_col_windows,
-    int* __restrict__ window_tc_counts)
+    int num_col_windows)
 {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= nnz) return;
-
     int wm = rows[i] / blk_m;
     int wk = cols[i] / blk_k;
-    int block_idx = wm * num_col_windows + wk;
-
-    int old_flag = atomicExch(&block_flags[block_idx], 1);
-    if (old_flag == 0) {
-        atomicAdd(&window_tc_counts[wm], 1);
-    }
-    atomicAdd(&block_nnz[block_idx], 1);
+    block_ids[i] = wm * num_col_windows + wk;
 }
 
 // ---------------------------------------------------------------------------
-// GPU kernels — Phase 3: GPU-side block-statistics reduction
+// CPU-side block-statistics helpers — replaces 4 GPU reduction kernels
 // ---------------------------------------------------------------------------
 
-// Output struct from the reduce kernel — compact, fits in a few cache lines.
-struct BlockStatsReduced {
-    int total_tc_blocks;
+struct CandidateBlockResult {
+    int total_tc;
     long long total_cells;
-    float tc_blocks_cv;          // CV of TC-blocks per row-window
-    float top5_share;            // fraction of TC blocks in top-5 busiest windows
-    float padding_ratio;
-    float avg_density;
-    float density_p50;           // median block density (×10000 for precision)
-    float density_p75;
-    float density_p90;
+    double padding_ratio;
+    double avg_density;
+    double density_p50;   // as percentage 0–100
+    double density_p75;
+    double density_p90;
+    double tc_cv;
+    double top5_share;
 };
 
-// GPU-side reduction kernel for block statistics.
-// Each thread block processes a stripe of the block array and atomically
-// accumulates into a compact output struct in global memory.
-__global__ void block_stats_reduce_kernel(
-    const int* __restrict__ block_nnz,
-    const int* __restrict__ block_flags,
-    int total_blocks,
+CandidateBlockResult compute_block_stats(
+    const int* __restrict__ block_ids,   // [nnz], already sorted on host
+    int nnz,
     int blk_m, int blk_k,
-    int nnz_total,
-    int num_row_windows,
-    int num_col_windows,
-    BlockStatsReduced* __restrict__ out_stats)
+    int n_wm, int n_wk)
 {
-    int local_tc = 0;
-    int local_cells = 0;
+    CandidateBlockResult r = {0, 0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
 
-    for (int idx = blockIdx.x * blockDim.x + threadIdx.x;
-         idx < total_blocks;
-         idx += gridDim.x * blockDim.x)
+    int* per_block_nnz = (int*)malloc(nnz * sizeof(int));  // upper bound ≤ nnz
+    int* window_tc     = (int*)calloc(n_wm, sizeof(int));
+    if (!per_block_nnz || !window_tc) {
+        free(per_block_nnz); free(window_tc);
+        return r;
+    }
+
+    // Compact: count repeats of each block_idx and build per-window TC histogram
+    int unique = 0;
+    for (int i = 0; i < nnz; ) {
+        int bid = block_ids[i];
+        int cnt = 0;
+        while (i < nnz && block_ids[i] == bid) { cnt++; i++; }
+        per_block_nnz[unique] = cnt;
+        int wm = bid / n_wk;
+        if (wm >= 0 && wm < n_wm) window_tc[wm]++;
+        unique++;
+    }
+
+    r.total_tc = unique;
+    r.total_cells = (long long)unique * blk_m * blk_k;
+    r.padding_ratio = r.total_cells > 0
+        ? (r.total_cells - nnz) / (double)r.total_cells : 0.0;
+    r.avg_density = r.total_cells > 0
+        ? nnz / (double)r.total_cells : 0.0;
+
+    // Density percentiles from per-block NNZ histogram
+    int cell_count = blk_m * blk_k;
+    if (unique > 0 && cell_count > 0) {
+        std::sort(per_block_nnz, per_block_nnz + unique);
+        r.density_p50 = per_block_nnz[(int)(unique * 0.50)] * 100.0 / cell_count;
+        r.density_p75 = per_block_nnz[(int)(unique * 0.75)] * 100.0 / cell_count;
+        r.density_p90 = per_block_nnz[(int)(unique * 0.90)] * 100.0 / cell_count;
+    }
+
+    // Window TC-block CV and top‑5 share
     {
-        if (block_flags[idx]) {
-            local_tc++;
-            local_cells += blk_m * blk_k;
-        }
-    }
-
-    if (local_tc > 0) {
-        atomicAdd(&out_stats->total_tc_blocks, local_tc);
-        atomicAdd((unsigned long long*)&out_stats->total_cells,
-                  (unsigned long long)local_cells);
-    }
-}
-
-// Kernel: compute per-window TC-count statistics on GPU.
-// Each thread processes a stripe; thread 0 computes CV and top-5.
-// NOTE: Must run as a single block to avoid cross-block write races.
-// out_stats->total_tc_blocks must already be populated (by block_stats_reduce_kernel).
-__global__ void window_stats_reduce_kernel(
-    const int* __restrict__ window_tc_counts,
-    int num_row_windows,
-    BlockStatsReduced* __restrict__ out_stats)
-{
-    __shared__ float smem_sum;
-    __shared__ float smem_sum_sq;
-    __shared__ int smem_top5[5];
-
-    if (threadIdx.x == 0) {
-        smem_sum = 0.0f;
-        smem_sum_sq = 0.0f;
-        for (int k = 0; k < 5; k++) smem_top5[k] = 0;
-    }
-    __syncthreads();
-
-    float local_sum = 0.0f;
-    float local_sum_sq = 0.0f;
-    int local_top5[5] = {0, 0, 0, 0, 0};
-
-    for (int idx = blockIdx.x * blockDim.x + threadIdx.x;
-         idx < num_row_windows;
-         idx += gridDim.x * blockDim.x)
-    {
-        int val = window_tc_counts[idx];
-        local_sum += val;
-        local_sum_sq += (float)val * val;
-
-        if (val > local_top5[4]) {
-            local_top5[4] = val;
-            for (int k = 3; k >= 0; k--) {
-                if (local_top5[k] < local_top5[k + 1]) {
-                    int tmp = local_top5[k];
-                    local_top5[k] = local_top5[k + 1];
-                    local_top5[k + 1] = tmp;
+        double sum = 0, sum_sq = 0;
+        int top5[5] = {0, 0, 0, 0, 0};
+        for (int w = 0; w < n_wm; w++) {
+            int val = window_tc[w];
+            sum += val;
+            sum_sq += (double)val * val;
+            if (val > top5[4]) {
+                top5[4] = val;
+                for (int k = 3; k >= 0; k--) {
+                    if (top5[k] < top5[k + 1]) {
+                        int tmp = top5[k];
+                        top5[k] = top5[k + 1];
+                        top5[k + 1] = tmp;
+                    }
                 }
             }
         }
+        double mean = n_wm > 0 ? sum / n_wm : 0;
+        double var  = n_wm > 0 ? sum_sq / n_wm - mean * mean : 0;
+        if (var < 0) var = 0;
+        r.tc_cv = mean > 0 ? sqrt(var) / mean : 0;
+        double top5_total = 0.0;
+        for (int k = 0; k < 5; k++) top5_total += top5[k];
+        r.top5_share = r.total_tc > 0 ? top5_total / r.total_tc : 0;
     }
 
-    atomicAdd(&smem_sum, local_sum);
-    atomicAdd(&smem_sum_sq, local_sum_sq);
-
-    for (int k = 0; k < 5; k++) {
-        atomicMax(&smem_top5[k], local_top5[k]);
-    }
-    __syncthreads();
-
-    if (threadIdx.x == 0) {
-        float mean = smem_sum / num_row_windows;
-        float var = smem_sum_sq / num_row_windows - mean * mean;
-        if (var < 0.0f) var = 0.0f;
-        float cv = mean > 0.0f ? sqrtf(var) / mean : 0.0f;
-        out_stats->tc_blocks_cv = cv;
-
-        int total_tc = out_stats->total_tc_blocks;
-        float top5_total = 0.0f;
-        for (int k = 0; k < 5; k++) top5_total += smem_top5[k];
-        out_stats->top5_share = total_tc > 0 ?
-            top5_total / total_tc : 0.0f;
-    }
-}
-
-// Kernel: compute density percentiles (p50, p75, p90) using shared-memory
-// histogram. Each thread processes its chunk of blocks and bins densities.
-__global__ void density_percentile_kernel(
-    const int* __restrict__ block_nnz,
-    const int* __restrict__ block_flags,
-    int total_blocks,
-    int blk_m, int blk_k,
-    BlockStatsReduced* __restrict__ out_stats)
-{
-    __shared__ int smem_hist[100];
-
-    for (int i = threadIdx.x; i < 100; i += blockDim.x)
-        smem_hist[i] = 0;
-    __syncthreads();
-
-    int cell_count = blk_m * blk_k;
-
-    for (int idx = blockIdx.x * blockDim.x + threadIdx.x;
-         idx < total_blocks;
-         idx += gridDim.x * blockDim.x)
-    {
-        if (block_flags[idx]) {
-            int nnz_b = block_nnz[idx];
-            int bin = (int)((long long)nnz_b * 100 / cell_count);
-            if (bin < 0) bin = 0;
-            if (bin >= 100) bin = 99;
-            atomicAdd(&smem_hist[bin], 1);
-        }
-    }
-    __syncthreads();
-
-    // Compute prefix sum and find percentile thresholds
-    if (threadIdx.x == 0) {
-        int prefix = 0;
-        int total = 0;
-        for (int i = 0; i < 100; i++) total += smem_hist[i];
-
-        int p50_val = -1, p75_val = -1, p90_val = -1;
-        for (int i = 0; i < 100; i++) {
-            prefix += smem_hist[i];
-            if (p50_val < 0 && prefix >= total * 0.50f) p50_val = i;
-            if (p75_val < 0 && prefix >= total * 0.75f) p75_val = i;
-            if (p90_val < 0 && prefix >= total * 0.90f) p90_val = i;
-        }
-        out_stats->density_p50 = p50_val >= 0 ? p50_val : 0;
-        out_stats->density_p75 = p75_val >= 0 ? p75_val : 0;
-        out_stats->density_p90 = p90_val >= 0 ? p90_val : 0;
-    }
+    free(per_block_nnz);
+    free(window_tc);
+    return r;
 }
 
 // ---------------------------------------------------------------------------
@@ -390,8 +307,12 @@ int main(int argc, char** argv) {
     int* rows_h = (int*)malloc(nnz * sizeof(int));
     int* cols_h = (int*)malloc(nnz * sizeof(int));
     for (int i = 0; i < nnz; i++) {
-        rows_h[i] = I[i] - 1;
-        cols_h[i] = J[i] - 1;
+        int r = I[i] - 1;
+        int c = J[i] - 1;
+        if (r < 0 || r >= M) { r = (r < 0) ? 0 : M - 1; }
+        if (c < 0 || c >= N) { c = (c < 0) ? 0 : N - 1; }
+        rows_h[i] = r;
+        cols_h[i] = c;
     }
 
     fprintf(stderr, "Matrix: M=%d N=%d nnz=%d symmetric=%d\n", M, N, nnz, is_sym);
@@ -465,78 +386,43 @@ int main(int argc, char** argv) {
     int    nrow_windows_vals[NUM_CANDIDATES];
     int    ncol_windows_vals[NUM_CANDIDATES];
 
-    int block_stats_grid = std::max(1, std::min(grid_sz, 4096));
-
     for (int ci = 0; ci < NUM_CANDIDATES; ci++) {
         int bm = candidates[ci].blk_m;
         int bk = candidates[ci].blk_k;
         int n_wm = (M + bm - 1) / bm;
         int n_wk = (N + bk - 1) / bk;
-        int total_blocks = n_wm * n_wk;
 
-        int *d_block_nnz, *d_block_flags, *d_window_tc;
-        BlockStatsReduced *d_stats;
-        CUDA_CHECK(cudaMalloc(&d_block_nnz, total_blocks * sizeof(int)));
-        CUDA_CHECK(cudaMalloc(&d_block_flags, total_blocks * sizeof(int)));
-        CUDA_CHECK(cudaMalloc(&d_window_tc, n_wm * sizeof(int)));
-        CUDA_CHECK(cudaMalloc(&d_stats, sizeof(BlockStatsReduced)));
-        CUDA_CHECK(cudaMemset(d_block_nnz, 0, total_blocks * sizeof(int)));
-        CUDA_CHECK(cudaMemset(d_block_flags, 0, total_blocks * sizeof(int)));
-        CUDA_CHECK(cudaMemset(d_window_tc, 0, n_wm * sizeof(int)));
-        CUDA_CHECK(cudaMemset(d_stats, 0, sizeof(BlockStatsReduced)));
+        // Allocate only O(nnz) memory — always fits even for the largest matrices
+        int* d_block_ids;
+        CUDA_CHECK(cudaMalloc(&d_block_ids, nnz * sizeof(int)));
 
-        // Phase 2a: compute per-block NNZ
-        block_nnz_kernel<<<grid_sz, BLOCK_SZ>>>(
-            d_rows, d_cols, d_block_nnz, d_block_flags,
-            nnz, bm, bk, n_wk, d_window_tc);
+        collect_block_ids_kernel<<<grid_sz, BLOCK_SZ>>>(
+            d_rows, d_cols, d_block_ids,
+            nnz, bm, bk, n_wk);
         CUDA_CHECK(cudaDeviceSynchronize());
 
-        // Phase 2b: GPU-side reduction for total TC blocks and cells
-        block_stats_reduce_kernel<<<block_stats_grid, BLOCK_SZ>>>(
-            d_block_nnz, d_block_flags, total_blocks,
-            bm, bk, nnz, n_wm, n_wk, d_stats);
-        CUDA_CHECK(cudaDeviceSynchronize());
-
-        // Phase 2c: GPU-side window statistics (CV, top-5 share)
-        // Single block — avoids cross-block write races to out_stats fields
-        window_stats_reduce_kernel<<<1, BLOCK_SZ>>>(
-            d_window_tc, n_wm, d_stats);
-        CUDA_CHECK(cudaDeviceSynchronize());
-
-        // Phase 2d: GPU-side density percentiles
-        // Single block — avoids cross-block write races to out_stats fields
-        density_percentile_kernel<<<1, BLOCK_SZ>>>(
-            d_block_nnz, d_block_flags, total_blocks,
-            bm, bk, d_stats);
-        CUDA_CHECK(cudaDeviceSynchronize());
-
-        // Transfer only the aggregated stats struct (few dozen bytes)
-        BlockStatsReduced stats_h;
-        CUDA_CHECK(cudaMemcpy(&stats_h, d_stats, sizeof(BlockStatsReduced),
+        // Copy block IDs to host, sort, and compute all stats on CPU
+        int* block_ids_h = (int*)malloc(nnz * sizeof(int));
+        CUDA_CHECK(cudaMemcpy(block_ids_h, d_block_ids, nnz * sizeof(int),
                               cudaMemcpyDeviceToHost));
+        CUDA_CHECK(cudaFree(d_block_ids));
 
-        int total_tc = stats_h.total_tc_blocks;
-        long long total_cells = stats_h.total_cells;
-        double padding = total_cells > 0 ?
-            (total_cells - nnz) / (double)total_cells : 0.0;
-        double avg_density = total_cells > 0 ?
-            nnz / (double)total_cells : 0.0;
+        std::sort(block_ids_h, block_ids_h + nnz);
 
-        tc_cv_vals[ci] = stats_h.tc_blocks_cv;
-        top5_share_vals[ci] = stats_h.top5_share;
-        total_tc_vals[ci] = total_tc;
-        padding_vals[ci] = padding;
-        density_vals[ci] = avg_density;
-        density_p50_vals[ci] = stats_h.density_p50;
-        density_p75_vals[ci] = stats_h.density_p75;
-        density_p90_vals[ci] = stats_h.density_p90;
-        nrow_windows_vals[ci] = n_wm;
-        ncol_windows_vals[ci] = n_wk;
+        CandidateBlockResult stats = compute_block_stats(
+            block_ids_h, nnz, bm, bk, n_wm, n_wk);
+        free(block_ids_h);
 
-        CUDA_CHECK(cudaFree(d_block_nnz));
-        CUDA_CHECK(cudaFree(d_block_flags));
-        CUDA_CHECK(cudaFree(d_window_tc));
-        CUDA_CHECK(cudaFree(d_stats));
+        total_tc_vals[ci]      = stats.total_tc;
+        padding_vals[ci]       = stats.padding_ratio;
+        density_vals[ci]       = stats.avg_density;
+        density_p50_vals[ci]   = stats.density_p50;
+        density_p75_vals[ci]   = stats.density_p75;
+        density_p90_vals[ci]   = stats.density_p90;
+        tc_cv_vals[ci]         = stats.tc_cv;
+        top5_share_vals[ci]    = stats.top5_share;
+        nrow_windows_vals[ci]  = n_wm;
+        ncol_windows_vals[ci]  = n_wk;
     }
 
     // ── 5. Overall load-balance stats ──────────────────────────────────

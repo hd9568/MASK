@@ -1,11 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+source ~/llm-sog-venv/bin/activate
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-LOG_ROOT="${REPO_ROOT}/logs"
 DATASET_DIR="${DATASET_DIR:-/mnt/lustre-client/zhangkaige/selected_mtx}"
-FAILED_FILE="${LOG_ROOT}/end2end_all_failed.txt"
+
+EPOCH=$(date +%Y%m%d_%H%M%S)
+BATCH_DIR="${REPO_ROOT}/logs/logs_all_datasets_${EPOCH}"
+FAILED_FILE="${BATCH_DIR}/end2end_all_failed.txt"
+
+mkdir -p "${BATCH_DIR}"
 
 cd "${REPO_ROOT}"
 
@@ -14,9 +19,9 @@ if [ ! -f "${REPO_ROOT}/llm_models.yaml" ]; then
     exit 1
 fi
 
-echo "Dataset dir:    ${DATASET_DIR}"
-echo "Log root:       ${LOG_ROOT}"
-echo "Failed log:     ${FAILED_FILE}"
+echo "Dataset dir:     ${DATASET_DIR}"
+echo "Batch log dir:   ${BATCH_DIR}"
+echo "Failed log:      ${FAILED_FILE}"
 echo ""
 
 MTX_FILES=("${DATASET_DIR}"/*.mtx)
@@ -44,7 +49,7 @@ for MTX_PATH in "${MTX_FILES[@]}"; do
         -d "${DATASET_DIR}" \
         -m "${MTX_NAME}" \
         -l "${RUN_LABEL}" \
-        --log-root "${LOG_ROOT}"; then
+        --log-root "${BATCH_DIR}"; then
         echo "  -> FAILED"
         echo "${MTX_NAME}" >> "${FAILED_FILE}"
     else

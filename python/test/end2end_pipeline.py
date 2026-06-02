@@ -11,6 +11,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import time
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 THIS_DIR = Path(__file__).resolve().parent
@@ -854,12 +855,29 @@ def main() -> None:
                 )
                 strategy_config = StrategyConfig(**asdict(base_strategy_config))
                 strategy_config.log_dir = str(iter_dir / "agent")
-                decision, agent_log_dir = run_strategy_agent(
-                    format_name=format_name,
-                    gmem_inouts=gmem_inouts,
-                    config=strategy_config,
-                    feedback_context=feedback_context,
-                )
+
+                decision = None
+                agent_log_dir = None
+                last_exc: Optional[Exception] = None
+                for attempt in range(3):
+                    try:
+                        decision, agent_log_dir = run_strategy_agent(
+                            format_name=format_name,
+                            gmem_inouts=gmem_inouts,
+                            config=strategy_config,
+                            feedback_context=feedback_context,
+                        )
+                        break
+                    except Exception as exc:
+                        last_exc = exc
+                        if attempt < 2:
+                            wait_s = 2 ** attempt * 5
+                            logger.warning("Strategy agent attempt %d failed: %s. Retrying in %ds...", attempt + 1, exc, wait_s)
+                            time.sleep(wait_s)
+                        else:
+                            logger.error("Strategy agent attempt %d failed: %s. Giving up.", attempt + 1, exc)
+                            raise
+                assert decision is not None and agent_log_dir is not None
                 token_usages.append(decision.token_usage)
                 _write_json(iter_dir / "strategy.json", decision.to_dict())
 
@@ -933,6 +951,14 @@ def main() -> None:
         best_kernel = run_dir / "best_iteration_kernel.inc"
         shutil.copy2(best_entry["kernel_path"], best_kernel)
         summary = {
+            "best": {
+                "iteration": best_entry["iteration"],
+                "mykernel_ms": best_entry["performance"].get("mykernel_ms"),
+                "cusparse_ms": best_entry["performance"].get("cusparse_ms"),
+                "ratio_vs_cusparse": best_entry["performance"].get("ratio_vs_cusparse"),
+                "passed": best_entry["performance"].get("passed", False),
+                "kernel_path": str(best_kernel),
+            },
             "matrix": str(mtx_path),
             "mode": args.mode,
             "api_probe": api_probe,

@@ -161,7 +161,7 @@ std::filesystem::path getCheckpointCacheDir() {
             return std::filesystem::path(env_dir);
         }
     }
-    return std::filesystem::path(__FILE__).parent_path() / "mtx_cache";
+    return std::filesystem::path("/mnt/lustre-client/huoda/mtx_cache");
 }
 
 bool useCheckpointCache() {
@@ -171,6 +171,11 @@ bool useCheckpointCache() {
         }
     }
     return true;
+}
+
+bool refreshCheckpointCache() {
+    const char* env = std::getenv("SPARSENE_MTX_CACHE_REFRESH");
+    return (env != nullptr && env[0] != '\0' && env[0] != '0');
 }
 
 std::string formatSparsityToken(float sparsity) {
@@ -366,7 +371,21 @@ void convertToMETCF(
     int total_TCBlock_num = 0;
     int nnz_pad = 0;
 
-    int loaded = loadCheckpoint(file_path, M, K, sparsity, val_sidx, val_soff, val_coo_idx, val_coo_val, val_coo_off, total_TCBlock_num, nnz_pad);
+    int loaded = 0;
+    if (!refreshCheckpointCache()) {
+        loaded = loadCheckpoint(file_path, M, K, sparsity, val_sidx, val_soff, val_coo_idx, val_coo_val, val_coo_off, total_TCBlock_num, nnz_pad);
+    }
+    // Validate loaded data sizes match expectations — corrupted checkpoints
+    // (e.g. from old buggy code paths) will be silently discarded and regenerated.
+    if (loaded && (total_TCBlock_num <= 0 || nnz_pad <= 0 ||
+                   val_sidx.size() != (size_t)total_TCBlock_num * TC_BLOCK_K ||
+                   val_soff.size() != (size_t)total_TCBlock_num + 1 ||
+                   val_coo_off.size() != (size_t)total_TCBlock_num * 2 + 1 ||
+                   val_coo_idx.size() != (size_t)nnz_pad ||
+                   val_coo_val.size() != (size_t)nnz_pad)) {
+        fprintf(stderr, "Checkpoint data size mismatch — regenerating.\n");
+        loaded = 0;
+    }
     // int loaded = 0;
     if (!loaded) {
         // -------------------------
@@ -455,34 +474,36 @@ void convertToMETCF(
                         make_layout(make_shape(ROW_WINDOW_M, TC_BLOCK_K), make_stride(TC_BLOCK_K, 1)));
         int* tc_block_nnz_ptr = new int[(K + TC_BLOCK_K - 1) / TC_BLOCK_K];
 
+        vector<unsigned char> col_mark(K, 0);
+        vector<int> unique_cols;
+        unique_cols.reserve(ROW_WINDOW_M * TC_BLOCK_K);
+
         for (int i_row_window = 0; i_row_window < row_window_num; i_row_window++) {
             int TC_block_offset = val_soff[i_row_window];
             int* tmp_val_sidx = val_sidx.data() + TC_block_offset * TC_BLOCK_K;
-            memset(tc_block_nnz_ptr, 0, sizeof(int) * (K + TC_BLOCK_K - 1) / TC_BLOCK_K);
+            memset(tc_block_nnz_ptr, 0, sizeof(int) * ((K + TC_BLOCK_K - 1) / TC_BLOCK_K));
 
-            nnz_col = new int[K];
-            memset(nnz_col, 0, sizeof(int) * K);
+            unique_cols.clear();
             vector<int>& nnz_per_tc_block = vec_nnz_per_tc_block[i_row_window];
 
             for (int i_row = 0; i_row < ROW_WINDOW_M; i_row++) {
                 int row = i_row_window * ROW_WINDOW_M + i_row;
                 if (row >= M) continue;
                 for (int j = csrPtrA[row]; j < csrPtrA[row + 1]; j++) {
-                    nnz_col[csrColIdxA[j]] = 1;
+                    int col = csrColIdxA[j];
+                    if (!col_mark[col]) {
+                        col_mark[col] = 1;
+                        unique_cols.push_back(col);
+                    }
                 }
             }
 
-            int nnz_col_num = 0;
-            for (int i = 0, j = 0; i < K; i++) {
-                if (nnz_col[i] == 1) {
-                    nnz_col[j++] = i;
-                    nnz_col_num++;
-                }
-            }
+            sort(unique_cols.begin(), unique_cols.end());
+            int nnz_col_num = (int)unique_cols.size();
 
             int tc_block_num = (nnz_col_num + TC_BLOCK_K - 1) / TC_BLOCK_K;
             for (int i_tc_block_col = 0; i_tc_block_col < nnz_col_num; i_tc_block_col++) {
-                tmp_val_sidx[i_tc_block_col] = nnz_col[i_tc_block_col];
+                tmp_val_sidx[i_tc_block_col] = unique_cols[i_tc_block_col];
             }
 
             for (int i_tc_block = 0; i_tc_block < tc_block_num; i_tc_block++) {
@@ -496,7 +517,8 @@ void convertToMETCF(
                 for (int j = csrPtrA[row]; j < csrPtrA[row + 1]; j++) {
                     int col = csrColIdxA[j];
                     float value = (float)csrValA[j];
-                    int condensed_pos = binarySearch(nnz_col, col_start_pos, nnz_col_num - 1, col);
+                    int condensed_pos = (int)(lower_bound(unique_cols.begin() + col_start_pos, unique_cols.end(), col) -
+                                             unique_cols.begin());
                     col_start_pos = condensed_pos + 1;
                     int tc_block_id = condensed_pos / TC_BLOCK_K;
                     val_coo_val[tc_block_nnz_ptr[tc_block_id]] = value;
@@ -506,7 +528,9 @@ void convertToMETCF(
                     tc_block_nnz_ptr[tc_block_id]++;
                 }
             }
-            delete[] nnz_col;
+            for (int col : unique_cols) {
+                col_mark[col] = 0;
+            }
         }
 
         delete[] tc_block_nnz_ptr;
