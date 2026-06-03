@@ -23,7 +23,9 @@ using namespace cute;
 #define OFFSET_COL(row, col, lda) ((col) * (lda) + (row))
 
 #define ROW_WINDOW_M 16
+#ifndef TC_BLOCK_K
 #define TC_BLOCK_K 8
+#endif
 #define TC_BLOCK_M 16
 
 template <int TILE_B>
@@ -197,7 +199,7 @@ std::string buildCheckpointStem(const std::string& file_path, int M, int K, floa
     if (base.empty()) {
         base = "synthetic";
     }
-    std::string stem = base + "_M" + to_string(M) + "_K" + to_string(K);
+    std::string stem = base + "_M" + to_string(M) + "_K" + to_string(K) + "_TBK" + to_string(TC_BLOCK_K);
     if (file_path.empty()) {
         stem += "_sp" + formatSparsityToken(sparsity);
     }

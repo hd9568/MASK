@@ -413,7 +413,7 @@ Si41Ge41H72.mtx generated/reference = 14.24x
 
 ```bash
 cd /home/huoda/sparsene/python
-source ~/llm-sog-venv/bin/activate
+source /mnt/lustre-client/huoda/venv/llm-sog/bin/activate
 python test/test_generate.py
 
 cd /home/huoda/sparsene/examples/src_fp32/dtc/testbed
@@ -523,7 +523,7 @@ CUTE_DEVICE void f(Tensor_i0 operand_0, TI1 operand_1, TI2 operand_2) {
 
 ```bash
 cd /home/huoda/sparsene/python
-source ~/llm-sog-venv/bin/activate
+source /mnt/lustre-client/huoda/venv/llm-sog/bin/activate
 python test/test_generate.py
 
 cd /home/huoda/sparsene/examples/src_fp32/dtc/testbed

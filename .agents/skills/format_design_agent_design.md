@@ -385,7 +385,7 @@ docs/format_design_runs/{timestamp}_format_design_{matrix}/
 
 ```bash
 cd /home/huoda/sparsene
-source ~/llm-sog-venv/bin/activate
+source /mnt/lustre-client/huoda/venv/llm-sog/bin/activate
 PYTHONPATH=python python3 python/test/run_format_design.py \
   --mtx /mnt/lustre-client/zhangkaige/selected_mtx/cop20k_A.mtx \
   --N 512 \

@@ -1568,6 +1568,7 @@ class NvIrCodeGenerator:
                     pipeline_strategy, "max_wait_prior", None
                 )
             for op_call in op_calls:
+                pipeline_waited = False
                 if enable_async_pipeline and has_cp_async_smem_input(op_call.op):
                     wait_num = get_wait_num(
                         op_call.op, op_call.buf_idx, pipeline_history
@@ -1576,8 +1577,10 @@ class NvIrCodeGenerator:
                         wait_num = min(wait_num, max_wait_prior)
                     if wait_num != -1:
                         instructions.append(PipelineWait(wait_num=wait_num))
+                        pipeline_waited = True
                 if sync_threads_on_smem_input and has_smem_input(op_call.op):
-                    instructions.append(SyncThreads())
+                    if not pipeline_waited:
+                        instructions.append(SyncThreads())
 
                 instructions.append(
                     Comment(

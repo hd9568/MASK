@@ -105,7 +105,7 @@ PYTHONPATH=python python3 python/test/test_run_llm.py
 
 - CUDA 12.x / sm_80 (A100/A800)
 - NVCC + gcc 13 toolset
-- Python 3.12 + venv (`~/llm-sog-venv`)
+- Python 3.12 + venv (`/mnt/lustre-client/huoda/venv/llm-sog`)
 - DeepSeek API key
 - cuSPARSE / cuBLAS
 
@@ -113,7 +113,7 @@ PYTHONPATH=python python3 python/test/test_run_llm.py
 
 ```bash
 cd /home/huoda/sparsene
-source ~/llm-sog-venv/bin/activate
+source /mnt/lustre-client/huoda/venv/llm-sog/bin/activate
 
 # 最小示例：1 个矩阵，1 轮策略迭代
 PYTHONPATH=python python3 python/test/end2end_pipeline.py \

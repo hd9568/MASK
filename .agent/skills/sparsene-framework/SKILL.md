@@ -49,6 +49,17 @@ The canonical pipeline is:
 
 ## Runtime Configuration
 
+### Python Environment
+
+All sparsene scripts rely on the venv at `/mnt/lustre-client/huoda/venv/llm-sog`.
+Activate it before running any pipeline:
+
+```bash
+source /mnt/lustre-client/huoda/venv/llm-sog/bin/activate
+```
+
+The venv lives on Lustre to avoid consuming home-directory disk quota.
+
 ### Environment Variables
 
 | Variable | Default | Meaning |

@@ -50,13 +50,13 @@ PATCHED_ONLY=0 examples/src_fp32/dtc/testbed/scripts/validate_generated_kernel.s
 
 执行环境：
 
-- 虚拟环境：`~/llm-sog-venv`
+- 虚拟环境：`/mnt/lustre-client/huoda/venv/llm-sog`
 - 工作目录：`/home/huoda/sparsene/python`
 
 执行命令：
 
 ```bash
-source ~/llm-sog-venv/bin/activate
+source /mnt/lustre-client/huoda/venv/llm-sog/bin/activate
 cd /home/huoda/sparsene/python
 PYTHONPATH=/home/huoda/sparsene/python python test/test_generate.py
 ```

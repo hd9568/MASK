@@ -271,6 +271,28 @@ def _extract_features_with_cuda(mtx_path: Path, run_dir: Path, args: argparse.Na
     return features
 
 
+def _adaptive_tc_block_k(features: Dict[str, Any]) -> int:
+    """Select optimal TC_BLOCK_K based on matrix sparsity characteristics.
+
+    Valid values: 8 or 16 (must match codegen BLK_K tile size).
+    Currently constrained to 8 because the generated .inc kernel
+    for BLK_K=16 produces correctness errors on sparse matrices.
+
+    To enable larger TC_BLOCK_K when the kernel codegen is fixed,
+    set environment variable SPARSENE_TC_BLOCK_K_AGGRESSIVE=1.
+    """
+    aggressive = os.environ.get("SPARSENE_TC_BLOCK_K_AGGRESSIVE", "0") == "1"
+    if not aggressive:
+        return 8
+    row_dist = features.get("row_nnz_distribution", {})
+    avg_nnz = row_dist.get("mean", 0)
+    if avg_nnz <= 0:
+        return 8
+    if avg_nnz < 16:
+        return 16
+    return 8
+
+
 def _parse_perf_output(text: str) -> Dict[str, Any]:
     my_match = re.search(r"mykernel_time:\s*([0-9.]+)\s*ms", text)
     cu_match = re.search(r"cusparse_time:\s*([0-9.]+)\s*ms", text)
@@ -481,6 +503,7 @@ def _build_binary(iter_dir: Path, args: argparse.Namespace) -> Tuple[bool, str, 
         "-Xcompiler",
         "-fopenmp",
         "-Df32",
+        f"-DTC_BLOCK_K={args.tc_block_k}",
         f"-I{TESTBED_DIR / 'cutlass' / 'include'}",
         f"-I{TESTBED_DIR / 'cutlass' / 'examples' / 'common'}",
         f"-I{TESTBED_DIR / 'cutlass' / 'tools' / 'util' / 'include'}",
@@ -681,7 +704,7 @@ def _maybe_run_fix_agent(
     return result.success, result.final_error
 
 
-def _heuristic_format_decision() -> Dict[str, Any]:
+def _heuristic_format_decision(blk_k: int = 8) -> Dict[str, Any]:
     return {
         "request_id": "heuristic",
         "format_name": "ME_TCF",
@@ -706,7 +729,7 @@ def _heuristic_format_decision() -> Dict[str, Any]:
             },
         ],
         "atomic": {"type": "coo", "x_axis": "X_i", "y_axis": "Y_si"},
-        "params": {"BLK_M": 16, "BLK_K": 8},
+        "params": {"BLK_M": 16, "BLK_K": blk_k},
         "rationale": "Heuristic mode: skip format agent and use built-in ME_TCF format.",
         "confidence": "high",
         "token_usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "raw_usage": {}},
@@ -716,6 +739,7 @@ def _heuristic_format_decision() -> Dict[str, Any]:
 
 def main() -> None:
     args = parse_args()
+    args.tc_block_k = 8  # default, overwritten after featurize
     set_logging_level_for_all("DEBUG" if args.debug else "INFO")
 
     dataset_root = Path(args.dataset_root)
@@ -741,6 +765,9 @@ def main() -> None:
 
     try:
         features = _extract_features_with_cuda(mtx_path, run_dir, args)
+        args.tc_block_k = _adaptive_tc_block_k(features)
+        logger.info("Adaptive TC_BLOCK_K = %d (row_nnz_mean=%.1f)", args.tc_block_k,
+                     features.get("row_nnz_distribution", {}).get("mean", 0))
         format_name: str
         if args.mode == "agent":
             format_model_name = _model_name(args, "format")
@@ -763,11 +790,18 @@ def main() -> None:
             atomic_type = format_response.atomic.get("type", "coo")
             token_usages.append(format_response.token_usage)
         else:
-            format_summary = _heuristic_format_decision()
+            format_summary = _heuristic_format_decision(blk_k=args.tc_block_k)
             fmt_obj = ME_TCF_FORMAT
             format_name = "ME_TCF"
             atomic_type = "coo"
         _write_json(run_dir / "format_decision.json", format_summary)
+
+        # Agent mode: TC_BLOCK_K must match the format's BLK_K exactly.
+        blk_k_from_format = format_summary.get("params", {}).get("BLK_K", 8)
+        if isinstance(blk_k_from_format, int) and blk_k_from_format != args.tc_block_k:
+            logger.info("Format BLK_K=%d differs from adaptive TC_BLOCK_K=%d; using format value",
+                         blk_k_from_format, args.tc_block_k)
+            args.tc_block_k = blk_k_from_format
 
         flattened_ops, gmem_inouts = _prepare_codegen_artifacts(fmt_obj, format_name, atomic_type)
         _write_json(
@@ -783,6 +817,11 @@ def main() -> None:
             gmem_inouts=gmem_inouts,
             config=baseline_config,
         )
+        # When TC_BLOCK_K != 8, disable the coo_restore swizzle on the
+        # A tile to avoid a CuTe MMA tiling incompatibility. The host-side
+        # swizzle_layout in main.cu is also gated on TC_BLOCK_K == 8.
+        if args.tc_block_k != 8:
+            baseline_decision.tensor_placement.coo_restore_swizzle = "none"
         baseline_inc = _generate_kernel_inc(
             flattened_ops=flattened_ops,
             format_name=format_name,
@@ -867,6 +906,8 @@ def main() -> None:
                             config=strategy_config,
                             feedback_context=feedback_context,
                         )
+                        if args.tc_block_k != 8:
+                            decision.tensor_placement.coo_restore_swizzle = "none"
                         break
                     except Exception as exc:
                         last_exc = exc
@@ -961,6 +1002,7 @@ def main() -> None:
             },
             "matrix": str(mtx_path),
             "mode": args.mode,
+            "tc_block_k": getattr(args, "tc_block_k", 8),
             "api_probe": api_probe,
             "format": format_summary,
             "history": history,

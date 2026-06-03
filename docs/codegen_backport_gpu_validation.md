@@ -26,7 +26,7 @@
 
 ```bash
 cd /home/huoda/sparsene/python
-source ~/llm-sog-venv/bin/activate
+source /mnt/lustre-client/huoda/venv/llm-sog/bin/activate
 python test/test_generate.py
 ```
 

@@ -6,7 +6,7 @@ TESTBED_DIR="${ROOT}/examples/src_fp32/dtc/testbed"
 PY_DIR="${ROOT}/python"
 BUILD_DIR="${TESTBED_DIR}/build_multi_dataset"
 RESULT_ROOT="${RESULT_ROOT:-${TESTBED_DIR}/build_perf_logs}"
-VENV_PATH="${HOME}/llm-sog-venv"
+VENV_PATH="/mnt/lustre-client/huoda/venv/llm-sog"
 HOST_CXX="${NVCC_CCBIN:-/opt/rh/gcc-toolset-13/root/usr/bin/g++}"
 CUDA_ARCH="${CUDA_ARCH:-sm_80}"
 

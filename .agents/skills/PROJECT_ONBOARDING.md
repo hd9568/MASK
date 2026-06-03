@@ -14,7 +14,7 @@
 ### 1.1 运行环境
 
 ```bash
-conda activate TraeAI-4          # 或 source ~/llm-sog-venv/bin/activate
+conda activate TraeAI-4          # 或 source /mnt/lustre-client/huoda/venv/llm-sog/bin/activate
 PYTHONPATH=python python3 ...
 ```
 
@@ -203,7 +203,7 @@ NVIR peephole 已饱和。剩余差距来自 OPIR 级别的设计差异:
 ## 7. 日常开发命令
 
 ```bash
-cd /home/huoda/sparsene && source ~/llm-sog-venv/bin/activate
+cd /home/huoda/sparsene && source /mnt/lustre-client/huoda/venv/llm-sog/bin/activate
 
 # ----- 生成 kernel -----
 PYTHONPATH=python python3 python/test/test_generate.py --strategy-provider heuristic
@@ -278,7 +278,7 @@ PYTHONPATH=python python3 python/test/end2end_pipeline.py \
 新会话 AI 收到"继续优化 ME_TCF 性能"任务时:
 
 1. ✅ 阅读本文档和 `docs/me_tcf_performance_optimization.md`
-2. ✅ `cd /home/huoda/sparsene && source ~/llm-sog-venv/bin/activate`
+2. ✅ `cd /home/huoda/sparsene && source /mnt/lustre-client/huoda/venv/llm-sog/bin/activate`
 3. ✅ `PYTHONPATH=python python3 python/test/test_generate.py --strategy-provider heuristic` 确认当前状态
 4. ✅ 从 §5 了解当前性能，从 §6 了解剩余差距
 5. ✅ 下一步最可能有效的方向: 修改 `generate.py:_make_impl()` 让 `array_ref` + `array_ref_1` 直接通过 cp_async 写 SMEM (而不是先到 RMEM)

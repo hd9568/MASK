@@ -72,7 +72,7 @@
 
 ```bash
 cd /home/huoda/sparsene
-source ~/llm-sog-venv/bin/activate
+source /mnt/lustre-client/huoda/venv/llm-sog/bin/activate
 
 # 生成
 PYTHONPATH=python python3 python/test/test_generate.py --strategy-provider heuristic

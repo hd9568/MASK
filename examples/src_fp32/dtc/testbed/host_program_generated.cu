@@ -32,7 +32,9 @@
 using namespace cute;
 
 #define ROW_WINDOW_M 16
+#ifndef TC_BLOCK_K
 #define TC_BLOCK_K 8
+#endif
 #define TC_BLOCK_M 16
 
 int sparsene_generated_tile_b() {
