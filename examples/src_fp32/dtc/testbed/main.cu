@@ -22,7 +22,9 @@ using namespace cute;
 #define OFFSET_ROW(row, col, lda) ((row) * (lda) + (col))
 #define OFFSET_COL(row, col, lda) ((col) * (lda) + (row))
 
+#ifndef ROW_WINDOW_M
 #define ROW_WINDOW_M 16
+#endif
 #ifndef TC_BLOCK_K
 #define TC_BLOCK_K 8
 #endif
@@ -199,7 +201,7 @@ std::string buildCheckpointStem(const std::string& file_path, int M, int K, floa
     if (base.empty()) {
         base = "synthetic";
     }
-    std::string stem = base + "_M" + to_string(M) + "_K" + to_string(K) + "_TBK" + to_string(TC_BLOCK_K);
+    std::string stem = base + "_M" + to_string(M) + "_K" + to_string(K) + "_TBK" + to_string(TC_BLOCK_K) + "_RWM" + to_string(ROW_WINDOW_M);
     if (file_path.empty()) {
         stem += "_sp" + formatSparsityToken(sparsity);
     }
@@ -472,7 +474,7 @@ void convertToMETCF(
 
         // 4. 构建 val_sidx, val_coo_idx, val_coo_val
         auto swizzle_layout =
-            composition(Swizzle<1, 2, 3>{},
+            composition(Swizzle<1, 2, (TC_BLOCK_K == 8) ? 3 : 4>{},
                         make_layout(make_shape(ROW_WINDOW_M, TC_BLOCK_K), make_stride(TC_BLOCK_K, 1)));
         int* tc_block_nnz_ptr = new int[(K + TC_BLOCK_K - 1) / TC_BLOCK_K];
 
@@ -703,7 +705,7 @@ void convertToMETCF(
     val_coo_off[2 * total_TCBlock_num] = cur_pos;
 
     auto swizzle_layout =
-      composition(Swizzle<1, 2, 3>{},
+      composition(Swizzle<1, 2, (TC_BLOCK_K == 8) ? 3 : 4>{},
                   make_layout(make_shape(ROW_WINDOW_M, TC_BLOCK_K), make_stride(TC_BLOCK_K, 1)));
 
 #pragma omp parallel

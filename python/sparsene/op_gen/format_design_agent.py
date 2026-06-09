@@ -200,24 +200,18 @@ FORMAT_DESIGN_RULES = [
     "  Level 2 (inner):  df(Y_so,COL,K/BLK_K) + df(Y_si,COL,BLK_K) + df(X_i,ROW,BLK_M) "
     "  Atomic:            coo(X_i,Y_si)  ← ONLY coo is currently supported!"
     "  Do NOT use mco, dense, bitmask, or reorder — they will be ignored and could break compilation. "
-    "You CAN and SHOULD optimize: BLK_M ∈ {8,16,32}, BLK_K ∈ {8,16}. "
     "Do NOT change axis names, directions, level count, or axis types.",
 
-    "BLK_M: row tile size.  Use smaller (8) for short rows (<16 avg NNZ/row), "
-    "medium (16) for 16-32 avg NNZ/row, larger (32) for >32 avg NNZ/row. "
-    "Smaller BLK_M improves load balance for irregular matrices.",
-
-    "BLK_K: col tile size.  Use 16 for better TC utilization, 8 to reduce "
-    "padding.  If padding > 60% at 16, prefer 8.  If density_p50 at 16 < 3%, "
-    "8 may offer slightly higher density.",
+    "BLK_M, BLK_K are SYMBOLIC parameters — do NOT assign them concrete numeric values. "
+    "Always output BLK_M='BLK_M' and BLK_K='BLK_K' in the params dict. "
+    "The pipeline selects the optimal numeric values automatically "
+    "based on matrix features (avg nnz/row, density, etc.) via "
+    "_adaptive_blk_m() and _adaptive_tc_block_k(). "
+    "Your job is to decide structural aspects only: axis types, "
+    "nesting depth, and atomic format choice.",
 
     "Atomic format selection by density percentile: "
-    "  Use coo always — it is the only atomic type supported by the current pipeline. "
-    "  Density info still informs BLK_M/BLK_K choices: "
-    "  density_p50 < 5%     → prefer smaller BLK_K=8 (less padding per sparse block) "
-    "  density_p50 5-30%    → BLK_K=16 works well "
-    "  density_p50 > 30%    → BLK_K=8 to limit total block count "
-    "  Wide gap p50–p90     → prefer BLK_K=8 for flexibility",
+    "  Use coo always — it is the only atomic type supported by the current pipeline. ",
 
     "Format depth (number of levels): "
     "  Use 2-level (outer row-window + inner TC-block) for most cases. "
@@ -229,22 +223,18 @@ FORMAT_DESIGN_RULES = [
     "  in the outermost Format level.  This is non-negotiable for correctness.",
 
     "Load balance: "
-    "  TC blocks CV < 0.5  → balanced, BLK_M can be larger (32) "
-    "  TC blocks CV 0.5-1.0 → moderate, BLK_M = 16 "
-    "  TC blocks CV > 1.0  → severe imbalance, BLK_M = 8 "
+    "  TC blocks CV < 0.5  → balanced   → standard 2-level is sufficient "
+    "  TC blocks CV 0.5-1.0 → moderate   → standard 2-level "
+    "  TC blocks CV > 1.0  → imbalance  → consider 3-level nesting "
     "  top5_window_share > 40% → extreme skew, consider 3-level nesting",
 
     "Row correlation: "
-    "  |row_corr| > 0.7 → strong correlation, consider smaller BLK_M "
-    "  Positive → later rows denser; Negative → earlier rows denser. "
+    "  |row_corr| > 0.7 → strong correlation → structure unchanged, "
+    "  adaptively handled by BLK_M/BLK_K selection. "
     "  Do NOT set reorder=true — reordering is not implemented.",
 
-    "Symmetry: "
-    "  If matrix is symmetric, column stats mirror row stats. "
-    "  The sv_axis still goes on the COL direction (K axis).",
-
     "Safety: "
-    "  All BLK_* values must be powers of 2 compatible with MMA tiling (8, 16, 32). "
+    "  All BLK_* values in the params dict must be the strings 'BLK_M' and 'BLK_K' (symbolic). "
     "  Atomic format's x_name and y_name must match axes from parent formats. "
     "  The sv_axis \"Y_s\" must appear exactly once in the outermost level.",
 ]
@@ -289,8 +279,8 @@ def _default_output_schema() -> Dict[str, Any]:
             "y_axis": "string (axis name for cols, must exist in parent)",
         },
         "params": {
-            "BLK_M": "int (8|16|32)",
-            "BLK_K": "int (8|16)",
+            "BLK_M": "string ('BLK_M') — symbolic, auto-selected by pipeline",
+            "BLK_K": "string ('BLK_K') — symbolic, auto-selected by pipeline",
         },
         "reorder": "bool (whether to enable row reordering)",
         "rationale": "string (3-5 sentences explaining the design)",
@@ -352,7 +342,7 @@ Column NNZ distribution:
 
 Row length vs row index correlation: {feats.get('row_length_vs_index_correlation')}
 
-Candidate block statistics (for reference when picking BLK sizes):
+Candidate block statistics (for structure decisions — BLK_M/BLK_K are auto-selected):
 {chr(10).join(blk_lines)}
 
 Load balance:
@@ -513,7 +503,7 @@ def _fallback_format_response(
             },
         ],
         atomic={"type": "coo", "x_axis": "X_i", "y_axis": "Y_si"},
-        params={"BLK_M": 32, "BLK_K": 8},
+        params={"BLK_M": "BLK_M", "BLK_K": "BLK_K"},
         rationale=rationale,
         confidence="low",
         raw_payload=raw_payload or {},
@@ -631,14 +621,16 @@ def run_format_design_agent(
             ax.pop("reorder", None)
             ax.pop("reorder_strategy", None)
     parsed.pop("reorder", None)
-    params = parsed.get("params", {"BLK_M": 32, "BLK_K": 8})
+    params = parsed.get("params", {"BLK_M": "BLK_M", "BLK_K": "BLK_K"})
 
-    blk_m = int(params.get("BLK_M", 32))
-    blk_k = int(params.get("BLK_K", 8))
-    if blk_m not in {8, 16, 32}:
-        blk_m = 32
-    if blk_k not in {8, 16}:
-        blk_k = 8
+    # BLK_M / BLK_K are symbolic — the pipeline picks numeric values.
+    # Accept both string ("BLK_M") and legacy int forms; normalize to symbolic.
+    blk_m = params.get("BLK_M", "BLK_M")
+    blk_k = params.get("BLK_K", "BLK_K")
+    if isinstance(blk_m, int):
+        blk_m = "BLK_M"
+    if isinstance(blk_k, int):
+        blk_k = "BLK_K"
 
     return FormatDesignResponse(
         request_id=request_id,

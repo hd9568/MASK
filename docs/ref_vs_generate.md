@@ -133,6 +133,10 @@ Todos updated: 20 items
 | web-BerkStan.mtx | 685230 | 685230 | 512 | 6.299433 | 4.335298 | 0.6882 | ok |
 | webbase-1M.mtx | 1000005 | 1000005 | 512 | 7.205458 | 4.283023 | 0.5944 | ok |
 
+> **统计**（共 26 个数据集）：
+> - speedup_vs_cusparse 平均值：**0.9142**
+> - 超过 cusparse 的数据集：**8** 个，平均 speedup：**1.6863**
+
 **Reference 表**
 | dataset | M | K | N | mykernel_ms | cusparse_ms | speedup_vs_cusparse | status |
 |---|---:|---:|---:|---:|---:|---:|---|
@@ -162,6 +166,10 @@ Todos updated: 20 items
 | shipsec1.mtx | 140874 | 140874 | 512 | 1.544243 | 4.003021 | 2.5922 | ok |
 | web-BerkStan.mtx | 685230 | 685230 | 512 | 3.937393 | 4.232499 | 1.0749 | ok |
 | webbase-1M.mtx | 1000005 | 1000005 | 512 | 6.635643 | 4.284232 | 0.6456 | ok |
+
+> **统计**（共 26 个数据集）：
+> - speedup_vs_cusparse 平均值：**1.4808**
+> - 超过 cusparse 的数据集：**16** 个，平均 speedup：**2.0087**
 
 **补充观察**
 - `generated` 优势最明显的数据集是 `pdb1HYS.mtx`、`shipsec1.mtx`、`pwtk.mtx`，都明显快于 cuSPARSE。

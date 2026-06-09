@@ -31,11 +31,15 @@
 
 using namespace cute;
 
+#ifndef ROW_WINDOW_M
 #define ROW_WINDOW_M 16
+#endif
 #ifndef TC_BLOCK_K
 #define TC_BLOCK_K 8
 #endif
+#ifndef TC_BLOCK_M
 #define TC_BLOCK_M 16
+#endif
 
 int sparsene_generated_tile_b() {
     return SPARSENE_GENERATED_TILE_B;

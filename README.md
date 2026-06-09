@@ -1,4 +1,4 @@
-# Sparsene — LLM-Driven Sparse Operator Generation
+# LLM-SOG — LLM-Driven Sparse Operator Generation Based on Sparsene
 
 基于大语言模型（LLM）驱动的层次化稀疏格式设计与高性能 CUDA 算子自动生成框架。
 

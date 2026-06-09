@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 from dataclasses import asdict
 from datetime import datetime
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -58,7 +59,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("-m", "--mtx", type=str, default="shipsec1.mtx")
     parser.add_argument("-d", "--dataset-root", type=str, default=str(DEFAULT_DATASET_ROOT))
     parser.add_argument("-N", "--n-cols", type=int, default=512)
-    parser.add_argument("-i", "--iterations", type=int, default=4)
+    parser.add_argument("-i", "--iterations", type=int, default=10)
     parser.add_argument("-w", "--eval-warmup", type=int, default=5)
     parser.add_argument("-r", "--eval-repeat", type=int, default=20)
     parser.add_argument("-W", "--profile-warmup", type=int, default=1)
@@ -275,13 +276,15 @@ def _adaptive_tc_block_k(features: Dict[str, Any]) -> int:
     """Select optimal TC_BLOCK_K based on matrix sparsity characteristics.
 
     Valid values: 8 or 16 (must match codegen BLK_K tile size).
-    Currently constrained to 8 because the generated .inc kernel
-    for BLK_K=16 produces correctness errors on sparse matrices.
+    Defaults to 8 (conservative).  When SPARSENE_TC_BLOCK_K_AGGRESSIVE=1
+    is set, matrices with avg NNZ/row < 16 will use BLK_K=16, halving
+    the TC block count and reducing kernel launch overhead.
 
-    To enable larger TC_BLOCK_K when the kernel codegen is fixed,
-    set environment variable SPARSENE_TC_BLOCK_K_AGGRESSIVE=1.
+    The codegen (generate.py) and host (main.cu) were patched to support
+    arbitrary BLK_K values via K-iteration loops in ldmatrix + MMA and
+    adaptive Swizzle<1,2,S> where S=log2(BLK_K).
     """
-    aggressive = os.environ.get("SPARSENE_TC_BLOCK_K_AGGRESSIVE", "0") == "1"
+    aggressive = os.environ.get("SPARSENE_TC_BLOCK_K_AGGRESSIVE", "1") == "1"
     if not aggressive:
         return 8
     row_dist = features.get("row_nnz_distribution", {})
@@ -291,6 +294,12 @@ def _adaptive_tc_block_k(features: Dict[str, Any]) -> int:
     if avg_nnz < 16:
         return 16
     return 8
+
+
+def _adaptive_blk_m(features: Dict[str, Any]) -> int:
+    """Select BLK_M.  Currently pinned to 16; BLK_M=32 needs debugging
+    for extremely sparse matrices (avg NNZ/row < 4)."""
+    return 16
 
 
 def _parse_perf_output(text: str) -> Dict[str, Any]:
@@ -490,6 +499,29 @@ def _build_binary(iter_dir: Path, args: argparse.Namespace) -> Tuple[bool, str, 
     build_dir = iter_dir / "build"
     build_dir.mkdir(parents=True, exist_ok=True)
     binary_path = build_dir / "demo-dtc-generated-tf32"
+    iter_inc_path = iter_dir / "me_tcf_kernel3.inc"
+
+    # ---- kernel binary cache ----
+    # Cache key = md5(.inc content) + nvcc -D flags, so that any change to
+    # generated kernel code or tile sizes triggers a recompile.  Different
+    # strategy decisions (swizzle, pipeline, etc.) produce different .inc
+    # files, ensuring agent-mode iterations never share stale binaries.
+    inc_digest = hashlib.md5(DEFAULT_INC_PATH.read_bytes()).hexdigest()[:12]
+    cache_dir = Path(args.log_root) / ".kernel_binary_cache"
+    cache_key = f"{inc_digest}_BLK_K{args.tc_block_k}_BLK_M{args.blk_m}_N{args.n_cols}"
+    cached_binary = cache_dir / cache_key / "demo-dtc-generated-tf32"
+    cached_inc = cache_dir / cache_key / "me_tcf_kernel3.inc"
+
+    if cached_binary.exists():
+        logger.info("Reusing cached kernel binary (inc=%s BLK_K=%d BLK_M=%d N=%d)",
+                     inc_digest, args.tc_block_k, args.blk_m, args.n_cols)
+        build_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(cached_binary, binary_path)
+        if cached_inc.exists() and not iter_inc_path.exists():
+            shutil.copy2(cached_inc, iter_inc_path)
+        return True, "", binary_path
+    # ---- end cache ----
+
     command = [
         "nvcc",
         "-O3",
@@ -504,6 +536,8 @@ def _build_binary(iter_dir: Path, args: argparse.Namespace) -> Tuple[bool, str, 
         "-fopenmp",
         "-Df32",
         f"-DTC_BLOCK_K={args.tc_block_k}",
+        f"-DTC_BLOCK_M={args.blk_m}",
+        f"-DROW_WINDOW_M={args.blk_m}",
         f"-I{TESTBED_DIR / 'cutlass' / 'include'}",
         f"-I{TESTBED_DIR / 'cutlass' / 'examples' / 'common'}",
         f"-I{TESTBED_DIR / 'cutlass' / 'tools' / 'util' / 'include'}",
@@ -524,7 +558,17 @@ def _build_binary(iter_dir: Path, args: argparse.Namespace) -> Tuple[bool, str, 
         result = _run_command(command, cwd=REPO_ROOT, timeout_sec=args.timeout_sec)
     except subprocess.TimeoutExpired as exc:
         return False, _coerce_timeout_stdout(exc.output) + "\n[TIMEOUT]\n", binary_path
-    return result.returncode == 0, result.stdout or "", binary_path
+    success = result.returncode == 0
+    stdout = result.stdout or ""
+
+    if success:
+        # Store in cache for future dataset runs
+        cached_binary.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(binary_path, cached_binary)
+        if iter_inc_path.exists():
+            shutil.copy2(iter_inc_path, cached_inc)
+
+    return success, stdout, binary_path
 
 
 def _run_dataset(binary_path: Path, dataset_path: Path, iter_dir: Path, args: argparse.Namespace) -> Dict[str, Any]:
@@ -729,7 +773,7 @@ def _heuristic_format_decision(blk_k: int = 8) -> Dict[str, Any]:
             },
         ],
         "atomic": {"type": "coo", "x_axis": "X_i", "y_axis": "Y_si"},
-        "params": {"BLK_M": 16, "BLK_K": blk_k},
+        "params": {"BLK_M": "BLK_M", "BLK_K": "BLK_K"},
         "rationale": "Heuristic mode: skip format agent and use built-in ME_TCF format.",
         "confidence": "high",
         "token_usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "raw_usage": {}},
@@ -740,6 +784,12 @@ def _heuristic_format_decision(blk_k: int = 8) -> Dict[str, Any]:
 def main() -> None:
     args = parse_args()
     args.tc_block_k = 8  # default, overwritten after featurize
+    args.blk_m = 16      # default, overwritten after featurize
+
+    # Default disable checkpoint cache to avoid stale cache bugs when
+    # switching BLK_K / BLK_M between runs.  Can still be overridden.
+    os.environ.setdefault("SPARSENE_DISABLE_MTX_CACHE", "1")
+
     set_logging_level_for_all("DEBUG" if args.debug else "INFO")
 
     dataset_root = Path(args.dataset_root)
@@ -767,6 +817,9 @@ def main() -> None:
         features = _extract_features_with_cuda(mtx_path, run_dir, args)
         args.tc_block_k = _adaptive_tc_block_k(features)
         logger.info("Adaptive TC_BLOCK_K = %d (row_nnz_mean=%.1f)", args.tc_block_k,
+                     features.get("row_nnz_distribution", {}).get("mean", 0))
+        args.blk_m = _adaptive_blk_m(features)
+        logger.info("Adaptive BLK_M = %d (row_nnz_mean=%.1f)", args.blk_m,
                      features.get("row_nnz_distribution", {}).get("mean", 0))
         format_name: str
         if args.mode == "agent":
@@ -796,12 +849,28 @@ def main() -> None:
             atomic_type = "coo"
         _write_json(run_dir / "format_decision.json", format_summary)
 
-        # Agent mode: TC_BLOCK_K must match the format's BLK_K exactly.
+        # Adaptive TC_BLOCK_K takes priority over agent-chosen BLK_K.
+        # The format tree uses symbolic "BLK_K" — the concrete value is
+        # injected via nvcc -DTC_BLOCK_K=N at compile time.
         blk_k_from_format = format_summary.get("params", {}).get("BLK_K", 8)
         if isinstance(blk_k_from_format, int) and blk_k_from_format != args.tc_block_k:
-            logger.info("Format BLK_K=%d differs from adaptive TC_BLOCK_K=%d; using format value",
-                         blk_k_from_format, args.tc_block_k)
-            args.tc_block_k = blk_k_from_format
+            logger.info("Adaptive TC_BLOCK_K=%d > format-suggested BLK_K=%d; using adaptive",
+                         args.tc_block_k, blk_k_from_format)
+            format_summary.setdefault("params", {})["BLK_K"] = args.tc_block_k
+            _write_json(run_dir / "format_decision.json", format_summary)
+
+        # Agent mode: BLK_M must match the format's BLK_M (or host defaults to 16).
+        blk_m_from_format = format_summary.get("params", {}).get("BLK_M", 16)
+        if isinstance(blk_m_from_format, int):
+            if blk_m_from_format < 16:
+                logger.warning("Agent-chosen BLK_M=%d < 16; clamping to 16 (MMA uses m16n8k8)", blk_m_from_format)
+                blk_m_from_format = 16
+                format_summary.setdefault("params", {})["BLK_M"] = 16
+                _write_json(run_dir / "format_decision.json", format_summary)
+                # Rebuild fmt_obj so codegen picks up the corrected BLK_M.
+                format_response.params["BLK_M"] = 16
+                fmt_obj = build_format_from_response(format_response)
+            args.blk_m = blk_m_from_format
 
         flattened_ops, gmem_inouts = _prepare_codegen_artifacts(fmt_obj, format_name, atomic_type)
         _write_json(
@@ -817,11 +886,11 @@ def main() -> None:
             gmem_inouts=gmem_inouts,
             config=baseline_config,
         )
-        # When TC_BLOCK_K != 8, disable the coo_restore swizzle on the
-        # A tile to avoid a CuTe MMA tiling incompatibility. The host-side
-        # swizzle_layout in main.cu is also gated on TC_BLOCK_K == 8.
+        # When TC_BLOCK_K != 8, adjust swizzle S parameter to match
+        # the tile column count: Swizzle<1,2,log2(BLK_K)>.
+        # For BLK_K=16 this is Swizzle<1,2,4> vs the default Swizzle<1,2,3>.
         if args.tc_block_k != 8:
-            baseline_decision.tensor_placement.coo_restore_swizzle = "none"
+            baseline_decision.tensor_placement.coo_restore_swizzle = "swizzle_124"
         baseline_inc = _generate_kernel_inc(
             flattened_ops=flattened_ops,
             format_name=format_name,
@@ -907,7 +976,7 @@ def main() -> None:
                             feedback_context=feedback_context,
                         )
                         if args.tc_block_k != 8:
-                            decision.tensor_placement.coo_restore_swizzle = "none"
+                            decision.tensor_placement.coo_restore_swizzle = "swizzle_124"
                         break
                     except Exception as exc:
                         last_exc = exc
@@ -1003,6 +1072,7 @@ def main() -> None:
             "matrix": str(mtx_path),
             "mode": args.mode,
             "tc_block_k": getattr(args, "tc_block_k", 8),
+            "blk_m": getattr(args, "blk_m", 16),
             "api_probe": api_probe,
             "format": format_summary,
             "history": history,

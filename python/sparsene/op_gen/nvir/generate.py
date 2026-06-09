@@ -182,6 +182,8 @@ def _strategy_swizzle(
         return SwizzleLayout(3, 2, 3)
     if value == "swizzle_123":
         return SwizzleLayout(1, 2, 3)
+    if value == "swizzle_124":
+        return SwizzleLayout(1, 2, 4)
     return default
 
 
@@ -420,6 +422,7 @@ def _fixed_reg_a_shape() -> Shape:
     return Shape(
         IntShape(4),
         MnkShape("BLK_MMA_MNK", "m"),
+        MnkShape("BLK_MMA_MNK", "k"),
     )
 
 
@@ -427,6 +430,7 @@ def _fixed_reg_b_shape() -> Shape:
     return Shape(
         IntShape(2),
         MnkShape("BLK_MMA_MNK", "n"),
+        MnkShape("BLK_MMA_MNK", "k"),
     )
 
 
@@ -873,12 +877,16 @@ def _insert_ldmatrix_if_needed(
         input_name = "tileA"
         impl = NvOpImpl(
             f"""__syncthreads();
-int row = lid % 16;
-int col = lid / 16;
-ldmatrix_m8n8k8_x4(
-    (uint32_t*)({output_name}(_, _0{{}}, buf_idx).data()),
-    (void*)(&{input_name}(row, col * 4))
-);"""
+for (int m_iter = 0; m_iter < get<0>(BLK_MMA_MNK{{}}); m_iter++) {{
+    for (int k_iter = 0; k_iter < get<2>(BLK_MMA_MNK{{}}); k_iter++) {{
+        int row = lid % 16;
+        int col = lid / 16;
+        ldmatrix_m8n8k8_x4(
+            (uint32_t*)({output_name}(_, m_iter, k_iter, buf_idx).data()),
+            (void*)(&{input_name}(row + m_iter * 16, col * 4 + k_iter * 8))
+        );
+    }}
+}}"""
         )
     elif operand_index == 1:
         # Same caveat as the A-side path above: the lane mapping and shuffles are
@@ -889,15 +897,17 @@ ldmatrix_m8n8k8_x4(
         input_name = "tileB"
         impl = NvOpImpl(
             f"""__syncthreads();
-for (int n_iter = 0; n_iter < get<1>(BLK_MMA_MNK{{}}); n_iter++) {{
-    int row_b = lid / 2;
-    int col_b = lid % 2;
-    ldmatrix_m8n8k8_x2(
-        (uint32_t*)({output_name}(_, n_iter, buf_idx).data()),
-        (void*)(&{input_name}(row_b, col_b * 4 + n_iter * 8))
-    );
-    {output_name}(_0{{}}, n_iter, buf_idx) = __shfl_sync(0xffffffff, {output_name}(_0{{}}, n_iter, buf_idx), lid / 4 + lid % 4 * 8);
-    {output_name}(_1{{}}, n_iter, buf_idx) = __shfl_sync(0xffffffff, {output_name}(_1{{}}, n_iter, buf_idx), lid / 4 + lid % 4 * 8);
+for (int k_iter = 0; k_iter < get<2>(BLK_MMA_MNK{{}}); k_iter++) {{
+    for (int n_iter = 0; n_iter < get<1>(BLK_MMA_MNK{{}}); n_iter++) {{
+        int row_b = lid / 2;
+        int col_b = lid % 2;
+        ldmatrix_m8n8k8_x2(
+            (uint32_t*)({output_name}(_, n_iter, k_iter, buf_idx).data()),
+            (void*)(&{input_name}(row_b + k_iter * 8, col_b * 4 + n_iter * 8))
+        );
+        {output_name}(_0{{}}, n_iter, k_iter, buf_idx) = __shfl_sync(0xffffffff, {output_name}(_0{{}}, n_iter, k_iter, buf_idx), lid / 4 + lid % 4 * 8);
+        {output_name}(_1{{}}, n_iter, k_iter, buf_idx) = __shfl_sync(0xffffffff, {output_name}(_1{{}}, n_iter, k_iter, buf_idx), lid / 4 + lid % 4 * 8);
+    }}
 }}"""
         )
     else:
@@ -1116,17 +1126,19 @@ for (int linear = lid; linear < rows * cols; linear += 32) {{
 
     if logical_kind == "mma":
         return NvOpImpl(
-            f"""for (int m_iter = 0; m_iter < get<0>(BLK_MMA_MNK{{}}); m_iter++) {{
-    for (int n_iter = 0; n_iter < get<1>(BLK_MMA_MNK{{}}); n_iter++) {{
-        uint32_t frag_A[4];
-        uint32_t frag_B[2];
-        asm("cvt.rna.tf32.f32  %0, %1;\\n" : "=r"(frag_A[0]) : "f"({inputs[0].name}(0, m_iter)));
-        asm("cvt.rna.tf32.f32  %0, %1;\\n" : "=r"(frag_A[1]) : "f"({inputs[0].name}(1, m_iter)));
-        asm("cvt.rna.tf32.f32  %0, %1;\\n" : "=r"(frag_A[2]) : "f"({inputs[0].name}(2, m_iter)));
-        asm("cvt.rna.tf32.f32  %0, %1;\\n" : "=r"(frag_A[3]) : "f"({inputs[0].name}(3, m_iter)));
-        asm("cvt.rna.tf32.f32  %0, %1;\\n" : "=r"(frag_B[0]) : "f"({inputs[1].name}(0, n_iter)));
-        asm("cvt.rna.tf32.f32  %0, %1;\\n" : "=r"(frag_B[1]) : "f"({inputs[1].name}(1, n_iter)));
-        mma_m16n8k8_fp32_tf32_tf32_fp32({outputs[0].name}(_, make_coord(m_iter, n_iter)).data(), frag_A, frag_B);
+            f"""for (int k_iter = 0; k_iter < get<2>(BLK_MMA_MNK{{}}); k_iter++) {{
+    for (int m_iter = 0; m_iter < get<0>(BLK_MMA_MNK{{}}); m_iter++) {{
+        for (int n_iter = 0; n_iter < get<1>(BLK_MMA_MNK{{}}); n_iter++) {{
+            uint32_t frag_A[4];
+            uint32_t frag_B[2];
+            asm("cvt.rna.tf32.f32  %0, %1;\\n" : "=r"(frag_A[0]) : "f"({inputs[0].name}(0, m_iter, k_iter)));
+            asm("cvt.rna.tf32.f32  %0, %1;\\n" : "=r"(frag_A[1]) : "f"({inputs[0].name}(1, m_iter, k_iter)));
+            asm("cvt.rna.tf32.f32  %0, %1;\\n" : "=r"(frag_A[2]) : "f"({inputs[0].name}(2, m_iter, k_iter)));
+            asm("cvt.rna.tf32.f32  %0, %1;\\n" : "=r"(frag_A[3]) : "f"({inputs[0].name}(3, m_iter, k_iter)));
+            asm("cvt.rna.tf32.f32  %0, %1;\\n" : "=r"(frag_B[0]) : "f"({inputs[1].name}(0, n_iter, k_iter)));
+            asm("cvt.rna.tf32.f32  %0, %1;\\n" : "=r"(frag_B[1]) : "f"({inputs[1].name}(1, n_iter, k_iter)));
+            mma_m16n8k8_fp32_tf32_tf32_fp32({outputs[0].name}(_, make_coord(m_iter, n_iter)).data(), frag_A, frag_B);
+        }}
     }}
 }}"""
         )

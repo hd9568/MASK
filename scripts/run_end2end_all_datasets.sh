@@ -1,5 +1,15 @@
 #!/usr/bin/env bash
-set -euo pipefail
+# set -x  # uncomment to debug unexpected exits
+set -eu
+
+# Log unexpected exits (signals, etc.)
+_exit_trap() {
+    local rc=$?
+    if [ $rc -ne 0 ] && [ $rc -ne 143 ]; then  # 143 = SIGTERM from timeout/system
+        echo "=== SCRIPT EXITED WITH CODE $rc at $(date) ===" >&2
+    fi
+}
+trap _exit_trap EXIT
 
 source /mnt/lustre-client/huoda/venv/llm-sog/bin/activate
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -22,6 +32,7 @@ fi
 echo "Dataset dir:     ${DATASET_DIR}"
 echo "Batch log dir:   ${BATCH_DIR}"
 echo "Failed log:      ${FAILED_FILE}"
+echo "PID:             $$"
 echo ""
 
 MTX_FILES=("${DATASET_DIR}"/*.mtx)
