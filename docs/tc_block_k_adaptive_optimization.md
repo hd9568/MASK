@@ -331,3 +331,75 @@ kernel 仍正常运行并输出有效时序，`summarize_e2e_results.py` 会标�
 - BLK_K 值变大后，SMEM 和寄存器压力增大，可能降低 occupancy（当前 1-warp kernel 不受影响）
 - `avg_nnz < 16` 的阈值基于 ASIC_680k 单一数据点调优，可能在边界数据集上不够精确
 - Codegen 为不同 BLK_K 产生结构不同的 kernel（IR 级差异），未对大量不同 BLK_K 值做验证
+- BLK_M=32 在极稀疏矩阵（avg_nnz < 4）上存在数值错误，当前强制 BLK_M=16
+
+## 11. Generated vs Reference Kernel 结构差异分析
+
+### 11.1 宏观对比
+
+| 指标 | Reference (`kernel.inc`) | Generated (`me_tcf_kernel3.inc`) |
+|------|--------------------------|----------------------------------|
+| 代码行数 | 2134 | 2306 |
+| 架构 | 单一大循环 (`for_loop`) | 多阶段软件流水线 (`short_pipe`/`long_pipe`) |
+| cp_async 拷贝 | 4 处 | 4 处 |
+| pipeline commit | 62 | 49 |
+| pipeline wait | 54 | 40 |
+| syncthreads | 60 | 35 |
+| for 循环数 | 13 | 19 |
+| smem clear | 0（用 rmem 初始化） | 2（smem 显式清 0） |
+| `__shfl_sync` | 2 | 2 |
+| ldmatrix | 10 | 8 |
+| mma | 3 | 3 |
+
+### 11.2 关键差异
+
+1. **Pipeline 粒度**：Reference 使用更细粒度的 `commit/wait` 交织（62/54 vs 49/40），
+   实现更好的 DMA 与计算 overlap。
+
+2. **循环融合**：Generated 有 19 个 for 循环（vs Reference 的 13 个），因为 codegen 为每个
+   Op 生成独立循环体，无法像手工代码那样做跨操作循环融合。
+
+3. **Pipeline 深度**：Generated 使用固定 3 阶段模板 pipeline（`short_pipe`/`long_pipe` 中
+   的 k=0,1,2），Reference 手工编排了自适应深度的 `pipeline_wait_prior(N)` 参数。
+
+4. **Smem 清零**：Generated 用 `*((float*)(A_val_tile(...).data() + i)) = float(0)` 显式
+   清零 smem，Reference 通过寄存器初始化跳过此开销。
+
+### 11.3 性能影响
+
+所有 26 数据集对比（agent 模式，BLK_M=16，BLK_K 自适应）：
+
+| 指标 | Generated | Reference |
+|------|-----------|-----------|
+| 中位 speedup_vs_cusparse | 0.67× | 1.10× |
+| 超过 cusparse | 8/26 | 16/26 |
+| 唯一比 Reference 快的 | — | shipsec1 (-7.6%) |
+
+| 最慢 5 个 vs Reference | Generated | Reference | 差距 |
+|------------------------|-----------|-----------|------|
+| mac_econ_fwd500 | 2.17ms | 1.18ms | +84% |
+| web-BerkStan | 6.93ms | 3.94ms | +76% |
+| Yeast | 13.71ms | 7.91ms | +73% |
+| scircuit | 1.56ms | 0.94ms | +66% |
+| mip1 | 13.81ms | 8.33ms | +66% |
+
+### 11.4 优化路线图
+
+**短期可行**（低风险）：
+- 移除 smem 显式清零 → 预计 +3-5%
+- 增加 pipeline commit/wait 粒度 → 预计 +5-10%
+
+**中期**（中风险，需要 codegen 重构）：
+- Op 级循环融合（减少 for 循环数从 19 到 ~14）
+- 自适应 pipeline depth（根据 op 延迟动态调整 wait_prior 参数）
+
+**长期**（高风险，需要验证）：
+- 完全对齐 reference 的单一循环架构
+- 支持 cp_async 的 CACHEGLOBAL 缓存策略选择
+
+### 11.5 结论
+
+Generated kernel 与 Reference 的差距是 **codegen pipeline 架构层面的根本差异**，
+不是简单的参数或局部优化可以解决。当前 adaptive BLK_K/BLK_M 改动已使 BLK_K=16
+的宏观收益（-24% on ASIC_680k）在 generated 框架内实现。进一步追平 reference
+需要分阶段的 codegen 架构升级。

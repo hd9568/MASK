@@ -284,14 +284,18 @@ def _adaptive_tc_block_k(features: Dict[str, Any]) -> int:
     arbitrary BLK_K values via K-iteration loops in ldmatrix + MMA and
     adaptive Swizzle<1,2,S> where S=log2(BLK_K).
     """
-    aggressive = os.environ.get("SPARSENE_TC_BLOCK_K_AGGRESSIVE", "1") == "1"
+    aggressive = os.environ.get("SPARSENE_TC_BLOCK_K_AGGRESSIVE", "0") == "1"
     if not aggressive:
         return 8
     row_dist = features.get("row_nnz_distribution", {})
     avg_nnz = row_dist.get("mean", 0)
     if avg_nnz <= 0:
         return 8
-    if avg_nnz < 16:
+    # Narrow threshold: TC_BLOCK_K=16 only for extremely sparse matrices
+    # (avg_nnz < 6).  At avg_nnz ≈ 6—16 the increased SMEM pressure and
+    # K-iteration overhead outweigh the dispatch savings (verified on
+    # web-BerkStan, avg_nnz=11.1 → K=16 is +37% slower than K=8).
+    if avg_nnz < 6:
         return 16
     return 8
 

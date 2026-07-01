@@ -95,10 +95,72 @@ SPARSE_FORMAT_REGISTRY = {
             }
         }
     },
+    "CSR_TCF": {
+        # CSR_TCF uses CSR atomic format; same structure as ME_TCF
+        "shape_overrides": {
+            "val_len": ["Mo"],
+            "val_csr_len": ["nnz_dim_K_o"],
+            "val_sidx": ["BLK_K", "nnz_dim_K"],
+            "C_val": ["N", "M"],
+            "val_csr_row_ptr": ["BLK_M + 1", "nnz_dim_K_o"],
+        },
+        "dtypes": {
+            "idx": "int",
+            "len": "int",
+            "off": "int",
+            "sidx": "int",
+            "ptr": "int",
+        },
+        "custom_layouts": {
+            "val_csr_row_ptr": {
+                "dtype": "int",
+                "tensor_str": "make_tensor(make_gmem_ptr(d{name}), make_shape(get<0>(BLK_MNK{}) + Int<1>{}, nnz_dim_K_o))",
+                "tensor_type_str": "decltype(make_tensor(make_gmem_ptr((TO0*)nullptr), make_shape(get<0>(BLK_MNK{}) + Int<1>{}, VARLEN)))",
+            },
+            "B_val": {
+                "dtype": "float",
+                "tensor_str": "logical_divide(make_tensor(make_gmem_ptr(d{name}), make_layout(make_shape(K, N), make_stride(N, _1{}))), make_shape(_1{}, get<1>(BLK_MNK{})))(_, make_coord(_, blockIdx.y))",
+                "tensor_type_str": "decltype(logical_divide(make_tensor(make_gmem_ptr((TO0*)nullptr), make_layout(make_shape(VARLEN, VARLEN), make_stride(VARLEN, _1{}))), make_shape(_1{}, get<1>(BLK_MNK{})))(_, make_coord(_, VARLEN)))",
+            },
+            "C_val": {
+                "dtype": "float",
+                "tensor_str": "logical_divide(make_tensor(make_gmem_ptr(d{name}), make_shape(N, M)), select<1, 0>(BLK_MNK{}))(make_coord(_, blockIdx.y), make_coord(_, blockIdx.x))",
+                "tensor_type_str": "decltype(logical_divide(make_tensor(make_gmem_ptr((TO0*)nullptr), make_shape(VARLEN, VARLEN)), select<1, 0>(BLK_MNK{}))(make_coord(_, VARLEN), make_coord(_, VARLEN)))",
+            }
+        }
+    },
     "SR_BCRS": {
         # SR_BCRS uses dense atomic format; gmem interfaces similar to ME_TCF
         "shape_overrides": {
             "val_len": ["Mo"],
+            "val_sidx": ["BLK_K", "nnz_dim_K"],
+            "C_val": ["N", "M"],
+        },
+        "dtypes": {
+            "idx": "int",
+            "len": "int",
+            "off": "int",
+            "sidx": "int",
+            "ptr": "int",
+        },
+        "custom_layouts": {
+            "B_val": {
+                "dtype": "float",
+                "tensor_str": "logical_divide(make_tensor(make_gmem_ptr(d{name}), make_layout(make_shape(K, N), make_stride(N, _1{}))), make_shape(_1{}, get<1>(BLK_MNK{})))(_, make_coord(_, blockIdx.y))",
+                "tensor_type_str": "decltype(logical_divide(make_tensor(make_gmem_ptr((TO0*)nullptr), make_layout(make_shape(VARLEN, VARLEN), make_stride(VARLEN, _1{}))), make_shape(_1{}, get<1>(BLK_MNK{})))(_, make_coord(_, VARLEN)))",
+            },
+            "C_val": {
+                "dtype": "float",
+                "tensor_str": "logical_divide(make_tensor(make_gmem_ptr(d{name}), make_shape(N, M)), select<1, 0>(BLK_MNK{}))(make_coord(_, blockIdx.y), make_coord(_, blockIdx.x))",
+                "tensor_type_str": "decltype(logical_divide(make_tensor(make_gmem_ptr((TO0*)nullptr), make_shape(VARLEN, VARLEN)), select<1, 0>(BLK_MNK{}))(make_coord(_, VARLEN), make_coord(_, VARLEN)))",
+            }
+        }
+    },
+    "ELL_TCF": {
+        # ELL_TCF uses ELL atomic format; same structure as ME_TCF / COO
+        "shape_overrides": {
+            "val_len": ["Mo"],
+            "val_ell_len": ["nnz_dim_K_o"],
             "val_sidx": ["BLK_K", "nnz_dim_K"],
             "C_val": ["N", "M"],
         },
@@ -240,8 +302,25 @@ def _blk_mnk_expr(dim_name: str) -> Optional[str]:
 def _default_dim_entries(dims: List[Any]) -> List[Dict[str, Any]]:
     entries: List[Dict[str, Any]] = []
     for dim in dims:
-        dim_str = _sanitize_identifier(str(dim))
+        dim_raw = str(dim).strip()
+        dim_str = _sanitize_identifier(dim_raw)
         blk_expr = _blk_mnk_expr(dim_str)
+        blk_plus_one_match = re.match(r"^(BLK_[MNK])\s*\+\s*1$", dim_raw)
+
+        if blk_plus_one_match is not None:
+            base_blk = blk_plus_one_match.group(1)
+            base_blk_expr = _blk_mnk_expr(base_blk)
+            assert base_blk_expr is not None
+            blk_plus_one_expr = f"{base_blk_expr} + Int<1>{{}}"
+            entries.append(
+                {
+                    "raw": dim_raw,
+                    "shape": ParamShape(blk_plus_one_expr),
+                    "shape_arg": blk_plus_one_expr,
+                    "type_arg": blk_plus_one_expr,
+                }
+            )
+            continue
 
         if blk_expr is not None:
             entries.append(
@@ -685,6 +764,8 @@ def _classify_logical_kind(op: op_ir.Op) -> str:
         return "pow"
     if isinstance(op, op_ir.DeviceOp):
         return op.name
+    if isinstance(op, op_ir.EllAtomicValRestoreOp):
+        return "ell_atomic_val_restore"
     return op.name
 
 
@@ -763,7 +844,7 @@ def _choose_output_mem(
 
     if logical_kind == "mma":
         return "rmem"
-    if logical_kind in ["coo_atomic_val_restore", "mco_atomic_val_restore"]:
+    if logical_kind in ["coo_atomic_val_restore", "csr_atomic_val_restore", "ell_atomic_val_restore", "mco_atomic_val_restore"]:
         return "smem"
     if logical_kind in ["coo_atomic_format_load_val", "mco_atomic_format_load_val"]:
         return cast(
@@ -806,7 +887,7 @@ def _choose_op_type(logical_kind: str, outputs: List[NvOpOutput]) -> NvOpType:
             return NvOpType.COPY_2D_SP
         return NvOpType.COPY_2D
 
-    if logical_kind in ["mma", "coo_atomic_val_restore", "mco_atomic_val_restore", "ldmatrix"]:
+    if logical_kind in ["mma", "coo_atomic_val_restore", "csr_atomic_val_restore", "ell_atomic_val_restore", "mco_atomic_val_restore", "ldmatrix"]:
         return NvOpType.OTHERS
 
     return NvOpType.UNKNOWN
@@ -1076,6 +1157,51 @@ for (int i_load = lid; i_load < nnz_tile; i_load += 32) {{
     if logical_kind == "coo_atomic_val_restore" and len(inputs) >= 3 and len(outputs) == 1:
         out_name = outputs[0].name
         out_dtype = outputs[0].tensor.dtype
+        return NvOpImpl(
+            f"""int tile_elems = get<0>(shape({out_name})) * get<1>(shape({out_name}));
+for (int i_clear = lid; i_clear < tile_elems; i_clear += 32) {{
+    *(({out_dtype}*)({out_name}(_, _, buf_idx).data().get() + i_clear)) = {out_dtype}(0);
+}}
+__syncthreads();
+for (int i_restore = lid; i_restore < {inputs[2].name}; i_restore += 32) {{
+    auto value = {inputs[0].name}(i_restore);
+    int idx = {inputs[1].name}(i_restore);
+    if (idx < tile_elems) {{
+        *(({out_dtype}*)({out_name}(_, _, buf_idx).data().get() + idx)) = value;
+    }}
+}}"""
+        )
+
+    if logical_kind == "csr_atomic_val_restore" and len(inputs) >= 4 and len(outputs) == 1:
+        out_name = outputs[0].name
+        out_dtype = outputs[0].tensor.dtype
+        # CSR flat scatter: row_ptr is present for format semantics but the
+        # host already lays out the payload in row-major order, so iterating
+        # [0, csr_nnz) in one flat loop is equivalent to iterating each row
+        # segment separately — and it keeps the full warp busy for every
+        # iteration instead of splitting the work into BLK_M serial chunks.
+        return NvOpImpl(
+            f"""int tile_elems = get<0>(shape({out_name})) * get<1>(shape({out_name}));
+for (int i_clear = lid; i_clear < tile_elems; i_clear += 32) {{
+    *(({out_dtype}*)({out_name}(_, _, buf_idx).data().get() + i_clear)) = {out_dtype}(0);
+}}
+__syncthreads();
+for (int i_restore = lid; i_restore < {inputs[3].name}; i_restore += 32) {{
+    auto value = {inputs[0].name}(i_restore);
+    int idx = {inputs[1].name}(i_restore);
+    if (idx < tile_elems) {{
+        *(({out_dtype}*)({out_name}(_, _, buf_idx).data().get() + idx)) = value;
+    }}
+}}"""
+        )
+
+    if logical_kind == "ell_atomic_val_restore" and len(inputs) >= 3 and len(outputs) == 1:
+        out_name = outputs[0].name
+        out_dtype = outputs[0].tensor.dtype
+        # ELL restore: since the host guarantees
+        #   ell_range == BLK_M * max_nnz_per_row,
+        # iterating the flat range is algebraically identical to the
+        # 2D row-major traversal and saves two integer ops per warp.
         return NvOpImpl(
             f"""int tile_elems = get<0>(shape({out_name})) * get<1>(shape({out_name}));
 for (int i_clear = lid; i_clear < tile_elems; i_clear += 32) {{
@@ -1487,12 +1613,25 @@ def _lower_array_ref(
 
     is_val_sidx_ref = base_tensor_name.startswith("val_sidx")
     is_b_val_ref = base_tensor_name == "B_val"
+    is_csr_row_ptr_ref = base_tensor_name.startswith("val_csr_row_ptr")
 
     materialize_b_to_smem = bool(
         _strategy_tensor_setting(state, "materialize_b_array_ref_to_smem", True)
     )
     materialize_val_sidx_to_smem = bool(
         _strategy_tensor_setting(state, "materialize_val_sidx_to_smem", True)
+    )
+    materialize_generic_slice_to_smem = bool(
+        output_origin is not None
+        and output_origin.tensor.mem == "gmem"
+        and not is_val_sidx_ref
+        and not is_b_val_ref
+        and not is_csr_row_ptr_ref
+        and isinstance(op.result.type, op_ir.ArrayType)
+        and len(op.result.type.dims) == 1
+        and len(inputs) >= 2
+        and len(output_origin.tensor.shape) >= 2
+        and all(len(inp.tensor.shape) == 0 for inp in inputs[1:])
     )
 
     materialize_to_smem = (
@@ -1502,6 +1641,7 @@ def _lower_array_ref(
         and (
             (is_val_sidx_ref and materialize_val_sidx_to_smem)
             or (is_b_val_ref and materialize_b_to_smem)
+            or materialize_generic_slice_to_smem
             or (
                 any(len(inp.tensor.shape) > 0 for inp in inputs[1:])
                 and len(op.result.type.dims) >= 2
@@ -1551,15 +1691,30 @@ def _lower_array_ref(
     cp_async_enabled = is_b_val_ref and bool(
         _strategy_tensor_setting(state, "enable_b_array_ref_cp_async", True)
     )
+
     nvop = NvOp(
         name=op_name,
         inputs=inputs,
         outputs=outputs,
         impl=_make_impl("array_ref", inputs, outputs, state=state),
         mem_type=_infer_mem_type(inputs, outputs),
-        op_type=(NvOpType.COPY_2D_SP if materialize_to_smem else NvOpType.OTHERS),
+        op_type=(
+            NvOpType.COPY_1D
+            if materialize_to_smem and len(output_shape) == 1
+            else NvOpType.COPY_2D_SP
+            if materialize_to_smem
+            else NvOpType.OTHERS
+        ),
         logical_kind="array_ref",
-        array_ref_role="b_val" if is_b_val_ref else "val_sidx" if is_val_sidx_ref else "generic",
+        array_ref_role=(
+            "b_val"
+            if is_b_val_ref
+            else "val_sidx"
+            if is_val_sidx_ref
+            else "csr_row_ptr"
+            if is_csr_row_ptr_ref
+            else "generic"
+        ),
         cp_async=cp_async_enabled,
     )
     if outputs and outputs[0].tensor.mem == "smem":
@@ -1646,14 +1801,10 @@ def _lower_generic_op(
                         state=state,
                     ),
                     dtype=opir_type_to_nvir_dtype(result.type),
-                    row_major=(logical_kind == "coo_atomic_val_restore"),
+                    row_major=(logical_kind in ("coo_atomic_val_restore", "csr_atomic_val_restore", "ell_atomic_val_restore")),
                     swizzle=(
-                        _strategy_swizzle(
-                            state,
-                            "coo_restore_swizzle",
-                            SwizzleLayout(1, 2, 3),
-                        )
-                        if logical_kind == "coo_atomic_val_restore"
+                        SwizzleLayout(1, 2, 3, adaptive_blk_k=True)
+                        if logical_kind in ("coo_atomic_val_restore", "csr_atomic_val_restore", "ell_atomic_val_restore")
                         else None
                     ),
                 ),
@@ -1690,6 +1841,8 @@ def _lower_generic_op(
     # but are implemented via normal stores (not cp.async).
     if logical_kind in {
         "coo_atomic_val_restore",
+        "csr_atomic_val_restore",
+        "ell_atomic_val_restore",
         "mco_atomic_format_load_mask",
         "mco_atomic_format_load_val",
         "mco_atomic_val_restore",
@@ -1854,6 +2007,12 @@ def opir_type_to_nvir_shape(type: op_ir.Type) -> Shape:
             nvir_shape.append(MnkShape("BLK_MNK", "n"))
         elif dim_str == "BLK_K":
             nvir_shape.append(MnkShape("BLK_MNK", "k"))
+        elif re.match(r"^BLK_M\s*\+\s*1$", dim_str):
+            nvir_shape.append(ParamShape("get<0>(BLK_MNK{}) + Int<1>{}"))
+        elif re.match(r"^BLK_N\s*\+\s*1$", dim_str):
+            nvir_shape.append(ParamShape("get<1>(BLK_MNK{}) + Int<1>{}"))
+        elif re.match(r"^BLK_K\s*\+\s*1$", dim_str):
+            nvir_shape.append(ParamShape("get<2>(BLK_MNK{}) + Int<1>{}"))
         elif re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", dim_str) and dim_str.startswith("BLK_"):
             nvir_shape.append(ParamShape(dim_str))
         else:

@@ -42,6 +42,13 @@ using namespace cute;
 #endif
 
 int sparsene_generated_tile_b() {
+    const char* env = std::getenv("SPARSENE_GENERATED_TILE_B");
+    if (env != nullptr && env[0] != '\0') {
+        const int parsed = std::atoi(env);
+        if (parsed == 16 || parsed == 32 || parsed == 64) {
+            return parsed;
+        }
+    }
     return SPARSENE_GENERATED_TILE_B;
 }
 

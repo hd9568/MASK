@@ -18,6 +18,8 @@ from sparsene.transform.transformation import (
     SpawnTransformation,
     CooizeTransformation,
     McoizeTransformation,
+    CsrizeTransformation,
+    EllizeTransformation,
 )
 from sparsene.format.format import (
     Direction,
@@ -29,6 +31,8 @@ from sparsene.format.format import (
     sv_axis,
     coo_atomic_format,
     mco_atomic_format,
+    csr_atomic_format,
+    ell_atomic_format,
     Expr,
     Number,
     Symbol,
@@ -1416,6 +1420,222 @@ def apply_mcoize_transformation(
     return schedule, array_defs, new_format
 
 
+def apply_csrize_transformation(
+    schedule: Schedule,
+    array_defs: ArrayDefCollection,
+    spformat: Format,
+    root_format: Format,
+    transform: CsrizeTransformation,
+) -> Tuple[Schedule, ArrayDefCollection, AtomicFormat]:
+    schedule, array_defs = (
+        deepcopy(schedule),
+        deepcopy(array_defs),
+    )
+    update_st_array_def(array_defs)
+
+    # 1. Handle format
+    axis_x, axis_y = spformat.axes[0].name, spformat.axes[1].name
+    assert len(spformat.axes) == 2 and spformat.is_dense()
+
+    new_format = csr_atomic_format(
+        x_name=axis_x,
+        y_name=axis_y,
+        col_major=spformat.axes[0].direction == Direction.COL,
+    )
+    new_format.axes[0].length = spformat.axes[0].length
+    new_format.axes[1].length = spformat.axes[1].length
+    merged_axis = new_format.axes[2]
+    merged_axis.length = Function('varlen')(Symbol("nnz"))
+    update_st_axis(new_format)
+
+    # 2. Handle array_defs
+    assert len(array_defs[ArrayType.VAL]) == 1
+    for val_def in array_defs[ArrayType.VAL]:
+        idx_x, idx_y = val_def.index_of(axis_x), val_def.index_of(axis_y)
+        assert idx_x and idx_y and idx_x + 1 == idx_y and idx_y == len(val_def.axes) - 1
+
+        csr_len_def = ArrayDef(
+            name=MyNameManager.new_name(val_def.name + "_csr_len"),
+            axes=val_def.axes[:-2],
+            dims=val_def.dims[:-2],
+            type=ArrayType.SPLEN,
+            datatype=DataType.INT,
+        )
+        csr_idx_def = ArrayDef(
+            name=MyNameManager.new_name(val_def.name + "_csr_idx"),
+            axes=val_def.axes[:-2] + [f"{axis_x}_{axis_y}_csr"],
+            dims=val_def.dims[:-2] + [merged_axis.length],
+            type=ArrayType.COO_IDX,
+            datatype=DataType.INT,
+        )
+        csr_val_def = ArrayDef(
+            name=MyNameManager.new_name(val_def.name + "_csr_val"),
+            axes=val_def.axes[:-2] + [f"{axis_x}_{axis_y}_csr"],
+            dims=val_def.dims[:-2] + [merged_axis.length],
+            type=ArrayType.VAL,
+            datatype=val_def.datatype,
+        )
+        varlen2LenArrayTable = SymbolTable.global_table("varlen2LenArrayTable")
+        varlen2LenArrayTable[str(merged_axis.length)] = csr_len_def
+        csr_row_ptr_def = ArrayDef(
+            name=MyNameManager.new_name(val_def.name + "_csr_row_ptr"),
+            axes=val_def.axes[:-2] + [axis_x],
+            dims=val_def.dims[:-2] + [Symbol("BLK_M") + Number(1)],
+            type=ArrayType.IDX,
+            datatype=DataType.INT,
+        )
+        array_defs.replace([val_def.name], [csr_idx_def, csr_val_def, csr_len_def, csr_row_ptr_def])
+        _captured_row_ptr_name = csr_row_ptr_def.name
+
+    update_st_array_def(array_defs)
+
+    # 3. Handle schedule
+    axis_ref = schedule.find_axis_ref(axis_x)
+    assert axis_ref is schedule.find_axis_ref(axis_y)
+    assert isinstance(axis_ref, AtomicFormatOp)
+    assert axis_ref.type == AtomicFormatType.DENSE
+
+    orig_val_arg = next(
+        filter(
+            lambda arg: isinstance(arg, ArrayRef) and arg.array == val_def.name,
+            axis_ref.args,
+        )
+    )
+    inherited_indices = list(orig_val_arg.indices[:-2])
+
+    new_axis_ref = AtomicFormatOp(
+        axes=(axis_x, axis_y),
+        axes_len=(axis_ref.axes_len[0], axis_ref.axes_len[1]),
+        type=AtomicFormatType.CSR,
+        args=[
+            ArrayRef(array=csr_len_def.name, indices=inherited_indices),
+            ArrayRef(array=csr_idx_def.name, indices=inherited_indices + ["_"]),
+            ArrayRef(array=csr_val_def.name, indices=inherited_indices + ["_"]),
+            next(
+                filter(
+                    lambda arg: isinstance(arg, ArrayRef) and arg.array == "B_val",
+                    axis_ref.args,
+                )
+            ),
+            ArrayRef(array=csr_row_ptr_def.name, indices=inherited_indices),
+        ],
+        parent=axis_ref.get_parent(),
+    )
+
+    parent_axis_ref = axis_ref.get_parent()
+    if parent_axis_ref is not None:
+        assert isinstance(parent_axis_ref, AxisVisitor)
+        parent_axis_ref.body = new_axis_ref
+    else:
+        schedule = new_axis_ref
+
+    return schedule, array_defs, new_format
+
+
+def apply_ellize_transformation(
+    schedule: Schedule,
+    array_defs: ArrayDefCollection,
+    spformat: Format,
+    root_format: Format,
+    transform: EllizeTransformation,
+) -> Tuple[Schedule, ArrayDefCollection, AtomicFormat]:
+    """ELL atomic format: packed 2D [BLK_M, max_nnz_per_row] with per-block ell_len scalar."""
+    schedule, array_defs = (
+        deepcopy(schedule),
+        deepcopy(array_defs),
+    )
+    update_st_array_def(array_defs)
+
+    # 1. Handle format
+    axis_x, axis_y = spformat.axes[0].name, spformat.axes[1].name
+    assert len(spformat.axes) == 2 and spformat.is_dense()
+
+    new_format = ell_atomic_format(
+        x_name=axis_x,
+        y_name=axis_y,
+        col_major=spformat.axes[0].direction == Direction.COL,
+    )
+    new_format.axes[0].length = spformat.axes[0].length
+    new_format.axes[1].length = spformat.axes[1].length
+    merged_axis = new_format.axes[2]
+    merged_axis.length = Function('varlen')(Symbol("nnz"))
+    update_st_axis(new_format)
+
+    # 2. Handle array_defs
+    assert len(array_defs[ArrayType.VAL]) == 1
+    for val_def in array_defs[ArrayType.VAL]:
+        idx_x, idx_y = val_def.index_of(axis_x), val_def.index_of(axis_y)
+        assert idx_x and idx_y and idx_x + 1 == idx_y and idx_y == len(val_def.axes) - 1
+
+        ell_len_def = ArrayDef(
+            name=MyNameManager.new_name(val_def.name + "_ell_len"),
+            axes=val_def.axes[:-2],
+            dims=val_def.dims[:-2],
+            type=ArrayType.SPLEN,
+            datatype=DataType.INT,
+        )
+        ell_idx_def = ArrayDef(
+            name=MyNameManager.new_name(val_def.name + "_ell_idx"),
+            axes=val_def.axes[:-2] + [f"{axis_x}_{axis_y}_ell"],
+            dims=val_def.dims[:-2] + [merged_axis.length],
+            type=ArrayType.COO_IDX,
+            datatype=DataType.INT,
+        )
+        ell_val_def = ArrayDef(
+            name=MyNameManager.new_name(val_def.name + "_ell_val"),
+            axes=val_def.axes[:-2] + [f"{axis_x}_{axis_y}_ell"],
+            dims=val_def.dims[:-2] + [merged_axis.length],
+            type=ArrayType.VAL,
+            datatype=val_def.datatype,
+        )
+        varlen2LenArrayTable = SymbolTable.global_table("varlen2LenArrayTable")
+        varlen2LenArrayTable[str(merged_axis.length)] = ell_len_def
+        array_defs.replace([val_def.name], [ell_idx_def, ell_val_def, ell_len_def])
+
+    update_st_array_def(array_defs)
+
+    # 3. Handle schedule
+    axis_ref = schedule.find_axis_ref(axis_x)
+    assert axis_ref is schedule.find_axis_ref(axis_y)
+    assert isinstance(axis_ref, AtomicFormatOp)
+    assert axis_ref.type == AtomicFormatType.DENSE
+
+    orig_val_arg = next(
+        filter(
+            lambda arg: isinstance(arg, ArrayRef) and arg.array == val_def.name,
+            axis_ref.args,
+        )
+    )
+    inherited_indices = list(orig_val_arg.indices[:-2])
+
+    new_axis_ref = AtomicFormatOp(
+        axes=(axis_x, axis_y),
+        axes_len=(axis_ref.axes_len[0], axis_ref.axes_len[1]),
+        type=AtomicFormatType.ELL,
+        args=[
+            ArrayRef(array=ell_len_def.name, indices=inherited_indices),
+            ArrayRef(array=ell_idx_def.name, indices=inherited_indices + ["_"]),
+            ArrayRef(array=ell_val_def.name, indices=inherited_indices + ["_"]),
+            next(
+                filter(
+                    lambda arg: isinstance(arg, ArrayRef) and arg.array == "B_val",
+                    axis_ref.args,
+                )
+            ),
+        ],
+        parent=axis_ref.get_parent(),
+    )
+
+    parent_axis_ref = axis_ref.get_parent()
+    if parent_axis_ref is not None:
+        assert isinstance(parent_axis_ref, AxisVisitor)
+        parent_axis_ref.body = new_axis_ref
+    else:
+        schedule = new_axis_ref
+
+    return schedule, array_defs, new_format
+
+
 def add_metadata(schedule: Optional[Schedule], format: Format) -> None:
     found_reduction_axis = False
     found_block_idx_x_axis = False
@@ -1515,6 +1735,18 @@ def computent_from_rts(name: str, rts: TransformationSequence) -> Computent:
             atomic_format_reached = True
         elif isinstance(transform, McoizeTransformation):
             schedule, array_defs, atomic_format = apply_mcoize_transformation(
+                schedule, array_defs, spformat, root_format.child, transform
+            )
+            parent_format.child = atomic_format
+            atomic_format_reached = True
+        elif isinstance(transform, CsrizeTransformation):
+            schedule, array_defs, atomic_format = apply_csrize_transformation(
+                schedule, array_defs, spformat, root_format.child, transform
+            )
+            parent_format.child = atomic_format
+            atomic_format_reached = True
+        elif isinstance(transform, EllizeTransformation):
+            schedule, array_defs, atomic_format = apply_ellize_transformation(
                 schedule, array_defs, spformat, root_format.child, transform
             )
             parent_format.child = atomic_format

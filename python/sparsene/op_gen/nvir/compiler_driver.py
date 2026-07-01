@@ -42,6 +42,11 @@ def _preferred_stage(kind: str, op: Optional[NvOp] = None) -> int:
         role = getattr(op, "attrs", {}).get("array_ref_role")
         if role == "b_val":
             return 1
+        if role == "csr_row_ptr":
+            # row_ptr copy is a no-op when restore uses flat scatter;
+            # keep it in the same stage as csr_atomic_val_restore to
+            # avoid an extra pipeline commit/wait barrier.
+            return 1
     if kind in {
         "coo_atomic_format_load_idx",
         "coo_atomic_format_load_val",
@@ -57,7 +62,12 @@ def _preferred_stage(kind: str, op: Optional[NvOp] = None) -> int:
         "load",
     }:
         return 0
-    if kind in {"coo_atomic_val_restore", "mco_atomic_val_restore"}:
+    if kind in {
+        "coo_atomic_val_restore",
+        "csr_atomic_val_restore",
+        "ell_atomic_val_restore",
+        "mco_atomic_val_restore",
+    }:
         return 1
     if kind in {"ldmatrix", "mma", "c_val_store"}:
         return 2
@@ -489,7 +499,7 @@ def _fuse_load_offset_sub_div(program: NvOpProgram) -> None:
     logger.info("Fused load_offset+gen_sub+gen_div: removed 2 ops from outer loop")
 
 
-def _fuse_inline_gen_add(main_loop: ForLoopNvOp) -> None:
+def _fuse_inline_gen_add(main_loop: ForLoopNvOp) -> bool:
     """Inline gen_add into array_ref and load_offset_1, eliminating 36 pipeline calls.
 
     Before:
@@ -504,58 +514,75 @@ def _fuse_inline_gen_add(main_loop: ForLoopNvOp) -> None:
     """
 
     body = main_loop.body
+
     gen_add = None
     arr_ref = None
+    arr_ref2 = None
     load_off1 = None
 
     for op in list(body.ops):
         kind = _get_logical_kind(op)
         if kind == "add":
             gen_add = op
-        elif kind == "array_ref" and not op.name.startswith("array_ref_1"):
+        elif kind == "array_ref" and not op.name.startswith("array_ref_1") and not op.name.startswith("array_ref_2"):
             arr_ref = op
+        elif kind == "array_ref" and op.name.startswith("array_ref_2"):
+            arr_ref2 = op
         elif kind == "load_offset" and op.name.startswith("load_offset_"):
             load_off1 = op
 
     if gen_add is None or arr_ref is None or load_off1 is None:
-        return
+        return False
+
+    ga_out = gen_add.outputs[0]
+
+    # Only fuse if the gen_add output is actually consumed by the
+    # array_ref and load_offset_1 we identified above.
+    arr_ref_uses_add = any(inp.tensor.source is ga_out for inp in arr_ref.inputs)
+    load_uses_add = any(inp.tensor.source is ga_out for inp in load_off1.inputs)
+
+    if not (arr_ref_uses_add and load_uses_add):
+        return False
+    expected_consumers = {arr_ref, load_off1}
+    if arr_ref2 is not None and any(inp.tensor.source is ga_out for inp in arr_ref2.inputs):
+        expected_consumers.add(arr_ref2)
+    if set(ga_out.consumers) != expected_consumers:
+        return False
 
     off_l_inp = gen_add.inputs[0]
     lc_inp = gen_add.inputs[1]
-    ga_out = gen_add.outputs[0]
 
     # --- Fuse into array_ref ---
-    if any(inp.tensor.source is ga_out for inp in arr_ref.inputs):
-        new_ar: list = []
-        for inp in arr_ref.inputs:
-            if inp.tensor.source is ga_out:
-                continue
-            new_ar.append(NvOpInput(idx=len(new_ar), name=inp.name,
-                tensor=NvOpTensor(shape=inp.tensor.shape, mem=inp.tensor.mem,
-                                  dtype=inp.tensor.dtype, source=inp.tensor.source)))
-        new_ar.append(NvOpInput(idx=len(new_ar), name="off_l",
-            tensor=NvOpTensor(shape=off_l_inp.tensor.shape, mem=off_l_inp.tensor.mem,
-                              dtype=off_l_inp.tensor.dtype, source=off_l_inp.tensor.source)))
-        new_ar.append(NvOpInput(idx=len(new_ar), name="lc",
-            tensor=NvOpTensor(shape=lc_inp.tensor.shape, mem=lc_inp.tensor.mem,
-                              dtype=lc_inp.tensor.dtype, source=lc_inp.tensor.source)))
-        arr_ref.inputs = []
-        for ni in new_ar:
-            arr_ref.add_input(ni)
-        arr_ref.impl = NvOpImpl(
-            "int tile_len = size<0>(shape(result_0));\n"
-            "        int idx = off_l + lc;\n"
-            "        auto thr_tiler = make_shape(Int<4>{});\n"
-            "        for (int i_load = lid; i_load * 4 < tile_len; i_load += 32) {\n"
-            "            auto thr_coord = make_coord(i_load);\n"
-            "            auto src = local_tile(operand_0(_, idx), thr_tiler, thr_coord);\n"
-            "            auto dst = local_tile(result_0(_, buf_idx), thr_tiler, thr_coord);\n"
-            "            sparsene_copy_g2s_128<int>(src, dst);\n"
-            "        }")
-        arr_ref.attrs["cp_async"] = True
-        if arr_ref.outputs:
-            arr_ref.outputs[0].attrs["cp_async"] = True
-            arr_ref.outputs[0].attrs["align_16"] = True
+    new_ar: list = []
+    for inp in arr_ref.inputs:
+        if inp.tensor.source is ga_out:
+            continue
+        new_ar.append(NvOpInput(idx=len(new_ar), name=inp.name,
+            tensor=NvOpTensor(shape=inp.tensor.shape, mem=inp.tensor.mem,
+                              dtype=inp.tensor.dtype, source=inp.tensor.source)))
+    new_ar.append(NvOpInput(idx=len(new_ar), name="off_l",
+        tensor=NvOpTensor(shape=off_l_inp.tensor.shape, mem=off_l_inp.tensor.mem,
+                          dtype=off_l_inp.tensor.dtype, source=off_l_inp.tensor.source)))
+    new_ar.append(NvOpInput(idx=len(new_ar), name="lc",
+        tensor=NvOpTensor(shape=lc_inp.tensor.shape, mem=lc_inp.tensor.mem,
+                          dtype=lc_inp.tensor.dtype, source=lc_inp.tensor.source)))
+    arr_ref.inputs = []
+    for ni in new_ar:
+        arr_ref.add_input(ni)
+    arr_ref.impl = NvOpImpl(
+        "int tile_len = size<0>(shape(result_0));\n"
+        "        int idx = off_l + lc;\n"
+        "        auto thr_tiler = make_shape(Int<4>{});\n"
+        "        for (int i_load = lid; i_load * 4 < tile_len; i_load += 32) {\n"
+        "            auto thr_coord = make_coord(i_load);\n"
+        "            auto src = local_tile(operand_0(_, idx), thr_tiler, thr_coord);\n"
+        "            auto dst = local_tile(result_0(_, buf_idx), thr_tiler, thr_coord);\n"
+        "            sparsene_copy_g2s_128<int>(src, dst);\n"
+        "        }")
+    arr_ref.attrs["cp_async"] = True
+    if arr_ref.outputs:
+        arr_ref.outputs[0].attrs["cp_async"] = True
+        arr_ref.outputs[0].attrs["align_16"] = True
 
     # --- Fuse into load_offset_1 ---
     if any(inp.tensor.source is ga_out for inp in load_off1.inputs):
@@ -580,8 +607,32 @@ def _fuse_inline_gen_add(main_loop: ForLoopNvOp) -> None:
             "        ll(0, buf_idx) = operand_0(idx);\n"
             "        rr(0, buf_idx) = operand_0(idx + 1);")
 
+    # --- Fuse into CSR row_ptr alias array_ref_2 ---
+    if arr_ref2 is not None and any(inp.tensor.source is ga_out for inp in arr_ref2.inputs):
+        new_ar2: list = []
+        for inp in arr_ref2.inputs:
+            if inp.tensor.source is ga_out:
+                continue
+            new_ar2.append(NvOpInput(idx=len(new_ar2), name=inp.name,
+                tensor=NvOpTensor(shape=inp.tensor.shape, mem=inp.tensor.mem,
+                                  dtype=inp.tensor.dtype, source=inp.tensor.source)))
+        new_ar2.append(NvOpInput(idx=len(new_ar2), name="off_l",
+            tensor=NvOpTensor(shape=off_l_inp.tensor.shape, mem=off_l_inp.tensor.mem,
+                              dtype=off_l_inp.tensor.dtype, source=off_l_inp.tensor.source)))
+        new_ar2.append(NvOpInput(idx=len(new_ar2), name="lc",
+            tensor=NvOpTensor(shape=lc_inp.tensor.shape, mem=lc_inp.tensor.mem,
+                              dtype=lc_inp.tensor.dtype, source=lc_inp.tensor.source)))
+        arr_ref2.inputs = []
+        for ni in new_ar2:
+            arr_ref2.add_input(ni)
+        arr_ref2.impl = NvOpImpl(
+            "int idx = off_l + lc;\n"
+            "        (void)idx;\n"
+            "        //! array_ref lowered as logical view/alias")
+
     body.ops.remove(gen_add)
-    logger.info("Inlined gen_add into array_ref + load_offset_1; -1 pipeline op")
+    logger.info("Inlined gen_add into array_ref/load_offset_1/(optional)array_ref_2; -1 pipeline op")
+    return True
 
 
 def _mark_codegen_inline_load_offset(main_loop: ForLoopNvOp) -> None:
@@ -654,7 +705,7 @@ def _fuse_load_offset_into_coo_loaders(main_loop: ForLoopNvOp) -> None:
         kind = _get_logical_kind(op)
         if kind == "load_offset" and op.name.startswith("load_offset_"):
             load_off = op
-        elif kind == "array_ref" and not op.name.startswith("array_ref_1"):
+        elif kind == "array_ref" and not op.name.startswith("array_ref_1") and not op.name.startswith("array_ref_2"):
             arr_ref = op
         elif kind == "coo_atomic_format_load_idx":
             coo_idx = op
@@ -800,9 +851,14 @@ def apply_software_pipeline_and_codegen(program: NvOpProgram, output_path: Union
         len(main_loop.body.ops),
     )
 
-    # 2. 内联融合: gen_add → array_ref + load_offset_1 (消除 36 次 pipeline 调用)
-    _fuse_inline_gen_add(main_loop)
-    _mark_codegen_inline_load_offset(main_loop)
+    # 2. 内联融合: gen_add → array_ref + load_offset_1
+    # Only safe when gen_add feeds exactly one array_ref and one load_offset
+    # that both consume the add output. CSR's no-op array_ref_2 does not fit.
+    # Pair the two passes together: if fuse skips, mark must also skip
+    # because it relies on the post-fuse op signature (3 inputs).
+    fused = _fuse_inline_gen_add(main_loop)
+    if fused:
+        _mark_codegen_inline_load_offset(main_loop)
 
     # 3. 按依赖关系进行动态 Stage 划分（满足 producer->consumer 仅允许同 stage 或下一 stage）
     stage_op_lists = _partition_pipeline_stages(main_loop)

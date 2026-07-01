@@ -152,6 +152,7 @@ class SwizzleLayout:
     b: int
     m: int
     s: int
+    adaptive_blk_k: bool = False
 
 
 @dataclass

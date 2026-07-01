@@ -1149,7 +1149,21 @@ class NvIrCodeGenerator:
             )
 
             if (swizzle := out.tensor.swizzle) is not None:
-                using_layout_str = f"using Layout_o{out.idx} = decltype(composition(Swizzle<{swizzle.b}, {swizzle.m}, {swizzle.s}>{{}}, {make_layout_str}));"
+                if getattr(swizzle, 'adaptive_blk_k', False):
+                    # S = log2(BLK_K): 8->3, 16->4, 32->5, 64->6, 128->7
+                    swizzle_s = (
+                        "(get<2>(BLK_MNK{}) == Int<8>{}) ? 3 : "
+                        "((get<2>(BLK_MNK{}) == Int<16>{}) ? 4 : "
+                        "((get<2>(BLK_MNK{}) == Int<32>{}) ? 5 : "
+                        "((get<2>(BLK_MNK{}) == Int<64>{}) ? 6 : 7)))"
+                    )
+                    using_layout_str = (
+                        f"using Layout_o{out.idx} = decltype(composition("
+                        f"Swizzle<{swizzle.b}, {swizzle.m}, {swizzle_s}>{{}}, "
+                        f"{make_layout_str}));"
+                    )
+                else:
+                    using_layout_str = f"using Layout_o{out.idx} = decltype(composition(Swizzle<{swizzle.b}, {swizzle.m}, {swizzle.s}>{{}}, {make_layout_str}));"
             else:
                 using_layout_str = (
                     f"using Layout_o{out.idx} = decltype({make_layout_str});"
@@ -1203,14 +1217,17 @@ class NvIrCodeGenerator:
         init_strs = []
         for idx, out in enumerate(op.outputs):
             make_shape_str, varlen_idx = self.dump_init_make_shape(
-                idx, out.tensor.shape, is_output=True
+                idx,
+                out.tensor.shape,
+                is_output=True,
+                include_nbuf=out.owning and op.pipelined and not out.unique,
             )
             if varlen_idx > 0:
                 init_strs.append(f"shape_o{idx}({make_shape_str})")
         return init_strs
 
     def dump_init_make_shape(
-        self, idx: int, shape: Shape, *, is_output: bool
+        self, idx: int, shape: Shape, *, is_output: bool, include_nbuf: bool = False
     ) -> Tuple[str, int]:
         shape_strs = []
         varlen_idx: int = 0
@@ -1230,7 +1247,7 @@ class NvIrCodeGenerator:
                 shape_strs.append(self.dump_decl_make_shape(s, nbuf=False))
             else:
                 raise ValueError(f"Unknown shape type: {type(s)}")
-        if is_output:
+        if is_output and include_nbuf:
             shape_strs.append("NBUF{}")
         comma_seperated_shapes = ", ".join(shape_strs)
         return f"make_shape({comma_seperated_shapes})", varlen_idx

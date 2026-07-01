@@ -238,6 +238,72 @@ class CooAtomicValRestoreOp(DeviceOp):
     def name(self) -> str:
         return "coo_atomic_val_restore"
 
+
+@dataclass
+class CsrAtomicValRestoreOp(DeviceOp):
+    """CSR-specific restore: takes row_ptr (BLK_M+1 ints) + idx/val arrays.
+
+    Unlike COO which takes a scalar coo_range (=nnz) and scatters flatly,
+    CSR iterates row-by-row using the row_ptr to bound per-row ranges.
+    operands = [csr_val, csr_idx, csr_row_ptr, csr_nnz]
+    """
+    def __init__(
+        self, mem: str, operands: Sequence[Value], out_shape: Tuple[Expr, Expr]
+    ):
+        assert len(operands) == 4, "csr_atomic_val_restore requires [val, idx, row_ptr, nnz]"
+        assert isinstance(operands[0].type, ArrayType)  # val array (smem)
+        assert isinstance(operands[1].type, ArrayType)  # idx array (smem)
+        assert isinstance(operands[2].type, ArrayType)  # row_ptr array (gmem/rmem)
+        assert isinstance(operands[3].type, IntType)    # nnz (scalar range)
+        super().__init__(
+            mem=mem,
+            operands=operands,
+            results=[
+                OpResult(
+                    type=ArrayType(out_shape, operands[0].type.datatype),
+                    defining_op=self,
+                    result_idx_in_owner=0,
+                ),
+            ],
+        )
+
+    @property
+    def name(self) -> str:
+        return "csr_atomic_val_restore"
+
+
+@dataclass
+class EllAtomicValRestoreOp(DeviceOp):
+    """ELL-specific restore: uses ell_len scalar + flat idx/val arrays.
+
+    ELL stores data row-major packed across [BLK_M, max_nnz_per_row] 2D layout.
+    The restore iterates flatly [0, BLK_M * ell_len) with per-row stride.
+    operands = [ell_val, ell_idx, ell_len]  (3 operands, like COO)
+    """
+    def __init__(
+        self, mem: str, operands: Sequence[Value], out_shape: Tuple[Expr, Expr]
+    ):
+        assert len(operands) == 3, "ell_atomic_val_restore requires [val, idx, ell_len]"
+        assert isinstance(operands[0].type, ArrayType)  # val array (smem)
+        assert isinstance(operands[1].type, ArrayType)  # idx array (smem)
+        assert isinstance(operands[2].type, IntType)    # ell_len (scalar)
+        super().__init__(
+            mem=mem,
+            operands=operands,
+            results=[
+                OpResult(
+                    type=ArrayType(out_shape, operands[0].type.datatype),
+                    defining_op=self,
+                    result_idx_in_owner=0,
+                ),
+            ],
+        )
+
+    @property
+    def name(self) -> str:
+        return "ell_atomic_val_restore"
+
+
 @dataclass
 class McoAtomicFormatLoadMaskOp(DeviceOp):
     def __init__(self, mem: str, operands: Sequence[Value]):

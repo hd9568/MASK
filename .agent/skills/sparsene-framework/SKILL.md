@@ -34,12 +34,81 @@ The canonical pipeline is:
 
 - Format definitions: `python/sparsene/formats/*.py`
 - Format data model: `python/sparsene/format/format.py`
+- Format design agent: `python/sparsene/op_gen/format_design_agent.py`
 - RTS derivation: `python/sparsene/transform/rts.py`
 - Computent: `python/sparsene/op_gen/computent/computent.py`
 - OPIR generation: `python/sparsene/op_gen/opir/generate.py`
 - NVIR lowering: `python/sparsene/op_gen/nvir/generate.py`
 - Software pipeline/codegen: `python/sparsene/op_gen/nvir/compiler_driver.py`, `codegen.py`, `templates.py`
 - Runtime host path: `examples/src_fp32/dtc/testbed/host_program_generated.cu`, `main.cu`
+- Reference hand-tuned kernel: `examples/src_fp32/dtc/testbed/kernel.inc` (2134 lines, used by `host_program.cu`)
+- Benchmark script: `scripts/benchmark_all_me_tcf.py` (heuristic mode, all datasets)
+- Batch testing: `scripts/run_end2end_all_datasets.sh` (agent mode, all datasets)
+- Results summarizer: `scripts/summarize_e2e_results.py`
+
+## Key Workflows
+
+### Running the Pipeline
+
+```bash
+source /mnt/lustre-client/huoda/venv/llm-sog/bin/activate
+
+# Single dataset, heuristic mode (no LLM agent):
+python python/test/end2end_pipeline.py --mode heuristic -m cant.mtx -N 512 -i 10
+
+# Single dataset, agent mode (LLM decides format + strategy):
+python python/test/end2end_pipeline.py --mode agent -m cant.mtx -N 512 -i 10
+
+# All datasets, heuristic mode, produce comparison markdown:
+python scripts/benchmark_all_me_tcf.py
+
+# All datasets, agent mode, produce log directory:
+bash scripts/run_end2end_all_datasets.sh > log.log 2>&1 &
+
+# Summarize batch results:
+python scripts/summarize_e2e_results.py logs/logs_all_datasets_YYYYMMDD_HHMMSS
+```
+
+### Binary Kernel Cache
+
+`_build_binary()` in `end2end_pipeline.py` implements a kernel binary cache to avoid
+redundant nvcc compilations.  The cache key includes:
+
+- **md5 of `.inc` content** (first 12 hex chars) — detects any codegen change
+- **BLK_K, BLK_M, N** nvcc flags
+
+Cache location: `{log_root}/.kernel_binary_cache/`.
+
+**Important**: The `.inc` content digest ensures that different strategy decisions
+(swizzle, pipeline config) produce different cache keys.  Always clear the cache
+when switching between major codegen versions:
+
+```bash
+rm -rf logs/.kernel_binary_cache
+```
+
+### Dataset Status Conventions
+
+| Status | Meaning |
+|--------|---------|
+| `ok` | Generated kernel matches cuSPARSE within tolerance |
+| `FAILED` | Pipeline crashed or produced no output |
+| `FAILED_NUMERICAL` | Kernel ran and produced valid timing, but element-wise comparison differs from cuSPARSE.  Timing is still usable for performance analysis. |
+| `NO SUMMARY` | Pipeline did not produce a `summary.json` (incomplete run) |
+
+**Known FAILED_NUMERICAL datasets** (pre-existing codegen bug, not caused by BLK_K/BLK_M changes):
+
+| Dataset | avg NNZ/row | Root Cause |
+|---------|------------|------------|
+| mc2depi | 4.0 | Extremely sparse TC blocks (1–2 NNZ each) |
+| OVCAR-8H | 2.1 | Same |
+| webbase-1M | 3.1 | Same |
+| YeastH | 2.1 | Same |
+| Yeast | 2.1 | Same |
+
+These datasets produce correct results with the reference hand-tuned kernel (`kernel.inc`)
+but have element-wise errors with the generated kernel (`me_tcf_kernel3.inc`).
+The bug is in the COO atomic format sparse-to-dense restore logic for near-empty blocks.
 
 ## Agent Guardrails
 
@@ -67,6 +136,31 @@ The canonical pipeline is:
   (summarized in the stats), but individual element comparisons against cuSPARSE show
   discrepancies.  This is a pre-existing codegen pipeline issue, not introduced by
   the adaptive BLK_K/BLK_M changes.
+- **Generated vs Reference kernel performance gap**: the generated kernel
+  (`me_tcf_kernel3.inc`) is structurally different from the hand-tuned reference
+  (`kernel.inc`).  Key differences:
+  - Reference uses single large loop with fine-grained `__pipeline_commit/wait`
+    (62 commit / 54 wait vs Generated's 49 / 40)
+  - Reference has loop fusion (13 for-loops vs Generated's 19)
+  - Reference has adaptive pipeline depth; Generated uses fixed 3-stage pipeline
+  - **Impact**: Reference is faster on 25/26 datasets; only `shipsec1` is faster
+    with Generated.  Gap ranges from +11% to +84%.
+  - **Closing this gap** requires codegen architecture changes (loop fusion,
+    adaptive pipeline depth), not simple parameter tuning.
+
+## Shell Script Robustness
+
+The batch runner (`scripts/run_end2end_all_datasets.sh`) includes:
+- PID logging for OOM/debug diagnostics
+- EXIT trap to log unexpected termination codes
+- `set -eu` (not `set -euo pipefail` — pipefail was removed after causing silent exits when
+  Python subprocess tee/pipes produced non-zero exit codes)
+
+To debug unexpected exits:
+```bash
+dmesg | grep -i "killed process\|out of memory" | tail -10  # check OOM kills
+grep "SCRIPT EXITED WITH CODE" log.log                        # check trap output
+```
 
 ## Runtime Configuration
 
@@ -85,11 +179,17 @@ The venv lives on Lustre to avoid consuming home-directory disk quota.
 
 | Variable | Default | Meaning |
 |----------|---------|---------|
-| `SPARSENE_MTX_CACHE_DIR` | `/mnt/lustre-client/huoda/mtx_cache` | Directory for sparse-format-layer checkpoint files. `main.cu` writes/reads `.checkpoint` files here to avoid re-constructing sparse metadata on every run. |
-| `SPARSENE_DISABLE_MTX_CACHE` | `""` (cache enabled) | Set to `1` to skip checkpoint read/write entirely. The checkpoint path was fixed to use `vector<unsigned char>` + explicit mark clearing (same pattern as the OpenMP path), replacing per-iteration `new`/`delete` of large int arrays that could trigger heap fragmentation on matrices with many row windows. |
+| `SPARSENE_MTX_CACHE_DIR` | `/mnt/lustre-client/huoda/mtx_cache` | Directory for sparse-format-layer checkpoint files. `main.cu` writes/reads `.checkpoint` files here. |
+| `SPARSENE_DISABLE_MTX_CACHE` | `"1"` (cache disabled) | **Default is `1`** in `end2end_pipeline.py` (set via `os.environ.setdefault`). Set to `0` to re-enable checkpoint cache. |
+| `SPARSENE_TC_BLOCK_K_AGGRESSIVE` | `"1"` (adaptive enabled) | Set to `0` to force `TC_BLOCK_K=8` for all matrices. When `1`, sparse matrices (avg NNZ/row < 16) use `TC_BLOCK_K=16`. |
+| `DATASET_DIR` | `/mnt/lustre-client/zhangkaige/selected_mtx` | Root directory containing `.mtx` files. |
+| `NVCC_CCBIN` | `/opt/rh/gcc-toolset-13/root/usr/bin/g++` | Host compiler for nvcc. |
+| `CUDA_ARCH` | `sm_80` | CUDA compute capability for nvcc. |
 
 ### Checkpoint Cache
 
-Sparse format checkpoint files are persisted under the path set by `SPARSENE_MTX_CACHE_DIR`. When the variable is unset, `main.cu` defaults to `/mnt/lustre-client/huoda/mtx_cache`. Shell scripts in `examples/src_fp32/dtc/testbed/scripts/` also default to the same path.
-
-**Important**: The cache directory lives on Lustre high-performance storage (`/mnt/lustre-client/huoda/mtx_cache`), not inside the source tree, to keep the repo lightweight and avoid large binary files in version control. If you need to relocate it, update both the `main.cu` fallback and the `SPARSENE_MTX_CACHE_DIR` default in scripts.
+Sparse format checkpoint files are persisted under the path set by `SPARSENE_MTX_CACHE_DIR`.
+By default, `end2end_pipeline.py` sets `SPARSENE_DISABLE_MTX_CACHE=1` to avoid stale
+checkpoints when switching BLK_K/BLK_M configurations.  When enabled (`=0`), `main.cu`
+defaults to `/mnt/lustre-client/huoda/mtx_cache`.  The checkpoint filename now includes
+`_TBK` and `_RWM` suffixes for per-configuration isolation.

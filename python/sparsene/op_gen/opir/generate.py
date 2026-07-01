@@ -50,6 +50,8 @@ from sparsene.op_gen.opir.ops import (
     ValSidxLoadOp,
     BValLoadOp,
     CooAtomicValRestoreOp,
+    CsrAtomicValRestoreOp,
+    EllAtomicValRestoreOp,
     McoAtomicFormatLoadMaskOp,
     McoAtomicFormatLoadValOp,
     McoAtomicValRestoreOp,
@@ -599,6 +601,14 @@ def generate_from_atomic_format_op(
             return generate_from_mco_atomic_format_op(
                 schedule, array_defs, format, C_val_tile
             )
+        case AtomicFormatType.CSR:
+            return generate_from_csr_atomic_format_op(
+                schedule, array_defs, format, C_val_tile
+            )
+        case AtomicFormatType.ELL:
+            return generate_from_ell_atomic_format_op(
+                schedule, array_defs, format, C_val_tile
+            )
 
 
 def build_array_def(
@@ -821,6 +831,159 @@ def generate_from_coo_atomic_format_op(
         name_hint="C_val_tile"
     ).result
 
+
+    return C_val_tile_updated
+
+
+def generate_from_csr_atomic_format_op(
+    schedule: AtomicFormatOp,
+    array_defs: ArrayDefCollection,
+    format: Format,
+    C_val_tile: Value,
+) -> OpResult:
+    """CSR atomic format: use row_ptr to restore A tile row-by-row."""
+    assert len(schedule.args) == 5
+    assert isinstance(schedule.args[0], ArrayRef)
+    assert isinstance(schedule.args[1], ArrayRef)
+    assert isinstance(schedule.args[2], ArrayRef)
+    assert isinstance(schedule.args[3], ArrayRef)
+    assert isinstance(schedule.args[4], ArrayRef)
+    print("Generating CSR atomic format op with args: ", schedule.args)
+
+    len_array = op_builder.lookup_symbol(
+        schedule.args[0].array, get_array_type(array_defs[schedule.args[0].array])
+    )
+    idx_array = op_builder.lookup_symbol(
+        schedule.args[1].array, get_array_type(array_defs[schedule.args[1].array])
+    )
+    val_array = op_builder.lookup_symbol(
+        schedule.args[2].array, get_array_type(array_defs[schedule.args[2].array])
+    )
+
+    B_val_tile = build_array_ref(
+        schedule.args[3], array_defs, format, name_hint="B_val_tile"
+    )
+    csr_row_ptr = build_array_ref(
+        schedule.args[4], array_defs, format, name_hint="csr_row_ptr"
+    )
+
+    assert isinstance(B_val_tile.type, ArrayType)
+    assert isinstance(C_val_tile.type, ArrayType)
+    assert isinstance(csr_row_ptr.type, ArrayType)
+
+    ll, rr = op_builder.build(
+        LoadOffsetOp,
+        len_array,
+        build_array_ref_indices(schedule.args[0], array_defs, format),
+        name_hint=["ll", "rr"],
+    ).results
+
+    idx_tile_shape = C_val_tile.type.dims[0] * B_val_tile.type.dims[0]
+
+    csr_idx, csr_range = op_builder.build(
+        CooAtomicFormatLoadIdxOp,
+        mem="G2S",
+        operands=[idx_array, ll, rr],
+        out_shape=idx_tile_shape,
+        name_hint=["csr_idx", "csr_range"],
+    ).results
+
+    csr_val = op_builder.build(
+        CooAtomicFormatLoadValOp,
+        mem="G2S",
+        operands=[val_array, ll, rr],
+        out_shape=idx_tile_shape,
+        name_hint="csr_val",
+    ).result
+
+    A_val_tile = op_builder.build(
+        CsrAtomicValRestoreOp,
+        mem="S2R",
+        operands=[csr_val, csr_idx, csr_row_ptr, csr_range],
+        out_shape=(C_val_tile.type.dims[0], B_val_tile.type.dims[0]),
+        name_hint="A_val_tile",
+    ).result
+
+    C_val_tile_updated = op_builder.build(
+        MmaOp,
+        "R2R",
+        [A_val_tile, B_val_tile, C_val_tile],
+        name_hint="C_val_tile"
+    ).result
+
+    return C_val_tile_updated
+
+
+def generate_from_ell_atomic_format_op(
+    schedule: AtomicFormatOp,
+    array_defs: ArrayDefCollection,
+    format: Format,
+    C_val_tile: Value,
+) -> OpResult:
+    """ELL atomic format: flat row-major idx/val with ell_len scalar, COO-style restore."""
+    assert len(schedule.args) == 4
+    assert isinstance(schedule.args[0], ArrayRef)
+    assert isinstance(schedule.args[1], ArrayRef)
+    assert isinstance(schedule.args[2], ArrayRef)
+    assert isinstance(schedule.args[3], ArrayRef)
+    print("Generating ELL atomic format op with args: ", schedule.args)
+
+    len_array = op_builder.lookup_symbol(
+        schedule.args[0].array, get_array_type(array_defs[schedule.args[0].array])
+    )
+    idx_array = op_builder.lookup_symbol(
+        schedule.args[1].array, get_array_type(array_defs[schedule.args[1].array])
+    )
+    val_array = op_builder.lookup_symbol(
+        schedule.args[2].array, get_array_type(array_defs[schedule.args[2].array])
+    )
+
+    B_val_tile = build_array_ref(
+        schedule.args[3], array_defs, format, name_hint="B_val_tile"
+    )
+
+    assert isinstance(B_val_tile.type, ArrayType)
+    assert isinstance(C_val_tile.type, ArrayType)
+
+    ll, rr = op_builder.build(
+        LoadOffsetOp,
+        len_array,
+        build_array_ref_indices(schedule.args[0], array_defs, format),
+        name_hint=["ll", "rr"],
+    ).results
+
+    idx_tile_shape = C_val_tile.type.dims[0] * B_val_tile.type.dims[0]
+
+    ell_idx, ell_range = op_builder.build(
+        CooAtomicFormatLoadIdxOp,
+        mem="G2S",
+        operands=[idx_array, ll, rr],
+        out_shape=idx_tile_shape,
+        name_hint=["ell_idx", "ell_range"],
+    ).results
+
+    ell_val = op_builder.build(
+        CooAtomicFormatLoadValOp,
+        mem="G2S",
+        operands=[val_array, ll, rr],
+        out_shape=idx_tile_shape,
+        name_hint="ell_val",
+    ).result
+
+    A_val_tile = op_builder.build(
+        EllAtomicValRestoreOp,
+        mem="S2R",
+        operands=[ell_val, ell_idx, ell_range],
+        out_shape=(C_val_tile.type.dims[0], B_val_tile.type.dims[0]),
+        name_hint="A_val_tile",
+    ).result
+
+    C_val_tile_updated = op_builder.build(
+        MmaOp,
+        "R2R",
+        [A_val_tile, B_val_tile, C_val_tile],
+        name_hint="C_val_tile"
+    ).result
 
     return C_val_tile_updated
 

@@ -16,6 +16,8 @@ from sparsene.transform.transformation import (
     DensifyTransformation,
     CooizeTransformation,
     McoizeTransformation,
+    CsrizeTransformation,
+    EllizeTransformation,
     Transformation,
 )
 
@@ -100,6 +102,10 @@ def derive_rts(format: Format) -> TransformationSequence:
                         seq.prepend(CooizeTransformation())
                     case "mco":
                         seq.prepend(McoizeTransformation())
+                    case "csr":
+                        seq.prepend(CsrizeTransformation())
+                    case "ell":
+                        seq.prepend(EllizeTransformation())
                     case "dense":
                         pass
                     case _:

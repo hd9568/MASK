@@ -176,4 +176,39 @@ Todos updated: 20 items
 - `generated` 目前最差的是 `dc2.mtx` 和 `ASIC_680k.mtx`，这两个点与 `reference` 也都明显偏慢，说明不完全是 generated 独有问题。
 - `reference` 整体仍然更稳，尤其在 `cop20k_A.mtx`、`pwtk.mtx`、`rma10.mtx`、`consph.mtx` 上优势更明显。
 
+## 结构差异分析（Generated vs Reference Kernel）
+
+对比说明性能差距的根因不在参数选择，而在内核架构层面。
+
+### 宏观对比
+
+| 指标 | Reference (`kernel.inc`) | Generated (`me_tcf_kernel3.inc`) |
+|------|--------------------------|----------------------------------|
+| 代码行数 | 2134 | 2306 |
+| 架构 | 单一大循环 | 多阶段软件流水线 |
+| cp_async 拷贝 | 4 处 | 4 处 |
+| pipeline commit | 62 | 49 |
+| pipeline wait | 54 | 40 |
+| syncthreads | 60 | 35 |
+| for 循环数 | 13 | 19 |
+| smem 显式清零 | 0 | 2 |
+| ldmatrix | 10 | 8 |
+| mma | 3 | 3 |
+
+### 根因
+
+- **Pipeline 粒度**：Reference 有更细的 commit/wait 交织 → 更好的 DMA/computation overlap
+- **循环融合**：Reference 13 个 for 循环 vs Generated 19 个（codegen 为每个 Op 独立生成循环）
+- **Pipeline 深度**：Reference 手工调整 wait_prior(N)，Generated 固定 3 阶段
+
+### 优化路线
+
+| 阶段 | 改动 | 预期提升 | 风险 |
+|------|------|---------|------|
+| 短期 | 移除 smem 清零、增加 pipeline commit/wait | +5-10% | 低 |
+| 中期 | Op 级循环融合、自适应 pipeline depth | +15-25% | 中 |
+| 长期 | 对齐 reference 单循环架构 | +30-50% | 高 |
+
+详细分析见：[TC_BLOCK_K 自适应优化 §11](tc_block_k_adaptive_optimization.md#11-generated-vs-reference-kernel-结构差异分析)
+
 如果你要，我下一步可以直接把这两份表再合并成一张 `generated vs reference vs cusparse` 对照总表，方便你直接写报告。

@@ -41,7 +41,7 @@ using namespace cute;
 
 #define SPARSENE_GENERATED_TILE_B 64
 #define SPARSENE_GENERATED_B_SMEM_SWIZZLE "swizzle_323"
-#define SPARSENE_GENERATED_COO_RESTORE_SWIZZLE "swizzle_124"
+#define SPARSENE_GENERATED_COO_RESTORE_SWIZZLE "swizzle_123"
 
 __device__ __forceinline__ void ldmatrix_m8n8k8_x4(uint32_t* fragment, void* ptr) {
     uint32_t values_tile_int_ptr = static_cast<uint32_t>(__cvta_generic_to_shared(ptr));
@@ -864,13 +864,18 @@ public:
 
     template<int buf_idx, class Tensor_i0, class Tensor_i1, typename = void>
     CUTE_DEVICE void f(Tensor_i0 operand_0, Tensor_i1 operand_1) {
-        int rows = size<0>(shape(result_0));
-        int cols = size<1>(shape(result_0));
-        for (int linear = lid; linear < rows * cols; linear += 32) {
-            int row = linear / cols;
-            int col = linear % cols;
+        auto load_tile_n = _4{};
+        for (int iter_i = lid; iter_i < get<0>(shape(result_0)) * get<1>(shape(result_0)) / load_tile_n; iter_i += 32) {
+            int row = iter_i / (get<1>(shape(result_0)) / load_tile_n);
+            int col = iter_i % (get<1>(shape(result_0)) / load_tile_n);
             int src_row = operand_1(row);
-            result_0(row, col, buf_idx) = operand_0(src_row, col);
+            auto thr_tiler_gmem = make_shape(_1{}, _4{});
+            auto thr_coord_gmem = make_coord(src_row, col);
+            auto src = local_tile(operand_0, thr_tiler_gmem, thr_coord_gmem);
+            auto thr_tiler_smem = make_shape(_1{}, _4{});
+            auto thr_coord_smem = make_coord(row, col);
+            auto dst = local_tile(result_0(_, _, buf_idx), thr_tiler_smem, thr_coord_smem);
+            copy(Copy_Atom<SM80_CP_ASYNC_CACHEGLOBAL<cute::uint128_t>, float>{}, src(0, _), dst(0, _));
         }
     }
 };
@@ -890,7 +895,7 @@ public:
     // Outputs
     using Shape_o0 = decltype(make_shape(get<0>(BLK_MNK{}), get<2>(BLK_MNK{}), NBUF{}));
     using Stride_o0 = decltype(make_stride(get<2>(BLK_MNK{}), _1{}, get<0>(BLK_MNK{}) * get<2>(BLK_MNK{})));
-    using Layout_o0 = decltype(composition(Swizzle<1, 2, 4>{}, make_layout(Shape_o0{}, Stride_o0{})));
+    using Layout_o0 = decltype(composition(Swizzle<1, 2, (get<2>(BLK_MNK{}) == Int<8>{}) ? 3 : ((get<2>(BLK_MNK{}) == Int<16>{}) ? 4 : ((get<2>(BLK_MNK{}) == Int<32>{}) ? 5 : ((get<2>(BLK_MNK{}) == Int<64>{}) ? 6 : 7)))>{}, make_layout(Shape_o0{}, Stride_o0{})));
     using Tensor_o0 = decltype(make_tensor(make_smem_ptr((TO0*)nullptr), Layout_o0{}));
     Shape_o0 shape_o0;
     Layout_o0 layout_o0;
@@ -1191,7 +1196,8 @@ public:
                 B_valOp_v.template output<0>(),
                 array_ref_v.template output<0, 0>()
             );
-            __pipeline_wait_prior(0);
+            __pipeline_commit();
+            __pipeline_wait_prior(1);
             __syncthreads();
             coo_atomic_val_restore_v.template f<0>(
                 coo_atomic_format_load_val_v.template output<0, 0>(),
@@ -1205,6 +1211,7 @@ public:
             S2rAValLoadOp_v.template f<0>(
                 coo_atomic_val_restore_v.template output<0, 0>()
             );
+            __pipeline_wait_prior(0);
             __syncthreads();
             S2rBValLoadOp_v.template f<0>(
                 array_ref_1_v.template output<0, 0>()
@@ -1273,7 +1280,8 @@ public:
                 B_valOp_v.template output<0>(),
                 array_ref_v.template output<0, 0>()
             );
-            __pipeline_wait_prior(3);
+            __pipeline_commit();
+            __pipeline_wait_prior(4);
             __syncthreads();
             coo_atomic_val_restore_v.template f<0>(
                 coo_atomic_format_load_val_v.template output<0, 0>(),
@@ -1283,13 +1291,14 @@ public:
             
             
             // i = 2
-            __pipeline_wait_prior(2);
+            __pipeline_wait_prior(3);
             __syncthreads();
             array_ref_1_v.template f<1>(
                 B_valOp_v.template output<0>(),
                 array_ref_v.template output<0, 1>()
             );
-            __pipeline_wait_prior(0);
+            __pipeline_commit();
+            __pipeline_wait_prior(2);
             __syncthreads();
             coo_atomic_val_restore_v.template f<1>(
                 coo_atomic_format_load_val_v.template output<0, 1>(),
@@ -1300,6 +1309,7 @@ public:
             S2rAValLoadOp_v.template f<0>(
                 coo_atomic_val_restore_v.template output<0, 0>()
             );
+            __pipeline_wait_prior(1);
             __syncthreads();
             S2rBValLoadOp_v.template f<0>(
                 array_ref_1_v.template output<0, 0>()
@@ -1316,6 +1326,7 @@ public:
             S2rAValLoadOp_v.template f<1>(
                 coo_atomic_val_restore_v.template output<0, 1>()
             );
+            __pipeline_wait_prior(0);
             __syncthreads();
             S2rBValLoadOp_v.template f<1>(
                 array_ref_1_v.template output<0, 1>()
@@ -1384,7 +1395,8 @@ public:
                 B_valOp_v.template output<0>(),
                 array_ref_v.template output<0, 0>()
             );
-            __pipeline_wait_prior(3);
+            __pipeline_commit();
+            __pipeline_wait_prior(4);
             __syncthreads();
             coo_atomic_val_restore_v.template f<0>(
                 coo_atomic_format_load_val_v.template output<0, 0>(),
@@ -1417,13 +1429,14 @@ public:
                 load_offset_1_v.template output<1, 0>()(0)
             );
             __pipeline_commit();
-            __pipeline_wait_prior(5);
+            __pipeline_wait_prior(6);
             __syncthreads();
             array_ref_1_v.template f<1>(
                 B_valOp_v.template output<0>(),
                 array_ref_v.template output<0, 1>()
             );
-            __pipeline_wait_prior(3);
+            __pipeline_commit();
+            __pipeline_wait_prior(5);
             __syncthreads();
             coo_atomic_val_restore_v.template f<1>(
                 coo_atomic_format_load_val_v.template output<0, 1>(),
@@ -1434,6 +1447,7 @@ public:
             S2rAValLoadOp_v.template f<0>(
                 coo_atomic_val_restore_v.template output<0, 0>()
             );
+            __pipeline_wait_prior(4);
             __syncthreads();
             S2rBValLoadOp_v.template f<0>(
                 array_ref_1_v.template output<0, 0>()
@@ -1446,13 +1460,14 @@ public:
             
             
             // i = 3
-            __pipeline_wait_prior(2);
+            __pipeline_wait_prior(3);
             __syncthreads();
             array_ref_1_v.template f<0>(
                 B_valOp_v.template output<0>(),
                 array_ref_v.template output<0, 0>()
             );
-            __pipeline_wait_prior(0);
+            __pipeline_commit();
+            __pipeline_wait_prior(2);
             __syncthreads();
             coo_atomic_val_restore_v.template f<0>(
                 coo_atomic_format_load_val_v.template output<0, 0>(),
@@ -1463,6 +1478,7 @@ public:
             S2rAValLoadOp_v.template f<1>(
                 coo_atomic_val_restore_v.template output<0, 1>()
             );
+            __pipeline_wait_prior(1);
             __syncthreads();
             S2rBValLoadOp_v.template f<1>(
                 array_ref_1_v.template output<0, 1>()
@@ -1479,6 +1495,7 @@ public:
             S2rAValLoadOp_v.template f<0>(
                 coo_atomic_val_restore_v.template output<0, 0>()
             );
+            __pipeline_wait_prior(0);
             __syncthreads();
             S2rBValLoadOp_v.template f<0>(
                 array_ref_1_v.template output<0, 0>()
@@ -1547,13 +1564,14 @@ public:
             load_offset_1_inline_o1_1
         );
         __pipeline_commit();
-        __pipeline_wait_prior(1);
+        __pipeline_wait_prior(5);
         // op_call |buf_idx=0| 0 array_ref_1 
         array_ref_1_v.template f<0>(
             B_valOp_v.template output<0>(),
             array_ref_v.template output<0, 0>()
         );
-        __pipeline_wait_prior(1);
+        __pipeline_commit();
+        __pipeline_wait_prior(4);
         // op_call |buf_idx=0| 0 coo_atomic_val_restore 
         coo_atomic_val_restore_v.template f<0>(
             coo_atomic_format_load_val_v.template output<0, 0>(),
@@ -1586,23 +1604,26 @@ public:
             load_offset_1_inline_o1_2
         );
         __pipeline_commit();
-        __pipeline_wait_prior(1);
+        __pipeline_wait_prior(6);
         // op_call |buf_idx=1| 1 array_ref_1 
         array_ref_1_v.template f<1>(
             B_valOp_v.template output<0>(),
             array_ref_v.template output<0, 1>()
         );
-        __pipeline_wait_prior(1);
+        __pipeline_commit();
+        __pipeline_wait_prior(5);
         // op_call |buf_idx=1| 1 coo_atomic_val_restore 
         coo_atomic_val_restore_v.template f<1>(
             coo_atomic_format_load_val_v.template output<0, 1>(),
             coo_atomic_format_load_idx_v.template output<0, 1>(),
             coo_atomic_format_load_idx_v.template output<1, 1>()(0)
         );
+        __syncthreads();
         // op_call |buf_idx=0| 0 S2rAValLoadOp 
         S2rAValLoadOp_v.template f<0>(
             coo_atomic_val_restore_v.template output<0, 0>()
         );
+        __pipeline_wait_prior(4);
         // op_call |buf_idx=0| 0 S2rBValLoadOp 
         S2rBValLoadOp_v.template f<0>(
             array_ref_1_v.template output<0, 0>()
@@ -1643,23 +1664,26 @@ public:
             load_offset_1_inline_o1_0
         );
         __pipeline_commit();
-        __pipeline_wait_prior(1);
+        __pipeline_wait_prior(6);
         // op_call |buf_idx=0| i + (-1) array_ref_1 
         array_ref_1_v.template f<0>(
             B_valOp_v.template output<0>(),
             array_ref_v.template output<0, 0>()
         );
-        __pipeline_wait_prior(1);
+        __pipeline_commit();
+        __pipeline_wait_prior(5);
         // op_call |buf_idx=0| i + (-1) coo_atomic_val_restore 
         coo_atomic_val_restore_v.template f<0>(
             coo_atomic_format_load_val_v.template output<0, 0>(),
             coo_atomic_format_load_idx_v.template output<0, 0>(),
             coo_atomic_format_load_idx_v.template output<1, 0>()(0)
         );
+        __syncthreads();
         // op_call |buf_idx=1| i + (-2) S2rAValLoadOp 
         S2rAValLoadOp_v.template f<1>(
             coo_atomic_val_restore_v.template output<0, 1>()
         );
+        __pipeline_wait_prior(4);
         // op_call |buf_idx=1| i + (-2) S2rBValLoadOp 
         S2rBValLoadOp_v.template f<1>(
             array_ref_1_v.template output<0, 1>()
@@ -1696,23 +1720,26 @@ public:
             load_offset_1_inline_o1_1
         );
         __pipeline_commit();
-        __pipeline_wait_prior(1);
+        __pipeline_wait_prior(6);
         // op_call |buf_idx=1| i + (0) array_ref_1 
         array_ref_1_v.template f<1>(
             B_valOp_v.template output<0>(),
             array_ref_v.template output<0, 1>()
         );
-        __pipeline_wait_prior(1);
+        __pipeline_commit();
+        __pipeline_wait_prior(5);
         // op_call |buf_idx=1| i + (0) coo_atomic_val_restore 
         coo_atomic_val_restore_v.template f<1>(
             coo_atomic_format_load_val_v.template output<0, 1>(),
             coo_atomic_format_load_idx_v.template output<0, 1>(),
             coo_atomic_format_load_idx_v.template output<1, 1>()(0)
         );
+        __syncthreads();
         // op_call |buf_idx=0| i + (-1) S2rAValLoadOp 
         S2rAValLoadOp_v.template f<0>(
             coo_atomic_val_restore_v.template output<0, 0>()
         );
+        __pipeline_wait_prior(4);
         // op_call |buf_idx=0| i + (-1) S2rBValLoadOp 
         S2rBValLoadOp_v.template f<0>(
             array_ref_1_v.template output<0, 0>()
@@ -1753,23 +1780,26 @@ public:
             load_offset_1_inline_o1_0
         );
         __pipeline_commit();
-        __pipeline_wait_prior(1);
+        __pipeline_wait_prior(6);
         // op_call |buf_idx=0| i + (-1) array_ref_1 
         array_ref_1_v.template f<0>(
             B_valOp_v.template output<0>(),
             array_ref_v.template output<0, 0>()
         );
-        __pipeline_wait_prior(1);
+        __pipeline_commit();
+        __pipeline_wait_prior(5);
         // op_call |buf_idx=0| i + (-1) coo_atomic_val_restore 
         coo_atomic_val_restore_v.template f<0>(
             coo_atomic_format_load_val_v.template output<0, 0>(),
             coo_atomic_format_load_idx_v.template output<0, 0>(),
             coo_atomic_format_load_idx_v.template output<1, 0>()(0)
         );
+        __syncthreads();
         // op_call |buf_idx=1| i + (-2) S2rAValLoadOp 
         S2rAValLoadOp_v.template f<1>(
             coo_atomic_val_restore_v.template output<0, 1>()
         );
+        __pipeline_wait_prior(4);
         // op_call |buf_idx=1| i + (-2) S2rBValLoadOp 
         S2rBValLoadOp_v.template f<1>(
             array_ref_1_v.template output<0, 1>()
@@ -1791,23 +1821,26 @@ public:
     // empties
     CUTE_DEVICE void empty_after_remain_0(int i, int l, int r) {
         // stage 1..2
-        __pipeline_wait_prior(1);
+        __pipeline_wait_prior(3);
         // op_call |buf_idx=0| i + (-1) array_ref_1 
         array_ref_1_v.template f<0>(
             B_valOp_v.template output<0>(),
             array_ref_v.template output<0, 0>()
         );
-        __pipeline_wait_prior(0);
+        __pipeline_commit();
+        __pipeline_wait_prior(2);
         // op_call |buf_idx=0| i + (-1) coo_atomic_val_restore 
         coo_atomic_val_restore_v.template f<0>(
             coo_atomic_format_load_val_v.template output<0, 0>(),
             coo_atomic_format_load_idx_v.template output<0, 0>(),
             coo_atomic_format_load_idx_v.template output<1, 0>()(0)
         );
+        __syncthreads();
         // op_call |buf_idx=1| i + (-2) S2rAValLoadOp 
         S2rAValLoadOp_v.template f<1>(
             coo_atomic_val_restore_v.template output<0, 1>()
         );
+        __pipeline_wait_prior(1);
         // op_call |buf_idx=1| i + (-2) S2rBValLoadOp 
         S2rBValLoadOp_v.template f<1>(
             array_ref_1_v.template output<0, 1>()
@@ -1819,10 +1852,12 @@ public:
             ZerosOp_v.template output<0>()
         );
         // stage 2..2
+        __syncthreads();
         // op_call |buf_idx=0| i + (-1) S2rAValLoadOp 
         S2rAValLoadOp_v.template f<0>(
             coo_atomic_val_restore_v.template output<0, 0>()
         );
+        __pipeline_wait_prior(0);
         // op_call |buf_idx=0| i + (-1) S2rBValLoadOp 
         S2rBValLoadOp_v.template f<0>(
             array_ref_1_v.template output<0, 0>()
@@ -1837,23 +1872,26 @@ public:
     
     CUTE_DEVICE void empty_after_remain_1(int i, int l, int r) {
         // stage 1..2
-        __pipeline_wait_prior(1);
+        __pipeline_wait_prior(3);
         // op_call |buf_idx=1| i + (0) array_ref_1 
         array_ref_1_v.template f<1>(
             B_valOp_v.template output<0>(),
             array_ref_v.template output<0, 1>()
         );
-        __pipeline_wait_prior(0);
+        __pipeline_commit();
+        __pipeline_wait_prior(2);
         // op_call |buf_idx=1| i + (0) coo_atomic_val_restore 
         coo_atomic_val_restore_v.template f<1>(
             coo_atomic_format_load_val_v.template output<0, 1>(),
             coo_atomic_format_load_idx_v.template output<0, 1>(),
             coo_atomic_format_load_idx_v.template output<1, 1>()(0)
         );
+        __syncthreads();
         // op_call |buf_idx=0| i + (-1) S2rAValLoadOp 
         S2rAValLoadOp_v.template f<0>(
             coo_atomic_val_restore_v.template output<0, 0>()
         );
+        __pipeline_wait_prior(1);
         // op_call |buf_idx=0| i + (-1) S2rBValLoadOp 
         S2rBValLoadOp_v.template f<0>(
             array_ref_1_v.template output<0, 0>()
@@ -1865,10 +1903,12 @@ public:
             ZerosOp_v.template output<0>()
         );
         // stage 2..2
+        __syncthreads();
         // op_call |buf_idx=1| i + (0) S2rAValLoadOp 
         S2rAValLoadOp_v.template f<1>(
             coo_atomic_val_restore_v.template output<0, 1>()
         );
+        __pipeline_wait_prior(0);
         // op_call |buf_idx=1| i + (0) S2rBValLoadOp 
         S2rBValLoadOp_v.template f<1>(
             array_ref_1_v.template output<0, 1>()
@@ -2208,7 +2248,7 @@ __global__ __launch_bounds__(32, 20) void generated_kernel(
     };
     using array_ref_1_t = array_ref_1<Int<2>, BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK>;
     using array_ref_1_layout_o0 = typename array_ref_1_t::Layout_o0;
-    __shared__ float array_ref_1_tensor_o0[cosize_v<array_ref_1_layout_o0>];
+    __align__(16) __shared__ float array_ref_1_tensor_o0[cosize_v<array_ref_1_layout_o0>];
     array_ref_1_t array_ref_1_v{
         lid, 
         array_ref_1_tensor_o0, 

@@ -28,7 +28,9 @@ using namespace cute;
 #ifndef TC_BLOCK_K
 #define TC_BLOCK_K 8
 #endif
+#ifndef TC_BLOCK_M
 #define TC_BLOCK_M 16
+#endif
 
 template <int TILE_B>
 extern void dtc_spmm_test_val_sidx_bind_reorder(int M,
@@ -93,6 +95,20 @@ extern template void dtc_spmm_test_val_sidx_bind_reorder<16>(int M,
                                                              int warmup_time,
                                                              int execute_time);
 extern int sparsene_generated_tile_b();
+
+// Reference builds do not link host_program_generated.cu, so provide a weak
+// fallback that preserves the historical TILE_B=64 behavior. Generated builds
+// override this with the strong definition emitted from the generated host path.
+__attribute__((weak)) int sparsene_generated_tile_b() {
+    const char* env = std::getenv("SPARSENE_GENERATED_TILE_B");
+    if (env != nullptr && env[0] != '\0') {
+        const int parsed = std::atoi(env);
+        if (parsed == 16 || parsed == 32 || parsed == 64) {
+            return parsed;
+        }
+    }
+    return 64;
+}
 
 int binarySearch(int* arr, int l, int r, int target) {
     while (l <= r) {
@@ -473,8 +489,9 @@ void convertToMETCF(
         val_coo_off[2 * total_TCBlock_num] = cur_pos;
 
         // 4. 构建 val_sidx, val_coo_idx, val_coo_val
+        // Swizzle S = log2(TC_BLOCK_K): 8->3, 16->4, 32->5, 64->6, 128->7
         auto swizzle_layout =
-            composition(Swizzle<1, 2, (TC_BLOCK_K == 8) ? 3 : 4>{},
+            composition(Swizzle<1, 2, (TC_BLOCK_K == 8) ? 3 : ((TC_BLOCK_K == 16) ? 4 : ((TC_BLOCK_K == 32) ? 5 : ((TC_BLOCK_K == 64) ? 6 : 7)))>{},
                         make_layout(make_shape(ROW_WINDOW_M, TC_BLOCK_K), make_stride(TC_BLOCK_K, 1)));
         int* tc_block_nnz_ptr = new int[(K + TC_BLOCK_K - 1) / TC_BLOCK_K];
 
@@ -704,8 +721,9 @@ void convertToMETCF(
     }
     val_coo_off[2 * total_TCBlock_num] = cur_pos;
 
+    // Swizzle S = log2(TC_BLOCK_K): 8->3, 16->4, 32->5, 64->6, 128->7
     auto swizzle_layout =
-      composition(Swizzle<1, 2, (TC_BLOCK_K == 8) ? 3 : 4>{},
+      composition(Swizzle<1, 2, (TC_BLOCK_K == 8) ? 3 : ((TC_BLOCK_K == 16) ? 4 : ((TC_BLOCK_K == 32) ? 5 : ((TC_BLOCK_K == 64) ? 6 : 7)))>{},
                   make_layout(make_shape(ROW_WINDOW_M, TC_BLOCK_K), make_stride(TC_BLOCK_K, 1)));
 
 #pragma omp parallel

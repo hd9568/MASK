@@ -1,0 +1,2 @@
+dataset,dataset_path,mode,M,K,N,mykernel_ms,cusparse_ms,speedup_vs_cusparse,status,reason,error_count,log_path
+mac_econ_fwd500 web-BerkStan,/mnt/lustre-client/zhangkaige/selected_mtx/mac_econ_fwd500 web-BerkStan,generated,5,49,512,,,,failed,exit_139,0,/home/huoda/sparsene/.perf_logs/multi_dataset_generated_20260610_012705/mac_econ_fwd500 web-BerkStan.log
