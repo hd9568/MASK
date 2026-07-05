@@ -305,6 +305,88 @@ class EllAtomicValRestoreOp(DeviceOp):
 
 
 @dataclass
+class DiaAtomicFormatLoadIdxOp(DeviceOp):
+    def __init__(self, mem: str, operands: Sequence[Value], out_shape: Expr):
+        assert len(operands) == 3, "dia_atomic_format_load_idx requires idx_array, ll, rr"
+        assert isinstance(operands[0].type, ArrayType)
+        assert isinstance(operands[0].type.datatype, IntType)
+        assert isinstance(operands[1].type, IntType)
+        assert isinstance(operands[2].type, IntType)
+        super().__init__(
+            mem=mem,
+            operands=operands,
+            results=[
+                OpResult(
+                    type=ArrayType([out_shape], IntType()),
+                    defining_op=self,
+                    result_idx_in_owner=0,
+                ),
+                OpResult(
+                    type=IntType(),
+                    defining_op=self,
+                    result_idx_in_owner=1,
+                ),
+            ],
+        )
+
+    @property
+    def name(self) -> str:
+        return "dia_atomic_format_load_idx"
+
+
+@dataclass
+class DiaAtomicFormatLoadValOp(DeviceOp):
+    def __init__(self, mem: str, operands: Sequence[Value], out_shape: Expr):
+        assert len(operands) == 3, "dia_atomic_format_load_val requires val_array, ll, rr"
+        assert isinstance(operands[0].type, ArrayType)
+        assert isinstance(operands[1].type, IntType)
+        assert isinstance(operands[2].type, IntType)
+        super().__init__(
+            mem=mem,
+            operands=operands,
+            results=[
+                OpResult(
+                    type=ArrayType([out_shape], operands[0].type.datatype),
+                    defining_op=self,
+                    result_idx_in_owner=0,
+                ),
+            ],
+        )
+
+    @property
+    def name(self) -> str:
+        return "dia_atomic_format_load_val"
+
+
+@dataclass
+class DiaAtomicValRestoreOp(DeviceOp):
+    """DIA-specific restore: uses diag_offsets[num_diags] + val[num_diags, BLK_K]."""
+
+    def __init__(
+        self, mem: str, operands: Sequence[Value], out_shape: Tuple[Expr, Expr]
+    ):
+        assert len(operands) == 3, "dia_atomic_val_restore requires [val, diag_offsets, num_diags]"
+        assert isinstance(operands[0].type, ArrayType)
+        assert isinstance(operands[1].type, ArrayType)
+        assert isinstance(operands[2].type, IntType)
+        super().__init__(
+            mem=mem,
+            operands=operands,
+            results=[
+                OpResult(
+                    type=ArrayType(out_shape, operands[0].type.datatype),
+                    defining_op=self,
+                    result_idx_in_owner=0,
+                ),
+            ],
+        )
+
+    @property
+    def name(self) -> str:
+        return "dia_atomic_val_restore"
+
+
+@dataclass
 class McoAtomicFormatLoadMaskOp(DeviceOp):
     def __init__(self, mem: str, operands: Sequence[Value]):
         assert isinstance(operands[0].type, ArrayType) # mask_array

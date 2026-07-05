@@ -32,6 +32,8 @@ from sparsene.op_gen.opir.op_ir import (
 from sparsene.op_gen.opir.ops import (
     CooAtomicFormatLoadIdxOp,
     CooAtomicFormatLoadValOp,
+    DiaAtomicFormatLoadIdxOp,
+    DiaAtomicFormatLoadValOp,
     McoAtomicFormatLoadValOp,
 )
 from sparsene.op_gen.computent.computent import computent_from_rts, Computent, ArrayDef
@@ -329,10 +331,18 @@ class VarlenLoweringPass:
 
         spec = flatten_specs[array_src]
 
-        # Keep COO (idx/val) explicit [ll, rr] bounds untouched.
+        # Keep sparse loaders with explicit [ll, rr] style bounds untouched.
         # Those bounds are already absolute offsets and should not be collapsed
         # into a single flattened index by generic array-index rewriting.
-        if isinstance(op, (CooAtomicFormatLoadIdxOp, CooAtomicFormatLoadValOp)) and len(op.operands) == 3:
+        if isinstance(
+            op,
+            (
+                CooAtomicFormatLoadIdxOp,
+                CooAtomicFormatLoadValOp,
+                DiaAtomicFormatLoadIdxOp,
+                DiaAtomicFormatLoadValOp,
+            ),
+        ) and len(op.operands) == 3:
             return False
 
         # ================= NEW: 拦截最外层全局维度 =================
@@ -395,7 +405,13 @@ class VarlenLoweringPass:
         # 5. 重写当前 Op 的操作数
         preserve_placeholder = isinstance(
             op,
-            (CooAtomicFormatLoadIdxOp, CooAtomicFormatLoadValOp, McoAtomicFormatLoadValOp),
+            (
+                CooAtomicFormatLoadIdxOp,
+                CooAtomicFormatLoadValOp,
+                DiaAtomicFormatLoadIdxOp,
+                DiaAtomicFormatLoadValOp,
+                McoAtomicFormatLoadValOp,
+            ),
         ) and self._is_placeholder_value(j_val)
 
         if preserve_placeholder:

@@ -183,6 +183,34 @@ SPARSE_FORMAT_REGISTRY = {
             }
         }
     },
+    "DIA_TCF": {
+        "shape_overrides": {
+            "val_len": ["Mo"],
+            "val_dia_len": ["nnz_dim_K_o"],
+            "val_dia_idx": ["nnz_dim_nnz"],
+            "val_dia_val": ["nnz_dim_nnz"],
+            "val_sidx": ["BLK_K", "nnz_dim_K"],
+            "C_val": ["N", "M"],
+        },
+        "dtypes": {
+            "idx": "int",
+            "len": "int",
+            "off": "int",
+            "sidx": "int",
+        },
+        "custom_layouts": {
+            "B_val": {
+                "dtype": "float",
+                "tensor_str": "logical_divide(make_tensor(make_gmem_ptr(d{name}), make_layout(make_shape(K, N), make_stride(N, _1{}))), make_shape(_1{}, get<1>(BLK_MNK{})))(_, make_coord(_, blockIdx.y))",
+                "tensor_type_str": "decltype(logical_divide(make_tensor(make_gmem_ptr((TO0*)nullptr), make_layout(make_shape(VARLEN, VARLEN), make_stride(VARLEN, _1{}))), make_shape(_1{}, get<1>(BLK_MNK{})))(_, make_coord(_, VARLEN)))",
+            },
+            "C_val": {
+                "dtype": "float",
+                "tensor_str": "logical_divide(make_tensor(make_gmem_ptr(d{name}), make_shape(N, M)), select<1, 0>(BLK_MNK{}))(make_coord(_, blockIdx.y), make_coord(_, blockIdx.x))",
+                "tensor_type_str": "decltype(logical_divide(make_tensor(make_gmem_ptr((TO0*)nullptr), make_shape(VARLEN, VARLEN)), select<1, 0>(BLK_MNK{}))(make_coord(_, VARLEN), make_coord(_, VARLEN)))",
+            }
+        }
+    },
 }
 
 class HardwareMapper:
@@ -517,6 +545,14 @@ def _fixed_coo_tile_shape() -> Shape:
     return Shape(ParamShape("get<0>(BLK_MNK{}) * get<2>(BLK_MNK{})"))
 
 
+def _fixed_dia_tile_shape() -> Shape:
+    return Shape(
+        ParamShape(
+            "get<2>(BLK_MNK{}) * (get<0>(BLK_MNK{}) + get<2>(BLK_MNK{}) - Int<1>{})"
+        )
+    )
+
+
 def _insert_outer_blk_x_loop(
     *,
     parent_loop: ForLoopNvOp,
@@ -844,7 +880,7 @@ def _choose_output_mem(
 
     if logical_kind == "mma":
         return "rmem"
-    if logical_kind in ["coo_atomic_val_restore", "csr_atomic_val_restore", "ell_atomic_val_restore", "mco_atomic_val_restore"]:
+    if logical_kind in ["coo_atomic_val_restore", "csr_atomic_val_restore", "ell_atomic_val_restore", "dia_atomic_val_restore", "mco_atomic_val_restore"]:
         return "smem"
     if logical_kind in ["coo_atomic_format_load_val", "mco_atomic_format_load_val"]:
         return cast(
@@ -877,17 +913,19 @@ def _choose_op_type(logical_kind: str, outputs: List[NvOpOutput]) -> NvOpType:
         "c_val_store",
         "coo_atomic_format_load_idx",
         "coo_atomic_format_load_val",
+        "dia_atomic_format_load_idx",
+        "dia_atomic_format_load_val",
         "mco_atomic_format_load_mask",
         "mco_atomic_format_load_val",
         "load",
     ]:
         if outputs and len(outputs[0].tensor.shape) <= 1:
             return NvOpType.COPY_1D
-        if "coo" in logical_kind or "mco" in logical_kind:
+        if "coo" in logical_kind or "mco" in logical_kind or "dia" in logical_kind:
             return NvOpType.COPY_2D_SP
         return NvOpType.COPY_2D
 
-    if logical_kind in ["mma", "coo_atomic_val_restore", "csr_atomic_val_restore", "ell_atomic_val_restore", "mco_atomic_val_restore", "ldmatrix"]:
+    if logical_kind in ["mma", "coo_atomic_val_restore", "csr_atomic_val_restore", "ell_atomic_val_restore", "dia_atomic_val_restore", "mco_atomic_val_restore", "ldmatrix"]:
         return NvOpType.OTHERS
 
     return NvOpType.UNKNOWN
@@ -1045,6 +1083,13 @@ def _make_impl(
     if logical_kind == "pow" and len(inputs) == 2 and len(outputs) == 1:
         return NvOpImpl(f"{outputs[0].name}(0) = pow({inputs[0].name}, {inputs[1].name});")
 
+    if logical_kind == "load_offset" and len(inputs) >= 3 and len(outputs) >= 2:
+        offset_expr = f"{inputs[1].name} + {inputs[2].name}"
+        return NvOpImpl(
+            f"{outputs[0].name}(0) = {inputs[0].name}({offset_expr});\n"
+            f"{outputs[1].name}(0) = {inputs[0].name}({offset_expr} + 1);"
+        )
+
     if logical_kind == "load_offset" and len(inputs) >= 2 and len(outputs) >= 2:
         return NvOpImpl(
             f"{outputs[0].name}(0) = {inputs[0].name}({inputs[1].name});\n"
@@ -1143,6 +1188,25 @@ for (int i_load = lid; i_load < nnz_tile; i_load += 32) {{
 }}"""
         )
 
+    if logical_kind == "dia_atomic_format_load_idx" and len(inputs) >= 3 and len(outputs) == 2:
+        return NvOpImpl(
+            f"""{outputs[1].name}(0) = {inputs[2].name} - {inputs[1].name};
+int diag_cap = size<0>(shape({outputs[0].name}));
+for (int i_load = lid; i_load < diag_cap; i_load += 32) {{
+    int src_idx = {inputs[1].name} + i_load;
+    {outputs[0].name}(i_load, buf_idx) = src_idx < {inputs[2].name} ? {inputs[0].name}(src_idx) : 0;
+}}"""
+        )
+
+    if logical_kind == "dia_atomic_format_load_val" and len(inputs) >= 3 and len(outputs) == 1:
+        return NvOpImpl(
+            f"""int val_cap = size<0>(shape({outputs[0].name}));
+for (int i_load = lid; i_load < val_cap; i_load += 32) {{
+    int src_idx = {inputs[1].name} + i_load;
+    {outputs[0].name}(i_load, buf_idx) = src_idx < {inputs[2].name} ? {inputs[0].name}(src_idx) : float(0);
+}}"""
+        )
+
     if logical_kind == "mco_atomic_format_load_mask" and len(inputs) >= 2 and len(outputs) == 1:
         return NvOpImpl(f"{outputs[0].name}(0) = {inputs[0].name}({inputs[1].name});")
 
@@ -1213,6 +1277,33 @@ for (int i_restore = lid; i_restore < {inputs[2].name}; i_restore += 32) {{
     int idx = {inputs[1].name}(i_restore);
     if (idx < tile_elems) {{
         *(({out_dtype}*)({out_name}(_, _, buf_idx).data().get() + idx)) = value;
+    }}
+}}"""
+        )
+
+    if logical_kind == "dia_atomic_val_restore" and len(inputs) >= 3 and len(outputs) == 1:
+        out_name = outputs[0].name
+        out_dtype = outputs[0].tensor.dtype
+        return NvOpImpl(
+            f"""int tile_rows = get<0>(shape({out_name}));
+int tile_cols = get<1>(shape({out_name}));
+int tile_elems = tile_rows * tile_cols;
+int swizzle_S = (tile_cols == 8) ? 3 : ((tile_cols == 16) ? 4 : 5);
+for (int i_clear = lid; i_clear < tile_elems; i_clear += 32) {{
+    *(({out_dtype}*)({out_name}(_, _, buf_idx).data().get() + i_clear)) = {out_dtype}(0);
+}}
+__syncthreads();
+for (int linear = lid; linear < {inputs[2].name}; linear += 32) {{
+    int col = linear % tile_cols;
+    int diag = {inputs[1].name}(linear);
+    int row = col - diag;
+    if (row >= 0 && row < tile_rows) {{
+        int logical = row * tile_cols + col;
+        int b1 = ((logical >> 1) & 1) ^ ((logical >> (1 + swizzle_S)) & 1);
+        int b2 = ((logical >> 2) & 1) ^ ((logical >> (2 + swizzle_S)) & 1);
+        int bits = (b1 << 1) | (b2 << 2);
+        int swizzled = (logical & ~6) | bits;
+        *(({out_dtype}*)({out_name}(_, _, buf_idx).data().get() + swizzled)) = {inputs[0].name}(linear);
     }}
 }}"""
         )
@@ -1787,6 +1878,8 @@ def _lower_generic_op(
             output_shape = _fixed_c_tile_shape()
         elif logical_kind in {"coo_atomic_format_load_idx", "coo_atomic_format_load_val"} and idx == 0:
             output_shape = _fixed_coo_tile_shape()
+        elif logical_kind in {"dia_atomic_format_load_idx", "dia_atomic_format_load_val"} and idx == 0:
+            output_shape = _fixed_dia_tile_shape()
 
         outputs.append(
             NvOpOutput(
@@ -1801,10 +1894,10 @@ def _lower_generic_op(
                         state=state,
                     ),
                     dtype=opir_type_to_nvir_dtype(result.type),
-                    row_major=(logical_kind in ("coo_atomic_val_restore", "csr_atomic_val_restore", "ell_atomic_val_restore")),
+                    row_major=(logical_kind in ("coo_atomic_val_restore", "csr_atomic_val_restore", "ell_atomic_val_restore", "dia_atomic_val_restore")),
                     swizzle=(
                         SwizzleLayout(1, 2, 3, adaptive_blk_k=True)
-                        if logical_kind in ("coo_atomic_val_restore", "csr_atomic_val_restore", "ell_atomic_val_restore")
+                        if logical_kind in ("coo_atomic_val_restore", "csr_atomic_val_restore", "ell_atomic_val_restore", "dia_atomic_val_restore")
                         else None
                     ),
                 ),
@@ -1843,6 +1936,7 @@ def _lower_generic_op(
         "coo_atomic_val_restore",
         "csr_atomic_val_restore",
         "ell_atomic_val_restore",
+        "dia_atomic_val_restore",
         "mco_atomic_format_load_mask",
         "mco_atomic_format_load_val",
         "mco_atomic_val_restore",

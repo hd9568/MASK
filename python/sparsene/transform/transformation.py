@@ -178,6 +178,16 @@ class EllizeTransformation(NullaryTransformation):
 
 
 @dataclass(kw_only=True)
+class DiaizeTransformation(NullaryTransformation):
+    def __init__(self, name: Optional[str] = None):
+        self.axes = ()
+        if name is not None:
+            self.name = name
+
+    name: str = "diaize"
+
+
+@dataclass(kw_only=True)
 class TransformationSequence:
     sequence: List[Transformation] = field(default_factory=list)
 

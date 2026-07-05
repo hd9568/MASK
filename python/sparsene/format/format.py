@@ -147,6 +147,11 @@ class EllAtomicFormat(AtomicFormat):
 
 
 @dataclass(kw_only=True)
+class DiaAtomicFormat(AtomicFormat):
+    atomic_type: str = "dia"
+
+
+@dataclass(kw_only=True)
 class Format(FormatBase):
     child: Optional[Format | AtomicFormat] = None
 
@@ -374,6 +379,40 @@ def ell_atomic_format(
     )
 
 
+def dia_atomic_format(
+    x_name: str, y_name: str, col_major: bool = False
+) -> AtomicFormat:
+    """DIA atomic format: each TC block stores diag_offsets[num_diags] + val[num_diags, BLK_K].
+
+    Offsets are logical diagonal ids `diag = col - row` within the block. Values are
+    packed by diagonal, with a fixed BLK_K-wide slot per diagonal. Missing entries
+    on an active diagonal are represented as zeros in the padded value row.
+    """
+    return DiaAtomicFormat(
+        name="dia",
+        axes=[
+            Axis(
+                name=x_name,
+                direction=Direction.COL if col_major else Direction.ROW,
+                is_sparse=False,
+                is_varlen=False,
+            ),
+            Axis(
+                name=y_name,
+                direction=Direction.ROW if col_major else Direction.COL,
+                is_sparse=False,
+                is_varlen=False,
+            ),
+            Axis(
+                name=f"{x_name}_{y_name}_dia",
+                direction=Direction.COL if col_major else Direction.ROW,
+                is_sparse=True,
+                is_varlen=True,
+            ),
+        ],
+    )
+
+
 def dense_atomic_format(
     x_name: str, y_name: str, col_major: bool = False
 ) -> AtomicFormat:
@@ -408,6 +447,8 @@ def atomic_format(
             return csr_atomic_format(x_name, y_name, col_major)
         case "ell":
             return ell_atomic_format(x_name, y_name, col_major)
+        case "dia":
+            return dia_atomic_format(x_name, y_name, col_major)
         case "dense":
             return dense_atomic_format(x_name, y_name, col_major)
         case _:

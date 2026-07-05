@@ -52,6 +52,9 @@ from sparsene.op_gen.opir.ops import (
     CooAtomicValRestoreOp,
     CsrAtomicValRestoreOp,
     EllAtomicValRestoreOp,
+    DiaAtomicFormatLoadIdxOp,
+    DiaAtomicFormatLoadValOp,
+    DiaAtomicValRestoreOp,
     McoAtomicFormatLoadMaskOp,
     McoAtomicFormatLoadValOp,
     McoAtomicValRestoreOp,
@@ -609,6 +612,10 @@ def generate_from_atomic_format_op(
             return generate_from_ell_atomic_format_op(
                 schedule, array_defs, format, C_val_tile
             )
+        case AtomicFormatType.DIA:
+            return generate_from_dia_atomic_format_op(
+                schedule, array_defs, format, C_val_tile
+            )
 
 
 def build_array_def(
@@ -974,6 +981,81 @@ def generate_from_ell_atomic_format_op(
         EllAtomicValRestoreOp,
         mem="S2R",
         operands=[ell_val, ell_idx, ell_range],
+        out_shape=(C_val_tile.type.dims[0], B_val_tile.type.dims[0]),
+        name_hint="A_val_tile",
+    ).result
+
+    C_val_tile_updated = op_builder.build(
+        MmaOp,
+        "R2R",
+        [A_val_tile, B_val_tile, C_val_tile],
+        name_hint="C_val_tile"
+    ).result
+
+    return C_val_tile_updated
+
+
+def generate_from_dia_atomic_format_op(
+    schedule: AtomicFormatOp,
+    array_defs: ArrayDefCollection,
+    format: Format,
+    C_val_tile: Value,
+) -> OpResult:
+    """DIA atomic format: diag-major payload with per-slot repeated diagonal offsets."""
+    assert len(schedule.args) == 4
+    assert isinstance(schedule.args[0], ArrayRef)
+    assert isinstance(schedule.args[1], ArrayRef)
+    assert isinstance(schedule.args[2], ArrayRef)
+    assert isinstance(schedule.args[3], ArrayRef)
+    print("Generating DIA atomic format op with args: ", schedule.args)
+
+    len_array = op_builder.lookup_symbol(
+        schedule.args[0].array, get_array_type(array_defs[schedule.args[0].array])
+    )
+    idx_array = op_builder.lookup_symbol(
+        schedule.args[1].array, get_array_type(array_defs[schedule.args[1].array])
+    )
+    val_array = op_builder.lookup_symbol(
+        schedule.args[2].array, get_array_type(array_defs[schedule.args[2].array])
+    )
+
+    B_val_tile = build_array_ref(
+        schedule.args[3], array_defs, format, name_hint="B_val_tile"
+    )
+
+    assert isinstance(B_val_tile.type, ArrayType)
+    assert isinstance(C_val_tile.type, ArrayType)
+
+    ll, rr = op_builder.build(
+        LoadOffsetOp,
+        len_array,
+        build_array_ref_indices(schedule.args[0], array_defs, format),
+        name_hint=["ll", "rr"],
+    ).results
+
+    diag_tile_shape = C_val_tile.type.dims[0] + B_val_tile.type.dims[0] - Number(1)
+    val_tile_shape = diag_tile_shape * B_val_tile.type.dims[0]
+
+    dia_idx, dia_range = op_builder.build(
+        DiaAtomicFormatLoadIdxOp,
+        mem="G2S",
+        operands=[idx_array, ll, rr],
+        out_shape=val_tile_shape,
+        name_hint=["dia_idx", "dia_range"],
+    ).results
+
+    dia_val = op_builder.build(
+        DiaAtomicFormatLoadValOp,
+        mem="G2S",
+        operands=[val_array, ll, rr],
+        out_shape=val_tile_shape,
+        name_hint="dia_val",
+    ).result
+
+    A_val_tile = op_builder.build(
+        DiaAtomicValRestoreOp,
+        mem="S2R",
+        operands=[dia_val, dia_idx, dia_range],
         out_shape=(C_val_tile.type.dims[0], B_val_tile.type.dims[0]),
         name_hint="A_val_tile",
     ).result

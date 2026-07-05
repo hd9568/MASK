@@ -20,6 +20,7 @@ from sparsene.transform.transformation import (
     McoizeTransformation,
     CsrizeTransformation,
     EllizeTransformation,
+    DiaizeTransformation,
 )
 from sparsene.format.format import (
     Direction,
@@ -33,6 +34,7 @@ from sparsene.format.format import (
     mco_atomic_format,
     csr_atomic_format,
     ell_atomic_format,
+    dia_atomic_format,
     Expr,
     Number,
     Symbol,
@@ -1636,6 +1638,107 @@ def apply_ellize_transformation(
     return schedule, array_defs, new_format
 
 
+def apply_diaize_transformation(
+    schedule: Schedule,
+    array_defs: ArrayDefCollection,
+    spformat: Format,
+    root_format: Format,
+    transform: DiaizeTransformation,
+) -> Tuple[Schedule, ArrayDefCollection, AtomicFormat]:
+    """DIA atomic format: per-block diag_offsets[num_diags] + val[num_diags, BLK_K]."""
+    schedule, array_defs = (
+        deepcopy(schedule),
+        deepcopy(array_defs),
+    )
+    update_st_array_def(array_defs)
+
+    axis_x, axis_y = spformat.axes[0].name, spformat.axes[1].name
+    assert len(spformat.axes) == 2 and spformat.is_dense()
+
+    new_format = dia_atomic_format(
+        x_name=axis_x,
+        y_name=axis_y,
+        col_major=spformat.axes[0].direction == Direction.COL,
+    )
+    new_format.axes[0].length = spformat.axes[0].length
+    new_format.axes[1].length = spformat.axes[1].length
+    merged_axis = new_format.axes[2]
+    merged_axis.length = Function("varlen")(Symbol("nnz"))
+    update_st_axis(new_format)
+
+    assert len(array_defs[ArrayType.VAL]) == 1
+    for val_def in array_defs[ArrayType.VAL]:
+        idx_x, idx_y = val_def.index_of(axis_x), val_def.index_of(axis_y)
+        assert idx_x and idx_y and idx_x + 1 == idx_y and idx_y == len(val_def.axes) - 1
+
+        dia_len_def = ArrayDef(
+            name=MyNameManager.new_name(val_def.name + "_dia_len"),
+            axes=val_def.axes[:-2],
+            dims=val_def.dims[:-2],
+            type=ArrayType.SPLEN,
+            datatype=DataType.INT,
+        )
+        dia_idx_def = ArrayDef(
+            name=MyNameManager.new_name(val_def.name + "_dia_idx"),
+            axes=val_def.axes[:-2] + [f"{axis_x}_{axis_y}_dia"],
+            dims=val_def.dims[:-2] + [merged_axis.length],
+            type=ArrayType.IDX,
+            datatype=DataType.INT,
+        )
+        dia_val_def = ArrayDef(
+            name=MyNameManager.new_name(val_def.name + "_dia_val"),
+            axes=val_def.axes[:-2] + [f"{axis_x}_{axis_y}_dia"],
+            dims=val_def.dims[:-2] + [merged_axis.length],
+            type=ArrayType.VAL,
+            datatype=val_def.datatype,
+        )
+        varlen2LenArrayTable = SymbolTable.global_table("varlen2LenArrayTable")
+        varlen2LenArrayTable[str(merged_axis.length)] = dia_len_def
+        array_defs.replace([val_def.name], [dia_idx_def, dia_val_def, dia_len_def])
+
+    update_st_array_def(array_defs)
+
+    axis_ref = schedule.find_axis_ref(axis_x)
+    assert axis_ref is schedule.find_axis_ref(axis_y)
+    assert isinstance(axis_ref, AtomicFormatOp)
+    assert axis_ref.type == AtomicFormatType.DENSE
+
+    orig_val_arg = next(
+        filter(
+            lambda arg: isinstance(arg, ArrayRef) and arg.array == val_def.name,
+            axis_ref.args,
+        )
+    )
+    inherited_indices = list(orig_val_arg.indices[:-2])
+
+    new_axis_ref = AtomicFormatOp(
+        axes=(axis_x, axis_y),
+        axes_len=(axis_ref.axes_len[0], axis_ref.axes_len[1]),
+        type=AtomicFormatType.DIA,
+        args=[
+            ArrayRef(array=dia_len_def.name, indices=inherited_indices),
+            ArrayRef(array=dia_idx_def.name, indices=inherited_indices + ["_"]),
+            ArrayRef(array=dia_val_def.name, indices=inherited_indices + ["_"]),
+            next(
+                filter(
+                    lambda arg: isinstance(arg, ArrayRef) and arg.array == "B_val",
+                    axis_ref.args,
+                )
+            ),
+        ],
+        parent=axis_ref.get_parent(),
+    )
+
+    parent_axis_ref = axis_ref.get_parent()
+    if parent_axis_ref is not None:
+        assert isinstance(parent_axis_ref, AxisVisitor)
+        parent_axis_ref.body = new_axis_ref
+    else:
+        schedule = new_axis_ref
+
+    return schedule, array_defs, new_format
+
+
 def add_metadata(schedule: Optional[Schedule], format: Format) -> None:
     found_reduction_axis = False
     found_block_idx_x_axis = False
@@ -1747,6 +1850,12 @@ def computent_from_rts(name: str, rts: TransformationSequence) -> Computent:
             atomic_format_reached = True
         elif isinstance(transform, EllizeTransformation):
             schedule, array_defs, atomic_format = apply_ellize_transformation(
+                schedule, array_defs, spformat, root_format.child, transform
+            )
+            parent_format.child = atomic_format
+            atomic_format_reached = True
+        elif isinstance(transform, DiaizeTransformation):
+            schedule, array_defs, atomic_format = apply_diaize_transformation(
                 schedule, array_defs, spformat, root_format.child, transform
             )
             parent_format.child = atomic_format

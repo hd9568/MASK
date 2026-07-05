@@ -66,6 +66,7 @@ def _preferred_stage(kind: str, op: Optional[NvOp] = None) -> int:
         "coo_atomic_val_restore",
         "csr_atomic_val_restore",
         "ell_atomic_val_restore",
+        "dia_atomic_val_restore",
         "mco_atomic_val_restore",
     }:
         return 1
@@ -515,7 +516,7 @@ def _fuse_inline_gen_add(main_loop: ForLoopNvOp) -> bool:
 
     body = main_loop.body
 
-    gen_add = None
+    gen_add_candidates = []
     arr_ref = None
     arr_ref2 = None
     load_off1 = None
@@ -523,7 +524,7 @@ def _fuse_inline_gen_add(main_loop: ForLoopNvOp) -> bool:
     for op in list(body.ops):
         kind = _get_logical_kind(op)
         if kind == "add":
-            gen_add = op
+            gen_add_candidates.append(op)
         elif kind == "array_ref" and not op.name.startswith("array_ref_1") and not op.name.startswith("array_ref_2"):
             arr_ref = op
         elif kind == "array_ref" and op.name.startswith("array_ref_2"):
@@ -531,22 +532,27 @@ def _fuse_inline_gen_add(main_loop: ForLoopNvOp) -> bool:
         elif kind == "load_offset" and op.name.startswith("load_offset_"):
             load_off1 = op
 
-    if gen_add is None or arr_ref is None or load_off1 is None:
+    if not gen_add_candidates or arr_ref is None or load_off1 is None:
         return False
 
-    ga_out = gen_add.outputs[0]
+    gen_add = None
+    ga_out = None
+    for add_op in gen_add_candidates:
+        candidate_out = add_op.outputs[0]
+        arr_ref_uses_add = any(inp.tensor.source is candidate_out for inp in arr_ref.inputs)
+        load_uses_add = any(inp.tensor.source is candidate_out for inp in load_off1.inputs)
+        if not (arr_ref_uses_add and load_uses_add):
+            continue
+        expected_consumers = {arr_ref, load_off1}
+        if arr_ref2 is not None and any(inp.tensor.source is candidate_out for inp in arr_ref2.inputs):
+            expected_consumers.add(arr_ref2)
+        if set(candidate_out.consumers) != expected_consumers:
+            continue
+        gen_add = add_op
+        ga_out = candidate_out
+        break
 
-    # Only fuse if the gen_add output is actually consumed by the
-    # array_ref and load_offset_1 we identified above.
-    arr_ref_uses_add = any(inp.tensor.source is ga_out for inp in arr_ref.inputs)
-    load_uses_add = any(inp.tensor.source is ga_out for inp in load_off1.inputs)
-
-    if not (arr_ref_uses_add and load_uses_add):
-        return False
-    expected_consumers = {arr_ref, load_off1}
-    if arr_ref2 is not None and any(inp.tensor.source is ga_out for inp in arr_ref2.inputs):
-        expected_consumers.add(arr_ref2)
-    if set(ga_out.consumers) != expected_consumers:
+    if gen_add is None or ga_out is None:
         return False
 
     off_l_inp = gen_add.inputs[0]
