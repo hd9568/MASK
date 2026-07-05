@@ -388,7 +388,7 @@ class DiaAtomicValRestoreOp(DeviceOp):
 
 @dataclass
 class McoAtomicFormatLoadMaskOp(DeviceOp):
-    def __init__(self, mem: str, operands: Sequence[Value]):
+    def __init__(self, mem: str, operands: Sequence[Value], out_shape: Expr):
         assert isinstance(operands[0].type, ArrayType) # mask_array
         
         super().__init__(
@@ -396,7 +396,7 @@ class McoAtomicFormatLoadMaskOp(DeviceOp):
             operands=operands,
             results=[
                 OpResult(
-                    type=IntType(),
+                    type=ArrayType([out_shape], operands[0].type.datatype),
                     defining_op=self,
                     result_idx_in_owner=0,
                 )
@@ -440,7 +440,7 @@ class McoAtomicValRestoreOp(DeviceOp):
         self, mem: str, operands: Sequence[Value], out_shape: Tuple[Expr, Expr]
     ):
         assert isinstance(operands[0].type, ArrayType) # val array
-        assert isinstance(operands[1].type, IntType) # mask
+        assert isinstance(operands[1].type, ArrayType) # mask vector
         assert isinstance(operands[2].type, IntType) # len
         super().__init__(
             mem=mem,

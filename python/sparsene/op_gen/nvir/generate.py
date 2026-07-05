@@ -93,7 +93,42 @@ SPARSE_FORMAT_REGISTRY = {
                 "tensor_str": "logical_divide(make_tensor(make_gmem_ptr(d{name}), make_shape(N, M)), select<1, 0>(BLK_MNK{}))(make_coord(_, blockIdx.y), make_coord(_, blockIdx.x))",
                 "tensor_type_str": "decltype(logical_divide(make_tensor(make_gmem_ptr((TO0*)nullptr), make_shape(VARLEN, VARLEN)), select<1, 0>(BLK_MNK{}))(make_coord(_, VARLEN), make_coord(_, VARLEN)))",
             }
-        }
+        },
+        "tensor_swizzles": {
+            "b_smem_swizzle": "swizzle_323",
+            "mco_restore_swizzle": "swizzle_123",
+        },
+    },
+    "BIT_BSR": {
+        # BIT_BSR also uses MCO payloads, but val_sidx is block-granular rather
+        # than lane-granular, so we keep its default inferred shape.
+        "shape_overrides": {
+            "val_len": ["Mo"],
+            "C_val": ["N", "M"],
+        },
+        "dtypes": {
+            "mco_mask": "int64_t",
+            "idx": "int",
+            "len": "int",
+            "off": "int",
+            "sidx": "int",
+        },
+        "custom_layouts": {
+            "B_val": {
+                "dtype": "float",
+                "tensor_str": "logical_divide(make_tensor(make_gmem_ptr(d{name}), make_layout(make_shape(K, N), make_stride(N, _1{}))), make_shape(_1{}, get<1>(BLK_MNK{})))(_, make_coord(_, blockIdx.y))",
+                "tensor_type_str": "decltype(logical_divide(make_tensor(make_gmem_ptr((TO0*)nullptr), make_layout(make_shape(VARLEN, VARLEN), make_stride(VARLEN, _1{}))), make_shape(_1{}, get<1>(BLK_MNK{})))(_, make_coord(_, VARLEN)))",
+            },
+            "C_val": {
+                "dtype": "float",
+                "tensor_str": "logical_divide(make_tensor(make_gmem_ptr(d{name}), make_shape(N, M)), select<1, 0>(BLK_MNK{}))(make_coord(_, blockIdx.y), make_coord(_, blockIdx.x))",
+                "tensor_type_str": "decltype(logical_divide(make_tensor(make_gmem_ptr((TO0*)nullptr), make_shape(VARLEN, VARLEN)), select<1, 0>(BLK_MNK{}))(make_coord(_, VARLEN), make_coord(_, VARLEN)))",
+            }
+        },
+        "tensor_swizzles": {
+            "b_smem_swizzle": "swizzle_333",
+            "mco_restore_swizzle": "swizzle_133",
+        },
     },
     "CSR_TCF": {
         # CSR_TCF uses CSR atomic format; same structure as ME_TCF
@@ -144,6 +179,11 @@ SPARSE_FORMAT_REGISTRY = {
             "ptr": "int",
         },
         "custom_layouts": {
+            "val": {
+                "dtype": "float",
+                "tensor_str": "make_tensor(make_gmem_ptr(d{name}), make_layout(make_shape(get<0>(BLK_MNK{}), get<2>(BLK_MNK{}), nnz_dim_K), make_stride(get<2>(BLK_MNK{}), _1{}, get<0>(BLK_MNK{}) * get<2>(BLK_MNK{}))))",
+                "tensor_type_str": "decltype(make_tensor(make_gmem_ptr((TO0*)nullptr), make_layout(make_shape(get<0>(BLK_MNK{}), get<2>(BLK_MNK{}), VARLEN), make_stride(get<2>(BLK_MNK{}), _1{}, get<0>(BLK_MNK{}) * get<2>(BLK_MNK{})))))",
+            },
             "B_val": {
                 "dtype": "float",
                 "tensor_str": "logical_divide(make_tensor(make_gmem_ptr(d{name}), make_layout(make_shape(K, N), make_stride(N, _1{}))), make_shape(_1{}, get<1>(BLK_MNK{})))(_, make_coord(_, blockIdx.y))",
@@ -272,6 +312,36 @@ def _strategy_swizzle(
         return SwizzleLayout(3, 2, 3)
     if value == "swizzle_123":
         return SwizzleLayout(1, 2, 3)
+    if value == "swizzle_333":
+        return SwizzleLayout(3, 3, 3)
+    if value == "swizzle_133":
+        return SwizzleLayout(1, 3, 3)
+    if value == "swizzle_124":
+        return SwizzleLayout(1, 2, 4)
+    return default
+
+
+def _format_swizzle(
+    state: Optional[LoweringState],
+    name: str,
+    default: Optional[SwizzleLayout],
+) -> Optional[SwizzleLayout]:
+    if state is None:
+        return default
+    tensor_swizzles = state.program.attrs.get("format_tensor_swizzles", {})
+    value = tensor_swizzles.get(name)
+    if value in [None, "none"]:
+        return default
+    if isinstance(value, SwizzleLayout):
+        return value
+    if value == "swizzle_323":
+        return SwizzleLayout(3, 2, 3)
+    if value == "swizzle_123":
+        return SwizzleLayout(1, 2, 3)
+    if value == "swizzle_333":
+        return SwizzleLayout(3, 3, 3)
+    if value == "swizzle_133":
+        return SwizzleLayout(1, 3, 3)
     if value == "swizzle_124":
         return SwizzleLayout(1, 2, 4)
     return default
@@ -327,12 +397,34 @@ def _blk_mnk_expr(dim_name: str) -> Optional[str]:
     return None
 
 
+def _try_blk_param_expr(dim_raw: str) -> Optional[str]:
+    expr = dim_raw.strip()
+    if not expr:
+        return None
+
+    tokens = re.findall(r"BLK_[MNK]|\d+|[()+\-*/]", expr)
+    if "".join(tokens) != re.sub(r"\s+", "", expr):
+        return None
+
+    converted: List[str] = []
+    for token in tokens:
+        blk_expr = _blk_mnk_expr(token)
+        if blk_expr is not None:
+            converted.append(blk_expr)
+        elif token.isdigit():
+            converted.append(f"Int<{token}>{{}}")
+        else:
+            converted.append(token)
+    return " ".join(converted)
+
+
 def _default_dim_entries(dims: List[Any]) -> List[Dict[str, Any]]:
     entries: List[Dict[str, Any]] = []
     for dim in dims:
         dim_raw = str(dim).strip()
         dim_str = _sanitize_identifier(dim_raw)
         blk_expr = _blk_mnk_expr(dim_str)
+        blk_param_expr = _try_blk_param_expr(dim_raw)
         blk_plus_one_match = re.match(r"^(BLK_[MNK])\s*\+\s*1$", dim_raw)
 
         if blk_plus_one_match is not None:
@@ -357,6 +449,15 @@ def _default_dim_entries(dims: List[Any]) -> List[Dict[str, Any]]:
                     "shape": ParamShape(dim_str),
                     "shape_arg": blk_expr,
                     "type_arg": blk_expr,
+                }
+            )
+        elif blk_param_expr is not None:
+            entries.append(
+                {
+                    "raw": dim_raw,
+                    "shape": ParamShape(blk_param_expr),
+                    "shape_arg": blk_param_expr,
+                    "type_arg": blk_param_expr,
                 }
             )
         elif dim_str.startswith("BLK_") or dim_str.startswith("TILE_"):
@@ -528,16 +629,20 @@ def _fixed_c_tile_shape() -> Shape:
 def _fixed_reg_a_shape() -> Shape:
     return Shape(
         IntShape(4),
-        MnkShape("BLK_MMA_MNK", "m"),
-        MnkShape("BLK_MMA_MNK", "k"),
+        Shape(
+            MnkShape("BLK_MMA_MNK", "m"),
+            MnkShape("BLK_MMA_MNK", "k"),
+        ),
     )
 
 
 def _fixed_reg_b_shape() -> Shape:
     return Shape(
         IntShape(2),
-        MnkShape("BLK_MMA_MNK", "n"),
-        MnkShape("BLK_MMA_MNK", "k"),
+        Shape(
+            MnkShape("BLK_MMA_MNK", "k"),
+            MnkShape("BLK_MMA_MNK", "n"),
+        ),
     )
 
 
@@ -733,6 +838,8 @@ def generate_nvir(
         )
     program.attrs["strategy_decision"] = strategy_decision
     program.attrs["strategy_log_dir"] = str(strategy_log_dir)
+    program.attrs["format_name"] = format_name
+    program.attrs["format_tensor_swizzles"] = format_hints.get("tensor_swizzles", {})
     program.attrs["generated_tile_b"] = int(
         getattr(strategy_decision.tensor_placement, "tile_b", 64)
     )
@@ -1001,7 +1108,7 @@ for (int m_iter = 0; m_iter < get<0>(BLK_MMA_MNK{{}}); m_iter++) {{
         int row = lid % 16;
         int col = lid / 16;
         ldmatrix_m8n8k8_x4(
-            (uint32_t*)({output_name}(_, m_iter, k_iter, buf_idx).data()),
+            (uint32_t*)({output_name}(_, make_coord(m_iter, k_iter), buf_idx).data()),
             (void*)(&{input_name}(row + m_iter * 16, col * 4 + k_iter * 8))
         );
     }}
@@ -1021,11 +1128,11 @@ for (int k_iter = 0; k_iter < get<2>(BLK_MMA_MNK{{}}); k_iter++) {{
         int row_b = lid / 2;
         int col_b = lid % 2;
         ldmatrix_m8n8k8_x2(
-            (uint32_t*)({output_name}(_, n_iter, k_iter, buf_idx).data()),
+            (uint32_t*)({output_name}(_, make_coord(k_iter, n_iter), buf_idx).data()),
             (void*)(&{input_name}(row_b + k_iter * 8, col_b * 4 + n_iter * 8))
         );
-        {output_name}(_0{{}}, n_iter, k_iter, buf_idx) = __shfl_sync(0xffffffff, {output_name}(_0{{}}, n_iter, k_iter, buf_idx), lid / 4 + lid % 4 * 8);
-        {output_name}(_1{{}}, n_iter, k_iter, buf_idx) = __shfl_sync(0xffffffff, {output_name}(_1{{}}, n_iter, k_iter, buf_idx), lid / 4 + lid % 4 * 8);
+        {output_name}(_0{{}}, make_coord(k_iter, n_iter), buf_idx) = __shfl_sync(0xffffffff, {output_name}(_0{{}}, make_coord(k_iter, n_iter), buf_idx), lid / 4 + lid % 4 * 8);
+        {output_name}(_1{{}}, make_coord(k_iter, n_iter), buf_idx) = __shfl_sync(0xffffffff, {output_name}(_1{{}}, make_coord(k_iter, n_iter), buf_idx), lid / 4 + lid % 4 * 8);
     }}
 }}"""
         )
@@ -1102,6 +1209,39 @@ def _make_impl(
             if not indices:
                 indices = "0"
             return NvOpImpl(f"{outputs[0].name}(0) = {inputs[0].name}({indices});")
+        if (
+            state is not None
+            and state.program.attrs.get("format_name") == "SR_BCRS"
+            and outputs[0].tensor.mem == "smem"
+            and len(inputs) >= 2
+            and len(inputs[0].tensor.shape) == 3
+            and len(outputs[0].tensor.shape) == 2
+        ):
+            return NvOpImpl(
+                f"""auto load_tile_n = _4{{}};
+for (int iter_i = lid; iter_i < get<0>(BLK_MNK{{}}) * get<2>(BLK_MNK{{}}) / load_tile_n; iter_i += 32) {{
+    int row = iter_i / (get<2>(BLK_MNK{{}}) / load_tile_n);
+    int col = iter_i % (get<2>(BLK_MNK{{}}) / load_tile_n);
+    auto thr_tiler_gmem = make_shape(_1{{}}, _4{{}});
+    auto thr_coord_gmem = make_coord(row, col);
+    auto src = local_tile({inputs[0].name}(_, _, {inputs[1].name}), thr_tiler_gmem, thr_coord_gmem);
+    float* dst = {outputs[0].name}(_, _, buf_idx).data().get() + iter_i * 4;
+    __pipeline_memcpy_async((float4*)dst, (float4*)(src(0, _).data().get()), sizeof(float4));
+}}"""
+            )
+        if (
+            outputs[0].tensor.mem == "smem"
+            and len(inputs) >= 2
+            and len(inputs[0].tensor.shape) == 3
+            and len(outputs[0].tensor.shape) == 2
+        ):
+            return NvOpImpl(
+                f"""for (int iter_i = lid; iter_i < get<0>(shape({outputs[0].name})) * get<1>(shape({outputs[0].name})); iter_i += 32) {{
+    int row = iter_i / get<1>(shape({outputs[0].name}));
+    int col = iter_i % get<1>(shape({outputs[0].name}));
+    {outputs[0].name}(row, col, buf_idx) = {inputs[0].name}({inputs[1].name}, col, row);
+}}"""
+            )
         return NvOpImpl("//! TODO: tensor load lowering")
 
     if logical_kind == "coo_atomic_format_load_idx" and len(inputs) >= 3 and len(outputs) == 2:
@@ -1208,7 +1348,13 @@ for (int i_load = lid; i_load < val_cap; i_load += 32) {{
         )
 
     if logical_kind == "mco_atomic_format_load_mask" and len(inputs) >= 2 and len(outputs) == 1:
-        return NvOpImpl(f"{outputs[0].name}(0) = {inputs[0].name}({inputs[1].name});")
+        src_indices = ", ".join(inp.name for inp in inputs[1:])
+        return NvOpImpl(
+            f"""int num_masks = size<0>(shape({outputs[0].name}));
+for (int i_mask = 0; i_mask < num_masks; ++i_mask) {{
+    {outputs[0].name}(i_mask, buf_idx) = {inputs[0].name}(i_mask, {src_indices});
+}}"""
+        )
 
     if logical_kind == "mco_atomic_format_load_val" and len(inputs) >= 2 and len(outputs) == 1:
         return NvOpImpl(
@@ -1313,17 +1459,24 @@ for (int linear = lid; linear < {inputs[2].name}; linear += 32) {{
         out_dtype = outputs[0].tensor.dtype
         return NvOpImpl(
             f"""int tile_elems = get<0>(shape({out_name})) * get<1>(shape({out_name}));
+int num_masks = size<0>(shape({inputs[1].name}));
 for (int i_clear = lid; i_clear < tile_elems; i_clear += 32) {{
     *(({out_dtype}*)({out_name}(_, _, buf_idx).data().get() + i_clear)) = {out_dtype}(0);
 }}
 __syncthreads();
 if (lid == 0) {{
     int value_ptr = 0;
-    unsigned long long mask = static_cast<unsigned long long>({inputs[1].name});
-    for (int idx = 0; idx < tile_elems && value_ptr < {inputs[2].name}; ++idx) {{
-        if ((mask >> idx) & 1ULL) {{
-            *(({out_dtype}*)({out_name}(_, _, buf_idx).data().get() + idx)) = {inputs[0].name}(value_ptr);
-            ++value_ptr;
+    for (int i_mask = 0; i_mask < num_masks && value_ptr < {inputs[2].name}; ++i_mask) {{
+        unsigned long long mask = static_cast<unsigned long long>({inputs[1].name}(i_mask));
+        for (int bit = 0; bit < 64 && value_ptr < {inputs[2].name}; ++bit) {{
+            int idx = i_mask * 64 + bit;
+            if (idx >= tile_elems) {{
+                break;
+            }}
+            if ((mask >> bit) & 1ULL) {{
+                *(({out_dtype}*)({out_name}(_, _, buf_idx).data().get() + idx)) = {inputs[0].name}(value_ptr);
+                ++value_ptr;
+            }}
         }}
     }}
 }}
@@ -1348,12 +1501,12 @@ for (int linear = lid; linear < rows * cols; linear += 32) {{
         for (int n_iter = 0; n_iter < get<1>(BLK_MMA_MNK{{}}); n_iter++) {{
             uint32_t frag_A[4];
             uint32_t frag_B[2];
-            asm("cvt.rna.tf32.f32  %0, %1;\\n" : "=r"(frag_A[0]) : "f"({inputs[0].name}(0, m_iter, k_iter)));
-            asm("cvt.rna.tf32.f32  %0, %1;\\n" : "=r"(frag_A[1]) : "f"({inputs[0].name}(1, m_iter, k_iter)));
-            asm("cvt.rna.tf32.f32  %0, %1;\\n" : "=r"(frag_A[2]) : "f"({inputs[0].name}(2, m_iter, k_iter)));
-            asm("cvt.rna.tf32.f32  %0, %1;\\n" : "=r"(frag_A[3]) : "f"({inputs[0].name}(3, m_iter, k_iter)));
-            asm("cvt.rna.tf32.f32  %0, %1;\\n" : "=r"(frag_B[0]) : "f"({inputs[1].name}(0, n_iter, k_iter)));
-            asm("cvt.rna.tf32.f32  %0, %1;\\n" : "=r"(frag_B[1]) : "f"({inputs[1].name}(1, n_iter, k_iter)));
+            asm("cvt.rna.tf32.f32  %0, %1;\\n" : "=r"(frag_A[0]) : "f"({inputs[0].name}(0, make_coord(m_iter, k_iter))));
+            asm("cvt.rna.tf32.f32  %0, %1;\\n" : "=r"(frag_A[1]) : "f"({inputs[0].name}(1, make_coord(m_iter, k_iter))));
+            asm("cvt.rna.tf32.f32  %0, %1;\\n" : "=r"(frag_A[2]) : "f"({inputs[0].name}(2, make_coord(m_iter, k_iter))));
+            asm("cvt.rna.tf32.f32  %0, %1;\\n" : "=r"(frag_A[3]) : "f"({inputs[0].name}(3, make_coord(m_iter, k_iter))));
+            asm("cvt.rna.tf32.f32  %0, %1;\\n" : "=r"(frag_B[0]) : "f"({inputs[1].name}(0, make_coord(k_iter, n_iter))));
+            asm("cvt.rna.tf32.f32  %0, %1;\\n" : "=r"(frag_B[1]) : "f"({inputs[1].name}(1, make_coord(k_iter, n_iter))));
             mma_m16n8k8_fp32_tf32_tf32_fp32({outputs[0].name}(_, make_coord(m_iter, n_iter)).data(), frag_A, frag_B);
         }}
     }}
@@ -1373,13 +1526,15 @@ for (int linear = lid; linear < rows * cols; linear += 32) {{
         
     if logical_kind == "c_val_store" and len(inputs) >= 2:
         return NvOpImpl(
-            f"""for (int i_tileN = 0; i_tileN < get<1>(BLK_MNK{{}}) / 8; i_tileN++) {{
-    int row = lid / 4;
-    int col = i_tileN * 8 + lid % 4 * 2;
-    {inputs[1].name}(col, row) = {inputs[0].name}(0, i_tileN);
-    {inputs[1].name}(col + 1, row) = {inputs[0].name}(1, i_tileN);
-    {inputs[1].name}(col, row + 8) = {inputs[0].name}(2, i_tileN);
-    {inputs[1].name}(col + 1, row + 8) = {inputs[0].name}(3, i_tileN);
+            f"""for (int i_tileM = 0; i_tileM < get<0>(BLK_MMA_MNK{{}}); i_tileM++) {{
+    for (int i_tileN = 0; i_tileN < get<1>(BLK_MMA_MNK{{}}); i_tileN++) {{
+        int row = lid / 4 + i_tileM * get<0>(MMA_MNK{{}});
+        int col = i_tileN * 8 + lid % 4 * 2;
+        {inputs[1].name}(col, row) = {inputs[0].name}(0, make_coord(i_tileM, i_tileN));
+        {inputs[1].name}(col + 1, row) = {inputs[0].name}(1, make_coord(i_tileM, i_tileN));
+        {inputs[1].name}(col, row + 8) = {inputs[0].name}(2, make_coord(i_tileM, i_tileN));
+        {inputs[1].name}(col + 1, row + 8) = {inputs[0].name}(3, make_coord(i_tileM, i_tileN));
+    }}
 }}"""
         )
     if logical_kind == "array_ref":
@@ -1415,7 +1570,15 @@ for (int iter_i = lid; iter_i < get<0>(shape({out_name})) * get<1>(shape({out_na
     auto thr_tiler_smem = make_shape(_1{{}}, _4{{}});
     auto thr_coord_smem = make_coord(row, col);
     auto dst = local_tile({out_name}(_, _, buf_idx), thr_tiler_smem, thr_coord_smem);
-    copy(Copy_Atom<SM80_CP_ASYNC_CACHEGLOBAL<cute::uint128_t>, float>{{}}, src(0, _), dst(0, _));
+    auto src_vec = src(0, _);
+    auto dst_vec = dst(0, _);
+    if ((((uintptr_t)src_vec.data().get()) & 0xF) == 0 && (((uintptr_t)dst_vec.data().get()) & 0xF) == 0) {{
+        copy(Copy_Atom<SM80_CP_ASYNC_CACHEGLOBAL<cute::uint128_t>, float>{{}}, src_vec, dst_vec);
+    }} else {{
+        for (int v = 0; v < 4; ++v) {{
+            dst_vec(v) = src_vec(v);
+        }}
+    }}
 }}"""
                     )
                 return NvOpImpl(
@@ -1430,6 +1593,13 @@ for (int linear = lid; linear < rows * cols; linear += 32) {{
                 )
 
         return NvOpImpl("//! array_ref lowered as logical view/alias")
+
+    if logical_kind == "arange" and len(inputs) >= 1 and len(outputs) == 1:
+        return NvOpImpl(
+            f"""for (int i = 0; i < size<0>(shape({outputs[0].name})); ++i) {{
+    {outputs[0].name}(i, buf_idx) = {inputs[0].name} + i;
+}}"""
+        )
 
     return NvOpImpl("//! TODO: generic lower")
 
@@ -1765,15 +1935,19 @@ def _lower_array_ref(
                 mem=output_mem,
                 dtype=opir_type_to_nvir_dtype(op.result.type),
                 row_major=is_b_val_ref,
-                swizzle=(
-                    _strategy_swizzle(
-                        state,
-                        "b_smem_swizzle",
-                        SwizzleLayout(3, 2, 3),
-                    )
-                    if is_b_val_ref
-                    else None
-                ),
+                    swizzle=(
+                        _format_swizzle(
+                            state,
+                            "b_smem_swizzle",
+                            _strategy_swizzle(
+                                state,
+                                "b_smem_swizzle",
+                                SwizzleLayout(3, 2, 3),
+                            ),
+                        )
+                        if is_b_val_ref
+                        else None
+                    ),
             ),
             origin=output_origin,
         )
@@ -1893,17 +2067,54 @@ def _lower_generic_op(
                         mem_hint,
                         state=state,
                     ),
-                    dtype=opir_type_to_nvir_dtype(result.type),
-                    row_major=(logical_kind in ("coo_atomic_val_restore", "csr_atomic_val_restore", "ell_atomic_val_restore", "dia_atomic_val_restore")),
+                    dtype=(
+                        inputs[0].tensor.dtype
+                        if logical_kind == "mco_atomic_format_load_mask" and inputs
+                        else opir_type_to_nvir_dtype(result.type)
+                    ),
+                    row_major=(
+                        logical_kind
+                        in (
+                            "coo_atomic_val_restore",
+                            "csr_atomic_val_restore",
+                            "ell_atomic_val_restore",
+                            "dia_atomic_val_restore",
+                            "mco_atomic_val_restore",
+                        )
+                    ),
                     swizzle=(
                         SwizzleLayout(1, 2, 3, adaptive_blk_k=True)
                         if logical_kind in ("coo_atomic_val_restore", "csr_atomic_val_restore", "ell_atomic_val_restore", "dia_atomic_val_restore")
+                        else _format_swizzle(
+                            state,
+                            "mco_restore_swizzle",
+                            SwizzleLayout(1, 2, 3),
+                        )
+                        if logical_kind == "mco_atomic_val_restore"
                         else None
                     ),
                 ),
                 origin=output_origin,
             )
         )
+
+    if (
+        logical_kind == "load"
+        and len(inputs) >= 2
+        and len(outputs) == 1
+        and inputs[0].tensor.mem == "gmem"
+        and len(inputs[0].tensor.shape) == 3
+        and len(outputs[0].tensor.shape) == 2
+    ):
+        outputs[0].tensor.mem = "smem"
+        outputs[0].tensor.row_major = True
+        outputs[0].tensor.swizzle = SwizzleLayout(2, 2, 3)
+        outputs[0].attrs["align_16"] = True
+
+    if logical_kind == "mco_atomic_val_restore":
+        for out in outputs:
+            if out.tensor.mem == "smem":
+                out.attrs["align_16"] = True
 
     nvop = NvOp(
         name=op_name,
@@ -2101,6 +2312,8 @@ def opir_type_to_nvir_shape(type: op_ir.Type) -> Shape:
             nvir_shape.append(MnkShape("BLK_MNK", "n"))
         elif dim_str == "BLK_K":
             nvir_shape.append(MnkShape("BLK_MNK", "k"))
+        elif (blk_param_expr := _try_blk_param_expr(dim_str)) is not None:
+            nvir_shape.append(ParamShape(blk_param_expr))
         elif re.match(r"^BLK_M\s*\+\s*1$", dim_str):
             nvir_shape.append(ParamShape("get<0>(BLK_MNK{}) + Int<1>{}"))
         elif re.match(r"^BLK_N\s*\+\s*1$", dim_str):

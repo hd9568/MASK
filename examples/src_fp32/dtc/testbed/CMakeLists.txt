@@ -227,6 +227,18 @@ target_include_directories(demo-dtc-tf32 PRIVATE
     ${SRCDIR}
 )
 
+add_executable(demo-dtc-generated-tf32 ${PROJECT_SOURCE_DIR}/host_program_generated_results.cu ${PROJECT_SOURCE_DIR}/main.cu ${SRC_CUDA_FILES})
+
+target_compile_options(demo-dtc-generated-tf32 PRIVATE ${CUDA_NVCC_FLAGS} -I${SRCDIR} -I${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(demo-dtc-generated-tf32 PRIVATE -lcusparse -lcublas OpenMP::OpenMP_CXX)
+target_compile_definitions(demo-dtc-generated-tf32 PRIVATE f32)
+target_include_directories(demo-dtc-generated-tf32 PRIVATE
+    ${CUTLASS_INCLUDE_DIR}
+    ${CUTLASS_COMMON_DIR}
+    ${CUTLASS_UTIL_DIR}
+    ${SRCDIR}
+)
+
 add_executable(demo-dtc-multi-binding-tf32 ${PROJECT_SOURCE_DIR}/host_program_multi_binding.cu ${PROJECT_SOURCE_DIR}/main_multi_binding.cu ${SRC_CUDA_FILES})
 
 target_compile_options(demo-dtc-multi-binding-tf32 PRIVATE ${CUDA_NVCC_FLAGS} -I${SRCDIR} -I${CMAKE_CURRENT_SOURCE_DIR})

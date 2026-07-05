@@ -1305,10 +1305,14 @@ def apply_mcoize_transformation(
         idx_x, idx_y = val_def.index_of(axis_x), val_def.index_of(axis_y)
         # idx_x and idx_y should be the last two dimensions
         assert idx_x and idx_y and idx_x + 1 == idx_y and idx_y == len(val_def.axes) - 1
+        mask_axis_name = f"{axis_x}_{axis_y}_mco_mask"
+        mask_tile_shape = (val_def.dims[idx_x] * val_def.dims[idx_y]) / Number(64)
         mco_mask_def = ArrayDef(
             name=MyNameManager.new_name(val_def.name + "_mco_mask"),
-            axes=val_def.axes[:-2],
-            dims=val_def.dims[:-2],
+            # Keep the mask-vector dimension explicit so the generated gmem
+            # interface matches the handwritten kernels: [num_masks, nnz_block].
+            axes=[mask_axis_name] + val_def.axes[:-2],
+            dims=[mask_tile_shape] + val_def.dims[:-2],
             type=ArrayType.MASK,
             datatype=DataType.INT,
         )

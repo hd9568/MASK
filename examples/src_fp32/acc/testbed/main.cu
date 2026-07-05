@@ -127,6 +127,10 @@ std::string extractMatrixName(const std::string& file_path) {
     return filename;
 }
 
+std::filesystem::path checkpointPath(const std::string& checkpoint_filename) {
+    return std::filesystem::path(__FILE__).parent_path() / "mtx_cache" / checkpoint_filename;
+}
+
 int loadCheckpoint(
     string file_path, 
     int M, int K, int Blk_M, int Blk_K,
@@ -137,7 +141,8 @@ int loadCheckpoint(
     vector<float>& vval_mco_val
 ) {
     string checkpoint_filename = extractMatrixName(file_path) + "M" + to_string(M) + "K" + to_string(K) + "Blk_M" + to_string(Blk_M) + "Blk_K" + to_string(Blk_K);
-    std::ifstream inputFile("/workspace/sparsene/examples/src_fp32/acc/testbed/mtx_cache/" + checkpoint_filename, std::ios::binary);
+    auto checkpoint_path = checkpointPath(checkpoint_filename);
+    std::ifstream inputFile(checkpoint_path, std::ios::binary);
     if (!inputFile.is_open()) {
         return 0;
     }
@@ -194,7 +199,7 @@ int loadCheckpoint(
         std::cerr << "Failed to read data from file." << std::endl;
         return 0;
     } else {
-        std::cout << "Data read successfully from file: " << "/workspace/sparsene/examples/src_fp32/acc/testbed/mtx_cache/" + checkpoint_filename << std::endl;
+        std::cout << "Data read successfully from file: " << checkpoint_path << std::endl;
     }
     return 1;
 }
@@ -209,9 +214,11 @@ int storeCheckpoint(
     vector<float>& vval_mco_val
 ) {
     string checkpoint_filename = extractMatrixName(file_path) + "M" + to_string(M) + "K" + to_string(K) + "Blk_M" + to_string(Blk_M) + "Blk_K" + to_string(Blk_K);
-    std::ofstream outputFile("/workspace/sparsene/examples/src_fp32/acc/testbed/mtx_cache/" + checkpoint_filename, std::ios::binary);
+    auto checkpoint_path = checkpointPath(checkpoint_filename);
+    std::filesystem::create_directories(checkpoint_path.parent_path());
+    std::ofstream outputFile(checkpoint_path, std::ios::binary | std::ios::trunc);
     if (!outputFile.is_open()) {
-        std::cerr << "Fail to open file: " << "/workspace/sparsene/examples/src_fp32/acc/testbed/mtx_cache/" + checkpoint_filename << std::endl;
+        std::cerr << "Fail to open file: " << checkpoint_path << std::endl;
         return 0;
     }
     int Mo = DIVUP(M, Blk_M);
@@ -237,7 +244,7 @@ int storeCheckpoint(
         std::cerr << "Failed to write data to file." << std::endl;
         exit(-1);
     } else {
-        std::cout << "Data written successfully to file: " << "/workspace/sparsene/examples/src_fp32/acc/testbed/mtx_cache/" + checkpoint_filename << std::endl;
+        std::cout << "Data written successfully to file: " << checkpoint_path << std::endl;
     }
     return 1;
 }

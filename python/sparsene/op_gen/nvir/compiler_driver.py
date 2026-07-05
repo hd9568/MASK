@@ -608,10 +608,12 @@ def _fuse_inline_gen_add(main_loop: ForLoopNvOp) -> bool:
         load_off1.inputs = []
         for ni in new_lo:
             load_off1.add_input(ni)
+        load_l_name = load_off1.outputs[0].name
+        load_r_name = load_off1.outputs[1].name
         load_off1.impl = NvOpImpl(
             "int idx = off_l + lc;\n"
-            "        ll(0, buf_idx) = operand_0(idx);\n"
-            "        rr(0, buf_idx) = operand_0(idx + 1);")
+            f"        {load_l_name}(0, buf_idx) = operand_0(idx);\n"
+            f"        {load_r_name}(0, buf_idx) = operand_0(idx + 1);")
 
     # --- Fuse into CSR row_ptr alias array_ref_2 ---
     if arr_ref2 is not None and any(inp.tensor.source is ga_out for inp in arr_ref2.inputs):

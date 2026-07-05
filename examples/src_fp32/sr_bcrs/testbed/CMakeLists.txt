@@ -159,3 +159,15 @@ target_include_directories(demo-srbcrs-16x8-strict-lb-tf32 PRIVATE
     ${CUTLASS_UTIL_DIR}
     ${SRCDIR}
 )
+
+add_executable(demo-srbcrs-generated-tf32 ${PROJECT_SOURCE_DIR}/host_program_generated.cu ${PROJECT_SOURCE_DIR}/main.cu ${SRC_CUDA_FILES})
+
+target_compile_options(demo-srbcrs-generated-tf32 PRIVATE ${CUDA_NVCC_FLAGS} -I${SRCDIR} -I${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(demo-srbcrs-generated-tf32 PRIVATE ${CUDA_LIBS})
+target_compile_definitions(demo-srbcrs-generated-tf32 PRIVATE f32)
+target_include_directories(demo-srbcrs-generated-tf32 PRIVATE
+    ${CUTLASS_INCLUDE_DIR}
+    ${CUTLASS_COMMON_DIR}
+    ${CUTLASS_UTIL_DIR}
+    ${SRCDIR}
+)

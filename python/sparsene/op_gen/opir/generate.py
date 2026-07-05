@@ -1115,6 +1115,7 @@ def generate_from_mco_atomic_format_op(
         name_hint="mco_len"
     ).result
 
+    mask_tile_shape = (C_val_tile.type.dims[0] * B_val_tile.type.dims[0]) / Number(64)
     mco_mask = op_builder.build(
         McoAtomicFormatLoadMaskOp,
         mem="G2R",
@@ -1122,6 +1123,7 @@ def generate_from_mco_atomic_format_op(
             mask_array,
             *build_array_ref_indices(schedule.args[1], array_defs, format),
         ],
+        out_shape=mask_tile_shape,
         name_hint="mco_mask"
     ).result
 

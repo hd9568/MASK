@@ -35,6 +35,8 @@ motivation/TCBlockNum/*
 examples/**/testbed/build/*
 examples/**/testbed/build_new/*
 examples/**/testbed/build_generated/
+examples/**/testbed/build-generated/
+examples/**/testbed/build-generated-*/
 examples/**/testbed/build_reference/
 examples/**/testbed/build_multi_dataset/
 examples/**/testbed/build_perf_logs/

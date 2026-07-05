@@ -34,6 +34,7 @@ from sparsene.op_gen.opir.ops import (
     CooAtomicFormatLoadValOp,
     DiaAtomicFormatLoadIdxOp,
     DiaAtomicFormatLoadValOp,
+    McoAtomicFormatLoadMaskOp,
     McoAtomicFormatLoadValOp,
 )
 from sparsene.op_gen.computent.computent import computent_from_rts, Computent, ArrayDef
@@ -57,6 +58,7 @@ from sparsene.op_gen.computent.computent import (
 
 @dataclass
 class _FlattenSpec:
+    leading_rank: int
     prefix_rank: int
     varlen_pos: int
     a_expr: SymExpr  # 线性系数 a
@@ -190,13 +192,18 @@ class VarlenLoweringPass:
             if not any(target_varlen in str(d) for d in old_dims):
                 continue
 
-            if len(old_dims) <= prefix_rank or not self._dims_equal(old_dims[:prefix_rank], prefix_dims):
+            varlen_pos = next(i for i, dim in enumerate(old_dims) if target_varlen in str(dim))
+            leading_rank = varlen_pos - prefix_rank
+            if (
+                leading_rank < 0
+                or not self._dims_equal(old_dims[leading_rank:varlen_pos], prefix_dims)
+            ):
                 raise RuntimeError(
                     f"数组 {op.result.name_hint} 包含 {target_varlen}，"
-                    f"但其前缀 {old_dims[:prefix_rank]} 与长度数组前缀 {prefix_dims} 不匹配！无法压缩。"
+                    f"但其前缀 {old_dims[:varlen_pos]} 与长度数组前缀 {prefix_dims} 不匹配！无法压缩。"
                 )
 
-            varlen_dim_expr = sympify(old_dims[prefix_rank])
+            varlen_dim_expr = sympify(old_dims[varlen_pos])
             var_node = sympify(target_varlen)
             a_expr = simplify(varlen_dim_expr.diff(var_node))
             b_expr = simplify(varlen_dim_expr.subs(var_node, 0))
@@ -224,19 +231,20 @@ class VarlenLoweringPass:
             compressed_dim = Symbol(f"nnz_dim_{safe_core_name}")
             # =================================================================
 
-            print(f"Compressing array '{old_name}' with varlen dim '{old_dims[prefix_rank]}' into new dim '{compressed_dim}'")
+            print(f"Compressing array '{old_name}' with varlen dim '{old_dims[varlen_pos]}' into new dim '{compressed_dim}'")
 
             # 更新维度... (省略细节，参考上一次的回复)
             # compressed_dim = Symbol(f"nnz_dim_{target_varlen.replace('(', '_').replace(')', '')}")
-            new_dims = [compressed_dim] + old_dims[prefix_rank + 1 :]
+            new_dims = old_dims[:leading_rank] + [compressed_dim] + old_dims[varlen_pos + 1 :]
 
             op.attributes["symbol"] = new_name
             op.result.name_hint = new_name
             op.result.type = ArrayType(new_dims, arr_type.datatype)
 
             flatten_specs[op.result] = _FlattenSpec(
+                leading_rank=leading_rank,
                 prefix_rank=prefix_rank,
-                varlen_pos=prefix_rank,
+                varlen_pos=varlen_pos,
                 a_expr=a_expr,
                 b_expr=b_expr
             )
@@ -346,7 +354,7 @@ class VarlenLoweringPass:
             return False
 
         # ================= NEW: 拦截最外层全局维度 =================
-        if spec.prefix_rank == 0:
+        if spec.leading_rank == 0 and spec.prefix_rank == 0:
             # 说明这个 varlen 是稠密的最外层 (如 varlen(M))
             # 它的索引就是对的，不需要算 a*left + b*i，直接放行，返回 True 刷新 Type 即可。
             return True
@@ -354,12 +362,19 @@ class VarlenLoweringPass:
 
         indices = [operand.source for operand in op.operands[1:]]
 
-        if len(indices) <= spec.varlen_pos:
+        if isinstance(op, McoAtomicFormatLoadMaskOp) and spec.leading_rank > 0:
+            prefix_start = 0
+        else:
+            prefix_start = spec.leading_rank
+
+        prefix_end = prefix_start + spec.prefix_rank
+        j_pos = prefix_end
+        if len(indices) <= j_pos:
             return False
 
-        prefix_indices = indices[: spec.prefix_rank]
-        j_val = indices[spec.varlen_pos]
-        rest_indices = indices[spec.varlen_pos + 1 :]
+        prefix_indices = indices[prefix_start:prefix_end]
+        j_val = indices[j_pos]
+        rest_indices = indices[j_pos + 1 :]
 
         # 1. 计算 term_a = a * left (利用 get_base_offset 内部的缓存)
         term_a = self._get_base_offset(
