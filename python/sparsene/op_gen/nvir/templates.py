@@ -268,7 +268,7 @@ public:
 }};"""
 
 GLOBAL_FUNCTION_SKELETON = """template <class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class WARP_MNK{parameter_types}>
-__global__ __launch_bounds__(32, 20) void {kernel_name}(
+__global__{launch_bounds} void {kernel_name}(
 {gmem_ptrs},
 {varlens}
 ) {{

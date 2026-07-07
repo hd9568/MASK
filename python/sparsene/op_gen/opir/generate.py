@@ -14,6 +14,7 @@ from sparsene.op_gen.computent.computent import (
     ArrayRef,
     DataType,
 )
+from sparsene.op_gen.computent.arraydef import ArrayType as ComputentArrayType
 from dataclasses import dataclass
 from sparsene.op_gen.opir.op_ir import (
     Op,
@@ -711,12 +712,8 @@ def generate_from_coo_atomic_format_op(
     assert isinstance(schedule.args[3], ArrayRef)
     print("Generating COO atomic format op with args: ", schedule.args)
 
-    #> ori off_array
-    # off_array = op_builder.lookup_symbol(
-    #     schedule.args[0].array, get_array_type(array_defs[schedule.args[0].array])
-    # )
-    #> current len_array
-    len_array = op_builder.lookup_symbol(
+    metadata_def = array_defs[schedule.args[0].array]
+    metadata_array = op_builder.lookup_symbol(
         schedule.args[0].array, get_array_type(array_defs[schedule.args[0].array])
     )
     idx_array = op_builder.lookup_symbol(
@@ -732,67 +729,23 @@ def generate_from_coo_atomic_format_op(
 
     assert isinstance(B_val_tile.type, ArrayType)
     assert isinstance(C_val_tile.type, ArrayType)
-    #> origin coo processing logic
-    # ll, rr = op_builder.build(
-    #     CooAtomicFormatLoadOffOp,
-    #     mem="G2R",
-    #     operands=[
-    #         off_array,
-    #         *build_array_ref_indices(schedule.args[0], array_defs, format),
-    #     ],
-    #     name_hint=["ll", "rr"],
-    # ).results
-
-    # print(C_val_tile)
-    # print(B_val_tile)
-
-    # coo_idx, coo_range = op_builder.build(
-    #     CooAtomicFormatLoadIdxOp,
-    #     mem="G2R",
-    #     operands=[
-    #         idx_array,
-    #         *build_array_ref_indices(schedule.args[1], array_defs, format),
-    #         ll,
-    #         rr,
-    #     ],
-    #     out_shape=C_val_tile.type.dims[0] * B_val_tile.type.dims[0],  # type: ignore
-    #     name_hint=["coo_idx", "coo_range"],
-    # ).results
-
-    # coo_val = op_builder.build(
-    #     CooAtomicFormatLoadValOp,
-    #     mem="G2S",
-    #     operands=[
-    #         val_array,
-    #         *build_array_ref_indices(schedule.args[2], array_defs, format),
-    #         ll,
-    #         rr,
-    #     ],
-    #     out_shape=C_val_tile.type.dims[0] * B_val_tile.type.dims[0],  # type: ignore
-    #     name_hint="coo_val",
-    # ).result
-
-    # A_val_tile = op_builder.build(
-    #     CooAtomicValRestoreOp,
-    #     mem="S2R",
-    #     operands=[
-    #         coo_val,
-    #         coo_idx,
-    #         coo_range,
-    #     ],
-    #     out_shape=(C_val_tile.type.dims[0], B_val_tile.type.dims[0]),
-    #     name_hint="A_val_tile",
-    # ).result
-
-    # C_val_tile = op_builder.build(
-    #     MmaOp, "R2R", [A_val_tile, B_val_tile, C_val_tile], name_hint="C_val_tile"
-    # ).result
-    ll, rr = op_builder.build(
-        LoadOffsetOp,
-        len_array,
-        build_array_ref_indices(schedule.args[0], array_defs, format),
-        name_hint=["ll", "rr"],
-    ).results
+    if metadata_def.type == ComputentArrayType.OFFSET:
+        ll, rr = op_builder.build(
+            CooAtomicFormatLoadOffOp,
+            mem="G2R",
+            operands=[
+                metadata_array,
+                *build_array_ref_indices(schedule.args[0], array_defs, format),
+            ],
+            name_hint=["ll", "rr"],
+        ).results
+    else:
+        ll, rr = op_builder.build(
+            LoadOffsetOp,
+            metadata_array,
+            build_array_ref_indices(schedule.args[0], array_defs, format),
+            name_hint=["ll", "rr"],
+        ).results
 
     idx_tile_shape = C_val_tile.type.dims[0] * B_val_tile.type.dims[0]
     coo_idx, coo_range = op_builder.build(

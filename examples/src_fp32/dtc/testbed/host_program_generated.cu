@@ -11,10 +11,10 @@
 
 #include <cute/tensor.hpp>
 
-#ifdef USE_PATCHED_INC
+#if defined(USE_PATCHED_INC) && __has_include("../../../../python/me_tcf_kernel3_patched.inc")
 #include "../../../../python/me_tcf_kernel3_patched.inc"
 #else
-#include "../../../../python/me_tcf_kernel3.inc"
+#include "../../../../python/test/results/dtc.inc"
 #endif
 
 #ifndef SPARSENE_GENERATED_TILE_B
@@ -62,9 +62,6 @@ bool should_print_generated_meta() {
 struct GeneratedKernelMetadata {
     std::vector<int> val_sidx_new_t;
     std::vector<int> val_len_offset;
-    std::vector<int> val_coo_len_new_offset;
-    std::vector<int> val_coo_idx_new_1;
-    std::vector<float> val_coo_val_new_1;
 };
 
 GeneratedKernelMetadata convert_old_metadata_to_generated(
@@ -73,17 +70,14 @@ GeneratedKernelMetadata convert_old_metadata_to_generated(
     int nnz,
     const int* val_sidx,
     const int* val_soff,
-    const int* val_coo_idx,
-    const float* val_coo_val,
-    const int* val_coo_off) {
+    const int* /*val_coo_idx*/,
+    const float* /*val_coo_val*/,
+    const int* /*val_coo_off*/) {
     const int row_window_num = (M + ROW_WINDOW_M - 1) / ROW_WINDOW_M;
 
     GeneratedKernelMetadata meta;
     meta.val_sidx_new_t.assign(TC_BLOCK_K * TCBlock_num, 0);
     meta.val_len_offset.assign(row_window_num + 1, 0);
-    meta.val_coo_len_new_offset.assign(TCBlock_num + 1, 0);
-    meta.val_coo_idx_new_1.reserve(nnz);
-    meta.val_coo_val_new_1.reserve(nnz);
 
     for (int row_window = 0; row_window <= row_window_num; ++row_window) {
         meta.val_len_offset[row_window] = val_soff[row_window];
@@ -100,22 +94,6 @@ GeneratedKernelMetadata convert_old_metadata_to_generated(
         }
     }
 
-    // The generated kernel consumes compact COO payloads with prefix offsets
-    // over the real nnz counts, while the reference testbed stores padded
-    // blocks in `val_coo_*` and keeps `[start, real_end]` pairs in
-    // `val_coo_off`.
-    int compact_pos = 0;
-    for (int block_id = 0; block_id < TCBlock_num; ++block_id) {
-        const int block_start = val_coo_off[block_id * 2];
-        const int block_real_end = val_coo_off[block_id * 2 + 1];
-        meta.val_coo_len_new_offset[block_id] = compact_pos;
-        for (int pos = block_start; pos < block_real_end; ++pos) {
-            meta.val_coo_idx_new_1.push_back(val_coo_idx[pos]);
-            meta.val_coo_val_new_1.push_back(val_coo_val[pos]);
-            ++compact_pos;
-        }
-    }
-    meta.val_coo_len_new_offset[TCBlock_num] = compact_pos;
     return meta;
 }
 
@@ -143,14 +121,14 @@ void launch_generated_kernel_once(
         printed_meta_summary = true;
         printf(
             "[generated-meta] val_len_offset[0..2]=(%d,%d,%d) first_row_blocks=%d "
-            "coo_offsets[0..2]=(%d,%d,%d) sidx[0..3]=(%d,%d,%d,%d)\n",
+            "coo_off[0..2]=(%d,%d,%d) sidx[0..3]=(%d,%d,%d,%d)\n",
             meta.val_len_offset.size() > 0 ? meta.val_len_offset[0] : -1,
             meta.val_len_offset.size() > 1 ? meta.val_len_offset[1] : -1,
             meta.val_len_offset.size() > 2 ? meta.val_len_offset[2] : -1,
             meta.val_len_offset.size() > 1 ? (meta.val_len_offset[1] - meta.val_len_offset[0]) : -1,
-            meta.val_coo_len_new_offset.size() > 0 ? meta.val_coo_len_new_offset[0] : -1,
-            meta.val_coo_len_new_offset.size() > 1 ? meta.val_coo_len_new_offset[1] : -1,
-            meta.val_coo_len_new_offset.size() > 2 ? meta.val_coo_len_new_offset[2] : -1,
+            TCBlock_num > 0 ? val_coo_off[0] : -1,
+            TCBlock_num > 0 ? val_coo_off[1] : -1,
+            TCBlock_num > 1 ? val_coo_off[2] : -1,
             meta.val_sidx_new_t.size() > 0 ? meta.val_sidx_new_t[0] : -1,
             meta.val_sidx_new_t.size() > 1 ? meta.val_sidx_new_t[1] : -1,
             meta.val_sidx_new_t.size() > 2 ? meta.val_sidx_new_t[2] : -1,
@@ -158,17 +136,17 @@ void launch_generated_kernel_once(
     }
     int* dval_sidx_new = nullptr;
     int* dval_len_offset = nullptr;
-    int* dval_coo_len_new_offset = nullptr;
-    int* dval_coo_idx_new_1 = nullptr;
-    float* dval_coo_val_new_1 = nullptr;
+    int* dval_coo_off_new = nullptr;
+    int* dval_coo_idx_new = nullptr;
+    float* dval_coo_val_new = nullptr;
     float* dB_val = nullptr;
     float* dC = nullptr;
 
     CHECK_CUDA2(cudaMalloc(&dval_sidx_new, sizeof(int) * meta.val_sidx_new_t.size()));
     CHECK_CUDA2(cudaMalloc(&dval_len_offset, sizeof(int) * meta.val_len_offset.size()));
-    CHECK_CUDA2(cudaMalloc(&dval_coo_len_new_offset, sizeof(int) * meta.val_coo_len_new_offset.size()));
-    CHECK_CUDA2(cudaMalloc(&dval_coo_idx_new_1, sizeof(int) * meta.val_coo_idx_new_1.size()));
-    CHECK_CUDA2(cudaMalloc(&dval_coo_val_new_1, sizeof(float) * meta.val_coo_val_new_1.size()));
+    CHECK_CUDA2(cudaMalloc(&dval_coo_off_new, sizeof(int) * (2 * TCBlock_num + 1)));
+    CHECK_CUDA2(cudaMalloc(&dval_coo_idx_new, sizeof(int) * nnz));
+    CHECK_CUDA2(cudaMalloc(&dval_coo_val_new, sizeof(float) * nnz));
     CHECK_CUDA2(cudaMalloc(&dB_val, sizeof(float) * K * N));
     CHECK_CUDA2(cudaMalloc(&dC, sizeof(float) * row_window_num * ROW_WINDOW_M * N));
 
@@ -183,19 +161,19 @@ void launch_generated_kernel_once(
         sizeof(int) * meta.val_len_offset.size(),
         cudaMemcpyHostToDevice));
     CHECK_CUDA2(cudaMemcpy(
-        dval_coo_len_new_offset,
-        meta.val_coo_len_new_offset.data(),
-        sizeof(int) * meta.val_coo_len_new_offset.size(),
+        dval_coo_off_new,
+        val_coo_off,
+        sizeof(int) * (2 * TCBlock_num + 1),
         cudaMemcpyHostToDevice));
     CHECK_CUDA2(cudaMemcpy(
-        dval_coo_idx_new_1,
-        meta.val_coo_idx_new_1.data(),
-        sizeof(int) * meta.val_coo_idx_new_1.size(),
+        dval_coo_idx_new,
+        val_coo_idx,
+        sizeof(int) * nnz,
         cudaMemcpyHostToDevice));
     CHECK_CUDA2(cudaMemcpy(
-        dval_coo_val_new_1,
-        meta.val_coo_val_new_1.data(),
-        sizeof(float) * meta.val_coo_val_new_1.size(),
+        dval_coo_val_new,
+        val_coo_val,
+        sizeof(float) * nnz,
         cudaMemcpyHostToDevice));
     CHECK_CUDA2(cudaMemcpy(dB_val, B_val, sizeof(float) * K * N, cudaMemcpyHostToDevice));
     CHECK_CUDA2(cudaMemset(dC, 0, sizeof(float) * row_window_num * ROW_WINDOW_M * N));
@@ -214,24 +192,22 @@ void launch_generated_kernel_once(
     using WARP_MNK = decltype(warp_mnk);
 
     const int row_window_offsets_len = row_window_num + 1;
-    const int tcblock_offsets_len = TCBlock_num + 1;
-
     generated_kernel<BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK>
         <<<grid, block>>>(
             dB_val,
             dC,
-            dval_coo_idx_new_1,
-            dval_coo_len_new_offset,
-            dval_coo_val_new_1,
+            dval_coo_idx_new,
+            dval_coo_off_new,
+            dval_coo_val_new,
             dval_len_offset,
             dval_sidx_new,
             K,
             M,
             row_window_offsets_len,
             N,
-            TCBlock_num,
-            tcblock_offsets_len,
-            static_cast<int>(meta.val_coo_idx_new_1.size()));
+            nnz,
+            TCBlock_num
+        );
 }
 
 template <int TILE_B>
@@ -260,14 +236,14 @@ void run_generated_kernel(
         printed_meta_summary = true;
         printf(
             "[generated-meta] val_len_offset[0..2]=(%d,%d,%d) first_row_blocks=%d "
-            "coo_offsets[0..2]=(%d,%d,%d) sidx[0..3]=(%d,%d,%d,%d)\n",
+            "coo_off[0..2]=(%d,%d,%d) sidx[0..3]=(%d,%d,%d,%d)\n",
             meta.val_len_offset.size() > 0 ? meta.val_len_offset[0] : -1,
             meta.val_len_offset.size() > 1 ? meta.val_len_offset[1] : -1,
             meta.val_len_offset.size() > 2 ? meta.val_len_offset[2] : -1,
             meta.val_len_offset.size() > 1 ? (meta.val_len_offset[1] - meta.val_len_offset[0]) : -1,
-            meta.val_coo_len_new_offset.size() > 0 ? meta.val_coo_len_new_offset[0] : -1,
-            meta.val_coo_len_new_offset.size() > 1 ? meta.val_coo_len_new_offset[1] : -1,
-            meta.val_coo_len_new_offset.size() > 2 ? meta.val_coo_len_new_offset[2] : -1,
+            TCBlock_num > 0 ? val_coo_off[0] : -1,
+            TCBlock_num > 0 ? val_coo_off[1] : -1,
+            TCBlock_num > 1 ? val_coo_off[2] : -1,
             meta.val_sidx_new_t.size() > 0 ? meta.val_sidx_new_t[0] : -1,
             meta.val_sidx_new_t.size() > 1 ? meta.val_sidx_new_t[1] : -1,
             meta.val_sidx_new_t.size() > 2 ? meta.val_sidx_new_t[2] : -1,
@@ -275,17 +251,17 @@ void run_generated_kernel(
     }
     int* dval_sidx_new = nullptr;
     int* dval_len_offset = nullptr;
-    int* dval_coo_len_new_offset = nullptr;
-    int* dval_coo_idx_new_1 = nullptr;
-    float* dval_coo_val_new_1 = nullptr;
+    int* dval_coo_off_new = nullptr;
+    int* dval_coo_idx_new = nullptr;
+    float* dval_coo_val_new = nullptr;
     float* dB_val = nullptr;
     float* dC = nullptr;
 
     CHECK_CUDA2(cudaMalloc(&dval_sidx_new, sizeof(int) * meta.val_sidx_new_t.size()));
     CHECK_CUDA2(cudaMalloc(&dval_len_offset, sizeof(int) * meta.val_len_offset.size()));
-    CHECK_CUDA2(cudaMalloc(&dval_coo_len_new_offset, sizeof(int) * meta.val_coo_len_new_offset.size()));
-    CHECK_CUDA2(cudaMalloc(&dval_coo_idx_new_1, sizeof(int) * meta.val_coo_idx_new_1.size()));
-    CHECK_CUDA2(cudaMalloc(&dval_coo_val_new_1, sizeof(float) * meta.val_coo_val_new_1.size()));
+    CHECK_CUDA2(cudaMalloc(&dval_coo_off_new, sizeof(int) * (2 * TCBlock_num + 1)));
+    CHECK_CUDA2(cudaMalloc(&dval_coo_idx_new, sizeof(int) * nnz));
+    CHECK_CUDA2(cudaMalloc(&dval_coo_val_new, sizeof(float) * nnz));
     CHECK_CUDA2(cudaMalloc(&dB_val, sizeof(float) * K * N));
     CHECK_CUDA2(cudaMalloc(&dC, sizeof(float) * row_window_num * ROW_WINDOW_M * N));
 
@@ -300,19 +276,19 @@ void run_generated_kernel(
         sizeof(int) * meta.val_len_offset.size(),
         cudaMemcpyHostToDevice));
     CHECK_CUDA2(cudaMemcpy(
-        dval_coo_len_new_offset,
-        meta.val_coo_len_new_offset.data(),
-        sizeof(int) * meta.val_coo_len_new_offset.size(),
+        dval_coo_off_new,
+        val_coo_off,
+        sizeof(int) * (2 * TCBlock_num + 1),
         cudaMemcpyHostToDevice));
     CHECK_CUDA2(cudaMemcpy(
-        dval_coo_idx_new_1,
-        meta.val_coo_idx_new_1.data(),
-        sizeof(int) * meta.val_coo_idx_new_1.size(),
+        dval_coo_idx_new,
+        val_coo_idx,
+        sizeof(int) * nnz,
         cudaMemcpyHostToDevice));
     CHECK_CUDA2(cudaMemcpy(
-        dval_coo_val_new_1,
-        meta.val_coo_val_new_1.data(),
-        sizeof(float) * meta.val_coo_val_new_1.size(),
+        dval_coo_val_new,
+        val_coo_val,
+        sizeof(float) * nnz,
         cudaMemcpyHostToDevice));
     CHECK_CUDA2(cudaMemcpy(dB_val, B_val, sizeof(float) * K * N, cudaMemcpyHostToDevice));
     CHECK_CUDA2(cudaMemset(dC, 0, sizeof(float) * row_window_num * ROW_WINDOW_M * N));
@@ -331,25 +307,23 @@ void run_generated_kernel(
     using WARP_MNK = decltype(warp_mnk);
 
     const int row_window_offsets_len = row_window_num + 1;
-    const int tcblock_offsets_len = TCBlock_num + 1;
-
     auto launch = [&]() {
         generated_kernel<BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK>
             <<<grid, block>>>(
                 dB_val,
                 dC,
-                dval_coo_idx_new_1,
-                dval_coo_len_new_offset,
-                dval_coo_val_new_1,
+                dval_coo_idx_new,
+                dval_coo_off_new,
+                dval_coo_val_new,
                 dval_len_offset,
                 dval_sidx_new,
                 K,
                 M,
                 row_window_offsets_len,
                 N,
-                TCBlock_num,
-                tcblock_offsets_len,
-                static_cast<int>(meta.val_coo_idx_new_1.size()));
+                nnz,
+                TCBlock_num
+            );
     };
 
     if (execute_time > 0) {
@@ -385,9 +359,9 @@ void run_generated_kernel(
 
     CHECK_CUDA2(cudaFree(dval_sidx_new));
     CHECK_CUDA2(cudaFree(dval_len_offset));
-    CHECK_CUDA2(cudaFree(dval_coo_len_new_offset));
-    CHECK_CUDA2(cudaFree(dval_coo_idx_new_1));
-    CHECK_CUDA2(cudaFree(dval_coo_val_new_1));
+    CHECK_CUDA2(cudaFree(dval_coo_off_new));
+    CHECK_CUDA2(cudaFree(dval_coo_idx_new));
+    CHECK_CUDA2(cudaFree(dval_coo_val_new));
     CHECK_CUDA2(cudaFree(dB_val));
     CHECK_CUDA2(cudaFree(dC));
 }

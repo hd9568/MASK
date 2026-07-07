@@ -1113,6 +1113,7 @@ def apply_cooize_transformation(
     spformat: Format,
     root_format: Format,
     transform: CooizeTransformation,
+    coo_storage_policy: str = "compact_prefix",
 ) -> Tuple[Schedule, ArrayDefCollection, AtomicFormat]:
     schedule, array_defs = (
         deepcopy(schedule),
@@ -1144,20 +1145,27 @@ def apply_cooize_transformation(
         idx_x, idx_y = val_def.index_of(axis_x), val_def.index_of(axis_y)
         # idx_x and idx_y should be the last two dimensions
         assert idx_x and idx_y and idx_x + 1 == idx_y and idx_y == len(val_def.axes) - 1
-        # coo_off_def = ArrayDef(
-        #     name=MyNameManager.new_name(val_def.name + "_coo_off"),
-        #     axes=val_def.axes[:-2],
-        #     dims=val_def.dims[:-2],
-        #     type=ArrayType.OFFSET,
-        #     datatype=DataType.INT,
-        # )
-        coo_len_def = ArrayDef(
-            name=MyNameManager.new_name(val_def.name + "_coo_len"),
-            axes=val_def.axes[:-2],
-            dims=val_def.dims[:-2],
-            type=ArrayType.SPLEN,
-            datatype=DataType.INT,
-        )
+        coo_len_def = None
+        coo_off_def = None
+        if coo_storage_policy == "padded_offset_pair":
+            coo_off_def = ArrayDef(
+                name=MyNameManager.new_name(val_def.name + "_coo_off"),
+                axes=val_def.axes[:-2] + [f"{axis_x}_{axis_y}_coo_off_pair"],
+                dims=val_def.dims[:-2] + [2],
+                type=ArrayType.OFFSET,
+                datatype=DataType.INT,
+            )
+        elif coo_storage_policy == "compact_prefix":
+            coo_len_def = ArrayDef(
+                name=MyNameManager.new_name(val_def.name + "_coo_len"),
+                axes=val_def.axes[:-2],
+                dims=val_def.dims[:-2],
+                type=ArrayType.SPLEN,
+                datatype=DataType.INT,
+            )
+        else:
+            raise ValueError(f"Unsupported COO storage policy: {coo_storage_policy}")
+
         coo_idx_def = ArrayDef(
             name=MyNameManager.new_name(val_def.name + "_coo_idx"),
             axes=val_def.axes[:-2] + [f"{axis_x}_{axis_y}_coo"],
@@ -1172,9 +1180,17 @@ def apply_cooize_transformation(
             type=ArrayType.VAL,
             datatype=val_def.datatype,
         )
-        varlen2LenArrayTable = SymbolTable.global_table("varlen2LenArrayTable")
-        varlen2LenArrayTable[str(merged_axis.length)] = coo_len_def
-        array_defs.replace([val_def.name], [coo_idx_def, coo_val_def, coo_len_def])
+        if coo_len_def is not None:
+            varlen2LenArrayTable = SymbolTable.global_table("varlen2LenArrayTable")
+            varlen2LenArrayTable[str(merged_axis.length)] = coo_len_def
+            coo_metadata_def = coo_len_def
+            replacement_defs = [coo_idx_def, coo_val_def, coo_len_def]
+        else:
+            assert coo_off_def is not None
+            coo_metadata_def = coo_off_def
+            replacement_defs = [coo_idx_def, coo_val_def, coo_off_def]
+
+        array_defs.replace([val_def.name], replacement_defs)
 
     update_st_array_def(array_defs)
 
@@ -1241,8 +1257,9 @@ def apply_cooize_transformation(
         axes_len=(axis_ref.axes_len[0], axis_ref.axes_len[1]),
         type=AtomicFormatType.COO,
         args=[
-            # coo_len 只需要外层索引：val_coo_len[i1, i2]
-            ArrayRef(array=coo_len_def.name, indices=inherited_indices),
+            # compact policy uses coo_len[i1, i2]; padded policy uses
+            # coo_off[i1, i2] and the pair dimension is addressed by the loader.
+            ArrayRef(array=coo_metadata_def.name, indices=inherited_indices),
             
             # coo_idx 和 coo_val 需要外层索引 + 一个 COO 轴的占位符 "_"
             # val_coo_idx[i1, i2, _]
@@ -1781,7 +1798,16 @@ def add_metadata(schedule: Optional[Schedule], format: Format) -> None:
         )
 
 
-def computent_from_rts(name: str, rts: TransformationSequence) -> Computent:
+def computent_from_rts(
+    name: str,
+    rts: TransformationSequence,
+    coo_storage_policy: str = "auto",
+) -> Computent:
+    if coo_storage_policy == "auto":
+        coo_storage_policy = "padded_offset_pair" if name == "ME_TCF" else "compact_prefix"
+    if coo_storage_policy not in {"compact_prefix", "padded_offset_pair"}:
+        raise ValueError(f"Unsupported COO storage policy: {coo_storage_policy}")
+
     spformat = deepcopy(DENSE_FORMAT)
     root_format = Format(axes=[], child=spformat)
     assert isinstance(root_format.child, Format)
@@ -1836,7 +1862,12 @@ def computent_from_rts(name: str, rts: TransformationSequence) -> Computent:
             assert isinstance(spformat, Format)
         elif isinstance(transform, CooizeTransformation):
             schedule, array_defs, atomic_format = apply_cooize_transformation(
-                schedule, array_defs, spformat, root_format.child, transform
+                schedule,
+                array_defs,
+                spformat,
+                root_format.child,
+                transform,
+                coo_storage_policy=coo_storage_policy,
             )
             parent_format.child = atomic_format
             atomic_format_reached = True

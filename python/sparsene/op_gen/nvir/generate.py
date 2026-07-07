@@ -41,7 +41,9 @@ SPARSE_FORMAT_REGISTRY = {
     "ME_TCF": {
         "shape_overrides": {
             "val_len": ["Mo"],               # 拦截 val_len_offset 等
-            "val_coo_len": ["nnz_dim_K_o"],  # 拦截 val_coo_len_offset 等
+            "val_coo_off": ["2", "nnz_dim_K"],
+            "val_coo_idx": ["nnz"],
+            "val_coo_val": ["nnz"],
             "val_sidx": ["BLK_K", "nnz_dim_K"],
             "C_val": ["N", "M"],
         },
@@ -57,23 +59,29 @@ SPARSE_FORMAT_REGISTRY = {
         "custom_layouts": {
             "B_val": {
                 "dtype": "float",
-                "tensor_str": "logical_divide(make_tensor(make_gmem_ptr(d{name}), make_layout(make_shape(K, N), make_stride(N, _1{}))), make_shape(_1{}, get<1>(BLK_MNK{})))(_, make_coord(_, blockIdx.y))",
+                "tensor_str": "logical_divide(make_tensor(make_gmem_ptr(d{name}), make_layout(make_shape(K, N), make_stride(N, _1{}))), make_shape(_1{}, get<1>(BLK_MNK{})))(_, make_coord(_, {n_block}))",
                 "tensor_type_str": "decltype(logical_divide(make_tensor(make_gmem_ptr((TO0*)nullptr), make_layout(make_shape(VARLEN, VARLEN), make_stride(VARLEN, _1{}))), make_shape(_1{}, get<1>(BLK_MNK{})))(_, make_coord(_, VARLEN)))"
             },
             "C_val": {
                 "dtype": "float",
-                "tensor_str": "logical_divide(make_tensor(make_gmem_ptr(d{name}), make_shape(N, M)), select<1, 0>(BLK_MNK{}))(make_coord(_, blockIdx.y), make_coord(_, blockIdx.x))",
+                "tensor_str": "logical_divide(make_tensor(make_gmem_ptr(d{name}), make_shape(N, M)), select<1, 0>(BLK_MNK{}))(make_coord(_, {n_block}), make_coord(_, {m_block}))",
                 "tensor_type_str": "decltype(logical_divide(make_tensor(make_gmem_ptr((TO0*)nullptr), make_shape(VARLEN, VARLEN)), select<1, 0>(BLK_MNK{}))(make_coord(_, VARLEN), make_coord(_, VARLEN)))"
+            },
+            "val_coo_off": {
+                "dtype": "int",
+                "tensor_str": "make_tensor(make_gmem_ptr(d{name}), make_shape(Int<2>{}, nnz_dim_K))",
+                "tensor_type_str": "decltype(make_tensor(make_gmem_ptr((TO0*)nullptr), make_shape(Int<2>{}, VARLEN)))"
             }
         }
     },
     "BIT_TCF": {
         # BIT_TCF uses MCO atomic format; gmem interfaces similar to ME_TCF
+        "grid_mapping": "XNYM",
         "shape_overrides": {
             "val_len": ["Mo"],
             "val_coo_len": ["nnz_dim_K_o"],
             "val_sidx": ["BLK_K", "nnz_dim_K"],
-            "C_val": ["N", "M"],
+            "C_val": ["M", "N"],
         },
         "dtypes": {
             "mco_mask": "int64_t",
@@ -85,13 +93,13 @@ SPARSE_FORMAT_REGISTRY = {
         "custom_layouts": {
             "B_val": {
                 "dtype": "float",
-                "tensor_str": "logical_divide(make_tensor(make_gmem_ptr(d{name}), make_layout(make_shape(K, N), make_stride(N, _1{}))), make_shape(_1{}, get<1>(BLK_MNK{})))(_, make_coord(_, blockIdx.y))",
+                "tensor_str": "logical_divide(make_tensor(make_gmem_ptr(d{name}), make_layout(make_shape(K, N), make_stride(N, _1{}))), make_shape(_1{}, get<1>(BLK_MNK{})))(_, make_coord(_, {n_block}))",
                 "tensor_type_str": "decltype(logical_divide(make_tensor(make_gmem_ptr((TO0*)nullptr), make_layout(make_shape(VARLEN, VARLEN), make_stride(VARLEN, _1{}))), make_shape(_1{}, get<1>(BLK_MNK{})))(_, make_coord(_, VARLEN)))",
             },
             "C_val": {
                 "dtype": "float",
-                "tensor_str": "logical_divide(make_tensor(make_gmem_ptr(d{name}), make_shape(N, M)), select<1, 0>(BLK_MNK{}))(make_coord(_, blockIdx.y), make_coord(_, blockIdx.x))",
-                "tensor_type_str": "decltype(logical_divide(make_tensor(make_gmem_ptr((TO0*)nullptr), make_shape(VARLEN, VARLEN)), select<1, 0>(BLK_MNK{}))(make_coord(_, VARLEN), make_coord(_, VARLEN)))",
+                "tensor_str": "logical_divide(make_tensor(make_gmem_ptr(d{name}), make_layout(make_shape(M, N), make_stride(N, _1{}))), select<0, 1>(BLK_MNK{}))(make_coord(_, {m_block}), make_coord(_, {n_block}))",
+                "tensor_type_str": "decltype(logical_divide(make_tensor(make_gmem_ptr((TO0*)nullptr), make_layout(make_shape(VARLEN, VARLEN), make_stride(VARLEN, _1{}))), select<0, 1>(BLK_MNK{}))(make_coord(_, VARLEN), make_coord(_, VARLEN)))",
             }
         },
         "tensor_swizzles": {
@@ -116,12 +124,12 @@ SPARSE_FORMAT_REGISTRY = {
         "custom_layouts": {
             "B_val": {
                 "dtype": "float",
-                "tensor_str": "logical_divide(make_tensor(make_gmem_ptr(d{name}), make_layout(make_shape(K, N), make_stride(N, _1{}))), make_shape(_1{}, get<1>(BLK_MNK{})))(_, make_coord(_, blockIdx.y))",
+                "tensor_str": "logical_divide(make_tensor(make_gmem_ptr(d{name}), make_layout(make_shape(K, N), make_stride(N, _1{}))), make_shape(_1{}, get<1>(BLK_MNK{})))(_, make_coord(_, {n_block}))",
                 "tensor_type_str": "decltype(logical_divide(make_tensor(make_gmem_ptr((TO0*)nullptr), make_layout(make_shape(VARLEN, VARLEN), make_stride(VARLEN, _1{}))), make_shape(_1{}, get<1>(BLK_MNK{})))(_, make_coord(_, VARLEN)))",
             },
             "C_val": {
                 "dtype": "float",
-                "tensor_str": "logical_divide(make_tensor(make_gmem_ptr(d{name}), make_shape(N, M)), select<1, 0>(BLK_MNK{}))(make_coord(_, blockIdx.y), make_coord(_, blockIdx.x))",
+                "tensor_str": "logical_divide(make_tensor(make_gmem_ptr(d{name}), make_shape(N, M)), select<1, 0>(BLK_MNK{}))(make_coord(_, {n_block}), make_coord(_, {m_block}))",
                 "tensor_type_str": "decltype(logical_divide(make_tensor(make_gmem_ptr((TO0*)nullptr), make_shape(VARLEN, VARLEN)), select<1, 0>(BLK_MNK{}))(make_coord(_, VARLEN), make_coord(_, VARLEN)))",
             }
         },
@@ -154,12 +162,12 @@ SPARSE_FORMAT_REGISTRY = {
             },
             "B_val": {
                 "dtype": "float",
-                "tensor_str": "logical_divide(make_tensor(make_gmem_ptr(d{name}), make_layout(make_shape(K, N), make_stride(N, _1{}))), make_shape(_1{}, get<1>(BLK_MNK{})))(_, make_coord(_, blockIdx.y))",
+                "tensor_str": "logical_divide(make_tensor(make_gmem_ptr(d{name}), make_layout(make_shape(K, N), make_stride(N, _1{}))), make_shape(_1{}, get<1>(BLK_MNK{})))(_, make_coord(_, {n_block}))",
                 "tensor_type_str": "decltype(logical_divide(make_tensor(make_gmem_ptr((TO0*)nullptr), make_layout(make_shape(VARLEN, VARLEN), make_stride(VARLEN, _1{}))), make_shape(_1{}, get<1>(BLK_MNK{})))(_, make_coord(_, VARLEN)))",
             },
             "C_val": {
                 "dtype": "float",
-                "tensor_str": "logical_divide(make_tensor(make_gmem_ptr(d{name}), make_shape(N, M)), select<1, 0>(BLK_MNK{}))(make_coord(_, blockIdx.y), make_coord(_, blockIdx.x))",
+                "tensor_str": "logical_divide(make_tensor(make_gmem_ptr(d{name}), make_shape(N, M)), select<1, 0>(BLK_MNK{}))(make_coord(_, {n_block}), make_coord(_, {m_block}))",
                 "tensor_type_str": "decltype(logical_divide(make_tensor(make_gmem_ptr((TO0*)nullptr), make_shape(VARLEN, VARLEN)), select<1, 0>(BLK_MNK{}))(make_coord(_, VARLEN), make_coord(_, VARLEN)))",
             }
         }
@@ -186,12 +194,12 @@ SPARSE_FORMAT_REGISTRY = {
             },
             "B_val": {
                 "dtype": "float",
-                "tensor_str": "logical_divide(make_tensor(make_gmem_ptr(d{name}), make_layout(make_shape(K, N), make_stride(N, _1{}))), make_shape(_1{}, get<1>(BLK_MNK{})))(_, make_coord(_, blockIdx.y))",
+                "tensor_str": "logical_divide(make_tensor(make_gmem_ptr(d{name}), make_layout(make_shape(K, N), make_stride(N, _1{}))), make_shape(_1{}, get<1>(BLK_MNK{})))(_, make_coord(_, {n_block}))",
                 "tensor_type_str": "decltype(logical_divide(make_tensor(make_gmem_ptr((TO0*)nullptr), make_layout(make_shape(VARLEN, VARLEN), make_stride(VARLEN, _1{}))), make_shape(_1{}, get<1>(BLK_MNK{})))(_, make_coord(_, VARLEN)))",
             },
             "C_val": {
                 "dtype": "float",
-                "tensor_str": "logical_divide(make_tensor(make_gmem_ptr(d{name}), make_shape(N, M)), select<1, 0>(BLK_MNK{}))(make_coord(_, blockIdx.y), make_coord(_, blockIdx.x))",
+                "tensor_str": "logical_divide(make_tensor(make_gmem_ptr(d{name}), make_shape(N, M)), select<1, 0>(BLK_MNK{}))(make_coord(_, {n_block}), make_coord(_, {m_block}))",
                 "tensor_type_str": "decltype(logical_divide(make_tensor(make_gmem_ptr((TO0*)nullptr), make_shape(VARLEN, VARLEN)), select<1, 0>(BLK_MNK{}))(make_coord(_, VARLEN), make_coord(_, VARLEN)))",
             }
         }
@@ -213,12 +221,12 @@ SPARSE_FORMAT_REGISTRY = {
         "custom_layouts": {
             "B_val": {
                 "dtype": "float",
-                "tensor_str": "logical_divide(make_tensor(make_gmem_ptr(d{name}), make_layout(make_shape(K, N), make_stride(N, _1{}))), make_shape(_1{}, get<1>(BLK_MNK{})))(_, make_coord(_, blockIdx.y))",
+                "tensor_str": "logical_divide(make_tensor(make_gmem_ptr(d{name}), make_layout(make_shape(K, N), make_stride(N, _1{}))), make_shape(_1{}, get<1>(BLK_MNK{})))(_, make_coord(_, {n_block}))",
                 "tensor_type_str": "decltype(logical_divide(make_tensor(make_gmem_ptr((TO0*)nullptr), make_layout(make_shape(VARLEN, VARLEN), make_stride(VARLEN, _1{}))), make_shape(_1{}, get<1>(BLK_MNK{})))(_, make_coord(_, VARLEN)))",
             },
             "C_val": {
                 "dtype": "float",
-                "tensor_str": "logical_divide(make_tensor(make_gmem_ptr(d{name}), make_shape(N, M)), select<1, 0>(BLK_MNK{}))(make_coord(_, blockIdx.y), make_coord(_, blockIdx.x))",
+                "tensor_str": "logical_divide(make_tensor(make_gmem_ptr(d{name}), make_shape(N, M)), select<1, 0>(BLK_MNK{}))(make_coord(_, {n_block}), make_coord(_, {m_block}))",
                 "tensor_type_str": "decltype(logical_divide(make_tensor(make_gmem_ptr((TO0*)nullptr), make_shape(VARLEN, VARLEN)), select<1, 0>(BLK_MNK{}))(make_coord(_, VARLEN), make_coord(_, VARLEN)))",
             }
         }
@@ -241,12 +249,12 @@ SPARSE_FORMAT_REGISTRY = {
         "custom_layouts": {
             "B_val": {
                 "dtype": "float",
-                "tensor_str": "logical_divide(make_tensor(make_gmem_ptr(d{name}), make_layout(make_shape(K, N), make_stride(N, _1{}))), make_shape(_1{}, get<1>(BLK_MNK{})))(_, make_coord(_, blockIdx.y))",
+                "tensor_str": "logical_divide(make_tensor(make_gmem_ptr(d{name}), make_layout(make_shape(K, N), make_stride(N, _1{}))), make_shape(_1{}, get<1>(BLK_MNK{})))(_, make_coord(_, {n_block}))",
                 "tensor_type_str": "decltype(logical_divide(make_tensor(make_gmem_ptr((TO0*)nullptr), make_layout(make_shape(VARLEN, VARLEN), make_stride(VARLEN, _1{}))), make_shape(_1{}, get<1>(BLK_MNK{})))(_, make_coord(_, VARLEN)))",
             },
             "C_val": {
                 "dtype": "float",
-                "tensor_str": "logical_divide(make_tensor(make_gmem_ptr(d{name}), make_shape(N, M)), select<1, 0>(BLK_MNK{}))(make_coord(_, blockIdx.y), make_coord(_, blockIdx.x))",
+                "tensor_str": "logical_divide(make_tensor(make_gmem_ptr(d{name}), make_shape(N, M)), select<1, 0>(BLK_MNK{}))(make_coord(_, {n_block}), make_coord(_, {m_block}))",
                 "tensor_type_str": "decltype(logical_divide(make_tensor(make_gmem_ptr((TO0*)nullptr), make_shape(VARLEN, VARLEN)), select<1, 0>(BLK_MNK{}))(make_coord(_, VARLEN), make_coord(_, VARLEN)))",
             }
         }
@@ -254,14 +262,40 @@ SPARSE_FORMAT_REGISTRY = {
 }
 
 class HardwareMapper:
-    def __init__(self):
+    def __init__(self, grid_mapping: str = "XMYN"):
         self.loop_depth = 0  # 追踪循环嵌套深度
+        self.grid_mapping = grid_mapping
 
     def map_loop(self) -> str:
-        """外层循环映射到 blockIdx.x，内层保持 sequential"""
+        """Map the outer spatial loop according to the grid mapping policy."""
         if self.loop_depth == 0:
-            return "blockIdx.x"
+            return _grid_blocks(self.grid_mapping)["m_block"]
         return "sequential"
+
+
+def _grid_mapping(format_hints: Dict[str, Any]) -> str:
+    mapping = format_hints.get("grid_mapping", "XMYN")
+    if mapping not in {"XMYN", "XNYM"}:
+        raise ValueError(f"Unsupported grid_mapping: {mapping}")
+    return mapping
+
+
+def _grid_blocks(grid_mapping: str) -> Dict[str, str]:
+    if grid_mapping == "XMYN":
+        return {"m_block": "blockIdx.x", "n_block": "blockIdx.y"}
+    if grid_mapping == "XNYM":
+        return {"m_block": "blockIdx.y", "n_block": "blockIdx.x"}
+    raise ValueError(f"Unsupported grid_mapping: {grid_mapping}")
+
+
+def _render_grid_template(template: str, *, symbol: str, grid_mapping: str) -> str:
+    blocks = _grid_blocks(grid_mapping)
+    return (
+        template.replace("{name}", symbol)
+        .replace("{m_block}", blocks["m_block"])
+        .replace("{n_block}", blocks["n_block"])
+    )
+
 
 @dataclass
 class LoweringState:
@@ -271,6 +305,7 @@ class LoweringState:
     name_counter: Dict[str, int] = field(default_factory=dict)
     use_fixed_c_tile_shape: bool = False
     strategy_decision: Optional[StrategyDecision] = None
+    grid_mapping: str = "XMYN"
 
     def unique_name(self, raw_name: str) -> str:
         base = _sanitize_identifier(raw_name or "op")
@@ -504,6 +539,7 @@ def build_gmem_interfaces(opir_root, format_hints: Dict[str, Any]) -> Dict[str, 
     custom_layouts = format_hints.get("custom_layouts", {})
     shape_overrides = format_hints.get("shape_overrides", {})
     dtypes_hints = format_hints.get("dtypes", {})
+    grid_mapping = _grid_mapping(format_hints)
 
     def _clean_symbol(name: str) -> str:
         # 去除编译器 Pass 生成的后缀，以便精准查表
@@ -544,7 +580,11 @@ def build_gmem_interfaces(opir_root, format_hints: Dict[str, Any]) -> Dict[str, 
 
         # --- C. 决定 CuTe Layout ---
         if base_symbol in custom_layouts:
-            tensor_str = custom_layouts[base_symbol]["tensor_str"].replace("{name}", symbol)
+            tensor_str = _render_grid_template(
+                custom_layouts[base_symbol]["tensor_str"],
+                symbol=symbol,
+                grid_mapping=grid_mapping,
+            )
             tensor_type_str = custom_layouts[base_symbol]["tensor_type_str"]
         else:
             shape_str = ", ".join(cute_shape_args)
@@ -715,10 +755,11 @@ def _lower_first_for_loop_to_blk_x(
     for_op: op_ir.ForLoopOp,
     blk_x_loop_op: ForLoopNvOp,
     state: LoweringState,
+    block_idx_source: str,
 ) -> None:
     block_arg_sources: SourceBindingMap = {}
 
-    block_arg_sources[for_op.get_induction_var()] = "blockIdx.x"
+    block_arg_sources[for_op.get_induction_var()] = block_idx_source
     for i in range(for_op.num_iter_args):
         block_arg_sources[for_op.get_iter_arg(i)] = _resolve_source(
             for_op.operands[i + 2].source,
@@ -817,6 +858,7 @@ def generate_nvir(
         raise ValueError(f"Unsupported format: {format_name}")
         
     format_hints = SPARSE_FORMAT_REGISTRY[format_name]
+    grid_mapping = _grid_mapping(format_hints)
     
     # 1. 查表生成 GmemInouts
     gmem_inouts = build_gmem_interfaces(opir, format_hints)
@@ -839,13 +881,16 @@ def generate_nvir(
     program.attrs["strategy_decision"] = strategy_decision
     program.attrs["strategy_log_dir"] = str(strategy_log_dir)
     program.attrs["format_name"] = format_name
+    program.attrs["grid_mapping"] = grid_mapping
     program.attrs["format_tensor_swizzles"] = format_hints.get("tensor_swizzles", {})
     program.attrs["generated_tile_b"] = int(
         getattr(strategy_decision.tensor_placement, "tile_b", 64)
     )
     state = LoweringState(
         program=program,
+        hardware_mapper=HardwareMapper(grid_mapping),
         strategy_decision=strategy_decision,
+        grid_mapping=grid_mapping,
     ) # 自动带上 HardwareMapper
 
     # 在解析nvir之前，这里首先帮我插入一层 for op 给 y 维度
@@ -870,6 +915,7 @@ def generate_nvir(
             for_op=first_for_op,
             blk_x_loop_op=blk_x_loop_op,
             state=state,
+            block_idx_source=_grid_blocks(grid_mapping)["m_block"],
         )
         return program
 
@@ -994,7 +1040,7 @@ def _choose_output_mem(
             IoMemType,
             _strategy_tensor_setting(state, "coo_val_output_mem", "smem"),
         )
-    if logical_kind in ["mco_atomic_format_load_mask", "load_offset"]:
+    if logical_kind in ["mco_atomic_format_load_mask", "load_offset", "coo_atomic_format_load_off"]:
         return "rmem"
     if logical_kind in ["coo_atomic_format_load_idx"] and isinstance(result_type, op_ir.ArrayType):
         return cast(
@@ -1012,7 +1058,7 @@ def _choose_output_mem(
 
 
 def _choose_op_type(logical_kind: str, outputs: List[NvOpOutput]) -> NvOpType:
-    if logical_kind == "load_offset":
+    if logical_kind in {"load_offset", "coo_atomic_format_load_off"}:
         return NvOpType.LOAD_LR_OFF
 
     if logical_kind in [
@@ -1201,6 +1247,13 @@ def _make_impl(
         return NvOpImpl(
             f"{outputs[0].name}(0) = {inputs[0].name}({inputs[1].name});\n"
             f"{outputs[1].name}(0) = {inputs[0].name}({inputs[1].name} + 1);"
+        )
+
+    if logical_kind == "coo_atomic_format_load_off" and len(inputs) >= 2 and len(outputs) >= 2:
+        block_idx = inputs[-1].name
+        return NvOpImpl(
+            f"{outputs[0].name}(0) = {inputs[0].name}(0, {block_idx});\n"
+            f"{outputs[1].name}(0) = {inputs[0].name}(1, {block_idx});"
         )
 
     if logical_kind == "load" and len(inputs) >= 1 and len(outputs) == 1:
@@ -1648,12 +1701,12 @@ def _lower_for_loop(
     state: LoweringState,
 ) -> None:
     mapping = state.hardware_mapper.map_loop()
-    if mapping == "blockIdx.x":
-        logger.info("Mapping outermost loop to blockIdx.x")
+    if mapping in {"blockIdx.x", "blockIdx.y"}:
+        logger.info("Mapping outermost loop to %s", mapping)
         
         inner_block_arg_sources = dict(block_arg_sources)
-        # 强制将 %i1 绑定为 blockIdx.x
-        inner_block_arg_sources[op.get_induction_var()] = "blockIdx.x"
+        # Bind the outer sparse-M loop according to the grid mapping policy.
+        inner_block_arg_sources[op.get_induction_var()] = mapping
         
         # 透传 iter_args (如 C_tile_io -> C_val)
         for i in range(op.num_iter_args):

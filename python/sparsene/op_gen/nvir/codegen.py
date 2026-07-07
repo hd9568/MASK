@@ -2098,6 +2098,16 @@ class NvIrCodeGenerator:
                 ]
             )
 
+        def dump_launch_bounds() -> str:
+            launch_bounds = program.attrs.get("launch_bounds")
+            if not launch_bounds:
+                return ""
+            if isinstance(launch_bounds, (tuple, list)):
+                args = ", ".join(str(int(v)) for v in launch_bounds)
+            else:
+                args = str(launch_bounds)
+            return f" __launch_bounds__({args})"
+
         all_parameters = dump_all_parameters()
         kernel_name = program.name
         gmem_ptrs = self._indent_lines(dump_gmem_ptrs())
@@ -2107,6 +2117,7 @@ class NvIrCodeGenerator:
         return templates.GLOBAL_FUNCTION_SKELETON.format(
             parameter_types=all_parameters,
             kernel_name=kernel_name,
+            launch_bounds=dump_launch_bounds(),
             gmem_ptrs=gmem_ptrs,
             varlens=varlens,
             nvop_inits=nvop_inits,

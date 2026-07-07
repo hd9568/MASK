@@ -91,7 +91,7 @@ void acc_spmm_test(int M,
     CHECK_CUDA2(
         cudaMemcpy(dval_sidx_new, val_sidx, sizeof(int) * Tile_K * nnz_block, cudaMemcpyHostToDevice));
 
-    dim3 grid(row_window_num, N / Tile_N);
+    dim3 grid(N / Tile_N, row_window_num);
     dim3 block(32);
 
     constexpr auto blk_mnk = make_shape(Int<Tile_M>{}, Int<Tile_N>{}, Int<Tile_K>{});
