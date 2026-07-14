@@ -141,6 +141,9 @@ def test_dtc_hand_impl_specialization_shapes():
 
 def _assert_mco_single_k_hand_impl(program):
     mco_val = _main_loop_op(program, "G2sSparseMcoValLoadOp").impl.code_template
+    mco_val_op = _main_loop_op(program, "G2sSparseMcoValLoadOp")
+    assert mco_val_op.attrs.get("cp_async") is True
+    assert mco_val_op.outputs[0].attrs.get("cp_async") is True
     assert "Copy_Atom<SM80_CP_ASYNC_CACHEGLOBAL<cute::uint128_t>, float>" in mco_val
     assert "int ll = mco_len_l" in mco_val
     assert "int rr = mco_len_r" in mco_val
@@ -171,6 +174,35 @@ def _assert_mco_single_k_hand_impl(program):
     store_impl = store.impl.code_template
     assert "for (int i_tileM" not in store_impl
     assert "for (int i_tileN" in store_impl
+
+
+def test_bit_tcf_flat_acc_compute_wrapper_shapes():
+    program = _fused_program("BIT_TCF", BIT_TCF_FORMAT)
+
+    s2r_a = _find_leaf_op_by_name(program, "S2rAValLoadOp")
+    assert s2r_a is not None
+    assert str(s2r_a.outputs[0].tensor.shape) == "(Int(4), Mnk(BLK_MMA_MNK, m))"
+    assert "__syncthreads();" not in s2r_a.impl.code_template
+    assert "REGA(_, _0{}, buf_idx)" in s2r_a.impl.code_template
+    assert "make_coord(_0{}, _0{})" not in s2r_a.impl.code_template
+
+    s2r_b = _find_leaf_op_by_name(program, "S2rBValLoadOp")
+    assert s2r_b is not None
+    assert str(s2r_b.outputs[0].tensor.shape) == "(Int(2), Mnk(BLK_MMA_MNK, n))"
+    assert "__syncthreads();" not in s2r_b.impl.code_template
+    assert "REGB(_, n_iter, buf_idx)" in s2r_b.impl.code_template
+    assert "make_coord(_0{}, n_iter)" not in s2r_b.impl.code_template
+
+    calculate = _main_loop_op(program, "CalculateOp")
+    assert len(calculate.inputs) == 2
+    assert str(calculate.inputs[0].tensor.shape) == "(Int(4), Mnk(BLK_MMA_MNK, m))"
+    assert str(calculate.inputs[1].tensor.shape) == "(Int(2), Mnk(BLK_MMA_MNK, n))"
+    calculate_impl = calculate.impl.code_template
+    assert "for (int k_iter" not in calculate_impl
+    assert "REGA(0, m_iter)" in calculate_impl
+    assert "REGB(0, n_iter)" in calculate_impl
+    assert "make_coord(m_iter, _0{})" not in calculate_impl
+    assert "make_coord(_0{}, n_iter)" not in calculate_impl
 
 
 def test_mco_format_hand_impl_specialization_shapes():

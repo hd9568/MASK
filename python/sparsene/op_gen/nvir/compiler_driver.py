@@ -2,7 +2,7 @@ from pathlib import Path
 from collections import defaultdict
 from typing import Dict, List, Set, Union, Sequence, Tuple, Optional
 
-from sparsene.op_gen.nvir.nvop import NvOpProgram, ForLoopNvOp, NvOpSequence, NvOp, NvOpImpl, NvOpInput, NvOpTensor, NvOpOutput
+from sparsene.op_gen.nvir.nvop import NvOpProgram, ForLoopNvOp, NvOpSequence, NvOp, NvOpImpl, NvOpInput, NvOpTensor, NvOpOutput, Shape, IntShape, MnkShape
 from sparsene.op_gen.nvir.plan import apply_pipeline, PipelinePlan
 from sparsene.op_gen.nvir.codegen import NvIrCodeGenerator
 from sparsene.logging import get_logger
@@ -1122,6 +1122,58 @@ def _dtc_hand_calculate_impl(op: NvOp) -> NvOpImpl:
     )
 
 
+def _acc_hand_s2r_a_impl(op: NvOp) -> NvOpImpl:
+    tile_a = op.inputs[0].name
+    reg_a = op.outputs[0].name
+    return NvOpImpl(
+        f"""int row = lid % 16;
+int col = lid / 16;
+ldmatrix_m8n8k8_x4(
+    (uint32_t*)({reg_a}(_, _0{{}}, buf_idx).data()),
+    (void*)(&{tile_a}(row, col * 4))
+);"""
+    )
+
+
+def _acc_hand_s2r_b_impl(op: NvOp) -> NvOpImpl:
+    tile_b = op.inputs[0].name
+    reg_b = op.outputs[0].name
+    return NvOpImpl(
+        f"""for (int n_iter = 0; n_iter < get<1>(BLK_MMA_MNK{{}}); n_iter++) {{
+    int row_b = lid / 2;
+    int col_b = lid % 2;
+    ldmatrix_m8n8k8_x2(
+        (uint32_t*)({reg_b}(_, n_iter, buf_idx).data()),
+        (void*)(&{tile_b}(row_b, col_b * 4 + n_iter * 8))
+    );
+    {reg_b}(_0{{}}, n_iter, buf_idx) = __shfl_sync(0xffffffff, {reg_b}(_0{{}}, n_iter, buf_idx), lid / 4 + lid % 4 * 8);
+    {reg_b}(_1{{}}, n_iter, buf_idx) = __shfl_sync(0xffffffff, {reg_b}(_1{{}}, n_iter, buf_idx), lid / 4 + lid % 4 * 8);
+}}"""
+    )
+
+
+def _acc_hand_calculate_impl(op: NvOp) -> NvOpImpl:
+    reg_a = op.inputs[0].name
+    reg_b = op.inputs[1].name
+    reg_c = op.outputs[0].name
+    return NvOpImpl(
+        f"""for (int m_iter = 0; m_iter < get<0>(BLK_MMA_MNK{{}}); m_iter++) {{
+    for (int n_iter = 0; n_iter < get<1>(BLK_MMA_MNK{{}}); n_iter++) {{
+        uint32_t frag_A[4];
+        uint32_t frag_B[2];
+        asm("cvt.rna.tf32.f32  %0, %1;\\n" : "=r"(frag_A[0]) : "f"({reg_a}(0, m_iter)));
+        asm("cvt.rna.tf32.f32  %0, %1;\\n" : "=r"(frag_A[1]) : "f"({reg_a}(1, m_iter)));
+        asm("cvt.rna.tf32.f32  %0, %1;\\n" : "=r"(frag_A[2]) : "f"({reg_a}(2, m_iter)));
+        asm("cvt.rna.tf32.f32  %0, %1;\\n" : "=r"(frag_A[3]) : "f"({reg_a}(3, m_iter)));
+        asm("cvt.rna.tf32.f32  %0, %1;\\n" : "=r"(frag_B[0]) : "f"({reg_b}(0, n_iter)));
+        asm("cvt.rna.tf32.f32  %0, %1;\\n" : "=r"(frag_B[1]) : "f"({reg_b}(1, n_iter)));
+
+        mma_m16n8k8_fp32_tf32_tf32_fp32({reg_c}(_, make_coord(m_iter, n_iter)).data(), frag_A, frag_B);
+    }}
+}}"""
+    )
+
+
 def _dtc_hand_c_store_impl(op: NvOp) -> NvOpImpl:
     reg_c = op.inputs[0].name
     c_val = op.inputs[1].name
@@ -1229,6 +1281,54 @@ for (int i_mask = 0; i_mask < num_masks; i_mask++) {{
     off += __popcll(mask);
 }}"""
     )
+
+
+def _apply_acc_flat_compute_shapes(s2r_a: NvOp, s2r_b: NvOp, mma: NvOp) -> None:
+    reg_a_shape = Shape(IntShape(4), MnkShape("BLK_MMA_MNK", "m"))
+    reg_b_shape = Shape(IntShape(2), MnkShape("BLK_MMA_MNK", "n"))
+
+    s2r_a.outputs[0].tensor.shape = reg_a_shape
+    s2r_b.outputs[0].tensor.shape = reg_b_shape
+
+    _reset_inputs(
+        mma,
+        [
+            NvOpInput(
+                idx=0,
+                name=mma.inputs[0].name,
+                tensor=NvOpTensor(
+                    shape=reg_a_shape,
+                    mem=s2r_a.outputs[0].tensor.mem,
+                    dtype=s2r_a.outputs[0].tensor.dtype,
+                    source=s2r_a.outputs[0],
+                    row_major=s2r_a.outputs[0].tensor.row_major,
+                    swizzle=s2r_a.outputs[0].tensor.swizzle,
+                ),
+                layout_hint=mma.inputs[0].layout_hint,
+            ),
+            NvOpInput(
+                idx=1,
+                name=mma.inputs[1].name,
+                tensor=NvOpTensor(
+                    shape=reg_b_shape,
+                    mem=s2r_b.outputs[0].tensor.mem,
+                    dtype=s2r_b.outputs[0].tensor.dtype,
+                    source=s2r_b.outputs[0],
+                    row_major=s2r_b.outputs[0].tensor.row_major,
+                    swizzle=s2r_b.outputs[0].tensor.swizzle,
+                ),
+                layout_hint=mma.inputs[1].layout_hint,
+            ),
+        ],
+    )
+
+
+def _mark_cp_async_smem_output(op: NvOp) -> None:
+    op.attrs["cp_async"] = True
+    for out in op.outputs:
+        if out.tensor.mem == "smem":
+            out.attrs["cp_async"] = True
+            out.attrs["align_16"] = True
 
 
 def _hand_tcf_b_load_impl(op: NvOp) -> NvOpImpl:
@@ -1642,9 +1742,10 @@ def _apply_bit_tcf_fusion(program: NvOpProgram, main_loop: ForLoopNvOp) -> None:
         ],
     )
     val.impl = _hand_mco_val_load_impl(val)
+    _mark_cp_async_smem_output(val)
     restore.impl = _hand_mco_restore_impl(restore)
     b_load.impl = _hand_tcf_b_load_impl(b_load)
-    mma.impl = _dtc_hand_calculate_impl(mma)
+    mma.impl = _acc_hand_calculate_impl(mma)
 
     s2r_a = _find_leaf_op_by_name(program, "S2rAValLoadOp")
     s2r_b = _find_leaf_op_by_name(program, "S2rBValLoadOp")
@@ -1660,8 +1761,9 @@ def _apply_bit_tcf_fusion(program: NvOpProgram, main_loop: ForLoopNvOp) -> None:
     ]
     if missing:
         raise RuntimeError(f"BIT_TCF hand impl specialization missing leaf ops: {missing}")
-    s2r_a.impl = _dtc_hand_s2r_a_impl(s2r_a)
-    s2r_b.impl = _dtc_hand_s2r_b_impl(s2r_b)
+    _apply_acc_flat_compute_shapes(s2r_a, s2r_b, mma)
+    s2r_a.impl = _acc_hand_s2r_a_impl(s2r_a)
+    s2r_b.impl = _acc_hand_s2r_b_impl(s2r_b)
     store.impl = _row_major_hand_c_store_impl(store)
 
 
@@ -1721,6 +1823,7 @@ def _apply_bit_bsr_fusion(program: NvOpProgram, main_loop: ForLoopNvOp) -> None:
         ],
     )
     val.impl = _hand_mco_val_load_impl(val)
+    _mark_cp_async_smem_output(val)
     restore.impl = _hand_mco_restore_impl(restore)
     b_load.impl = _hand_bitbsr_b_load_impl(b_load)
     mma.impl = _dtc_hand_calculate_impl(mma)
