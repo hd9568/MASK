@@ -61,12 +61,15 @@ class TokenUsage:
             or usage.get("completion_token_count")
         )
         reasoning_tokens = _as_int(
-            usage.get("reasoning_tokens")
-            or usage.get("reasoning_token_count")
-            or usage.get("output_tokens_details", {}).get("reasoning_tokens")
-            if isinstance(usage.get("output_tokens_details"), dict)
-            else None
+            usage.get("reasoning_tokens") or usage.get("reasoning_token_count")
         )
+        if reasoning_tokens is None:
+            for details_name in ("completion_tokens_details", "output_tokens_details"):
+                details = usage.get(details_name)
+                if isinstance(details, dict):
+                    reasoning_tokens = _as_int(details.get("reasoning_tokens"))
+                    if reasoning_tokens is not None:
+                        break
         if prompt_tokens is None:
             prompt_tokens = _estimate_tokens(prompt_text)
         if completion_tokens is None:
@@ -98,6 +101,7 @@ class LLMTextResponse:
     raw_payload: Dict[str, Any]
     usage: TokenUsage
     elapsed_s: float
+    finish_reason: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -106,6 +110,7 @@ class LLMTextResponse:
             "content": self.content,
             "usage": self.usage.to_dict(),
             "elapsed_s": self.elapsed_s,
+            "finish_reason": self.finish_reason,
             "raw_payload": self.raw_payload,
         }
 
@@ -114,7 +119,9 @@ def _normalize_base_url(url: str) -> str:
     return url.strip().rstrip("/").replace("；", "").replace("\r", "")
 
 
-def _extract_openai_text(raw_payload: Dict[str, Any]) -> str:
+def _extract_openai_text(
+    raw_payload: Dict[str, Any], *, allow_reasoning_fallback: bool = True, allow_empty: bool = False
+) -> str:
     choices = raw_payload.get("choices", [])
     if not choices:
         raise RuntimeError(f"OpenAI-compatible payload has no choices: {raw_payload}")
@@ -128,9 +135,11 @@ def _extract_openai_text(raw_payload: Dict[str, Any]) -> str:
             elif isinstance(item, str):
                 text_parts.append(item)
         content = "\n".join(part for part in text_parts if part)
-    if not content:
+    if not content and allow_reasoning_fallback:
         content = message.get("reasoning_content", "") or raw_payload.get("reasoning_content", "")
     if not isinstance(content, str) or not content.strip():
+        if allow_empty:
+            return ""
         raise RuntimeError(f"OpenAI-compatible payload has empty content: {raw_payload}")
     return content
 
@@ -158,6 +167,7 @@ def call_openai_compatible(
     temperature: float,
     max_tokens: int,
     timeout_sec: int,
+    response_format: Optional[Dict[str, str]] = None,
 ) -> LLMTextResponse:
     api_url = _normalize_base_url(api_base_url)
     if not api_url.endswith("/chat/completions"):
@@ -171,6 +181,8 @@ def call_openai_compatible(
             {"role": "user", "content": user_prompt},
         ],
     }
+    if response_format:
+        payload["response_format"] = response_format
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {api_key}",
@@ -186,7 +198,11 @@ def call_openai_compatible(
         raise RuntimeError(f"openai_compatible failed with status={exc.code}: {detail}") from exc
     except urllib_error.URLError as exc:
         raise RuntimeError(f"openai_compatible could not reach endpoint: {exc.reason}") from exc
-    content = _extract_openai_text(raw)
+    content = _extract_openai_text(
+        raw,
+        allow_reasoning_fallback=not bool(response_format),
+        allow_empty=bool(response_format),
+    )
     usage = TokenUsage.from_payload(
         raw.get("usage"),
         prompt_text=system_prompt + "\n" + user_prompt,
@@ -199,6 +215,7 @@ def call_openai_compatible(
         raw_payload=raw,
         usage=usage,
         elapsed_s=round(time.time() - t0, 4),
+        finish_reason=str(raw.get("choices", [{}])[0].get("finish_reason") or "") or None,
     )
 
 
@@ -260,4 +277,5 @@ def call_anthropic_compatible(
         raw_payload=raw,
         usage=usage,
         elapsed_s=round(time.time() - t0, 4),
+        finish_reason=str(raw.get("stop_reason") or "") or None,
     )

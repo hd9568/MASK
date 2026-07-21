@@ -9,6 +9,13 @@ description: "Explains the compile-run-profile optimization loop. Invoke when an
 
 Use this skill when running iterative autotuning over generated kernels.
 
+Use performance contract `sparsene.kernel_only_post_conversion.v1`: feedback,
+scores, and best-entry selection use warmed repeated GPU SpMM compute-kernel
+time after format conversion/reorder. Do not add or penalize offline format
+conversion, metadata construction, reorder/inverse-reorder, allocation/copies,
+compilation, or verification latency. Keep those as separate engineering
+records. All work actually executed inside the timed kernel remains included.
+
 ## Canonical Loop
 
 1. Extract matrix features.
@@ -51,4 +58,5 @@ Each iteration should persist:
 
 ## Best-Entry Selection
 
-Choose the best iteration from correct runs only. Rank by a score dominated by ratio vs cuSPARSE, then by failure penalties and absolute kernel time.
+Choose the best iteration from correct runs only. Rank by the kernel-only ratio
+vs cuSPARSE, then by failure penalties and absolute kernel-only time.

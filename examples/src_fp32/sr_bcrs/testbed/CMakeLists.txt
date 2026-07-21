@@ -1,6 +1,14 @@
 cmake_minimum_required(VERSION 3.16)
 project(testbed LANGUAGES CXX CUDA)
 
+# Every kernel in this testbed uses SM80 TF32 MMA and ldmatrix instructions.
+# Leaving this unset makes recent CMake/NVCC versions also assemble legacy
+# architectures, which fails before the generated operator can be validated.
+set(CMAKE_CUDA_ARCHITECTURES 80)
+
+set(SPARSENE_SR_BCRS_GENERATED_OPERATOR "" CACHE FILEPATH
+    "Optional SR-BCRS generated .inc used by generated test targets")
+
 # CUDA compiler settings
 find_package(CUDAToolkit REQUIRED)
 find_package(OpenMP REQUIRED)
@@ -166,6 +174,23 @@ target_compile_options(demo-srbcrs-generated-tf32 PRIVATE ${CUDA_NVCC_FLAGS} -I$
 target_link_libraries(demo-srbcrs-generated-tf32 PRIVATE ${CUDA_LIBS})
 target_compile_definitions(demo-srbcrs-generated-tf32 PRIVATE f32)
 target_include_directories(demo-srbcrs-generated-tf32 PRIVATE
+    ${CUTLASS_INCLUDE_DIR}
+    ${CUTLASS_COMMON_DIR}
+    ${CUTLASS_UTIL_DIR}
+    ${SRCDIR}
+)
+
+add_executable(demo-srbcrs-16x8-generated-tf32 ${PROJECT_SOURCE_DIR}/host_program_generated.cu ${PROJECT_SOURCE_DIR}/main_16x8.cu ${SRC_CUDA_FILES})
+
+target_compile_options(demo-srbcrs-16x8-generated-tf32 PRIVATE ${CUDA_NVCC_FLAGS} -I${SRCDIR} -I${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(demo-srbcrs-16x8-generated-tf32 PRIVATE ${CUDA_LIBS})
+target_compile_definitions(demo-srbcrs-16x8-generated-tf32 PRIVATE f32)
+target_compile_definitions(demo-srbcrs-16x8-generated-tf32 PRIVATE SPARSENE_DISABLE_32X32=1)
+if(SPARSENE_SR_BCRS_GENERATED_OPERATOR)
+    target_compile_definitions(demo-srbcrs-16x8-generated-tf32 PRIVATE
+        SPARSENE_GENERATED_OPERATOR="${SPARSENE_SR_BCRS_GENERATED_OPERATOR}")
+endif()
+target_include_directories(demo-srbcrs-16x8-generated-tf32 PRIVATE
     ${CUTLASS_INCLUDE_DIR}
     ${CUTLASS_COMMON_DIR}
     ${CUTLASS_UTIL_DIR}

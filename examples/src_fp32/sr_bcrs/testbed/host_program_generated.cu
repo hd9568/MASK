@@ -11,7 +11,10 @@
 #include "cutlass/util/helper_cuda.hpp"
 #include "cutlass/util/print_error.hpp"
 
-#include "../../../../python/test/results/sr_bcrs.inc"
+#ifndef SPARSENE_GENERATED_OPERATOR
+#define SPARSENE_GENERATED_OPERATOR "../../../../python/test/results/sr_bcrs.inc"
+#endif
+#include SPARSENE_GENERATED_OPERATOR
 
 using namespace cute;
 
@@ -118,6 +121,7 @@ void sr_bcrs_test_tf32(int M,
     CHECK_CUDA2(cudaFree(dval_sidx_new));
 }
 
+#ifndef SPARSENE_DISABLE_32X32
 template void sr_bcrs_test_tf32<32, 64, 32>(int M,
                                             int N,
                                             int K,
@@ -130,3 +134,20 @@ template void sr_bcrs_test_tf32<32, 64, 32>(int M,
                                             bool is_ncu_test,
                                             int warmup_time,
                                             int execute_time);
+#endif
+
+// The historical SR-BCRS FP32/TF32 winner uses a 16x8 sparse tile.  Keep the
+// generated host bridge parameterized instead of silently limiting generated
+// kernels to the legacy 32x32 smoke-test profile.
+template void sr_bcrs_test_tf32<16, 64, 8>(int M,
+                                           int N,
+                                           int K,
+                                           int TCBlock_num,
+                                           int* val_sidx,
+                                           int* val_soff,
+                                           float* B_val,
+                                           float* val_block_val,
+                                           float* C,
+                                           bool is_ncu_test,
+                                           int warmup_time,
+                                           int execute_time);

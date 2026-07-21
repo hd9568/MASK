@@ -6,6 +6,7 @@ from datetime import datetime
 import json
 import os
 from pathlib import Path
+from copy import deepcopy
 import re
 import subprocess
 from typing import Any, Dict, List, Optional
@@ -14,6 +15,7 @@ import uuid
 from sparsene.agent.runtime import AgentModelConfig, invoke_json_agent, make_zero_usage
 from sparsene.logging import get_logger
 from sparsene.op_gen.nvir.nvop import GmemInout
+from sparsene.performance_contract import KERNEL_ONLY_EVALUATION_CONTRACT
 
 
 logger = get_logger(__name__)
@@ -208,6 +210,9 @@ class StrategyRequest:
     output_schema: Dict[str, Any]
     constraints: List[str]
     observations: Dict[str, Any]
+    evaluation_contract: Dict[str, Any] = field(
+        default_factory=lambda: deepcopy(KERNEL_ONLY_EVALUATION_CONTRACT)
+    )
     feedback_context: Dict[str, Any] = field(default_factory=dict)
     prompt: str = ""
 
@@ -398,6 +403,7 @@ def build_strategy_request(
         "When COO idx/val are placed in rmem, coo_load_mode must also be sync_scalar; cp.async is incompatible with rmem-based staging.",
         "If async pipeline is disabled, all cp.async-based producers must also be downgraded to synchronous loads.",
         "Need to leave logs of request, prompt, response, performance, and profile for later analysis.",
+        "Optimize only the warmed GPU SpMM compute-kernel time after format conversion/reordering; never add or penalize offline conversion/reorder latency.",
     ]
     if is_feedback_loop:
         constraints.append(
@@ -544,6 +550,9 @@ Sparse format:
 - format_name: {request.sparse_format.format_name}
 - summary: {request.sparse_format.summary}
 
+Fixed performance evaluation contract:
+{json.dumps(request.evaluation_contract, indent=2, ensure_ascii=False)}
+
 Visible external tensors:
 {tensor_lines}
 
@@ -589,6 +598,9 @@ Output requirements:
 - Use correctness feedback to avoid repeating strategies that fail systematically on the same synthetic shapes or sparsity levels.
 - Explore TILE_B and placement/pipeline choices when the current strategies cluster too tightly; do not keep repeating the same memory/pipeline recipe.
 - Use the history and profile feedback to explain why the next strategy should improve or stabilize performance.
+- Rank strategies only by the recorded kernel-only metric. Format conversion,
+  metadata construction, reorder/inverse-reorder, allocation/copies, compilation,
+  and verification are outside this objective and must not be introduced as penalties.
 - Prefer incremental changes from the best correct iteration unless the profile strongly indicates a different bottleneck.
 - Focus on historical strategy outputs and measured feedback rather than reconstructing the full generated kernel source.
 
@@ -638,9 +650,9 @@ def _heuristic_strategy_response(request: StrategyRequest) -> StrategyDecision:
     return StrategyDecision(
         provider="heuristic",
         rationale=(
-            "Use the current best-known ME_TCF alignment recipe: preserve COO range, "
-            "keep gathered B tiles in smem, enable cp.async for aligned COO/B-side loads, "
-            "and keep the pipeline conservative with sync-on-smem-consumption."
+            f"Use the fixed conservative SM80 baseline for {request.format_name}: keep "
+            "gathered B tiles in shared memory, use aligned cp.async producers, and "
+            "preserve the format-specific semantic-fusion implementation."
         ),
         tensor_placement=TensorPlacementStrategy(),
         pipeline=PipelineStrategy(
@@ -690,6 +702,8 @@ def _run_llm_strategy(
         ),
         system_prompt=(
             "You are a conservative sparse kernel strategy planner and CUDA/Tensor Core optimization expert. "
+            "Optimize warmed GPU SpMM compute-kernel time after all format conversion and reordering; "
+            "offline conversion/reorder latency is excluded and must never be a ranking penalty. "
             "Return only valid JSON matching the requested schema. "
             "Do not include markdown fences, prose, or extra keys."
         ),

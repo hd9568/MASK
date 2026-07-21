@@ -8,6 +8,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+from datetime import datetime
 import json
 import os
 import sys
@@ -57,6 +58,7 @@ def test_model(name: str, entry: Dict[str, Any]) -> Dict[str, Any]:
         "elapsed_s": 0.0,
         "error": "",
         "response_text": "",
+        "request_payload": {},
     }
 
     api_url = f"{base_url}/chat/completions"
@@ -68,6 +70,7 @@ def test_model(name: str, entry: Dict[str, Any]) -> Dict[str, Any]:
             {"role": "user", "content": "hello"},
         ],
     }
+    result["request_payload"] = payload
 
     headers = {
         "Content-Type": "application/json",
@@ -85,7 +88,7 @@ def test_model(name: str, entry: Dict[str, Any]) -> Dict[str, Any]:
         response_text = msg.get("content", "") or msg.get("reasoning_content", "") or ""
         result["status"] = "ok"
         result["elapsed_s"] = round(elapsed, 2)
-        result["response_text"] = response_text[:200]
+        result["response_text"] = response_text
         result["usage"] = raw.get("usage", {})
     except urllib_error.HTTPError as e:
         result["status"] = "http_error"
@@ -110,10 +113,29 @@ def test_model(name: str, entry: Dict[str, Any]) -> Dict[str, Any]:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", type=str, default="llm_models.yaml")
+    ap.add_argument(
+        "--model",
+        action="append",
+        dest="model_names",
+        help="Only test this configured model name; repeat to test several models.",
+    )
+    ap.add_argument(
+        "--log-dir",
+        type=str,
+        default=None,
+        help="Persist complete request, response, usage, and summary under this directory.",
+    )
     args = ap.parse_args()
 
     config_path = REPO_ROOT / args.config
     models = load_models(config_path)
+
+    if args.model_names:
+        missing = sorted(set(args.model_names) - set(models))
+        if missing:
+            print(f"ERROR: unknown configured model(s): {', '.join(missing)}")
+            sys.exit(1)
+        models = {name: models[name] for name in args.model_names}
 
     if not models:
         print("ERROR: no models found in config")
@@ -122,12 +144,43 @@ def main() -> None:
     print(f"Testing {len(models)} model(s) from {config_path}")
     print("=" * 80)
 
+    audit_dir: Optional[Path] = None
+    if args.log_dir:
+        audit_dir = Path(args.log_dir)
+        if not audit_dir.is_absolute():
+            audit_dir = REPO_ROOT / audit_dir
+        audit_dir = audit_dir / f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_model_connectivity"
+        audit_dir.mkdir(parents=True, exist_ok=False)
+
     results = []
     all_ok = True
     for name, entry in models.items():
         print(f"\n[{name}] Testing ...", end=" ", flush=True)
         r = test_model(name, entry)
         results.append(r)
+        if audit_dir is not None:
+            model_dir = audit_dir / name
+            model_dir.mkdir(parents=True, exist_ok=False)
+            (model_dir / "user_prompt.txt").write_text("hello")
+            (model_dir / "response_text.txt").write_text(r["response_text"])
+            (model_dir / "request.json").write_text(
+                json.dumps(r["request_payload"], indent=2, ensure_ascii=False)
+            )
+            (model_dir / "response.json").write_text(
+                json.dumps(
+                    {
+                        "status": r["status"],
+                        "elapsed_s": r["elapsed_s"],
+                        "response_text": r["response_text"],
+                        "error": r["error"],
+                    },
+                    indent=2,
+                    ensure_ascii=False,
+                )
+            )
+            (model_dir / "usage.json").write_text(
+                json.dumps(r.get("usage", {}), indent=2, ensure_ascii=False)
+            )
 
         icon = "OK" if r["status"] == "ok" else "FAIL"
         print(f"{icon} ({r['elapsed_s']:.1f}s)")
@@ -154,6 +207,23 @@ def main() -> None:
     print("-" * 100)
     ok_count = sum(1 for r in results if r["status"] == "ok")
     print(f"  {ok_count}/{len(results)} models OK")
+    if audit_dir is not None:
+        summary = {
+            "created_at": datetime.now().isoformat(),
+            "config_path": str(config_path),
+            "models": [
+                {
+                    key: value
+                    for key, value in result.items()
+                    if key != "request_payload"
+                }
+                for result in results
+            ],
+        }
+        (audit_dir / "summary.json").write_text(
+            json.dumps(summary, indent=2, ensure_ascii=False)
+        )
+        print(f"  Audit log: {audit_dir}")
 
     if not all_ok:
         print("\nWARNING: some models failed. Check the errors above.")

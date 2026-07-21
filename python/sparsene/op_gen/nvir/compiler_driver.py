@@ -1126,12 +1126,16 @@ def _acc_hand_s2r_a_impl(op: NvOp) -> NvOpImpl:
     tile_a = op.inputs[0].name
     reg_a = op.outputs[0].name
     return NvOpImpl(
-        f"""int row = lid % 16;
-int col = lid / 16;
-ldmatrix_m8n8k8_x4(
-    (uint32_t*)({reg_a}(_, _0{{}}, buf_idx).data()),
-    (void*)(&{tile_a}(row, col * 4))
-);"""
+        f"""for (int m_iter = 0; m_iter < get<0>(BLK_MMA_MNK{{}}); m_iter++) {{
+    for (int k_iter = 0; k_iter < get<2>(BLK_MMA_MNK{{}}); k_iter++) {{
+        int row = m_iter * get<0>(MMA_MNK{{}}) + lid % 16;
+        int col = lid / 16;
+        ldmatrix_m8n8k8_x4(
+            (uint32_t*)({reg_a}(_, make_coord(m_iter, k_iter), buf_idx).data()),
+            (void*)(&{tile_a}(row, col * 4 + k_iter * get<2>(MMA_MNK{{}})))
+        );
+    }}
+}}"""
     )
 
 
@@ -1140,14 +1144,16 @@ def _acc_hand_s2r_b_impl(op: NvOp) -> NvOpImpl:
     reg_b = op.outputs[0].name
     return NvOpImpl(
         f"""for (int n_iter = 0; n_iter < get<1>(BLK_MMA_MNK{{}}); n_iter++) {{
-    int row_b = lid / 2;
-    int col_b = lid % 2;
-    ldmatrix_m8n8k8_x2(
-        (uint32_t*)({reg_b}(_, n_iter, buf_idx).data()),
-        (void*)(&{tile_b}(row_b, col_b * 4 + n_iter * 8))
-    );
-    {reg_b}(_0{{}}, n_iter, buf_idx) = __shfl_sync(0xffffffff, {reg_b}(_0{{}}, n_iter, buf_idx), lid / 4 + lid % 4 * 8);
-    {reg_b}(_1{{}}, n_iter, buf_idx) = __shfl_sync(0xffffffff, {reg_b}(_1{{}}, n_iter, buf_idx), lid / 4 + lid % 4 * 8);
+    for (int k_iter = 0; k_iter < get<2>(BLK_MMA_MNK{{}}); k_iter++) {{
+        int row_b = lid / 2 + k_iter * get<2>(MMA_MNK{{}});
+        int col_b = lid % 2;
+        ldmatrix_m8n8k8_x2(
+            (uint32_t*)({reg_b}(_, make_coord(k_iter, n_iter), buf_idx).data()),
+            (void*)(&{tile_b}(row_b, col_b * 4 + n_iter * get<1>(MMA_MNK{{}})))
+        );
+        {reg_b}(_0{{}}, make_coord(k_iter, n_iter), buf_idx) = __shfl_sync(0xffffffff, {reg_b}(_0{{}}, make_coord(k_iter, n_iter), buf_idx), lid / 4 + lid % 4 * 8);
+        {reg_b}(_1{{}}, make_coord(k_iter, n_iter), buf_idx) = __shfl_sync(0xffffffff, {reg_b}(_1{{}}, make_coord(k_iter, n_iter), buf_idx), lid / 4 + lid % 4 * 8);
+    }}
 }}"""
     )
 
@@ -1159,16 +1165,18 @@ def _acc_hand_calculate_impl(op: NvOp) -> NvOpImpl:
     return NvOpImpl(
         f"""for (int m_iter = 0; m_iter < get<0>(BLK_MMA_MNK{{}}); m_iter++) {{
     for (int n_iter = 0; n_iter < get<1>(BLK_MMA_MNK{{}}); n_iter++) {{
-        uint32_t frag_A[4];
-        uint32_t frag_B[2];
-        asm("cvt.rna.tf32.f32  %0, %1;\\n" : "=r"(frag_A[0]) : "f"({reg_a}(0, m_iter)));
-        asm("cvt.rna.tf32.f32  %0, %1;\\n" : "=r"(frag_A[1]) : "f"({reg_a}(1, m_iter)));
-        asm("cvt.rna.tf32.f32  %0, %1;\\n" : "=r"(frag_A[2]) : "f"({reg_a}(2, m_iter)));
-        asm("cvt.rna.tf32.f32  %0, %1;\\n" : "=r"(frag_A[3]) : "f"({reg_a}(3, m_iter)));
-        asm("cvt.rna.tf32.f32  %0, %1;\\n" : "=r"(frag_B[0]) : "f"({reg_b}(0, n_iter)));
-        asm("cvt.rna.tf32.f32  %0, %1;\\n" : "=r"(frag_B[1]) : "f"({reg_b}(1, n_iter)));
+        for (int k_iter = 0; k_iter < get<2>(BLK_MMA_MNK{{}}); k_iter++) {{
+            uint32_t frag_A[4];
+            uint32_t frag_B[2];
+            asm("cvt.rna.tf32.f32  %0, %1;\\n" : "=r"(frag_A[0]) : "f"({reg_a}(0, make_coord(m_iter, k_iter))));
+            asm("cvt.rna.tf32.f32  %0, %1;\\n" : "=r"(frag_A[1]) : "f"({reg_a}(1, make_coord(m_iter, k_iter))));
+            asm("cvt.rna.tf32.f32  %0, %1;\\n" : "=r"(frag_A[2]) : "f"({reg_a}(2, make_coord(m_iter, k_iter))));
+            asm("cvt.rna.tf32.f32  %0, %1;\\n" : "=r"(frag_A[3]) : "f"({reg_a}(3, make_coord(m_iter, k_iter))));
+            asm("cvt.rna.tf32.f32  %0, %1;\\n" : "=r"(frag_B[0]) : "f"({reg_b}(0, make_coord(k_iter, n_iter))));
+            asm("cvt.rna.tf32.f32  %0, %1;\\n" : "=r"(frag_B[1]) : "f"({reg_b}(1, make_coord(k_iter, n_iter))));
 
-        mma_m16n8k8_fp32_tf32_tf32_fp32({reg_c}(_, make_coord(m_iter, n_iter)).data(), frag_A, frag_B);
+            mma_m16n8k8_fp32_tf32_tf32_fp32({reg_c}(_, make_coord(m_iter, n_iter)).data(), frag_A, frag_B);
+        }}
     }}
 }}"""
     )
@@ -1178,13 +1186,15 @@ def _dtc_hand_c_store_impl(op: NvOp) -> NvOpImpl:
     reg_c = op.inputs[0].name
     c_val = op.inputs[1].name
     return NvOpImpl(
-        f"""for (int i_tileN = 0; i_tileN < get<1>(BLK_MNK{{}}) / 8; i_tileN++) {{
-    int row = lid / 4;
-    int col = i_tileN * 8 + lid % 4 * 2;
-    {c_val}(col, row) = {reg_c}(0, make_coord(_0{{}}, i_tileN));
-    {c_val}(col + 1, row) = {reg_c}(1, make_coord(_0{{}}, i_tileN));
-    {c_val}(col, row + 8) = {reg_c}(2, make_coord(_0{{}}, i_tileN));
-    {c_val}(col + 1, row + 8) = {reg_c}(3, make_coord(_0{{}}, i_tileN));
+        f"""for (int m_iter = 0; m_iter < get<0>(BLK_MMA_MNK{{}}); m_iter++) {{
+    for (int i_tileN = 0; i_tileN < get<1>(BLK_MNK{{}}) / 8; i_tileN++) {{
+        int row = m_iter * get<0>(MMA_MNK{{}}) + lid / 4;
+        int col = i_tileN * 8 + lid % 4 * 2;
+        {c_val}(col, row) = {reg_c}(0, make_coord(m_iter, i_tileN));
+        {c_val}(col + 1, row) = {reg_c}(1, make_coord(m_iter, i_tileN));
+        {c_val}(col, row + 8) = {reg_c}(2, make_coord(m_iter, i_tileN));
+        {c_val}(col + 1, row + 8) = {reg_c}(3, make_coord(m_iter, i_tileN));
+    }}
 }}"""
     )
 
@@ -1193,13 +1203,15 @@ def _row_major_hand_c_store_impl(op: NvOp) -> NvOpImpl:
     reg_c = op.inputs[0].name
     c_val = op.inputs[1].name
     return NvOpImpl(
-        f"""for (int i_tileN = 0; i_tileN < get<1>(BLK_MNK{{}}) / 8; i_tileN++) {{
-    int row = lid / 4;
-    int col = i_tileN * 8 + lid % 4 * 2;
-    {c_val}(row, col) = {reg_c}(0, make_coord(_0{{}}, i_tileN));
-    {c_val}(row, col + 1) = {reg_c}(1, make_coord(_0{{}}, i_tileN));
-    {c_val}(row + 8, col) = {reg_c}(2, make_coord(_0{{}}, i_tileN));
-    {c_val}(row + 8, col + 1) = {reg_c}(3, make_coord(_0{{}}, i_tileN));
+        f"""for (int m_iter = 0; m_iter < get<0>(BLK_MMA_MNK{{}}); m_iter++) {{
+    for (int i_tileN = 0; i_tileN < get<1>(BLK_MNK{{}}) / 8; i_tileN++) {{
+        int row = m_iter * get<0>(MMA_MNK{{}}) + lid / 4;
+        int col = i_tileN * 8 + lid % 4 * 2;
+        {c_val}(row, col) = {reg_c}(0, make_coord(m_iter, i_tileN));
+        {c_val}(row, col + 1) = {reg_c}(1, make_coord(m_iter, i_tileN));
+        {c_val}(row + 8, col) = {reg_c}(2, make_coord(m_iter, i_tileN));
+        {c_val}(row + 8, col + 1) = {reg_c}(3, make_coord(m_iter, i_tileN));
+    }}
 }}"""
     )
 
@@ -1284,8 +1296,23 @@ for (int i_mask = 0; i_mask < num_masks; i_mask++) {{
 
 
 def _apply_acc_flat_compute_shapes(s2r_a: NvOp, s2r_b: NvOp, mma: NvOp) -> None:
-    reg_a_shape = Shape(IntShape(4), MnkShape("BLK_MMA_MNK", "m"))
-    reg_b_shape = Shape(IntShape(2), MnkShape("BLK_MMA_MNK", "n"))
+    # Preserve K fragments.  The old ACC specialization flattened this axis
+    # because its host only ever instantiated BLK_K=8, causing wider valid
+    # BIT_TCF formats to ignore every K fragment after the first.
+    reg_a_shape = Shape(
+        IntShape(4),
+        Shape(
+            MnkShape("BLK_MMA_MNK", "m"),
+            MnkShape("BLK_MMA_MNK", "k"),
+        ),
+    )
+    reg_b_shape = Shape(
+        IntShape(2),
+        Shape(
+            MnkShape("BLK_MMA_MNK", "k"),
+            MnkShape("BLK_MMA_MNK", "n"),
+        ),
+    )
 
     s2r_a.outputs[0].tensor.shape = reg_a_shape
     s2r_b.outputs[0].tensor.shape = reg_b_shape

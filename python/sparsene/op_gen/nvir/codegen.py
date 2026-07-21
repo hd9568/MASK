@@ -206,7 +206,12 @@ class NvIrCodeGenerator:
         io_dtypes_str = ", " + io_dtypes_str if io_dtypes_str else ""
         op_name_str = op.name
         tensor_type_str = op.gmem_inout.tensor_type_str
-        tensor_str = op.gmem_inout.tensor_str
+        # Make the row-window coordinate an explicit runtime input.  The
+        # canonical kernel still passes blockIdx.x, while generated task-mapped
+        # kernels can bind several logical row windows to one CUDA block.
+        tensor_str = op.gmem_inout.tensor_str.replace(
+            "blockIdx.x", "sparsene_block_x"
+        )
         tensor_name = op.gmem_inout.name
 
         varlen_modes_constructor_params = []
@@ -1382,6 +1387,7 @@ class NvIrCodeGenerator:
     def dump_gmem_tensor_nvop_create(
         self,
         op: GmemTensorNvOp,
+        block_x_expr: str = "blockIdx.x",
     ) -> str:
         op_name = op.name
         tensor_name = op.gmem_inout.name
@@ -1395,6 +1401,7 @@ class NvIrCodeGenerator:
         return templates.GMEM_TENSOR_NVOP_CREATE_SKELETON.format(
             op_name=op_name,
             tensor_name=tensor_name,
+            block_x_expr=block_x_expr,
             varlen_modes_constructor_args=varlen_modes_constructor_args_str,
         )
 
@@ -2009,7 +2016,11 @@ class NvIrCodeGenerator:
 
         return "\n\n".join(class_defs)
 
-    def dump_nvop_inits(self, program: NvOpProgram) -> str:
+    def dump_nvop_inits(
+        self,
+        program: NvOpProgram,
+        block_x_expr: str = "blockIdx.x",
+    ) -> str:
         nvop_inits = []
         visible_ops = {}
 
@@ -2051,7 +2062,11 @@ class NvIrCodeGenerator:
 
         def _dump_nvop(op: NvOp, current_level: int, nbuf: int) -> None:
             if isinstance(op, GmemTensorNvOp):
-                nvop_inits.append(self.dump_gmem_tensor_nvop_create(op))
+                nvop_inits.append(
+                    self.dump_gmem_tensor_nvop_create(
+                        op, block_x_expr=block_x_expr
+                    )
+                )
             elif isinstance(op, ForLoopNvOp):
                 if isinstance(op.body, NvOpPipeline):
                     _dump_pipelined_for_loop_nvop(op, current_level)
@@ -2124,25 +2139,228 @@ class NvIrCodeGenerator:
             nvop_calls=nvop_calls,
         )
 
+    def dump_sr_bcrs_task_mapped_global_function(
+        self, program: NvOpProgram
+    ) -> str:
+        """Emit a load-balanced SR-BCRS kernel from the generated NVIR body.
+
+        A task names one contiguous tile range and its logical row window.  A
+        CUDA block may execute several tasks, which supplies the missing
+        strict-load-balance semantic without duplicating the generated MMA and
+        software-pipeline implementation.  Boundary tasks use atomic stores;
+        complete row windows inside a work group use direct stores.
+        """
+        if program.attrs.get("format_name") != "SR_BCRS":
+            return ""
+
+        required_names = {"ZerosOp", "zero", "for_loop"}
+        source_names = {op.name for op in program.ops}
+
+        def collect_nested(op: NvOp) -> None:
+            source_names.add(op.name)
+            if isinstance(op, ForLoopNvOp):
+                if isinstance(op.body, NvOpPipeline):
+                    for stage in op.body.stages:
+                        for child in stage.ops:
+                            collect_nested(child)
+                elif isinstance(op.body, NvOpSequence):
+                    for child in op.body.ops:
+                        collect_nested(child)
+
+        for top_level_op in program.ops:
+            collect_nested(top_level_op)
+        missing = required_names - source_names
+        if missing:
+            raise ValueError(
+                "SR-BCRS task mapping requires NVIR ops: "
+                + ", ".join(sorted(missing))
+            )
+
+        all_parameters = "".join(
+            f", class {param}" for param in sorted(program.all_parameters())
+        )
+        gmem_ptrs = ",\n".join(
+            f"{program.gmem_inouts[name].dtype} *d{name}"
+            for name in sorted(program.gmem_inouts.keys())
+        )
+        varlens = ", ".join(
+            f"int {name}" for name in sorted(program.all_varlens())
+        )
+        nvop_inits = self.dump_nvop_inits(
+            program, block_x_expr="task_default_row"
+        )
+        launch_bounds = program.attrs.get("launch_bounds")
+        if isinstance(launch_bounds, (tuple, list)):
+            launch_bounds_args = ", ".join(str(int(v)) for v in launch_bounds)
+        elif launch_bounds:
+            launch_bounds_args = str(launch_bounds)
+        else:
+            launch_bounds_args = ""
+        launch_bounds_text = (
+            f" __launch_bounds__({launch_bounds_args})"
+            if launch_bounds_args
+            else ""
+        )
+        comma_varlens = f",\n    {varlens}" if varlens else ""
+
+        return f"""
+template <class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class TensorREGC>
+__device__ __forceinline__ void sparsene_generated_store_task_output(
+    float *dC_val,
+    int N,
+    int row_window_id,
+    int lid,
+    TensorREGC reg_c,
+    bool use_atomic) {{
+    constexpr int tile_m = static_cast<int>(get<0>(BLK_MNK{{}}));
+    constexpr int tile_n = static_cast<int>(get<1>(BLK_MNK{{}}));
+    const int col_tile_base = static_cast<int>(blockIdx.y) * tile_n;
+    const int row_window_base = row_window_id * tile_m;
+    for (int tile_mma_m = 0; tile_mma_m < get<0>(BLK_MMA_MNK{{}}); ++tile_mma_m) {{
+        for (int tile_mma_n = 0; tile_mma_n < get<1>(BLK_MMA_MNK{{}}); ++tile_mma_n) {{
+            const int row = lid / 4 + tile_mma_m * get<0>(MMA_MNK{{}});
+            const int col = tile_mma_n * 8 + (lid % 4) * 2;
+            float *p00 = dC_val
+                + static_cast<size_t>(row_window_base + row) * N
+                + col_tile_base + col;
+            float *p01 = p00 + 1;
+            float *p10 = p00 + 8 * N;
+            float *p11 = p10 + 1;
+            if (use_atomic) {{
+                atomicAdd(p00, reg_c(0, make_coord(tile_mma_m, tile_mma_n)));
+                atomicAdd(p01, reg_c(1, make_coord(tile_mma_m, tile_mma_n)));
+                atomicAdd(p10, reg_c(2, make_coord(tile_mma_m, tile_mma_n)));
+                atomicAdd(p11, reg_c(3, make_coord(tile_mma_m, tile_mma_n)));
+            }} else {{
+                *p00 = reg_c(0, make_coord(tile_mma_m, tile_mma_n));
+                *p01 = reg_c(1, make_coord(tile_mma_m, tile_mma_n));
+                *p10 = reg_c(2, make_coord(tile_mma_m, tile_mma_n));
+                *p11 = reg_c(3, make_coord(tile_mma_m, tile_mma_n));
+            }}
+        }}
+    }}
+}}
+
+template <class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class WARP_MNK{all_parameters}>
+__global__{launch_bounds_text} void generated_task_mapped_kernel(
+    {self._indent_lines(gmem_ptrs)},
+    const int *dtask_tile_begin,
+    const int *dtask_tile_end,
+    const int *dtask_row_window,
+    const int *dtask_use_atomic,
+    const int *dgroup_task_offsets{comma_varlens}
+) {{
+    const int tid = threadIdx.x;
+    const int lid = tid % 32;
+    const int wid = tid / 32;
+    const int task_group = static_cast<int>(blockIdx.x);
+    const int task_begin = dgroup_task_offsets[task_group];
+    const int task_end = dgroup_task_offsets[task_group + 1];
+    if (task_begin >= task_end) return;
+    const int task_default_row = dtask_row_window[task_begin];
+
+{self._indent_lines(nvop_inits)}
+
+    BlkYLoopZeroOp_v.template f<>();
+    BlockDimYOp_v.template f<>();
+    BlkXLoopZeroOp_v.template f<>();
+    BlockDimXOp_v.template f<>();
+    for (int task = task_begin; task < task_end; ++task) {{
+        const int tile_begin = dtask_tile_begin[task];
+        const int tile_end = dtask_tile_end[task];
+        if (tile_begin >= tile_end) continue;
+        ZerosOp_v.template f<>();
+        zero_v.template f<>();
+        for_loop_v.template f<>(0, tile_end - tile_begin, tile_begin);
+        sparsene_generated_store_task_output<BLK_MNK, MMA_MNK, BLK_MMA_MNK>(
+            dC_val,
+            N,
+            dtask_row_window[task],
+            lid,
+            for_loop_v.template output<0>(),
+            dtask_use_atomic[task] != 0);
+    }}
+}}
+
+template <class BLK_MNK, class MMA_MNK, class BLK_MMA_MNK, class WARP_MNK{all_parameters}>
+__global__{launch_bounds_text} void generated_bound_task_kernel(
+    {self._indent_lines(gmem_ptrs)},
+    const int *dtask_tile_offsets,
+    const int *dtask_row_window,
+    const int *drow_window_split{comma_varlens}
+) {{
+    const int tid = threadIdx.x;
+    const int lid = tid % 32;
+    const int wid = tid / 32;
+    const int task = static_cast<int>(blockIdx.x);
+    const int task_default_row = dtask_row_window[task];
+
+{self._indent_lines(nvop_inits)}
+
+    BlkYLoopZeroOp_v.template f<>();
+    BlockDimYOp_v.template f<>();
+    BlkXLoopZeroOp_v.template f<>();
+    BlockDimXOp_v.template f<>();
+    const int tile_begin = dtask_tile_offsets[task];
+    const int tile_end = dtask_tile_offsets[task + 1];
+    if (tile_begin >= tile_end) return;
+    ZerosOp_v.template f<>();
+    zero_v.template f<>();
+    for_loop_v.template f<>(0, tile_end - tile_begin, tile_begin);
+    sparsene_generated_store_task_output<BLK_MNK, MMA_MNK, BLK_MMA_MNK>(
+        dC_val,
+        N,
+        task_default_row,
+        lid,
+        for_loop_v.template output<0>(),
+        drow_window_split[task_default_row] != 0);
+}}
+"""
+
     def dump_nvop_program(self, program: NvOpProgram) -> str:
         strategy = program.attrs.get("strategy_decision")
         tensor = getattr(strategy, "tensor_placement", None)
         tile_b = getattr(tensor, "tile_b", 64)
         b_smem_swizzle = getattr(tensor, "b_smem_swizzle", "swizzle_323")
         coo_restore_swizzle = getattr(tensor, "coo_restore_swizzle", "swizzle_123")
-        generated_metadata = "\n".join(
-            [
-                f"#define SPARSENE_GENERATED_TILE_B {int(tile_b)}",
-                f'#define SPARSENE_GENERATED_B_SMEM_SWIZZLE "{b_smem_swizzle}"',
-                f'#define SPARSENE_GENERATED_COO_RESTORE_SWIZZLE "{coo_restore_swizzle}"',
-            ]
-        )
+        metadata = [
+            f"#define SPARSENE_GENERATED_TILE_B {int(tile_b)}",
+            f'#define SPARSENE_GENERATED_B_SMEM_SWIZZLE "{b_smem_swizzle}"',
+            f'#define SPARSENE_GENERATED_COO_RESTORE_SWIZZLE "{coo_restore_swizzle}"',
+        ]
+        if program.attrs.get("format_name") == "SR_BCRS":
+            metadata.append("#define SPARSENE_GENERATED_SUPPORTS_TASK_MAPPING 1")
+        launch_contract = program.attrs.get("launch_contract", {})
+        synchronization = launch_contract.get("synchronization")
+        if synchronization == "warp":
+            threads = int(launch_contract.get("threads_per_block", 0))
+            warps = int(launch_contract.get("warps_per_block", 0))
+            if threads != 32 or warps != 1:
+                raise ValueError(
+                    "warp synchronization lowering requires exactly one 32-thread warp"
+                )
+            metadata.extend(
+                [
+                    "#define SPARSENE_GENERATED_REQUIRES_SINGLE_WARP 1",
+                    f"#define SPARSENE_GENERATED_THREADS_PER_BLOCK {threads}",
+                    "#define SPARSENE_GENERATED_BLOCK_SYNC() __syncwarp()",
+                ]
+            )
+        elif synchronization not in {None, "block"}:
+            raise ValueError(f"unsupported generated synchronization scope: {synchronization}")
+        generated_metadata = "\n".join(metadata)
         device_helper_functions = templates.DTC_HELPER_FUNCTIONS
         nvop_defs = self.dump_nvop_class_defs(program)
         global_function = self.dump_nvop_global_function(program)
-        return templates.CUDA_SOURCE_SKELETON.format(
+        task_mapped_function = self.dump_sr_bcrs_task_mapped_global_function(program)
+        if task_mapped_function:
+            global_function = global_function + "\n" + task_mapped_function
+        source = templates.CUDA_SOURCE_SKELETON.format(
             generated_metadata=generated_metadata,
             device_helper_functions=device_helper_functions,
             nvop_defs=nvop_defs,
             global_function=global_function,
         )
+        if synchronization == "warp":
+            source = source.replace("__syncthreads();", "SPARSENE_GENERATED_BLOCK_SYNC();")
+        return source

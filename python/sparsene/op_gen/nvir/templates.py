@@ -257,7 +257,7 @@ public:
     int lid;
 
     // Constructor
-    CUTE_DEVICE {op_name}(int lid{varlen_modes_constructor_params}, TO0 *d{tensor_name})
+    CUTE_DEVICE {op_name}(int lid, int sparsene_block_x{varlen_modes_constructor_params}, TO0 *d{tensor_name})
     : lid(lid),
     shape_o0({tensor_str}.shape()),
     layout_o0({tensor_str}.layout()),
@@ -333,7 +333,7 @@ using namespace cute;
 {global_function}"""
 
 GMEM_TENSOR_NVOP_CREATE_SKELETON = """using {op_name}_t = {op_name}<BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK>;
-{op_name}_t {op_name}_v{{lid{varlen_modes_constructor_args}, d{tensor_name}}};"""
+{op_name}_t {op_name}_v{{lid, {block_x_expr}{varlen_modes_constructor_args}, d{tensor_name}}};"""
 
 CONSTANT_NVOP_CREATE_SKELETON = """using {op_name}_t = {op_name}<BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK>;
 using {op_name}_layout_o0 = typename {op_name}_t::Layout_o0;

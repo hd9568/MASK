@@ -1,0 +1,58 @@
+"""Generated from /home/huoda/sparsene/logs/e2e_runs/20260718_165146_deepseek_v4_pro_format26_v6/formats/DD.format.json; do not edit the embedded agent proposal."""
+
+from sparsene.formats.dsl import build_format_from_spec
+
+FORMAT_SPEC = {'dataset': 'DD',
+ 'format_name': 'TCF-16x16-MCO-RowRCM',
+ 'levels': [{'level': 1,
+             'name': 'row_window_condensation',
+             'axes': [{'name': 'X_o',
+                       'type': 'df',
+                       'direction': 'ROW',
+                       'length': 'M',
+                       'reorder': 'row_rcm',
+                       'purpose': '外层行窗口；离线 RCM 置换使相似行聚集，减少窗口内唯列数'},
+                      {'name': 'Y_s',
+                       'type': 'sv',
+                       'direction': 'COL',
+                       'length': 'K',
+                       'purpose': '每个窗口的变长唯列序列，实际列数由窗口元数据给出'},
+                      {'name': 'X_i',
+                       'type': 'df',
+                       'direction': 'ROW',
+                       'length': 'BLK_M',
+                       'purpose': '窗口内固定行坐标'}]},
+            {'level': 2,
+             'name': 'tensorcore_block',
+             'axes': [{'name': 'Y_so',
+                       'type': 'df',
+                       'direction': 'COL',
+                       'length': 'K/BLK_K',
+                       'purpose': '将唯列序列切分成固定 BLK_K 列块的块序'},
+                      {'name': 'Y_si',
+                       'type': 'df',
+                       'direction': 'COL',
+                       'length': 'BLK_K',
+                       'purpose': '块内固定列坐标'},
+                      {'name': 'X_i',
+                       'type': 'df',
+                       'direction': 'ROW',
+                       'length': 'BLK_M',
+                       'purpose': '与 X_i 相同的行坐标，构成 16×16 逻辑 tile'}]}],
+ 'atomic': {'type': 'mco',
+            'x_axis': 'X_i',
+            'y_axis': 'Y_si',
+            'layout': 'row_major',
+            'rationale': '16×16 tile 均非零 23 左右，CV 0.48，mask 存储 13.8 MB 为各编码最小，且 mask 遍历可高效利用硬件 '
+                         'popc；余度足够而坐标开销低于 COO',
+            'custom_spec': None},
+ 'params': {'BLK_M': 16, 'BLK_K': 16},
+ 'rationale': '利用离线 RCM 行重排提升行相似度，预期窗口唯列数降低约 15%，进而减少 tile 总数与 B 读取；MCO 叶子以最低掩码存储节省内核元数据流量，且 tile '
+              '形状适合 SM80 张量核指令。',
+ 'provenance': {'run_id': '20260718_165146_deepseek_v4_pro_format26_v6',
+                'source': '/home/huoda/sparsene/logs/e2e_runs/20260718_165146_deepseek_v4_pro_format26_v6/formats/DD.format.json',
+                'schema_version': 'sparsene.format_design.v6',
+                'request_id': '1ff3a77f-c62e-4983-82ae-803d98148ec6'}}
+FORMAT = build_format_from_spec(FORMAT_SPEC)
+PARAMS = FORMAT_SPEC["params"]
+PROVENANCE = FORMAT_SPEC["provenance"]

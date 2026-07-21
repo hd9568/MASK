@@ -48,6 +48,7 @@ from sparsene.op_gen.opir.cValFlattenPass import CValFlattenPass
 from sparsene.op_gen.opir.generate import generate_from_computent
 from sparsene.op_gen.opir.varlenLoweringPass import VarlenLoweringPass
 from sparsene.op_gen.strategy_agent import StrategyConfig, StrategyDecision, StrategyFeedbackContext, run_strategy_agent
+from sparsene.performance_contract import KERNEL_ONLY_EVALUATION_CONTRACT
 from sparsene.transform.rts import derive_rts
 
 
@@ -335,6 +336,7 @@ def _parse_perf_output(text: str) -> Dict[str, Any]:
                 }
             )
     result: Dict[str, Any] = {
+        "evaluation_contract": KERNEL_ONLY_EVALUATION_CONTRACT,
         "mykernel_ms": float(my_match.group(1)) if my_match else None,
         "cusparse_ms": float(cu_match.group(1)) if cu_match else None,
         "nan_check_cusparse": float(nan_match.group(1)) if nan_match else None,
@@ -603,6 +605,7 @@ def _run_dataset(binary_path: Path, dataset_path: Path, iter_dir: Path, args: ar
     except subprocess.TimeoutExpired as exc:
         log_path.write_text(_coerce_timeout_stdout(getattr(exc, "output", None)) + "\n[TIMEOUT]\n")
         return {
+            "evaluation_contract": KERNEL_ONLY_EVALUATION_CONTRACT,
             "mykernel_ms": None,
             "cusparse_ms": None,
             "ratio_vs_cusparse": None,
@@ -778,6 +781,11 @@ def _heuristic_format_decision(blk_k: int = 8) -> Dict[str, Any]:
         ],
         "atomic": {"type": "coo", "x_axis": "X_i", "y_axis": "Y_si"},
         "params": {"BLK_M": "BLK_M", "BLK_K": "BLK_K"},
+        "selected_candidate": f"16x{blk_k}",
+        "applied_candidate": f"16x{blk_k}",
+        "feature_evidence": [],
+        "tradeoffs": [],
+        "normalization_actions": [],
         "rationale": "Heuristic mode: skip format agent and use built-in ME_TCF format.",
         "confidence": "high",
         "token_usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "raw_usage": {}},
@@ -841,9 +849,40 @@ def main() -> None:
                 model_config_path=args.model_config,
             )
             format_response = run_format_design_agent(mtx_path.stem, features, format_config)
+            support_level = format_response.capability.get("support_level")
+            backend_format_name = format_response.capability.get("backend_format_name")
+            if support_level != "integrated_e2e" or backend_format_name != "ME_TCF":
+                raise RuntimeError(
+                    "The format agent produced a valid research design that the current "
+                    "integrated DTC host route cannot execute. "
+                    f"format={format_response.format_name}, "
+                    f"atomic={format_response.atomic.get('type')}, "
+                    f"support_level={support_level}, "
+                    f"matched_profile={format_response.capability.get('matched_profile')}. "
+                    "Keep this proposal as a format-design artifact and implement/dispatch "
+                    "its backend profile before running the strategy/codegen loop."
+                )
+            if format_response.selected_candidate not in {"16x8", "16x16"}:
+                raise RuntimeError(
+                    "The integrated ME_TCF route only supports reference tiles 16x8 and "
+                    f"16x16; the research design selected {format_response.selected_candidate!r}."
+                )
+            selected_blk_m, selected_blk_k = (
+                int(part) for part in format_response.selected_candidate.split("x", maxsplit=1)
+            )
+            args.blk_m = selected_blk_m
+            args.tc_block_k = selected_blk_k
+            logger.info(
+                "Format agent selected executable candidate %s (BLK_M=%d, BLK_K=%d)",
+                format_response.selected_candidate,
+                args.blk_m,
+                args.tc_block_k,
+            )
             format_summary = asdict(format_response)
-            fmt_obj = build_format_from_response(format_response)
-            format_name = format_response.format_name
+            format_summary["applied_candidate"] = format_response.selected_candidate
+            format_summary["applied_backend_format_name"] = backend_format_name
+            fmt_obj = build_format_from_response(format_response, require_integrated=True)
+            format_name = backend_format_name
             atomic_type = format_response.atomic.get("type", "coo")
             token_usages.append(format_response.token_usage)
         else:
@@ -852,29 +891,6 @@ def main() -> None:
             format_name = "ME_TCF"
             atomic_type = "coo"
         _write_json(run_dir / "format_decision.json", format_summary)
-
-        # Adaptive TC_BLOCK_K takes priority over agent-chosen BLK_K.
-        # The format tree uses symbolic "BLK_K" — the concrete value is
-        # injected via nvcc -DTC_BLOCK_K=N at compile time.
-        blk_k_from_format = format_summary.get("params", {}).get("BLK_K", 8)
-        if isinstance(blk_k_from_format, int) and blk_k_from_format != args.tc_block_k:
-            logger.info("Adaptive TC_BLOCK_K=%d > format-suggested BLK_K=%d; using adaptive",
-                         args.tc_block_k, blk_k_from_format)
-            format_summary.setdefault("params", {})["BLK_K"] = args.tc_block_k
-            _write_json(run_dir / "format_decision.json", format_summary)
-
-        # Agent mode: BLK_M must match the format's BLK_M (or host defaults to 16).
-        blk_m_from_format = format_summary.get("params", {}).get("BLK_M", 16)
-        if isinstance(blk_m_from_format, int):
-            if blk_m_from_format < 16:
-                logger.warning("Agent-chosen BLK_M=%d < 16; clamping to 16 (MMA uses m16n8k8)", blk_m_from_format)
-                blk_m_from_format = 16
-                format_summary.setdefault("params", {})["BLK_M"] = 16
-                _write_json(run_dir / "format_decision.json", format_summary)
-                # Rebuild fmt_obj so codegen picks up the corrected BLK_M.
-                format_response.params["BLK_M"] = 16
-                fmt_obj = build_format_from_response(format_response)
-            args.blk_m = blk_m_from_format
 
         flattened_ops, gmem_inouts = _prepare_codegen_artifacts(fmt_obj, format_name, atomic_type)
         _write_json(

@@ -882,6 +882,15 @@ def generate_nvir(
     program.attrs["strategy_log_dir"] = str(strategy_log_dir)
     program.attrs["format_name"] = format_name
     program.attrs["grid_mapping"] = grid_mapping
+    # All currently emitted SM80 sparse Tensor Core kernels have a one-warp
+    # launch ABI.  Record that fact in NVIR so synchronization is lowered by
+    # the code generator itself, rather than patched into selected artifacts
+    # by an external runner after generation.
+    program.attrs["launch_contract"] = {
+        "threads_per_block": 32,
+        "warps_per_block": 1,
+        "synchronization": "warp",
+    }
     program.attrs["format_tensor_swizzles"] = format_hints.get("tensor_swizzles", {})
     program.attrs["generated_tile_b"] = int(
         getattr(strategy_decision.tensor_placement, "tile_b", 64)

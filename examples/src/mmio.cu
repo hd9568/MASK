@@ -82,6 +82,16 @@ int mm_read_mtx_crd(char*        fname,
         if (ret_code != 0)
             return ret_code;
     }
+    else if (mm_is_integer(*matcode)) {
+        // Keep the public API uniform: integer MatrixMarket values are read
+        // into the existing double buffer.  Sparse-format construction only
+        // consumes I/J, but skipping this branch leaves those arrays
+        // uninitialised while still returning success.
+        *val     = (double*)malloc(*nz * sizeof(double));
+        ret_code = mm_read_mtx_crd_data(f, *M, *N, *nz, *I, *J, *val, *matcode);
+        if (ret_code != 0)
+            return ret_code;
+    }
     else if (mm_is_pattern(*matcode)) {
         ret_code = mm_read_mtx_crd_data(f, *M, *N, *nz, *I, *J, *val, *matcode);
         if (ret_code != 0)
@@ -283,7 +293,7 @@ int mm_read_mtx_crd_data(FILE*       f,
                        &val[2 * i + 1]) != 4)
                 return MM_PREMATURE_EOF;
     }
-    else if (mm_is_real(matcode)) {
+    else if (mm_is_real(matcode) || mm_is_integer(matcode)) {
         for (i = 0; i < nz; i++) {
             if (fscanf(f, "%d %d %lg\n", &I[i], &J[i], &val[i]) != 3)
                 return MM_PREMATURE_EOF;

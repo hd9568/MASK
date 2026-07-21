@@ -11,7 +11,9 @@
 
 #include <cute/tensor.hpp>
 
-#if defined(USE_PATCHED_INC) && __has_include("../../../../python/me_tcf_kernel3_patched.inc")
+#if defined(SPARSENE_GENERATED_INC_PATH)
+#include SPARSENE_GENERATED_INC_PATH
+#elif defined(USE_PATCHED_INC) && __has_include("../../../../python/me_tcf_kernel3_patched.inc")
 #include "../../../../python/me_tcf_kernel3_patched.inc"
 #else
 #include "../../../../python/test/results/dtc.inc"

@@ -16,8 +16,8 @@
                          ▼
 ┌──────────────────────────────────────────────────────────┐
 │  Phase 2: 格式设计智能体 (deepseek-v4-pro)                │
-│  → 基于层次化格式 DSL 自主设计稀疏格式                      │
-│  → 输出: 轴类型/层次结构/原子格式/BLK_M/BLK_K             │
+│  → 面向通用层次化 DSL 进行特征驱动的自由格式设计            │
+│  → 输出: Format DSL + 设计依据 + 当前代码 capability 分级  │
 └────────────────────────┬─────────────────────────────────┘
                          │ format JSON
                          ▼
@@ -199,7 +199,7 @@ logs/20260524_120000_consph/
 
 ```
 轴类型: df(稠密固定) / dv(稠密变长) / sf(稀疏固定) / sv(稀疏变长)
-原子格式: coo(坐标) / mco(mask-COO) / dense(稠密)
+原子格式: coo / mco / csr / ell / dia / dense / custom(需定义存储映射与 restore)
 ```
 
 示例（ME_TCF 格式）：
@@ -215,8 +215,12 @@ Format("ME-TCF")
 
 - 模型：deepseek-v4-pro
 - 输入：GPU 特征提取的矩阵特征 + 硬件信息
-- 输出：完整格式定义（轴类型、层次、BLK_M/BLK_K、原子格式）
-- 智能体已学习完整的 DSL 语法，可自主设计新格式
+- 输出：完整层次、轴类型/顺序、atomic、参数、变换计划、备选格式和精确特征依据
+- DSL 校验不会把新格式静默改写成 ME-TCF；合法但未实现的设计仍作为研究产物保存
+- capability 独立标记为 `frontend_research`、`codegen_declared`、
+  `standalone_validated` 或 `integrated_e2e`
+- 当前 DTC 端到端策略/生成循环仍只接受精确匹配 ME-TCF 且 tile 为
+  `16x8`/`16x16` 的结果；其他合法设计需要先补齐相应后端与 host 路径
 
 ### 策略智能体
 

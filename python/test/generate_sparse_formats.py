@@ -52,6 +52,13 @@ def parse_args() -> argparse.Namespace:
         default=Path("/home/huoda/sparsene/python/test/results"),
         help="Directory used to store generated .inc files.",
     )
+    parser.add_argument(
+        "--formats",
+        nargs="+",
+        choices=[name for name, _stem, _format in FORMAT_SPECS],
+        default=[name for name, _stem, _format in FORMAT_SPECS],
+        help="Formats to generate (default: all supported formats).",
+    )
     return parser.parse_args()
 
 
@@ -59,7 +66,10 @@ def main() -> None:
     args = parse_args()
     args.results_dir.mkdir(parents=True, exist_ok=True)
 
+    selected = set(args.formats)
     for format_name, file_stem, format_obj in FORMAT_SPECS:
+        if format_name not in selected:
+            continue
         output_path = args.results_dir / f"{file_stem}.inc"
         _generate_one(format_name, format_obj, output_path)
         print(f"[ok] {format_name} -> {output_path}")

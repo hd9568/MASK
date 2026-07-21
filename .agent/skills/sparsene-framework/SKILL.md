@@ -5,6 +5,17 @@ description: "Explains the Sparsene compilation stack and data model. Invoke whe
 
 # Sparsene Framework
 
+## Performance Timing Contract
+
+The primary project metric is `sparsene.kernel_only_post_conversion.v1`:
+warmed repeated GPU SpMM compute-kernel time after format conversion, metadata
+construction, padding, and row/column reorder. Conversion/reorder and
+correctness-only inverse permutation, allocation/copies, compilation,
+checkpoint I/O, and verification are outside the primary timer and must not
+penalize format or strategy ranking. Record their correctness, storage, cache,
+and implementation requirements separately. Operations actually executed in
+the timed kernel remain included.
+
 ## Mission
 
 Use this skill whenever a task touches sparse format semantics, code generation, or runtime integration inside Sparsene.
@@ -27,8 +38,13 @@ The canonical pipeline is:
 ## Key Format Concepts
 
 - Axis factories: `df_axis`, `dv_axis`, `sf_axis`, `sv_axis`.
-- `sv_axis` on the K/column side is the current mechanism for irregular row-length handling.
-- Atomic formats currently relevant for ME-style Tensor Core paths are `coo`, `mco`, and `dense`.
+- `sv_axis` can represent a per-parent variable-length compressed coordinate,
+  including but not limited to the K/column condensation used by ME-TCF.
+- The research format agent may design with any declared atomic family or a new
+  hierarchy. Deterministic capability classification records whether that
+  proposal is integrated, standalone-validated, codegen-declared, or currently
+  frontend-only. Backend support must not constrain research design and must
+  never be overstated.
 
 ## Files That Matter
 
@@ -113,23 +129,33 @@ The bug is in the COO atomic format sparse-to-dense restore logic for near-empty
 ## Agent Guardrails
 
 - Do not free-form generate CUDA first; make structured decisions first.
-- Prefer decisions that map onto existing format/codegen constraints.
+- In research format design, prefer feature-backed physical layouts regardless
+  of current implementation. In execution/strategy mode, require a matched and
+  validated backend profile before code generation.
 - Preserve correctness on varlen sparse axes before chasing performance.
-- **BLK_M must be ≥ 16 and a multiple of 16**: the MMA uses `m16n8k8` tensor-core atom.
+- **Current integrated DTC route only — BLK_M must be ≥ 16 and a multiple of
+  16** because that route uses the `m16n8k8` tensor-core atom. This is not a
+  restriction on a research DSL proposal for a future backend.
   - `BLK_M=8` → `BLK_MMA_MNK.m = 0` → zero-sized register arrays → compile error.
-  - The `_adaptive_blk_m()` function and agent-mode clamp in `end2end_pipeline.py` both enforce this.
-- **BLK_K controls `TC_BLOCK_K`**: the adaptive layer (`_adaptive_tc_block_k()`) selects
-  8 or 16 based on avg NNZ/row.  When `SPARSENE_TC_BLOCK_K_AGGRESSIVE=1`, sparse matrices
-  (avg NNZ/row < 16) use `BLK_K=16`.
+  - `_adaptive_blk_m()` pins current heuristic execution to 16; capability
+    validation admits current agent execution only for a consistent 16-row tile.
+- **Current integrated DTC route only — BLK_K controls `TC_BLOCK_K`**:
+  heuristic mode defaults to 8 and its opt-in adaptive layer selects 16 only
+  when average NNZ/row is below 6. An integrated agent result uses `16x8` or
+  `16x16`; research proposals may select other parameters and then require a
+  new/extended backend profile.
   - Codegen generates K-iteration loops via `get<2>(BLK_MMA_MNK{})`.
   - Swizzle S parameter auto-adapts: `S = log2(BLK_K)` (8→3, 16→4).
   - Checkpoint filenames include `_TBK` and `_RWM` suffixes.
 - **Swizzle contract**: host (`main.cu`) and kernel (`generate.py`) must agree on the same
   `Swizzle<1,2,S>` parameter.  `end2end_pipeline.py` overrides `coo_restore_swizzle` to
   `swizzle_124` when `BLK_K ≠ 8`.
-- **Format design agent**: the agent decides **structure** only (axis types, levels, atomic type).
-  BLK_M/BLK_K are always returned as symbolic strings `"BLK_M"` / `"BLK_K"`.
-  The pipeline's `_adaptive_blk_m()` / `_adaptive_tc_block_k()` pick the actual numeric values.
+- **Format design agent**: v5 designs a general hierarchical DSL and validates
+  it without rewriting the proposal to ME-TCF. The response records a separate
+  capability level. The current integrated DTC strategy/codegen loop may proceed
+  only when the proposal exactly matches the integrated ME-TCF profile and uses
+  `16x8` or `16x16`; other valid proposals remain design artifacts until their
+  backend/host route is implemented.
 - **Known codegen limitation**: extremely sparse matrices (avg NNZ/row < 4) may produce
   numerical errors (status `FAILED_NUMERICAL`).  These are matrices like Yeast, YeastH,
   OVCAR-8H, webbase-1M, mc2depi.  The generated kernel runs and produces valid timing
@@ -181,7 +207,7 @@ The venv lives on Lustre to avoid consuming home-directory disk quota.
 |----------|---------|---------|
 | `SPARSENE_MTX_CACHE_DIR` | `/mnt/lustre-client/huoda/mtx_cache` | Directory for sparse-format-layer checkpoint files. `main.cu` writes/reads `.checkpoint` files here. |
 | `SPARSENE_DISABLE_MTX_CACHE` | `"1"` (cache disabled) | **Default is `1`** in `end2end_pipeline.py` (set via `os.environ.setdefault`). Set to `0` to re-enable checkpoint cache. |
-| `SPARSENE_TC_BLOCK_K_AGGRESSIVE` | `"1"` (adaptive enabled) | Set to `0` to force `TC_BLOCK_K=8` for all matrices. When `1`, sparse matrices (avg NNZ/row < 16) use `TC_BLOCK_K=16`. |
+| `SPARSENE_TC_BLOCK_K_AGGRESSIVE` | `"0"` | Heuristic-mode opt-in for adaptive BLK_K; agent mode applies the normalized format-agent candidate. |
 | `DATASET_DIR` | `/mnt/lustre-client/zhangkaige/selected_mtx` | Root directory containing `.mtx` files. |
 | `NVCC_CCBIN` | `/opt/rh/gcc-toolset-13/root/usr/bin/g++` | Host compiler for nvcc. |
 | `CUDA_ARCH` | `sm_80` | CUDA compute capability for nvcc. |

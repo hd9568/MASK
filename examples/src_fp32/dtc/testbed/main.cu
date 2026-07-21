@@ -390,15 +390,13 @@ METCFMetadata buildMETCFMetadata(
 
             for (int i_row = 0; i_row < ROW_WINDOW_M; i_row++) {
                 int row = i_row_window * ROW_WINDOW_M + i_row;
-                int col_start_pos = 0;
                 if (row >= M)
                     continue;
                 for (int j = csrPtrA[row]; j < csrPtrA[row + 1]; j++) {
                     int col = csrColIdxA[j];
                     int condensed_col =
-                      (int)(lower_bound(unique_cols.begin() + col_start_pos, unique_cols.end(), col) -
+                      (int)(lower_bound(unique_cols.begin(), unique_cols.end(), col) -
                             unique_cols.begin());
-                    col_start_pos = condensed_col + 1;
                     int tc_block_id = condensed_col / TC_BLOCK_K;
                     nnz_per_tc_block[tc_block_id]++;
                 }
@@ -489,16 +487,14 @@ METCFMetadata buildMETCFMetadata(
 
             for (int i_row = 0; i_row < ROW_WINDOW_M; i_row++) {
                 int row = i_row_window * ROW_WINDOW_M + i_row;
-                int col_start_pos = 0;
                 if (row >= M)
                     continue;
                 for (int j = csrPtrA[row]; j < csrPtrA[row + 1]; j++) {
                     int col = csrColIdxA[j];
                     float value = (float)csrValA[j];
                     int condensed_pos =
-                      (int)(lower_bound(unique_cols.begin() + col_start_pos, unique_cols.end(), col) -
+                      (int)(lower_bound(unique_cols.begin(), unique_cols.end(), col) -
                             unique_cols.begin());
-                    col_start_pos = condensed_pos + 1;
                     int tc_block_id = condensed_pos / TC_BLOCK_K;
                     int write_pos = tc_block_nnz_ptr[tc_block_id]++;
                     meta.val_coo_val[write_pos] = value;
@@ -669,28 +665,85 @@ void convertToMETCF(
     int nnz_pad = generated.nnz_pad;
     printf("total_TCBlock_num = %d, nnz = %d, nnz_pad=%d\n", total_TCBlock_num, nnz, nnz_pad);
 
-    dtc_spmm_test_val_sidx_bind_reorder<64>(M, N, K, total_TCBlock_num, nnz_pad,
-                                            generated.val_sidx.data(), generated.val_soff.data(),
-                                            B, generated.val_coo_idx.data(),
-                                            generated.val_coo_val.data(),
-                                            generated.val_coo_off.data(), C,
-                                            is_ncu_test, warmup_time, execute_time);
+    int requested_tile_b = sparsene_generated_tile_b();
+    auto launch_with_tile_b = [&](int tile_b) {
+        switch (tile_b) {
+            case 16:
+                dtc_spmm_test_val_sidx_bind_reorder<16>(
+                    M, N, K, total_TCBlock_num, nnz_pad, generated.val_sidx.data(),
+                    generated.val_soff.data(), B, generated.val_coo_idx.data(),
+                    generated.val_coo_val.data(), generated.val_coo_off.data(), C,
+                    is_ncu_test, warmup_time, execute_time);
+                break;
+            case 32:
+                dtc_spmm_test_val_sidx_bind_reorder<32>(
+                    M, N, K, total_TCBlock_num, nnz_pad, generated.val_sidx.data(),
+                    generated.val_soff.data(), B, generated.val_coo_idx.data(),
+                    generated.val_coo_val.data(), generated.val_coo_off.data(), C,
+                    is_ncu_test, warmup_time, execute_time);
+                break;
+            default:
+                dtc_spmm_test_val_sidx_bind_reorder<64>(
+                    M, N, K, total_TCBlock_num, nnz_pad, generated.val_sidx.data(),
+                    generated.val_soff.data(), B, generated.val_coo_idx.data(),
+                    generated.val_coo_val.data(), generated.val_coo_off.data(), C,
+                    is_ncu_test, warmup_time, execute_time);
+                break;
+        }
+    };
+    if (requested_tile_b > 0 && N % requested_tile_b == 0) {
+        launch_with_tile_b(requested_tile_b);
+    } else if (N % 64 == 0) {
+        launch_with_tile_b(64);
+    } else if (N % 32 == 0) {
+        launch_with_tile_b(32);
+    } else if (N % 16 == 0) {
+        launch_with_tile_b(16);
+    } else {
+        throw std::runtime_error("Generated TILE_B does not divide N and no fallback tile is valid.");
+    }
 }
 
-void verify_new(float* C_cpu, float* C_cuda, int M, int N) {
-    int flag = 0;
+struct VerificationSummary {
+    long long errors = 0;
+    long long nonfinite = 0;
+    double max_abs_error = 0.0;
+    double max_rel_error = 0.0;
+};
+
+VerificationSummary verify_new(float* C_cpu, float* C_cuda, int M, int N) {
+    constexpr double atol = 1.0e-2;
+    constexpr double rtol = 1.0e-4;
+    VerificationSummary summary;
     for (int i = 0; i < M; i++) {
         for (int j = 0; j < N; j++) {
             float cusparse_val = C_cpu[OFFSET_ROW(i, j, N)];
             float mykernel_val = C_cuda[OFFSET_ROW(i, j, N)];
-            if (fabs(cusparse_val - mykernel_val) > 0.01) {
-                flag++;
-                if (flag < 200)
-                printf("Error(%d, %d): cusp(%.1f) mykernel(%.1f)\n", i, j, cusparse_val,
-                       mykernel_val);
+            if (!std::isfinite(cusparse_val) || !std::isfinite(mykernel_val)) {
+                summary.nonfinite++;
+                if (summary.nonfinite <= 20) {
+                    printf("NonFinite(%d, %d): cusp(%g) mykernel(%g)\n", i, j,
+                           cusparse_val, mykernel_val);
+                }
+                continue;
+            }
+            double abs_error = std::fabs(
+              static_cast<double>(cusparse_val) - static_cast<double>(mykernel_val));
+            double rel_error = abs_error / std::max(std::fabs(static_cast<double>(cusparse_val)), 1.0e-12);
+            summary.max_abs_error = std::max(summary.max_abs_error, abs_error);
+            summary.max_rel_error = std::max(summary.max_rel_error, rel_error);
+            if (abs_error > atol + rtol * std::fabs(static_cast<double>(cusparse_val))) {
+                summary.errors++;
+                if (summary.errors <= 199) {
+                    printf("Error(%d, %d): cusp(%g) mykernel(%g) abs_error(%g)\n", i, j,
+                           cusparse_val, mykernel_val, abs_error);
+                }
             }
         }
     }
+    printf("VERIFICATION errors=%lld nonfinite=%lld max_abs_error=%.9g max_rel_error=%.9g\n",
+           summary.errors, summary.nonfinite, summary.max_abs_error, summary.max_rel_error);
+    return summary;
 }
 
 double cusparse_spmm_all(float* cu_ValA,
@@ -903,8 +956,8 @@ int main(int argc, char** argv) {
     memset(C_cpu, 0, sizeof(float) * M * N);
     cusparse_spmm_all(csrValA, csrPtrA, csrColIdxA, B, C_cpu, M, N, K, nnz, warmup_time,
                       execute_time);
-    verify_new(C_cpu, C_cuda, M, N);
+    VerificationSummary verification = verify_new(C_cpu, C_cuda, M, N);
 
     printf("check nan: cusp %.1f mykernel %.1f\n", C_cpu[0], C_cuda[0]);
-    return 0;
+    return (verification.errors == 0 && verification.nonfinite == 0) ? 0 : 2;
 }

@@ -1,6 +1,9 @@
 cmake_minimum_required(VERSION 3.16)
 project(testbed LANGUAGES CXX CUDA)
 
+# Generated ACC/BIT-BSR/SR-BCRS operators use SM80 TF32 MMA and ldmatrix.
+set(CMAKE_CUDA_ARCHITECTURES 80)
+
 # CUDA compiler settings
 find_package(CUDAToolkit REQUIRED)
 
@@ -2806,3 +2809,45 @@ target_include_directories(demo-acc-generated-tf32 PRIVATE
     ${CUTLASS_UTIL_DIR}
     ${SRCDIR}
 )
+
+# Generic offline runner for an exported Format DSL and its generated operator.
+# Configure one build directory per backend plan so compile-time tile contracts
+# remain part of the auditable run artifacts.
+if(DEFINED SPARSENE_GENERATED_OPERATOR)
+    foreach(REQUIRED_VAR SPARSENE_LOGICAL_BLK_M SPARSENE_PHYSICAL_BLK_M SPARSENE_BLK_K SPARSENE_TILE_N SPARSENE_ROW_REORDER SPARSENE_PACKING_MODE)
+        if(NOT DEFINED ${REQUIRED_VAR})
+            message(FATAL_ERROR "${REQUIRED_VAR} is required for custom-format-e2e")
+        endif()
+    endforeach()
+    if(NOT DEFINED SPARSENE_MAX_TILES_PER_SEGMENT)
+        set(SPARSENE_MAX_TILES_PER_SEGMENT 32)
+    endif()
+    add_executable(custom-format-e2e
+        ${PROJECT_SOURCE_DIR}/custom_format_e2e.cu
+        ${SRC_CUDA_FILES}
+    )
+    set_target_properties(custom-format-e2e PROPERTIES CUDA_ARCHITECTURES 80)
+    target_compile_options(custom-format-e2e PRIVATE
+        ${CUDA_NVCC_FLAGS}
+        -I${SRCDIR}
+        -I${CMAKE_CURRENT_SOURCE_DIR}
+    )
+    target_compile_definitions(custom-format-e2e PRIVATE
+        f32
+        SPARSENE_GENERATED_OPERATOR="${SPARSENE_GENERATED_OPERATOR}"
+        SPARSENE_LOGICAL_BLK_M=${SPARSENE_LOGICAL_BLK_M}
+        SPARSENE_PHYSICAL_BLK_M=${SPARSENE_PHYSICAL_BLK_M}
+        SPARSENE_BLK_K=${SPARSENE_BLK_K}
+        SPARSENE_TILE_N=${SPARSENE_TILE_N}
+        SPARSENE_ROW_REORDER=${SPARSENE_ROW_REORDER}
+        SPARSENE_PACKING_MODE=${SPARSENE_PACKING_MODE}
+        SPARSENE_MAX_TILES_PER_SEGMENT=${SPARSENE_MAX_TILES_PER_SEGMENT}
+    )
+    target_link_libraries(custom-format-e2e PRIVATE -lcusparse -lcublas)
+    target_include_directories(custom-format-e2e PRIVATE
+        ${CUTLASS_INCLUDE_DIR}
+        ${CUTLASS_COMMON_DIR}
+        ${CUTLASS_UTIL_DIR}
+        ${SRCDIR}
+    )
+endif()

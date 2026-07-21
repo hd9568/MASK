@@ -59,23 +59,35 @@ void initVector(DTYPEAB* vec, int length, float sparsity) {
     }
 }
 
-void verify_new(float* C_cpu, float* C_cuda, int M, int N) {
-    int flag = 0;
+bool verify_new(float* C_cpu, float* C_cuda, int M, int N) {
+    size_t mismatches = 0;
+    size_t nonfinite = 0;
+    long double squared_error = 0.0;
+    long double squared_reference = 0.0;
+    double max_abs_error = 0.0;
     for (int i = 0; i < M; i++) {
         for (int j = 0; j < N; j++) {
             float cusparse_val = C_cpu[OFFSET_ROW(i, j, N)];
             float mykernel_val = C_cuda[OFFSET_ROW(i, j, N)];
-            if (fabs(cusparse_val - mykernel_val) > 0.01) {
-                flag++;
-                if (flag < 200)
-                printf("Error(%d, %d): cusp(%.1f) mykernel(%.1f)\n", i, j, cusparse_val,
-                       mykernel_val);
+            const double abs_error = fabs((double)cusparse_val - (double)mykernel_val);
+            squared_error += (long double)abs_error * abs_error;
+            squared_reference += (long double)cusparse_val * cusparse_val;
+            max_abs_error = std::max(max_abs_error, abs_error);
+            if (!std::isfinite(mykernel_val)) {
+                nonfinite++;
             }
-            // if (i == 0)
-            // printf("check(%d, %d): cusp(%.1f) mykernel(%.1f)\n", i, j, cusparse_val,
-            // mykernel_val);
+            if (!std::isfinite(mykernel_val) ||
+                abs_error > 0.02 + 0.005 * fabs((double)cusparse_val)) {
+                mismatches++;
+            }
         }
     }
+    const double relative_l2 = sqrt((double)(
+      squared_error / std::max<long double>(squared_reference, 1.0e-30L)));
+    const bool passed = nonfinite == 0 && relative_l2 <= 5.0e-4;
+    printf("correctness: %s mismatches=%zu nonfinite=%zu max_abs_error=%.9g relative_l2=%.9g\n",
+           passed ? "PASS" : "FAIL", mismatches, nonfinite, max_abs_error, relative_l2);
+    return passed;
 }
 
 void cusparse_spmm_all(DTYPEAB* cu_ValA,
@@ -396,8 +408,8 @@ int main(int argc, char** argv) {
     float* C_cpu = (float*)malloc(sizeof(float) * M * N);
     memset(C_cpu, 0, sizeof(float) * M * N);
     cusparse_spmm_all(csrValA, csrPtrA, csrColIdxA, B, C_cpu, M, N, K, nnz);
-    verify_new(C_cpu, C_cuda, M, N);
+    const bool correctness_passed = verify_new(C_cpu, C_cuda, M, N);
 
     printf("check nan: cusp %.1f mykernel %.1f\n", C_cpu[0], C_cuda[0]);
-    return 0;
+    return correctness_passed ? 0 : 2;
 }

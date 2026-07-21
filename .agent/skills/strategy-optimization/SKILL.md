@@ -9,6 +9,16 @@ description: "Encodes safe ME_TCF CUDA tuning knobs and constraints. Invoke when
 
 Use this skill when tuning NVIR/codegen decisions for the current ME_TCF Tensor Core kernel family.
 
+## Performance Objective
+
+Use `sparsene.kernel_only_post_conversion.v1`. Optimize warmed repeated GPU
+SpMM compute-kernel time after format conversion, metadata construction, and
+row/column reorder. Never add or use offline conversion/reorder,
+correctness-only inverse permutation, allocation/copy, compilation, or
+verification latency as a strategy-ranking penalty. All metadata reads,
+gathers, restore, synchronization, MMA, and stores actually executed inside the
+timed kernel remain part of the metric.
+
 ## Main Decision Groups
 
 - Tensor placement

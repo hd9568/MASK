@@ -1,3 +1,0 @@
-dataset,dataset_path,mode,M,K,N,mykernel_ms,cusparse_ms,speedup_vs_cusparse,status,reason,error_count,log_path
-mac_econ_fwd500.mtx,/mnt/lustre-client/zhangkaige/selected_mtx/mac_econ_fwd500.mtx,generated,206500,206500,512,1.654415,2.536427,1.5331,ok,,0,/home/huoda/sparsene/.perf_logs/multi_dataset_generated_20260610_012811/mac_econ_fwd500.log
-web-BerkStan.mtx,/mnt/lustre-client/zhangkaige/selected_mtx/web-BerkStan.mtx,generated,685230,685230,512,5.124874,4.236575,0.8267,ok,,0,/home/huoda/sparsene/.perf_logs/multi_dataset_generated_20260610_012811/web-BerkStan.log
