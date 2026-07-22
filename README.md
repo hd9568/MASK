@@ -1,254 +1,268 @@
-# LLM-SOG — LLM-Driven Sparse Operator Generation Based on Sparsene
+# MASK: Matrix-Aware Agentic SpMM Kernel Generation
 
-基于大语言模型（LLM）驱动的层次化稀疏格式设计与高性能 CUDA 算子自动生成框架。
+MASK is a matrix-specialized sparse GPU operator generation framework. It builds on
+the format-centric compiler ideas from the Sparsene paper, but adds two LLM-based
+agents around the deterministic compiler pipeline:
 
-## 架构总览
+1. a format-design agent that proposes sparse formats from matrix and hardware
+   features;
+2. a strategy agent that selects code-generation, tensor placement, tiling, and
+   pipeline choices;
+3. a compile-run-profile feedback loop that measures generated kernels and feeds
+   correctness, timing, and hardware evidence back into later decisions.
 
-```
-输入: .mtx 稀疏矩阵
-    │
-    ▼
-┌──────────────────────────────────────────────────────────┐
-│  Phase 1: GPU 特征提取 (featurize_mtx)                    │
-│  → row/col NNZ 分布, block density 百分位, load balance  │
-└────────────────────────┬─────────────────────────────────┘
-                         │ features.json
-                         ▼
-┌──────────────────────────────────────────────────────────┐
-│  Phase 2: 格式设计智能体 (deepseek-v4-pro)                │
-│  → 面向通用层次化 DSL 进行特征驱动的自由格式设计            │
-│  → 输出: Format DSL + 设计依据 + 当前代码 capability 分级  │
-└────────────────────────┬─────────────────────────────────┘
-                         │ format JSON
-                         ▼
-┌──────────────────────────────────────────────────────────┐
-│  Phase 3: 格式构建 → RTS → Computent → OPIR → NVIR       │
-│  → 层次化稀疏格式 → 展平变换 → 计算实体 → 操作符IR → .inc │
-└────────────────────────┬─────────────────────────────────┘
-                         │ kernel.inc
-                         ▼
-┌──────────────────────────────────────────────────────────┐
-│  Phase 4-6: 策略智能体反馈循环 (N iterations)              │
-│  ┌────────────────────────────────────────────────────┐  │
-│  │ Iter 0: heuristic baseline                        │  │
-│  │ Iter 1..N:                                        │  │
-│  │   Agent 输出策略 → Codegen → 编译 → 运行 + 验证     │  │
-│  │   → NCU Profile → 性能分析 → 反馈给 Agent           │  │
-│  └────────────────────────────────────────────────────┘  │
-└────────────────────────┬─────────────────────────────────┘
-                         │
-                         ▼
-              🏆 最优 .inc CUDA Kernel
-```
+The current target is high-performance SpMM on NVIDIA SM80 GPUs, especially
+A100/A800, with the main evaluation path using FP32 inputs/outputs and TF32
+Tensor Core execution for `N=512`.
 
-## 目录结构
+## System Overview
 
-```
-sparsene/
-├── python/
-│   ├── sparsene/              # 核心库
-│   │   ├── format/            # 格式 DSL (Axis, Format, AtomicFormat)
-│   │   ├── formats/           # 已实现格式 (ME_TCF, BIT_TCF, SR_BCRS…)
-│   │   ├── transform/         # RTS 变换系统
-│   │   ├── op_gen/            # 代码生成
-│   │   │   ├── computent/     # 计算实体
-│   │   │   ├── opir/          # 操作符 IR
-│   │   │   ├── nvir/          # NVIR → CUDA .inc
-│   │   │   ├── format_design_agent.py  # 格式设计智能体
-│   │   │   └── strategy_agent.py       # 策略优化智能体
-│   │   └── analysis/          # 特征提取 (Python)
-│   └── test/
-│       ├── end2end_pipeline.py          # ★ 端到端入口
-│       ├── run_strategy_feedback_multidataset.py  # 多数据集策略搜索
-│       ├── test_generate.py             # 代码生成测试
-│       └── check_strategy_model_connectivity.py   # API 连通性测试
-├── examples/                  # CUDA host program + kernel
-│   └── src_fp32/dtc/testbed/
-│       ├── featurize_mtx.cu   # GPU 特征提取器
-│       ├── host_program_generated.cu
-│       ├── main.cu
-│       └── scripts/           # 编译 & 验证脚本
-├── mySkills/                  # 技能定义文件
-├── paper/                     # Sparsene 论文 (SC26)
-├── docs/                      # 设计文档
-├── logs/                      # 运行时日志 (gitignore)
-└── README.md
+```text
+Input: MatrixMarket sparse matrix (.mtx)
+    |
+    v
++----------------------------------------------------------+
+| Phase 1: matrix and hardware feature extraction           |
+| row/column NNZ, block density, locality, load balance     |
++-------------------------+--------------------------------+
+                          |
+                          v
++----------------------------------------------------------+
+| Phase 2: format-design agent                              |
+| matrix-aware hierarchy, axes, atomic format, reorder      |
+| output: auditable Format DSL + capability classification  |
++-------------------------+--------------------------------+
+                          |
+                          v
++----------------------------------------------------------+
+| Phase 3: deterministic compiler lowering                  |
+| Format -> RTS -> Computent -> OPIR -> NVIR -> CUDA .inc   |
++-------------------------+--------------------------------+
+                          |
+                          v
++----------------------------------------------------------+
+| Phase 4: strategy-agent feedback loop                     |
+| heuristic baseline -> strategy -> codegen -> build        |
+| -> correctness -> timing/profile -> next strategy         |
++-------------------------+--------------------------------+
+                          |
+                          v
+                 Best correct generated SpMM kernel
 ```
 
-## 快速开始
+The agents search and interpret design choices, but the compiler, validators,
+host bridges, and benchmark harness are deterministic. A generated kernel is
+ranked only after it compiles and passes numerical validation.
 
-### 模型配置
+## Core Ideas
 
-所有可用的 LLM 模型定义在 `llm_models.yaml` 中。支持增删模型：
+### Matrix-aware format design
 
-```yaml
-# llm_models.yaml
-models:
-  deepseek-v4-pro:
-    provider: openai_compatible
-    model: deepseek-v4-pro
-    api_base_url: https://api.deepseek.com/v1
-    api_key_env: DEEPSEEK_API_KEY        # 优先从环境变量读取
-    api_key: sk-...                       # fallback 硬编码 key
-    defaults:
-      temperature: 0.1
-      max_tokens: 8192
-      timeout_sec: 300
+The format-design agent consumes persistent matrix feature files and an SM80
+hardware profile. It may propose one to six levels of hierarchical sparse format
+DSL using dense/sparse, fixed/variable axes and atomic leaves such as COO, MCO,
+CSR, ELL, DIA, dense, or a fully specified custom leaf.
+
+The agent is not limited to choosing a known format name. Deterministic validation
+preserves valid research designs and classifies implementation support
+separately as `frontend_research`, `codegen_declared`, `standalone_validated`, or
+`integrated_e2e`.
+
+### Agent-guided compiler strategy
+
+The strategy agent works after the format has been lowered into compiler
+artifacts. Its current decisions include `tile_b`, B/COO memory placement,
+async-copy behavior, shared-memory alignment, pipeline enablement, wait depth,
+and stage shifts. The strategy response is normalized by deterministic
+guardrails before CUDA code is generated.
+
+### Hardware feedback loop
+
+MASK keeps correctness and performance evidence in the run directory. Each
+iteration records the requested strategy, normalized strategy, generated source,
+compile result, correctness result, timing, and optional NCU profile. Later agent
+decisions can use this structured feedback instead of relying only on static
+rules.
+
+## Compiler Pipeline
+
+The main lowering path is:
+
+```text
+Format
+  -> derive_rts()
+  -> Computent
+  -> OPIR
+  -> VarlenLoweringPass
+  -> CValFlattenPass
+  -> NVIR
+  -> semantic fusion / software pipeline
+  -> generated CUDA include (.inc)
+  -> host bridge / preprocessing / validation / timing
 ```
 
-测试所有模型连通性：
-```bash
-PYTHONPATH=python python3 python/test/test_run_llm.py
+The paper-level concepts of fine-grained executable tasks and dependency graphs
+map in this implementation to OPIR/NVIR operations, `NvOp` dependency
+structures, pipeline plans, simulator inputs, and generated CUDA kernels.
+
+## Performance Contract
+
+All current format, strategy, and result artifacts use:
+
+```text
+sparsene.kernel_only_post_conversion.v1
 ```
 
-### 环境依赖
+The primary metric is warmed CUDA-event time for the SpMM compute kernel after
+format conversion, metadata construction, padding, and row/column reordering
+have completed.
 
-- CUDA 12.x / sm_80 (A100/A800)
-- NVCC + gcc 13 toolset
-- Python 3.12 + venv (`/mnt/lustre-client/huoda/venv/llm-sog`)
-- DeepSeek API key
-- cuSPARSE / cuBLAS
+Not included in the primary metric: format conversion, reorder and inverse
+mapping, checkpoint I/O, allocation/copy, code generation, compilation,
+correctness verification, and cuSPARSE preprocess.
 
-### 端到端运行
+Included in the primary metric: every GPU launch inside the timed compute path,
+metadata reads, indirect B gathers, restore/scatter, atomics, padding work,
+synchronization, MMA, accumulation, stores, and any required timed reduction.
+
+## Repository Layout
+
+```text
+.
+|-- python/sparsene/
+|   |-- analysis/              # matrix feature extraction
+|   |-- agent/                 # model runtime, JSON calls, audit logging
+|   |-- format/                # Axis, Format, AtomicFormat data model
+|   |-- formats/               # declared sparse format families and catalog
+|   |-- op_gen/                # format agent, strategy agent, IR and codegen
+|   `-- transform/             # Format -> RTS transformations
+|-- python/test/
+|   |-- end2end_pipeline.py    # single-matrix integrated agent/codegen loop
+|   |-- run_format_design_batch.py
+|   |-- run_custom_format_e2e.py
+|   `-- run_builtin_backend_e2e.py
+|-- examples/src_fp32/         # CUDA/CUTLASS host bridges and testbeds
+|-- .agent/skills/             # runtime skills injected into project agents
+|-- .codex/skills/             # Codex development skill
+|-- docs/codex/                # current engineering records and contracts
+|-- sota_results/summary/      # audited SOTA and generated-kernel summaries
+|-- logs/e2e_runs/             # coordinated experiment artifacts
+`-- paper/                     # original paper source used for context
+```
+
+## Environment
+
+Use the project virtual environment before running Python entry points:
 
 ```bash
 cd /home/huoda/sparsene
 source /mnt/lustre-client/huoda/venv/llm-sog/bin/activate
-
-# 最小示例：1 个矩阵，1 轮策略迭代
-PYTHONPATH=python python3 python/test/end2end_pipeline.py \
-  --mtx /mnt/lustre-client/zhangkaige/selected_mtx/consph.mtx \
-  --N 512 \
-  --format-agent-model deepseek-v4-pro \
-  --strategy-agent-model deepseek-v4-pro \
-  --strategy-iterations 1 \
-  --warmup 1 --repeat 2
 ```
 
-### 完整运行（推荐）
+Common requirements:
+
+- CUDA 12.x, NVCC, cuSPARSE, cuBLAS
+- NVIDIA SM80 GPU such as A100 or A800
+- Python 3.12 in `/mnt/lustre-client/huoda/venv/llm-sog`
+- model credentials provided through environment variables or protected model
+  configuration
+
+Do not copy literal API keys into commands, docs, or logs.
+
+## Quick Start
+
+Run one matrix through the integrated feature-format-strategy loop:
 
 ```bash
 PYTHONPATH=python python3 python/test/end2end_pipeline.py \
   --mtx /mnt/lustre-client/zhangkaige/selected_mtx/consph.mtx \
-  --N 512 \
-  --format-agent-model deepseek-v4-pro \
-  --strategy-agent-model deepseek-v4-pro \
-  --strategy-iterations 5 \
-  --warmup 1 --repeat 2
+  --n-cols 512 \
+  --mode agent \
+  --format-model deepseek-v4-pro \
+  --strategy-model deepseek-v4-pro \
+  --iterations 1 \
+  --eval-warmup 3 \
+  --eval-repeat 32
 ```
 
-### 参数说明
-
-| 参数 | 默认值 | 说明 |
-|------|--------|------|
-| `--mtx` | (必需) | .mtx 文件路径或数据集目录下的文件名 |
-| `--N` | 512 | 随机 B 矩阵列数 |
-| `--format-agent-model` | deepseek-v4-pro | 格式设计智能体模型 (llm_models.yaml key) |
-| `--strategy-agent-model` | deepseek-v4-pro | 策略智能体模型 (llm_models.yaml key) |
-| `--model-config` | llm_models.yaml | 模型配置文件路径 |
-| `--strategy-iterations` | 5 | 策略智能体反馈迭代次数 |
-| `--warmup` / `--repeat` | 1 / 2 | Benchmark warmup/repeat 次数 |
-| `--strategy-temperature` | 0.35 | Agent 温度参数 |
-| `--strategy-max-tokens` | 4096 | Agent max_tokens |
-| `--skip-feature-extract` | - | 跳过特征提取（用已有结果） |
-| `--skip-format-design` | - | 跳过格式设计（用已有结果） |
-| `--run-label` | - | 自定义运行标签 |
-
-### 测试 DeepSeek API 连通性
+Run the audited format-design phase over persistent 26-dataset features:
 
 ```bash
-PYTHONPATH=python python3 python/test/check_strategy_model_connectivity.py \
-  --deepseek-api-key 'sk-...'
+PYTHONPATH=python python3 python/test/run_format_design_batch.py \
+  --feature-dir /mnt/lustre-client/huoda/selected_mtx \
+  --run-dir logs/e2e_runs/<run_id> \
+  --model deepseek-v4-pro \
+  --max-tokens 32768 \
+  --resume
 ```
 
-## 日志结构
+Run generated custom-format operators from an existing e2e run directory:
 
-每次运行会在 `logs/<timestamp>_<matrix_name>/` 下生成完整链路日志：
-
-```
-logs/20260524_120000_consph/
-├── args.json                     # 运行参数
-├── matrix_features.json          # Phase 1: GPU 特征提取结果
-├── format_decision.json          # Phase 2: 格式设计智能体决策
-├── format_agent/                 # 格式设计 agent 对话
-│   └── 20260524_*/               #   prompt.txt + response.json + request.json
-├── iter_00_heuristic/            # 启发式基线
-│   ├── strategy.json             #   策略
-│   ├── kernel_heuristic.inc      #   生成的 CUDA kernel
-│   ├── build/                    #   编译产物
-│   ├── run.log                   #   运行日志
-│   └── ncu.csv                   #   NCU profile
-├── iter_01/                      # 策略迭代 1
-│   ├── strategy.json
-│   ├── kernel_iter01.inc
-│   ├── build/
-│   ├── run.log
-│   └── ncu.csv
-├── ... (iter_02 .. iter_N)
-├── strategy_agent/               # 策略 agent 对话
-│   └── .../                      #   prompt.txt + response.json + request.json
-├── strategy_history.json         # 所有迭代历史
-└── summary.json                  # 最终汇总
+```bash
+PYTHONPATH=python python3 python/test/run_custom_format_e2e.py \
+  logs/e2e_runs/20260718_165146_deepseek_v4_pro_format26_v6 \
+  --n 512 \
+  --warmup 3 \
+  --repeat 32 \
+  --jobs 1
 ```
 
-## 核心概念
+GPU benchmark jobs should normally remain serial (`--jobs 1`) so independent
+operator runs do not disturb one another.
 
-### 层次化稀疏格式 DSL
+## Important Entry Points
 
-格式由 `Axis`（轴）、`Format`（层次）、`AtomicFormat`（原子格式）递归组合：
+| Task | Entry point |
+|---|---|
+| Single-matrix integrated pipeline | `python/test/end2end_pipeline.py` |
+| 26-dataset format-design batch | `python/test/run_format_design_batch.py` |
+| Custom-format operator e2e run | `python/test/run_custom_format_e2e.py` |
+| Built-in backend e2e run | `python/test/run_builtin_backend_e2e.py` |
+| Multi-dataset strategy feedback | `python/test/run_strategy_feedback_multidataset.py` |
+| Source-derived format vocabulary | `python/sparsene/formats/design_catalog.py` |
+| Format capability matching | `python/sparsene/op_gen/backend_registry.py` |
+| NVIR-to-CUDA emission | `python/sparsene/op_gen/nvir/codegen.py` |
 
-```
-轴类型: df(稠密固定) / dv(稠密变长) / sf(稀疏固定) / sv(稀疏变长)
-原子格式: coo / mco / csr / ell / dia / dense / custom(需定义存储映射与 restore)
-```
+Check `--help` on the relevant script before composing long runs; older notes
+may contain historical flag names.
 
-示例（ME_TCF 格式）：
-```
-Format("ME-TCF")
-├── df(X_o, ROW, M) + sv(Y_s, COL, K) + df(X_i, ROW, BLK_M)
-└── Format("tc_block")
-    ├── df(Y_so, COL, K/BLK_K) + df(Y_si, COL, BLK_K) + df(X_i, ROW, BLK_M)
-    └── coo_atomic_format(X_i, Y_si)
-```
+## Current Format Families
 
-### 格式设计智能体
+| Family | Leaf encoding | Current status |
+|---|---|---|
+| ME-TCF | COO | integrated e2e for exact supported tile profiles |
+| TCF-MCO / BIT-TCF | MCO mask + compact values | integrated through the custom SM80 backend for supported profiles |
+| BIT-BSR | MCO over active fixed blocks | standalone/custom validated for supported cases |
+| SR-BCRS | dense active blocks | standalone validated with generated backend work in progress |
+| CSR-TCF | CSR | codegen-declared; requires dedicated host/backend validation |
+| ELL-TCF | ELL | codegen-declared; requires dedicated host/backend validation |
+| DIA-TCF | DIA | codegen-declared; requires dedicated host/backend validation |
+| HME-TCF and row-reorder variants | mixed/reordered | research or experimental unless separately validated |
 
-- 模型：deepseek-v4-pro
-- 输入：GPU 特征提取的矩阵特征 + 硬件信息
-- 输出：完整层次、轴类型/顺序、atomic、参数、变换计划、备选格式和精确特征依据
-- DSL 校验不会把新格式静默改写成 ME-TCF；合法但未实现的设计仍作为研究产物保存
-- capability 独立标记为 `frontend_research`、`codegen_declared`、
-  `standalone_validated` 或 `integrated_e2e`
-- 当前 DTC 端到端策略/生成循环仍只接受精确匹配 ME-TCF 且 tile 为
-  `16x8`/`16x16` 的结果；其他合法设计需要先补齐相应后端与 host 路径
+Declaration alone is not executable support. New formats need matching
+preprocessing, metadata ABI, lowering, host dispatch, numerical validation, and
+benchmark provenance.
 
-### 策略智能体
+## Results and Provenance
 
-- 模型：deepseek-v4-pro（可配置）
-- 控制决策：张量放置（tile_b, cp.async, COO 位置…）+ 流水线参数
-- 反馈循环：N 轮迭代，每轮根据性能 + NCU profile 调整策略
+Current project records separate historical paper/SOTA data from freshly
+generated results:
 
-## 已实现格式
+- `sota_results/summary/`: audited A100/A800 CSV and Markdown summaries.
+- `docs/codex/format_design_agent_v6.md`: current format-agent contract.
+- `docs/codex/custom_format_operator_e2e_v6_all26_n512.md`: 26-dataset custom
+  format e2e closure and known performance bottlenecks.
+- `docs/codex/sparsene_a100_best_vs_current_a800_n512.md`: historical
+  A100-versus-current A800 comparison methodology.
+- `docs/codex/development_log.md`: chronological engineering record.
 
-| 格式 | 原子格式 | 文件 |
-|------|---------|------|
-| ME_TCF | COO | `python/sparsene/formats/DTC_SpMM.py` |
-| BIT_TCF | MCO | `python/sparsene/formats/Acc_SpMM.py` |
-| SR_BCRS | Dense | `python/sparsene/formats/SR_BCRS.py` |
-| HME_TCF | 混合 | `python/sparsene/formats/HME_TCF.py` |
-| ROW_REORDER_SR_BCRS | 重排 | `python/sparsene/formats/ROW_REORDER_SR_BCRS.py` |
+Historical logs and paper results are useful context, but new claims should be
+backed by fresh artifacts from the same code revision, dataset, precision, `N`,
+GPU, CUDA toolchain, warmup/repeat counts, and cache policy.
 
-## 设计文档
+## Paper Context
 
-| 文档 | 内容 |
-|------|------|
-| [docs/format_design_agent_design.md](docs/format_design_agent_design.md) | 格式设计智能体完整设计 |
-| [docs/strategy_agent_design.md](docs/strategy_agent_design.md) | 策略智能体设计 |
-| [docs/project_code_explanation.md](docs/project_code_explanation.md) | 项目代码结构说明 |
-| [docs/llm_agent_design.md](docs/llm_agent_design.md) | LLM Agent 通用设计 |
-| [docs/ref_vs_generate.md](docs/ref_vs_generate.md) | Reference vs Generate 对比 |
-| [docs/inc_perf_benchmark_vs_cusparse.md](docs/inc_perf_benchmark_vs_cusparse.md) | vs cuSPARSE 性能对比 |
-
-## 论文
-
-[paper/SC26-Sparsene-main/](paper/SC26-Sparsene-main/) — Sparsene: A Format-Centric Sparse Operator Generation Framework
+The original paper source is kept under `paper/SC26-Sparsene-main/`. MASK uses
+the paper's hierarchical sparse-format and automatic pipeline-construction ideas
+as the compiler foundation, then extends the system with matrix-aware format
+design, agent-guided compilation strategy, and hardware-feedback optimization.
