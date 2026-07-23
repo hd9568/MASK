@@ -8,6 +8,10 @@ import pytest
 from sparsene.formats.custom.loader import load_custom_format
 from sparsene.formats.dsl import validate_format_spec
 from sparsene.op_gen.backend_registry import select_backend
+from sparsene.op_gen.format_portfolio import (
+    executable_atomic_portfolio,
+    executable_tcf_portfolio,
+)
 from sparsene.transform.rts import derive_rts
 
 
@@ -91,3 +95,40 @@ def test_backend_selection_does_not_depend_on_format_name() -> None:
     renamed = dict(spec)
     renamed["format_name"] = "A_completely_new_research_name"
     assert select_backend(renamed) == select_backend(spec)
+
+
+def test_atomic_portfolio_preserves_agent_dsl_and_adds_only_semantic_sibling() -> None:
+    spec, _format_obj, _module = load_custom_format("ASIC_680k")
+    original_atomic = dict(spec["atomic"])
+    candidates = executable_atomic_portfolio(spec)
+    assert [candidate.candidate_id for candidate in candidates] == [
+        "agent",
+        "atomic_dense_sibling",
+    ]
+    assert candidates[0].source == "agent_proposal"
+    assert candidates[0].backend_plan.codegen_format_name == "BIT_TCF"
+    assert candidates[1].source == "deterministic_atomic_sibling"
+    assert candidates[1].atomic_type == "dense"
+    assert candidates[1].backend_plan.codegen_format_name == "SR_BCRS"
+    assert spec["atomic"] == original_atomic
+    assert candidates[0].spec_sha256 != candidates[1].spec_sha256
+
+
+def test_atomic_portfolio_does_not_invent_an_unimplemented_bsr_dense_sibling() -> None:
+    spec, _format_obj, _module = load_custom_format("dc2")
+    candidates = executable_atomic_portfolio(spec)
+    assert len(candidates) == 1
+    assert candidates[0].candidate_id == "agent"
+    assert candidates[0].backend_plan.codegen_format_name == "BIT_BSR"
+
+
+def test_tcf_portfolio_adds_hardware_aligned_dense_tiles_without_mutating_agent_spec() -> None:
+    spec, _format_obj, _module = load_custom_format("ASIC_680k")
+    candidates = executable_tcf_portfolio(spec)
+    dense_shapes = {
+        (candidate.spec["params"]["BLK_M"], candidate.spec["params"]["BLK_K"])
+        for candidate in candidates
+        if candidate.atomic_type == "dense"
+    }
+    assert {(8, 16), (16, 8), (16, 16), (32, 8)}.issubset(dense_shapes)
+    assert spec["params"] == {"BLK_M": 8, "BLK_K": 16}

@@ -11,6 +11,7 @@ from typing import Any
 
 from sparsene.formats.custom.loader import load_custom_format
 from sparsene.op_gen.backend_registry import select_backend
+from sparsene.op_gen.format_portfolio import select_portfolio_candidate
 from sparsene.op_gen.computent.computent import computent_from_rts
 from sparsene.op_gen.nvir.compiler_driver import apply_software_pipeline_and_codegen
 from sparsene.op_gen.nvir.generate import generate_nvir
@@ -135,29 +136,40 @@ def generate_one(
     *,
     tile_n: int = 64,
     max_tiles_per_execution_segment: int = 32,
+    candidate_id: str = "agent",
+    worktree_label: str | None = None,
 ) -> dict[str, Any]:
-    spec, format_obj, _module = load_custom_format(dataset)
+    spec, _format_obj, _module = load_custom_format(dataset)
     if spec["provenance"]["run_id"] != run_dir.name:
         raise ValueError(
             f"{dataset}: exported module belongs to {spec['provenance']['run_id']}, "
             f"not {run_dir.name}"
         )
+    candidate = select_portfolio_candidate(spec, candidate_id)
     plan = select_backend(
-        spec,
+        candidate.spec,
         target="sm80",
         tile_n=tile_n,
         max_tiles_per_execution_segment=max_tiles_per_execution_segment,
     )
     dataset_dir = run_dir / "datasets" / dataset
-    ir_dir = dataset_dir / "operator_generation" / "ir"
-    operator_dir = dataset_dir / "operators"
-    operator_path = operator_dir / f"{dataset}_{run_dir.name}.inc"
-    strategy_dir = dataset_dir / "operator_generation" / "strategy_agent"
+    if candidate_id == "agent" and worktree_label is None:
+        work_dir = dataset_dir / "operator_generation"
+        operator_dir = dataset_dir / "operators"
+        operator_name = f"{dataset}_{run_dir.name}.inc"
+    else:
+        label = worktree_label or candidate_id
+        work_dir = dataset_dir / "operator_generation" / "portfolio" / label
+        operator_dir = work_dir / "operators"
+        operator_name = f"{dataset}_{run_dir.name}_{label}.inc"
+    ir_dir = work_dir / "ir"
+    operator_path = operator_dir / operator_name
+    strategy_dir = work_dir / "strategy_agent"
     ir_dir.mkdir(parents=True, exist_ok=True)
     operator_dir.mkdir(parents=True, exist_ok=True)
 
     lowering = lower_format_operator(
-        format_obj=format_obj,
+        format_obj=candidate.format_obj,
         codegen_format_name=plan.codegen_format_name,
         operator_path=operator_path,
         ir_dir=ir_dir,
@@ -166,8 +178,9 @@ def generate_one(
     manifest = {
         "schema_version": "sparsene.operator_generation.v1",
         "dataset": dataset,
-        "format_name": spec["format_name"],
+        "format_name": candidate.spec["format_name"],
         "format_source": spec["provenance"],
+        "portfolio_candidate": candidate.provenance(),
         "backend_plan": plan.to_dict(),
         "strategy_decision": lowering["strategy_decision"],
         "operator_path": str(operator_path.resolve()),
@@ -179,9 +192,10 @@ def generate_one(
             "lowered_block_barriers": lowering["lowered_block_barriers"],
         },
         "performance_contract": "sparsene.kernel_only_post_conversion.v1",
+        "work_dir": str(work_dir.resolve()),
         "status": "generated",
     }
-    manifest_path = dataset_dir / "operator_generation" / "generation_manifest.json"
+    manifest_path = work_dir / "generation_manifest.json"
     manifest_path.write_text(
         json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
@@ -196,6 +210,15 @@ def main() -> None:
     parser.add_argument("--first", type=int)
     parser.add_argument("--tile-n", type=int, default=64)
     parser.add_argument("--max-tiles-per-segment", type=int, default=32)
+    parser.add_argument(
+        "--candidate-id",
+        default="agent",
+        help="auditable executable portfolio candidate (default: original Agent proposal)",
+    )
+    parser.add_argument(
+        "--worktree-label",
+        help="isolate output below operator_generation/portfolio without changing candidate provenance",
+    )
     args = parser.parse_args()
     run_dir = args.run_dir.resolve()
     run_manifest = json.loads((run_dir / "run_manifest.json").read_text(encoding="utf-8"))
@@ -208,6 +231,8 @@ def main() -> None:
             dataset,
             tile_n=args.tile_n,
             max_tiles_per_execution_segment=args.max_tiles_per_segment,
+            candidate_id=args.candidate_id,
+            worktree_label=args.worktree_label,
         )
         print(f"[generated] {dataset}: {manifest['operator_path']}")
 
