@@ -22,6 +22,14 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 TESTBED = REPO_ROOT / "examples/src_fp32/acc/testbed"
 
 
+def _work_dir(run_dir: Path, manifest: dict[str, Any]) -> Path:
+    """Resolve the manifest-owned work tree, including portfolio siblings."""
+    value = manifest.get("work_dir")
+    if value:
+        return Path(value)
+    return run_dir / "datasets" / manifest["dataset"] / "operator_generation"
+
+
 def _run(command: list[str], log_path: Path) -> subprocess.CompletedProcess[str]:
     result = subprocess.run(
         command,
@@ -43,7 +51,7 @@ def _run(command: list[str], log_path: Path) -> subprocess.CompletedProcess[str]
 def compile_one(run_dir: Path, manifest: dict[str, Any], jobs: int) -> Path:
     dataset = manifest["dataset"]
     plan = manifest["backend_plan"]
-    work_dir = run_dir / "datasets" / dataset / "operator_generation"
+    work_dir = _work_dir(run_dir, manifest)
     build_dir = work_dir / "build"
     reorder_codes = {None: 0, "row_rcm": 1, "first_col_sort": 2, "jaccard_greedy": 3}
     packing_codes = {
@@ -92,10 +100,13 @@ def run_one(
     n: int,
     warmup: int,
     repeat: int,
+    runtime_max_tiles_per_segment: int | None = None,
+    execution_policy: str = "auto",
+    task_group_tiles: int = 64,
 ) -> dict[str, Any]:
     dataset = manifest["dataset"]
     dataset_dir = run_dir / "datasets" / dataset
-    work_dir = dataset_dir / "operator_generation"
+    work_dir = _work_dir(run_dir, manifest)
     features = json.loads((dataset_dir / "matrix_features.json").read_text(encoding="utf-8"))
     matrix_path = Path(features["path"])
     plan = manifest["backend_plan"]
@@ -103,31 +114,46 @@ def run_one(
         f"n{n}_tile{plan['tile_n']}_segment"
         f"{plan.get('max_tiles_per_execution_segment', 32)}"
     )
+    if runtime_max_tiles_per_segment is not None:
+        variant += (
+            f"_runtime{runtime_max_tiles_per_segment}_{execution_policy}"
+            f"_group{task_group_tiles}"
+        )
     result_path = work_dir / "e2e_results" / f"{variant}.json"
     run_log = work_dir / "e2e_results" / f"{variant}.log"
     result_path.parent.mkdir(parents=True, exist_ok=True)
-    result = _run(
-        [
-            str(executable),
-            "--filename",
-            str(matrix_path),
-            "--dataset",
-            dataset,
-            "--result-json",
-            str(result_path),
-            "--n",
-            str(n),
-            "--warmup",
-            str(warmup),
-            "--repeat",
-            str(repeat),
-        ],
-        run_log,
-    )
+    command = [
+        str(executable),
+        "--filename",
+        str(matrix_path),
+        "--dataset",
+        dataset,
+        "--result-json",
+        str(result_path),
+        "--n",
+        str(n),
+        "--warmup",
+        str(warmup),
+        "--repeat",
+        str(repeat),
+        "--execution-policy",
+        execution_policy,
+        "--task-group-tiles",
+        str(task_group_tiles),
+    ]
+    if runtime_max_tiles_per_segment is not None:
+        command.extend(["--max-tiles-per-segment", str(runtime_max_tiles_per_segment)])
+    result = _run(command, run_log)
     payload = json.loads(result_path.read_text(encoding="utf-8"))
     payload["executable"] = str(executable.resolve())
     payload["operator_path"] = manifest["operator_path"]
     payload["backend_plan"] = plan
+    payload["portfolio_candidate"] = manifest.get("portfolio_candidate")
+    payload["runtime_execution"] = {
+        "max_tiles_per_segment": runtime_max_tiles_per_segment,
+        "execution_policy": execution_policy,
+        "task_group_tiles": task_group_tiles,
+    }
     result_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     # Keep the historical single-result paths as pointers-by-copy to the most
     # recent variant while retaining every tuning observation above.
@@ -226,6 +252,17 @@ def main() -> None:
     parser.add_argument("--warmup", type=int, default=10)
     parser.add_argument("--repeat", type=int, default=100)
     parser.add_argument("--jobs", type=int, default=1)
+    parser.add_argument(
+        "--runtime-max-tiles-per-segment",
+        type=int,
+        help="override host execution segmentation; use 0 for automatic policy",
+    )
+    parser.add_argument(
+        "--execution-policy",
+        choices=("auto", "row", "strict_lb", "multi_bind"),
+        default="auto",
+    )
+    parser.add_argument("--task-group-tiles", type=int, default=64)
     parser.add_argument("--skip-generate", action="store_true")
     args = parser.parse_args()
     run_dir = args.run_dir.resolve()
@@ -303,6 +340,9 @@ def main() -> None:
                 n=args.n,
                 warmup=args.warmup,
                 repeat=args.repeat,
+                runtime_max_tiles_per_segment=args.runtime_max_tiles_per_segment,
+                execution_policy=args.execution_policy,
+                task_group_tiles=args.task_group_tiles,
             )
             manifest["status"] = (
                 "validated" if payload["correctness"]["passed"] else "incorrect"

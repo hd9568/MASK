@@ -271,6 +271,11 @@ class FormatDesignAgentTest(unittest.TestCase):
             output_schema=_default_output_schema(),
             constraints=[],
             rules=[],
+            empirical_feedback={
+                "contract_version": "sparsene.format_design.empirical_feedback.v1",
+                "prior_agent_to_dense_generated_ms_ratio": 2.087,
+                "calibration_note": "directional calibration only",
+            },
         )
         prompt = render_format_design_prompt(request)
         self.assertEqual(_default_output_schema()["schema_version"], DESIGN_SCHEMA_VERSION)
@@ -284,6 +289,11 @@ class FormatDesignAgentTest(unittest.TestCase):
         self.assertIn("FEATURE PATH-VALUE MAP", prompt)
         self.assertIn("ROW_REORDER_SR_BCRS", prompt)
         self.assertIn("BENCHMARK OBJECTIVE AND TIMING BOUNDARY", prompt)
+        self.assertIn("EXECUTABLE SM80 COST MODEL FOR TCF ATOMIC COMPARISONS", prompt)
+        self.assertIn("does not skip zero-position MMA work", prompt)
+        self.assertIn("PRIOR EMPIRICAL FEEDBACK", prompt)
+        self.assertIn("prior_agent_to_dense_generated_ms_ratio", prompt)
+        self.assertIn("2.087", prompt)
         self.assertIn("outside the measured time", prompt)
         self.assertIn("do not penalize or reject a format", prompt)
         self.assertIn(EVALUATION_CONTRACT_VERSION, prompt)

@@ -208,6 +208,10 @@ class FormatDesignRequest:
     output_schema: Dict[str, Any]
     constraints: List[str]
     rules: List[str]
+    # Historical kernel measurements are calibration evidence only.  They do
+    # not replace the feature-grounded research design task or constrain the
+    # DSL to an already integrated backend.
+    empirical_feedback: Dict[str, Any] = field(default_factory=dict)
     prompt: str = ""
 
 
@@ -407,6 +411,36 @@ Make that distinction explicit.
 """
 
 
+EXECUTABLE_BACKEND_COST_MODEL = r"""
+## EXECUTABLE SM80 COST MODEL FOR TCF ATOMIC COMPARISONS
+
+This is an implementation fact for the currently executable two-level
+column-condensed SM80 backends.  It does not restrict a novel research DSL,
+but it must calibrate any comparison that cites the existing TCF MCO or
+SR-BCRS dense path:
+
+- MCO and dense siblings enumerate the same active condensed column tiles,
+  gather the same B rows, and execute the same full physical TF32 Tensor Core
+  MMA tile for every active tile.  MCO **does not skip zero-position MMA work
+  or B gathers** in the current backend.
+- MCO saves A-value payload bytes, but every tile also loads masks and offsets,
+  restores a complete physical dense A tile in shared memory, and performs
+  mask rank/popcount work.  Dense directly stages its complete A tile and has
+  no mask restore.
+- A logical BLK_M=8 is physically padded to M=16 before restore/MMA/store;
+  this extra GPU work is timed.  BLK_M=16/32 avoids that particular padding.
+- `storage_estimate_bytes.mask < storage_estimate_bytes.dense` is a storage
+  observation, not a kernel-time prediction.  Do not infer MCO is faster from
+  storage alone, and never claim MCO values are FP16: this evaluation uses
+  FP32 inputs/outputs with TF32 MMA.
+
+For an executable two-level TCF design, compare the same hierarchy with both
+MCO and dense leaves whenever their predicted costs are close.  The offline
+portfolio runner preserves the Agent proposal and records this as a separate,
+deterministic measurement sibling; it never silently changes the selected DSL.
+"""
+
+
 FORMAT_DESIGN_RULES = [
     "Design against the general hierarchical Format DSL; do not preserve ME-TCF unless the matrix evidence independently supports it.",
     "Return one to six non-empty Format levels. level must be an unquoted 1-based JSON integer; each level has two to eight uniquely named axes and both ROW and COL directions.",
@@ -420,6 +454,7 @@ FORMAT_DESIGN_RULES = [
     "Do not optimize for current backend support and do not claim execution readiness; list the implementation work your design would require.",
     "Write the main rationale, semantic explanation, final selection reason, and risks in Chinese so the design record is directly auditable.",
     "Prefer the simplest hierarchy that explains the evidence; novelty without a measurable benefit is a design defect.",
+    "For current executable TCF MCO/dense comparisons, never claim MCO skips Tensor Core zero work or B gathers; distinguish compact A storage from timed restore/MMA cost.",
     "If data quality is invalid or decisive features are missing, lower confidence and explain which additional measurements are needed.",
 ]
 
@@ -684,6 +719,8 @@ template.  Backend implementation will be assessed separately after design.
 
 {FEATURE_SEMANTICS}
 
+{EXECUTABLE_BACKEND_COST_MODEL}
+
 === DESIGN RULES ===
 {rules_text}
 
@@ -708,6 +745,18 @@ its `value` must equal the mapped value.  Do not combine two paths into one.
 === HARDWARE CONTEXT ===
 {json.dumps(request.hardware, indent=2, sort_keys=True, ensure_ascii=False)}
 
+=== PRIOR EMPIRICAL FEEDBACK (CALIBRATION, NOT A FORMAT TEMPLATE) ===
+The following is a compact record of prior kernel-only measurements for this
+same matrix at N=512, FP32 on an SM80-class GPU.  It is evidence about an
+earlier implementation, not a constraint to copy its hierarchy or its format.
+Use it to reject invalid causal claims (especially storage-estimate => runtime)
+and to make a falsifiable design choice.  If a previous proposal was slower
+than the dense sibling, identify a concrete changed mechanism in the new
+hierarchy, metadata, atomic leaf, physical tile, or scheduling assumptions.
+Do not claim a new DSL is faster merely because this feedback exists; describe
+which later measurement would validate the hypothesis.
+{json.dumps(request.empirical_feedback, indent=2, sort_keys=True, ensure_ascii=False)}
+
 === REQUIRED REASONING PROCEDURE ===
 1. Diagnose the matrix: skew/load balance, row/column regularity, locality,
    row-window reuse, candidate tile occupancy, padding, and encoding storage.
@@ -724,7 +773,11 @@ its `value` must equal the mapped value.  Do not combine two paths into one.
 6. List implementation requirements without allowing current backend support
    to bias the design.
 7. Copy six to eight exact feature path/value pairs from the supplied map.
-8. Return one raw JSON object only.  Do not wrap it in markdown.
+8. Use prior empirical feedback as a calibration record when it is present:
+   name the observed bottleneck and one specific design mechanism intended to
+   avoid it.  It is acceptable to retain a known format only when both feature
+   evidence and this measured cost model support it.
+9. Return one raw JSON object only.  Do not wrap it in markdown.
 
 Before returning, perform this exact syntax audit:
 - level values are JSON integers 1..L, not quoted strings;
@@ -1452,6 +1505,7 @@ def run_format_design_agent(
     matrix_name: str,
     matrix_features: Dict[str, Any],
     config: Optional[FormatDesignConfig] = None,
+    empirical_feedback: Optional[Dict[str, Any]] = None,
 ) -> FormatDesignResponse:
     if config is None:
         config = FormatDesignConfig()
@@ -1478,6 +1532,7 @@ def run_format_design_agent(
             "Separate design quality from current backend capability.",
         ],
         rules=FORMAT_DESIGN_RULES,
+        empirical_feedback=deepcopy(empirical_feedback or {}),
     )
     request.prompt = render_format_design_prompt(request)
 

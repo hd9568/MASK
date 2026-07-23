@@ -45,6 +45,7 @@ from sparsene.transform.rts import derive_rts  # noqa: E402
 DEFAULT_FEATURE_DIR = Path("/mnt/lustre-client/huoda/selected_mtx")
 DEFAULT_RUN_ROOT = REPO_ROOT / "logs" / "e2e_runs"
 FEATURE_SUFFIX = ".features.v3.json"
+EMPIRICAL_FEEDBACK_CONTRACT_VERSION = "sparsene.format_design.empirical_feedback.v1"
 
 
 def _write_json(path: Path, payload: Any) -> None:
@@ -321,6 +322,15 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--run-dir", type=Path, default=None)
     parser.add_argument("--model", default="deepseek-v4-pro")
     parser.add_argument("--model-config", default=str(REPO_ROOT / "llm_models.yaml"))
+    parser.add_argument(
+        "--feedback-run-dir",
+        type=Path,
+        default=None,
+        help=(
+            "Prior e2e run containing Agent and sr_bcrs_16x8 summaries. "
+            "Its measurements are injected as per-dataset calibration evidence."
+        ),
+    )
     parser.add_argument("--temperature", type=float, default=None)
     parser.add_argument("--max-tokens", type=int, default=None)
     parser.add_argument("--timeout-sec", type=int, default=None)
@@ -347,6 +357,107 @@ def _select_features(feature_dir: Path, datasets: Iterable[str] | None) -> List[
     return paths
 
 
+def _read_json(path: Path) -> Dict[str, Any]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        raise SystemExit(f"Cannot read empirical feedback {path}: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise SystemExit(f"Empirical feedback must be a JSON object: {path}")
+    return payload
+
+
+def _compact_measurement(result: Dict[str, Any]) -> Dict[str, Any]:
+    """Keep the prompt feedback factual, small, and free of absolute paths."""
+    timing = result.get("timing", {}) if isinstance(result.get("timing"), dict) else {}
+    correctness = (
+        result.get("correctness", {}) if isinstance(result.get("correctness"), dict) else {}
+    )
+    packed = result.get("packed", {}) if isinstance(result.get("packed"), dict) else {}
+    return {
+        "format": result.get("format", {}),
+        "backend": result.get("backend_plan", {}).get("backend"),
+        "timing": {
+            key: timing.get(key)
+            for key in ("contract", "warmup", "repeat", "generated_ms", "cusparse_ms", "speedup_vs_cusparse")
+        },
+        "correctness": {
+            key: correctness.get(key)
+            for key in ("passed", "mismatches", "relative_l2_error")
+        },
+        "execution": {
+            key: packed.get(key)
+            for key in (
+                "segmentation_policy", "execution_policy", "max_tiles_per_execution_segment",
+                "task_group_tiles", "row_tiles_p95", "row_tiles_max",
+            )
+        },
+    }
+
+
+def _load_empirical_feedback(
+    feedback_run_dir: Path | None, datasets: Iterable[str]
+) -> Tuple[Dict[str, Dict[str, Any]], Dict[str, Any]]:
+    """Load prior MCO and dense measurements as explicit design calibration."""
+    if feedback_run_dir is None:
+        return {}, {"enabled": False}
+
+    root = feedback_run_dir.resolve()
+    agent_path = root / "operator_e2e_summary.json"
+    dense_path = root / "builtin_backend_e2e" / "sr_bcrs_16x8" / "operator_e2e_summary.json"
+    agent_results = _read_json(agent_path).get("results", [])
+    dense_results = _read_json(dense_path).get("results", [])
+    if not isinstance(agent_results, list) or not isinstance(dense_results, list):
+        raise SystemExit("Empirical feedback summaries must contain result lists")
+    agent_by_dataset = {row.get("dataset"): row for row in agent_results if isinstance(row, dict)}
+    dense_by_dataset = {row.get("dataset"): row for row in dense_results if isinstance(row, dict)}
+    requested = list(datasets)
+    missing = [name for name in requested if name not in agent_by_dataset or name not in dense_by_dataset]
+    if missing:
+        raise SystemExit(
+            "Empirical feedback is incomplete for: " + ", ".join(missing)
+        )
+
+    feedback: Dict[str, Dict[str, Any]] = {}
+    for dataset in requested:
+        agent = _compact_measurement(agent_by_dataset[dataset])
+        dense = _compact_measurement(dense_by_dataset[dataset])
+        agent_ms = agent["timing"].get("generated_ms")
+        dense_ms = dense["timing"].get("generated_ms")
+        try:
+            ratio = round(float(agent_ms) / float(dense_ms), 6)
+        except (TypeError, ValueError, ZeroDivisionError):
+            ratio = None
+        feedback[dataset] = {
+            "contract_version": EMPIRICAL_FEEDBACK_CONTRACT_VERSION,
+            "source": {
+                "run_id": root.name,
+                "scope": "prior kernel-only N=512 FP32 measurements; directional calibration only",
+                "agent_summary_sha256": _sha256(agent_path),
+                "dense_summary_sha256": _sha256(dense_path),
+            },
+            "prior_agent_proposal": agent,
+            "prior_dense_sibling": dense,
+            "prior_agent_to_dense_generated_ms_ratio": ratio,
+            "calibration_note": (
+                "The two historical rows may have different warmup/repeat and scheduling settings. "
+                "Treat the ratio as evidence of a likely mechanism, not a directly comparable final ranking. "
+                "New performance validation will use warmup=3, repeat=32."
+            ),
+        }
+    provenance = {
+        "enabled": True,
+        "contract_version": EMPIRICAL_FEEDBACK_CONTRACT_VERSION,
+        "source_run_dir": str(root),
+        "agent_summary": str(agent_path),
+        "agent_summary_sha256": _sha256(agent_path),
+        "dense_summary": str(dense_path),
+        "dense_summary_sha256": _sha256(dense_path),
+        "dataset_count": len(feedback),
+    }
+    return feedback, provenance
+
+
 def main() -> int:
     args = _parse_args()
     if args.max_attempts < 1:
@@ -354,6 +465,10 @@ def main() -> int:
     feature_paths = _select_features(args.feature_dir, args.datasets)
     if not feature_paths:
         raise SystemExit(f"No {FEATURE_SUFFIX} files found in {args.feature_dir}")
+    dataset_names = [_dataset_name(path) for path in feature_paths]
+    feedback_by_dataset, feedback_provenance = _load_empirical_feedback(
+        args.feedback_run_dir, dataset_names
+    )
 
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     run_dir = (args.run_dir or args.run_root / f"{stamp}_{args.model}_format_design").resolve()
@@ -398,8 +513,9 @@ def main() -> int:
             "max_attempts": args.max_attempts,
         },
         "feature_dir": str(args.feature_dir.resolve()),
-        "datasets": [_dataset_name(path) for path in feature_paths],
+        "datasets": dataset_names,
         "dataset_count": len(feature_paths),
+        "empirical_feedback": feedback_provenance,
         "environment": {
             "python_executable": sys.executable,
             "python_version": platform.python_version(),
@@ -504,8 +620,11 @@ def main() -> int:
                 "source_feature_file": str(feature_path.resolve()),
                 "source_sha256": _sha256(feature_path),
                 "schema_version": features.get("schema_version"),
+                "empirical_feedback": feedback_provenance,
             },
         )
+        if dataset in feedback_by_dataset:
+            _write_json(dataset_dir / "empirical_feedback.json", feedback_by_dataset[dataset])
         _append_event(run_dir, {"event": "dataset_started", "dataset": dataset, "index": index})
 
         accepted: FormatDesignResponse | None = None
@@ -513,7 +632,12 @@ def main() -> int:
         last_response: FormatDesignResponse | None = None
         for attempt in range(1, args.max_attempts + 1):
             config = FormatDesignConfig(log_dir=str(agent_log_dir), **config_base)
-            response = run_format_design_agent(dataset, features, config)
+            response = run_format_design_agent(
+                dataset,
+                features,
+                config,
+                empirical_feedback=feedback_by_dataset.get(dataset),
+            )
             last_response = response
             attempt_usage = response.token_usage
             total_prompt_tokens += int(attempt_usage.get("prompt_tokens") or 0)

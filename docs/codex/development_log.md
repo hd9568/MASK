@@ -1,5 +1,40 @@
 # Codex Development Log
 
+## 2026-07-22 — Agent hierarchical-format cost model and executable portfolio
+
+- Diagnosed why the v6 Agent's mostly TCF+MCO formats underperform the repaired
+  SR-BCRS route: current MCO lowering restores a full physical dense tile and
+  executes full TF32 MMA/B gathers, so compact storage alone is not a kernel-time
+  advantage; logical M=8 also incurs timed physical M=16 padding.
+- Added an auditable MCO/dense and hardware-aligned dense tile portfolio without
+  modifying saved Agent DSLs. Each sibling has an independent IR/include/build
+  tree plus explicit `agent_proposal` or deterministic-sibling provenance.
+- Repaired the custom runner's missing runtime execution ABI: automatic segment
+  sizing and `auto`/`strict_lb` task mapping can now reach the generated dense
+  backend and are encoded in result identity.
+- ASIC N=512 FP32/TF32 GPU evidence (warmup=3/repeat=32, serial): the generated
+  `dense_16x8_sibling` is correct and improves from 28.754 ms with fixed
+  segmentation to 4.89523 ms with automatic load-balanced scheduling; no claim
+  is made for the remaining 25 datasets.
+- Full diagnosis, contracts, commands, validation, and limitations are in
+  `docs/codex/agent_hierarchical_format_portfolio_20260722.md`.
+
+## 2026-07-22 — MASK README rename and project positioning
+
+- Renamed the root README presentation from `LLM-SOG` to the tentative project
+  name `MASK: Matrix-Aware Agentic SpMM Kernel Generation`.
+- Reframed the project summary around the three intended innovations:
+  matrix-aware format design, agent-guided compiler/codegen strategy, and
+  hardware-feedback-driven optimization.
+- Updated README quick-start examples to current CLI flags and the requested
+  `warmup=3`, `repeat=32` benchmark settings.
+- Replaced deprecated document pointers with current `docs/codex` and
+  `sota_results/summary` provenance references, while keeping the original
+  paper as compiler-foundation context.
+- This was documentation-only; no code, GPU benchmark, paid model call, or
+  generated result artifact was changed. Details are in
+  `docs/codex/mask_readme_rename_20260722.md`.
+
 ## 2026-07-19 — Historical A100 Sparsene best vs current A800 N=512
 
 - Reduced the 234-row historical Sparsene table to one audited best per dataset in
@@ -212,3 +247,27 @@
   agent-loop/codegen/validation references, and v6 design documentation.
 - No paid Agent or GPU call was made; Python compilation、18项 focused tests 和
   本地 strategy prompt contract 检查均通过。
+## 2026-07-22 — v7 empirical-feedback hierarchical format redesign
+
+- Added `sparsene.format_design.empirical_feedback.v1` to the format-agent
+  request contract.  For each dataset it carries compact, auditable prior
+  N=512/FP32 kernel measurements for the previous Agent proposal and the
+  `sr_bcrs_16x8` dense sibling, including timing scope, correctness, physical
+  tile, and execution-policy metadata.
+- The prompt now treats this data as calibration rather than a template: it
+  explicitly forbids deriving runtime from storage estimates, requires a
+  concrete changed mechanism when a prior design lost to dense, and requires a
+  falsifiable later measurement.  The research DSL remains unconstrained by
+  current backend profiles.
+- Extended `run_format_design_batch.py` with `--feedback-run-dir`; it verifies
+  complete source coverage, hashes both source summaries, persists per-dataset
+  `empirical_feedback.json`, and records the source provenance in the run
+  manifest and input provenance.
+- Started the new serialized 26-dataset design run at
+  `logs/e2e_runs/20260722_232100_mask_deepseek_v4_pro_format26_v7_empirical_feedback`.
+  It uses the v6 Agent/MCO and SR-BCRS measurements only as directional
+  feedback; later performance validation remains warmup=3, repeat=32.
+- Validated the new prompt/loader with `py_compile`, 13 focused unit tests, a
+  two-dataset source-feedback contract check, CLI help, and `git diff --check`.
+  The remote run is intentionally single-request serial; its long model calls
+  are tracked through per-dataset audit artifacts.
