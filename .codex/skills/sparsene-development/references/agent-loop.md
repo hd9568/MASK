@@ -106,9 +106,12 @@ The decision is normalized by `StrategyDecision.from_dict()`. Current examples o
 After normalization, the end-to-end driver can apply additional tile-dependent overrides. Log raw response, normalized decision, and actual generated metadata separately when debugging agent effectiveness.
 
 Current strategy decisions cover TILE_B, B/COO placement and async-copy modes,
-alignment, pipeline enablement, synchronization, wait depth, and one canonical
-stage shift. They do not make a general format executable and should not be
-used to mask a format/host/backend mismatch.
+alignment, pipeline enablement, synchronization, wait depth, two inter-stage
+distances for the three-stage pipeline, compiler launch/register limits, and
+runtime segmentation/task mapping. The canonical field list and raw-space
+calculation live in `docs/codex/strategy_agent_search_space.md`. These decisions
+do not make a general format executable and must not mask a format/host/backend
+mismatch.
 
 ## Feedback loop
 
@@ -118,7 +121,9 @@ The integrated loop follows:
 2. decide/build the format;
 3. lower it to reusable IR artifacts;
 4. generate and evaluate a heuristic strategy baseline;
-5. build a feedback context from recent and best correct iterations;
+5. build a feedback context from all-iteration scoreboard, best correct entry,
+   tested/untested values, repeated-timing spread, requested schedule, effective
+   host mapping, and unit-safe NCU metrics;
 6. request and normalize the next strategy;
 7. generate the `.inc`;
 8. compile, optionally apply a narrowly scoped fix agent, and recompile;
@@ -138,7 +143,14 @@ pass explicit roots when reproducible cross-phase provenance is required.
 ## Design rules
 
 - Use a safe heuristic iteration 0 so agent proposals have a real baseline.
-- Feed compact structured history rather than unbounded kernel source.
+- Feed compact structured history rather than unbounded kernel source; retain a
+  complete compact scoreboard even when only recent rounds are expanded.
+- Distinguish requested runtime knobs from `e2e_result.packed` effective policy,
+  segment, task groups, tasks, and grid. `auto` may already mean `strict_lb`.
+- Repeat independent warmup/timing measurements, rank by median, and treat
+  sub-threshold changes as noise instead of causal evidence.
+- Parse NCU metrics by both name and unit: percentage utilization and byte/s
+  bandwidth are different observations even when NCU displays the same name.
 - Make one or a few attributable changes per round unless evidence supports a larger move.
 - Detect duplicate normalized strategy signatures; raw textual diversity does not imply search diversity.
 - Compare a candidate to the best correct generated baseline, not to an

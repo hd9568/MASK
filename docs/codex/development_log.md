@@ -1,5 +1,163 @@
 # Codex Development Log
 
+## 2026-08-15 — five-round strategy Agent campaign analysis
+
+- The resumed remaining-dataset campaign completed 25 dataset slots (ASIC_680k
+  excluded): 16 completed, 2 completed with isolated failures, 5 failed due the
+  Agent/GPU startup path, and 2 unsupported by the current backend.
+- Eighteen datasets had a correct iteration-0 baseline and at least one correct
+  Agent candidate. Relative to the same-campaign baseline, 12 improved and 6
+  selected the baseline. Mean per-dataset kernel-time reduction was 5.27%, median
+  0.10%; six datasets exceeded the 1.5% noise threshold, averaging 15.66%.
+- The primary comparison table is retained at
+  `logs/e2e_runs/20260722_232100_mask_deepseek_v4_pro_format26_v7_empirical_feedback/strategy_agent_vs_iteration0_comparison.csv`;
+  interpretation, failure accounting, and strategy-field explanations are in
+  `docs/codex/strategy_agent_vs_baseline_analysis_20260815.md`.
+
+## 2026-08-15 — remaining datasets: five-round strategy feedback and artifact cleanup
+
+- Changed the feedback driver default from three to five Agent iterations (plus
+  iteration 0 heuristic baseline). The generic wrapper now also requests five;
+  the ASIC wrapper remains an explicit 12-iteration historical campaign.
+- Added `--exclude-datasets` and `--dataset-workers`. The remaining-dataset
+  wrapper excludes `ASIC_680k`, overlaps two dataset pipelines during Agent/code
+  generation and compilation, and uses a process-wide GPU lock for correctness,
+  each timing sample, and NCU collection. Thus measurements remain uncontended
+  while CPU/network waits do not serialize the whole campaign.
+- Added `docs/codex/strategy_feedback_remaining5_scheduler_cleanup_20260815.md`
+  documenting the scheduling invariants, resume/status semantics, compact patch
+  protocol, and evidence-retention policy.
+- A first two-worker launch stopped during concurrent lowering before any
+  summary was produced. The generated source showed the compiler's process-global
+  state is not thread-safe; that diagnostic log is retained as
+  `strategy_tuning_remaining_v2_5iter_driver_initial_concurrency_abort.log`.
+  Generation/compilation is now guarded by a process lock, while Agent waits and
+  GPU sample-level scheduling remain overlapped. The resumed campaign is running
+  in session `77081` with its output redirected to the normal driver log.
+- Removed only reproducible CMake/NVCC build trees from the v7 run directory:
+  45 trees / 685,944,787 bytes. Generated sources, strategy and format artifacts,
+  commands, correctness/performance/NCU evidence, summaries, and figures remain;
+  the first-pass paths were recorded before the later resume-attempt cleanup;
+  `cleanup_manifest.json` now records the latest six paths plus cumulative
+  totals (51 trees / 766,587,700 bytes).
+- Removed the temporary `strategy_tuning_remaining_v2_5iter_lockcheck` dry-run
+  directories and their three run-level summaries after the scheduler check;
+  they contained no experiment evidence.
+- The real campaign was stopped after the first executable datasets returned
+  CUDA error 100 (`no CUDA-capable device is detected`). The attempt status and
+  exact resume command are recorded in
+  `strategy_tuning_remaining_v2_5iter_attempt_status.json`; no Agent iterations
+  were spent after the systemic GPU failure was confirmed.
+
+## 2026-08-15 — ASIC_680k strategy-feedback diagnosis and 12-iteration campaign
+
+- Audited all four retained ASIC_680k iterations. The 96-register candidate was
+  only 0.86% slower than baseline (inconclusive under one-shot timing), while
+  `multi_bind` and `tile_b=32` were 22.79% and 26.25% slower because they greatly
+  increased task/grid work and reduced the reuse/bandwidth advantages of the
+  memory-dominant tile-64 baseline.
+- Fixed an NCU parser collision where percent and byte/s variants of `Memory
+  Throughput` were averaged into an impossible percentage. Historical retained
+  CSV is now reparsed into separate utilization and bandwidth fields.
+- Expanded Strategy Agent feedback with requested-versus-effective execution,
+  actual segments/tasks/task groups, all-iteration scoreboard, backend-aware
+  tested/untested field coverage, targeted experiment guidance, and an explicit
+  1.5% noise policy. Correctness exit code 2 now preserves its JSON evidence.
+- Each compiled strategy is independently evaluated three times at N=512,
+  FP32, warmup=3/repeat=32 and ranked by median. Added isolated `--tuning-name`
+  output and `scripts/run_asic_strategy_feedback_12.sh` for baseline plus 12
+  serial Agent iterations without overwriting the historical four rounds.
+- Added the canonical 21-field catalog and generated/checkable maintenance guide
+  `docs/codex/strategy_agent_search_space.md`. Its raw group products are
+  384 × 180 × 48 × 400 = 1,327,104,000 before normalization/applicability gates.
+- GPU timing/NCU/paid Agent calls were not started because this node currently
+  cannot communicate with the NVIDIA driver. Diagnosis, evidence and recovery
+  command are in `docs/codex/asic_680k_strategy_feedback_analysis_20260815.md`.
+
+### 2026-08-15 follow-up — ASIC_680k 12-iteration result
+
+- The isolated campaign completed 13 total rounds (heuristic baseline plus 12
+  Agent slots). 11 candidates passed compilation and all three full-output
+  correctness measurements; iterations 2 and 11 were Agent response failures
+  caused by `finish_reason=length`/truncated JSON, not kernel failures.
+- Iteration 4 (`task_group_tiles=128`) is the stable winner: median generated
+  time 4.72234 ms versus the same-campaign baseline median 4.90566 ms, a
+  3.74% reduction with only 0.067% three-sample spread and 1.05149x median
+  speedup over cuSPARSE. Iteration 7 (register cap 112 plus group 128) is tied
+  within 0.024%; later group 256, tile 32, wait-depth, stage-shift and
+  multi-bind candidates did not improve it.
+- Runtime feedback identified a severe schedule hazard: runtime segment=64
+  caused effective row binding and 29.49810 ms (5.0x slower), while multi-bind
+  increased task/grid work and reached 5.98467 ms. The best NCU profile remains
+  memory-dominant (DRAM 81.08%, compute 27.99%, registers 114), confirming that
+  the gain is task/atomic scheduling amortization rather than occupancy growth.
+- One normal timing candidate (iteration 9) had an NCU device profiling error
+  with return code 9; its correctness and repeated timing remain valid. The
+  campaign covered 25/61 searchable discrete values for this dense backend.
+- Full evidence and interpretation are appended to
+  `docs/codex/asic_680k_strategy_feedback_analysis_20260815.md`; raw artifacts
+  are under `strategy_tuning_asic_v2_12iter`.
+- Replaced the iterative Agent's full-strategy response contract with a compact
+  `strategy_patch` relative to best-correct. The driver merges and normalizes
+  patches locally, while preserving full final strategies and provenance; the
+  default completion budget is now 16,384. Added regression coverage for the
+  merge behavior and an explicit `completed_with_failures` campaign status.
+- Added the reproducible two-panel trajectory plot
+  `asic_strategy_iteration_performance.{pdf,png}` plus CSV data and plotting
+  script. It shows median/min/max timing, per-round cuSPARSE speedup, and gaps
+  for the two truncated Agent responses.
+
+## 2026-08-12 — v7 Strategy Agent + NCU closed-loop campaign
+
+- Extended the structured strategy contract from legacy ME-TCF placement/pipeline
+  knobs to four groups: tensor movement, software pipeline, compiler resources,
+  and runtime task scheduling. The prompt-visible raw Cartesian space contains
+  1,327,104,000 combinations before deterministic safety/applicability normalization.
+- Added backend-aware normalization, explicit one-warp launch-bounds lowering,
+  optional NVCC register caps, exact run-owned format context, and removed the
+  obsolete source-code API-key default in favor of environment/model config.
+- Added `python/test/run_v7_strategy_feedback.py`: iteration 0 heuristic plus
+  three Agent iterations, isolated generation/build/E2E/NCU artifacts, strict
+  serial GPU execution, correct-only best selection, incremental summaries, and
+  resumability under the existing v7 run directory.
+- Added reusable NCU collection/parser support and persisted configure/build/run/
+  profile commands. Updated runtime strategy/feedback skills to match the v2
+  space and fixed-format semantic-backend contract.
+- Corrected the legacy fake `stage_shifts=[0]/[2]` axis, which the three-stage
+  compiler ignored because its length was invalid. The v2 space now supplies
+  two legal inter-stage distances in `1..3`; `[1,1]` is canonicalized to `[]`.
+  JSON Output and campaign-fingerprint resume validation were also enabled.
+- Validation completed without paid calls: five strategy/NCU tests, focused
+  semantic-fusion/SR-BCRS tests, all-26 dry-run (24 executable, two unsupported),
+  Python compilation, and an ASIC NVCC smoke proving tile=32, stage shifts=[2,3],
+  launch-bounds=4, segment=64 and maxrregcount=96 reach the binary. The current environment could
+  not contact the NVIDIA driver, so GPU timing/NCU/Agent iterations were not
+  started. Full design, commands and evidence are in
+  `docs/codex/v7_strategy_agent_ncu_feedback_20260812.md`.
+
+## 2026-08-11 — v7 format provenance/correctness audit and kernel-mechanism guides
+
+- Added a read-only reproducible audit (`python/test/audit_v7_format_e2e.py`) for
+  the v7 format run. It cross-checks each run-owned format SHA, generated include
+  SHA, backend plan, CMake cache, executable, logs, N=512/warmup=3/repeat=32
+  settings, and full-output TF32 correctness gate without re-running GPU work.
+- Audit result for `20260722_232100_mask_deepseek_v4_pro_format26_v7_empirical_feedback`:
+  24/24 executable formats have an unbroken compile-to-run provenance chain and
+  pass numerical validation over 4,593,541,632 output elements; two valid DSL
+  formats (YeastH and eu-2005) remain explicitly backend-unsupported and are not
+  counted as executed or correct.
+- Added operator-engineer-oriented explanations of the optimized fixed SR-BCRS
+  path and the redesigned-format path in
+  `docs/codex/sparsene2_kernel_optimization_20260811.md` and
+  `docs/codex/format_agent_redesign_kernel_performance_20260811.md`. The second
+  document explicitly records the TF32/deterministic-value validation boundary
+  and the follow-up work required for unsupported/MCO formats.
+- Expanded both guides with cross-layer maintenance contracts, concrete backend
+  work packages, NCU hypotheses, same-machine ablation matrices, paper-ready
+  claim/evidence boundaries, reproducibility fields, and suggested figures/RQs.
+  Historical A100/A800 comparisons remain background evidence rather than a
+  substitute for a controlled paper experiment.
+
 ## 2026-07-22 — Agent hierarchical-format cost model and executable portfolio
 
 - Diagnosed why the v6 Agent's mostly TCF+MCO formats underperform the repaired
@@ -271,3 +429,28 @@
   two-dataset source-feedback contract check, CLI help, and `git diff --check`.
   The remote run is intentionally single-request serial; its long model calls
   are tracked through per-dataset audit artifacts.
+## 2026-08-11 — v7 格式算子全量验证与加速比图
+
+- 修复 custom-format 生成入口读取全局 `formats/custom` 旧导出模块的问题；现在从
+  指定 run 的 `formats/<dataset>.format.json` 直接构建 DSL，并在 generation
+  manifest 中保存 artifact SHA256，避免跨 run 静默替换格式。
+- 添加严格单 GPU 串行的 `run_v7_format_e2e_batch.py`：24 个 v7 格式完成
+  生成、sm80 编译、完整正确性和 N=512 FP32 warmup=3/repeat=32 计时；YeastH 与
+  eu-2005 被诚实记录为当前无等价语义后端的 `unsupported`。
+- 输出可复现论文风格 26 数据集加速比图和伴随来源 CSV，记录在
+  `docs/codex/v7_speedup_figure_20260811.md`。
+
+## 2026-08-15 — Sparsene-2Agent 四系统论文图表
+
+- 补测原批量任务中因 CUDA/API 不可用而失败的 DD、Ga41As41H72、OVCAR-8H、
+  Si41Ge41H72 和 Yeast iteration 0；五者均完成三次 N=512 FP32
+  warmup=3/repeat=32 测量并通过正确性。
+- 修复策略反馈 `--resume` 将 `failed` 当作终态的问题：只缓存 validated/incorrect，
+  失败评估优先复用已保存的 structured strategy 后重试。
+- 新增 `build_sparsene_2agent_comparison.py`，严格从 iteration 0--5 的正确候选选择
+  最低 generated time，生成 26 数据集四组柱状图、来源 CSV、审计 JSON 和逐行最佳
+  加粗的 LaTeX table。
+- Sparsene-2Agent 几何平均为 1.8472x，23/26 快于 cuSPARSE、16/26 快于原
+  Sparsene、11/26 快于 Sparsene 2.0，9/26 为四者最佳；总体仍低于 Sparsene 2.0
+  的 1.9791x，详细证据与论文表述边界见
+  `docs/codex/sparsene_2agent_26dataset_comparison_20260815.md`。

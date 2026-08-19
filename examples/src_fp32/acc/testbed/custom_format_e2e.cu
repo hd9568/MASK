@@ -78,7 +78,7 @@ static_assert(kBlockK >= 8 && kBlockK % 8 == 0);
 static_assert(kTileN >= 8 && kTileN % 8 == 0);
 static_assert(kMaxTilesPerExecutionSegment > 0);
 static_assert(kRowReorder >= 0 && kRowReorder <= 3);
-static_assert(kPackingMode >= 0 && kPackingMode <= 2);
+static_assert(kPackingMode >= 0 && kPackingMode <= 4);
 
 int div_up(int a, int b) { return (a + b - 1) / b; }
 int align_up(int a, int b) { return div_up(a, b) * b; }
@@ -343,6 +343,8 @@ const char* row_reorder_name() {
 const char* packing_mode_name() {
     if constexpr (kPackingMode == 1) return "active_fixed_blocks";
     if constexpr (kPackingMode == 2) return "column_condensed_dense";
+    if constexpr (kPackingMode == 3) return "active_fixed_blocks_dense";
+    if constexpr (kPackingMode == 4) return "sparse_row_column_condensed_dense";
     return "column_condensed";
 }
 
@@ -393,10 +395,16 @@ PackedMco convert_to_mco(
         packed.row_order = first_column_order(m, k, row_ptr, col_idx);
     } else if constexpr (kRowReorder == 3) {
         packed.row_order = jaccard_greedy_order(m, k, row_ptr, col_idx);
+    } else if constexpr (kPackingMode == 4) {
+        packed.row_order.reserve(m);
+        for (int row = 0; row < m; ++row) {
+            if (row_ptr[row] != row_ptr[row + 1]) packed.row_order.push_back(row);
+        }
     } else {
         packed.row_order = identity_order(m);
     }
-    packed.row_windows = div_up(m, kLogicalM);
+    const int physical_rows = static_cast<int>(packed.row_order.size());
+    packed.row_windows = div_up(physical_rows, kLogicalM);
     packed.row_offsets.reserve(packed.row_windows + 1);
     packed.row_offsets.push_back(0);
     packed.value_offsets.push_back(0);
@@ -408,7 +416,8 @@ PackedMco convert_to_mco(
         if constexpr (kPackingMode == 1) {
             return cute::composition(cute::Swizzle<1, 3, 3>{}, base)(
                 cute::make_coord(row, col));
-        } else if constexpr (kPackingMode == 2) {
+        } else if constexpr (
+            kPackingMode == 2 || kPackingMode == 3 || kPackingMode == 4) {
             // SR-BCRS loads a full dense A tile directly with float4 cp.async;
             // its generated S2R path expects the canonical 16x8 dense swizzle.
             return cute::composition(cute::Swizzle<2, 2, 3>{}, base)(
@@ -427,7 +436,8 @@ PackedMco convert_to_mco(
         }
         packed.sparse_columns.insert(
             packed.sparse_columns.end(), tile_columns.begin(), tile_columns.end());
-        if constexpr (kPackingMode == 2) {
+        if constexpr (
+            kPackingMode == 2 || kPackingMode == 3 || kPackingMode == 4) {
             const size_t value_base = packed.values.size();
             packed.values.resize(value_base + kPhysicalM * kBlockK, 0.0f);
             for (const auto& [physical, value] : physical_values) {
@@ -449,8 +459,9 @@ PackedMco convert_to_mco(
 
     for (int window = 0; window < packed.row_windows; ++window) {
         const int new_row_begin = window * kLogicalM;
-        const int new_row_end = std::min(new_row_begin + kLogicalM, m);
-        if constexpr (kPackingMode == 0 || kPackingMode == 2) {
+        const int new_row_end = std::min(new_row_begin + kLogicalM, physical_rows);
+        if constexpr (
+            kPackingMode == 0 || kPackingMode == 2 || kPackingMode == 4) {
             std::map<int, std::map<int, float>> columns;
             for (int new_row = new_row_begin; new_row < new_row_end; ++new_row) {
                 const int original_row = packed.row_order[new_row];
@@ -505,7 +516,16 @@ PackedMco convert_to_mco(
                 }
             }
             for (const auto& [block_col, physical_values] : blocks) {
-                std::vector<int> tile_columns{block_col};
+                std::vector<int> tile_columns;
+                if constexpr (kPackingMode == 3) {
+                    tile_columns.reserve(kBlockK);
+                    for (int local_col = 0; local_col < kBlockK; ++local_col) {
+                        tile_columns.push_back(
+                            std::min(block_col * kBlockK + local_col, k - 1));
+                    }
+                } else {
+                    tile_columns.push_back(block_col);
+                }
                 append_tile(tile_columns, physical_values);
             }
         }
@@ -518,7 +538,9 @@ PackedMco convert_to_mco(
         static_cast<int>(packed.sparse_columns.size()) !=
             packed.tiles * (kPackingMode == 1 ? 1 : kBlockK) ||
         static_cast<int>(packed.masks.size()) !=
-            (kPackingMode == 2 ? 0 : packed.tiles * masks_per_tile)) {
+            ((kPackingMode == 2 || kPackingMode == 3 || kPackingMode == 4)
+                 ? 0
+                 : packed.tiles * masks_per_tile)) {
         throw std::runtime_error("internal MCO packing invariant failed");
     }
     std::vector<int> row_tile_lengths;
@@ -590,7 +612,8 @@ PackedMco convert_to_mco(
         packed.execution_policy = packed.distribution_heavy_tail ? "strict_lb" : "row";
     }
     packed.task_group_tiles = requested_task_group_tiles;
-    if constexpr (kPackingMode == 2) {
+    if constexpr (
+        kPackingMode == 2 || kPackingMode == 3 || kPackingMode == 4) {
         if (packed.execution_policy == "row") {
             packed.execution_row_offsets = packed.row_offsets;
             packed.logical_segment_offsets.resize(packed.row_windows + 1);
@@ -811,7 +834,8 @@ float time_generated_kernel(
     const dim3 block(SPARSENE_GENERATED_THREADS_PER_BLOCK);
     auto launch = [&]() {
         float* generated_output = segmented_execution ? d_partial.ptr : d_c.ptr;
-#if SPARSENE_PACKING_MODE == 2
+#if SPARSENE_PACKING_MODE == 2 || SPARSENE_PACKING_MODE == 3 || \
+    SPARSENE_PACKING_MODE == 4
         if (task_mapped_execution) {
 #ifndef SPARSENE_GENERATED_SUPPORTS_TASK_MAPPING
             throw std::runtime_error("task-mapped launch requires generated support");
@@ -961,7 +985,7 @@ std::vector<float> unpack_output(
     const PackedMco& packed,
     const std::vector<float>& physical_c) {
     std::vector<float> output(static_cast<size_t>(m) * n, 0.0f);
-    for (int new_row = 0; new_row < m; ++new_row) {
+    for (int new_row = 0; new_row < static_cast<int>(packed.row_order.size()); ++new_row) {
         const int window = new_row / kLogicalM;
         const int local = new_row % kLogicalM;
         const int physical_row = window * kPhysicalM + local;

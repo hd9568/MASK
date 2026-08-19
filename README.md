@@ -254,6 +254,10 @@ generated results:
   format e2e closure and known performance bottlenecks.
 - `docs/codex/sparsene_a100_best_vs_current_a800_n512.md`: historical
   A100-versus-current A800 comparison methodology.
+- `docs/codex/strategy_agent_search_space.md`: canonical Strategy Agent field
+  meanings, legal values, applicability rules, and raw search-space size.
+- `docs/codex/asic_680k_strategy_feedback_analysis_20260815.md`: ASIC_680k
+  feedback-loop diagnosis, repairs, and the isolated 12-iteration experiment.
 - `docs/codex/development_log.md`: chronological engineering record.
 
 Historical logs and paper results are useful context, but new claims should be

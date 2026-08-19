@@ -20,6 +20,12 @@ the timed kernel remain included.
 
 Use this skill whenever a task touches sparse format semantics, code generation, or runtime integration inside Sparsene.
 
+For the v7 strategy campaign, the format is a run-owned artifact below
+`logs/e2e_runs/<run_id>/formats`. Load it by artifact path and SHA256, select a
+semantic backend from hierarchy/axis/atomic semantics, and write every strategy
+iteration below the same dataset tree. Do not substitute the legacy ME-TCF
+format or a global exported custom module.
+
 ## Core Pipeline
 
 The canonical pipeline is:
@@ -57,6 +63,8 @@ The canonical pipeline is:
 - NVIR lowering: `python/sparsene/op_gen/nvir/generate.py`
 - Software pipeline/codegen: `python/sparsene/op_gen/nvir/compiler_driver.py`, `codegen.py`, `templates.py`
 - Runtime host path: `examples/src_fp32/dtc/testbed/host_program_generated.cu`, `main.cu`
+- v7 semantic host path: `examples/src_fp32/acc/testbed/custom_format_e2e.cu`
+- v7 strategy loop: `python/test/run_v7_strategy_feedback.py`
 - Reference hand-tuned kernel: `examples/src_fp32/dtc/testbed/kernel.inc` (2134 lines, used by `host_program.cu`)
 - Benchmark script: `scripts/benchmark_all_me_tcf.py` (heuristic mode, all datasets)
 - Batch testing: `scripts/run_end2end_all_datasets.sh` (agent mode, all datasets)
@@ -112,7 +120,8 @@ rm -rf logs/.kernel_binary_cache
 | `FAILED_NUMERICAL` | Kernel ran and produced valid timing, but element-wise comparison differs from cuSPARSE.  Timing is still usable for performance analysis. |
 | `NO SUMMARY` | Pipeline did not produce a `summary.json` (incomplete run) |
 
-**Known FAILED_NUMERICAL datasets** (pre-existing codegen bug, not caused by BLK_K/BLK_M changes):
+**Historical legacy-DTC FAILED_NUMERICAL datasets** (do not apply this list to
+the current v7 semantic backend without fresh evidence):
 
 | Dataset | avg NNZ/row | Root Cause |
 |---------|------------|------------|
@@ -156,7 +165,7 @@ The bug is in the COO atomic format sparse-to-dense restore logic for near-empty
   only when the proposal exactly matches the integrated ME-TCF profile and uses
   `16x8` or `16x16`; other valid proposals remain design artifacts until their
   backend/host route is implemented.
-- **Known codegen limitation**: extremely sparse matrices (avg NNZ/row < 4) may produce
+- **Historical legacy-DTC codegen limitation**: extremely sparse matrices (avg NNZ/row < 4) may produce
   numerical errors (status `FAILED_NUMERICAL`).  These are matrices like Yeast, YeastH,
   OVCAR-8H, webbase-1M, mc2depi.  The generated kernel runs and produces valid timing
   (summarized in the stats), but individual element comparisons against cuSPARSE show

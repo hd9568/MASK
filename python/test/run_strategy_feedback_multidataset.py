@@ -526,11 +526,11 @@ def _make_mutation(decision: StrategyDecision, mutation_name: str) -> StrategyDe
     elif mutation_name == "max_wait_prior_3":
         pipeline.max_wait_prior = 3
     elif mutation_name == "stage_shift_double":
-        pipeline.stage_shifts = [2]
-    elif mutation_name == "stage_shift_0":
-        pipeline.stage_shifts = [0]
-    elif mutation_name == "stage_shift_1":
-        pipeline.stage_shifts = [1]
+        pipeline.stage_shifts = [2, 2]
+    elif mutation_name == "stage_shift_front":
+        pipeline.stage_shifts = [2, 1]
+    elif mutation_name == "stage_shift_back":
+        pipeline.stage_shifts = [1, 2]
     elif mutation_name == "no_sync_smem":
         pipeline.sync_threads_on_smem_input = False
     elif mutation_name == "no_align_16":
@@ -549,6 +549,10 @@ def _make_mutation(decision: StrategyDecision, mutation_name: str) -> StrategyDe
         rationale=rationale,
         tensor_placement=tensor,
         pipeline=pipeline,
+        compiler=decision.compiler,
+        runtime_schedule=decision.runtime_schedule,
+        token_usage=decision.token_usage,
+        agent_metadata=decision.agent_metadata,
     )
 
 
@@ -573,8 +577,8 @@ def _maybe_diversify_decision(
         "max_wait_prior_2",
         "max_wait_prior_3",
         "stage_shift_double",
-        "stage_shift_0",
-        "stage_shift_1",
+        "stage_shift_front",
+        "stage_shift_back",
         "no_sync_smem",
         "no_align_16",
         "tile_b_16",

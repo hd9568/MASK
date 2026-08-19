@@ -30,7 +30,12 @@ def _work_dir(run_dir: Path, manifest: dict[str, Any]) -> Path:
     return run_dir / "datasets" / manifest["dataset"] / "operator_generation"
 
 
-def _run(command: list[str], log_path: Path) -> subprocess.CompletedProcess[str]:
+def _run(
+    command: list[str],
+    log_path: Path,
+    *,
+    allowed_returncodes: tuple[int, ...] = (0,),
+) -> subprocess.CompletedProcess[str]:
     result = subprocess.run(
         command,
         cwd=REPO_ROOT,
@@ -41,7 +46,7 @@ def _run(command: list[str], log_path: Path) -> subprocess.CompletedProcess[str]
     )
     log_path.parent.mkdir(parents=True, exist_ok=True)
     log_path.write_text(result.stdout, encoding="utf-8")
-    if result.returncode != 0:
+    if result.returncode not in allowed_returncodes:
         raise RuntimeError(
             f"command failed ({result.returncode}); see {log_path}: {' '.join(command)}"
         )
@@ -58,6 +63,8 @@ def compile_one(run_dir: Path, manifest: dict[str, Any], jobs: int) -> Path:
         "column_condensed": 0,
         "active_fixed_blocks": 1,
         "column_condensed_dense": 2,
+        "active_fixed_blocks_dense": 3,
+        "sparse_row_column_condensed_dense": 4,
     }
     try:
         reorder_code = reorder_codes[plan["row_reorder"]]
@@ -81,11 +88,21 @@ def compile_one(run_dir: Path, manifest: dict[str, Any], jobs: int) -> Path:
         "-DSPARSENE_MAX_TILES_PER_SEGMENT="
         f"{plan.get('max_tiles_per_execution_segment', 32)}",
     ]
-    _run(configure, work_dir / "cmake_configure.log")
-    _run(
-        ["cmake", "--build", str(build_dir), "--target", "custom-format-e2e", f"-j{jobs}"],
-        work_dir / "compile.log",
+    compiler_strategy = manifest.get("strategy_decision", {}).get("compiler", {})
+    max_registers = compiler_strategy.get("max_registers_per_thread")
+    if max_registers is not None:
+        configure.append(f"-DSPARSENE_MAX_REGISTERS_PER_THREAD={int(max_registers)}")
+    (work_dir / "cmake_configure_command.json").write_text(
+        json.dumps(configure, indent=2) + "\n", encoding="utf-8"
     )
+    _run(configure, work_dir / "cmake_configure.log")
+    build_command = [
+        "cmake", "--build", str(build_dir), "--target", "custom-format-e2e", f"-j{jobs}"
+    ]
+    (work_dir / "compile_command.json").write_text(
+        json.dumps(build_command, indent=2) + "\n", encoding="utf-8"
+    )
+    _run(build_command, work_dir / "compile.log")
     executable = build_dir / "custom-format-e2e"
     if not executable.is_file():
         raise RuntimeError(f"build succeeded but executable is missing: {executable}")
@@ -103,6 +120,7 @@ def run_one(
     runtime_max_tiles_per_segment: int | None = None,
     execution_policy: str = "auto",
     task_group_tiles: int = 64,
+    result_label: str | None = None,
 ) -> dict[str, Any]:
     dataset = manifest["dataset"]
     dataset_dir = run_dir / "datasets" / dataset
@@ -119,6 +137,12 @@ def run_one(
             f"_runtime{runtime_max_tiles_per_segment}_{execution_policy}"
             f"_group{task_group_tiles}"
         )
+    if result_label:
+        safe_label = "".join(
+            char if char.isalnum() or char in {"-", "_"} else "_"
+            for char in result_label
+        )
+        variant += f"_{safe_label}"
     result_path = work_dir / "e2e_results" / f"{variant}.json"
     run_log = work_dir / "e2e_results" / f"{variant}.log"
     result_path.parent.mkdir(parents=True, exist_ok=True)
@@ -143,7 +167,18 @@ def run_one(
     ]
     if runtime_max_tiles_per_segment is not None:
         command.extend(["--max-tiles-per-segment", str(runtime_max_tiles_per_segment)])
-    result = _run(command, run_log)
+    (work_dir / "e2e_command.json").write_text(
+        json.dumps(command, indent=2) + "\n", encoding="utf-8"
+    )
+    # The testbed deliberately returns 2 after it has written a complete JSON
+    # record for a numerical mismatch.  Preserve that record so the feedback
+    # controller can classify the candidate as incorrect instead of losing the
+    # evidence behind a generic subprocess failure.
+    result = _run(command, run_log, allowed_returncodes=(0, 2))
+    if not result_path.is_file():
+        raise RuntimeError(
+            f"testbed returned {result.returncode} without result JSON; see {run_log}"
+        )
     payload = json.loads(result_path.read_text(encoding="utf-8"))
     payload["executable"] = str(executable.resolve())
     payload["operator_path"] = manifest["operator_path"]
@@ -154,6 +189,8 @@ def run_one(
         "execution_policy": execution_policy,
         "task_group_tiles": task_group_tiles,
     }
+    payload["measurement_id"] = result_label
+    payload["result_path"] = str(result_path.resolve())
     result_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     # Keep the historical single-result paths as pointers-by-copy to the most
     # recent variant while retaining every tuning observation above.

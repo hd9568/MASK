@@ -9,8 +9,12 @@ import json
 from pathlib import Path
 from typing import Any
 
-from sparsene.formats.custom.loader import load_custom_format
-from sparsene.op_gen.backend_registry import select_backend
+from sparsene.formats.custom.loader import load_run_format
+from sparsene.formats.dsl import build_format_from_spec, validate_format_spec
+from sparsene.op_gen.backend_registry import (
+    materialize_backend_format_spec,
+    select_backend,
+)
 from sparsene.op_gen.format_portfolio import select_portfolio_candidate
 from sparsene.op_gen.computent.computent import computent_from_rts
 from sparsene.op_gen.nvir.compiler_driver import apply_software_pipeline_and_codegen
@@ -18,7 +22,7 @@ from sparsene.op_gen.nvir.generate import generate_nvir
 from sparsene.op_gen.opir.cValFlattenPass import CValFlattenPass
 from sparsene.op_gen.opir.generate import generate_from_computent
 from sparsene.op_gen.opir.varlenLoweringPass import VarlenLoweringPass
-from sparsene.op_gen.strategy_agent import StrategyConfig
+from sparsene.op_gen.strategy_agent import StrategyConfig, StrategyDecision
 from sparsene.transform.rts import derive_rts
 
 
@@ -88,6 +92,7 @@ def lower_format_operator(
     operator_path: Path,
     ir_dir: Path,
     strategy_dir: Path,
+    strategy_decision: StrategyDecision | None = None,
 ) -> dict[str, Any]:
     """Lower any executable Format object through the shared generated path.
 
@@ -115,9 +120,14 @@ def lower_format_operator(
     program = generate_nvir(
         opir=flattened,
         format_name=codegen_format_name,
-        strategy_config=StrategyConfig(
-            provider="heuristic",
-            log_dir=str(strategy_dir),
+        strategy_config=(
+            StrategyConfig(provider="heuristic", log_dir=str(strategy_dir))
+            if strategy_decision is None
+            else None
+        ),
+        strategy_decision_override=strategy_decision,
+        strategy_log_dir_override=(
+            str(strategy_dir) if strategy_decision is not None else None
         ),
     )
     _write_text(ir_dir / "06_nvir_before_pipeline.txt", program)
@@ -127,6 +137,10 @@ def lower_format_operator(
         "operator_sha256": hashlib.sha256(operator_path.read_bytes()).hexdigest(),
         "lowered_block_barriers": lowered_barriers,
         "strategy_decision": _jsonable(program.attrs.get("strategy_decision")),
+        "gmem_inouts": {
+            name: {"dtype": str(value.dtype), "shape": str(value.shape)}
+            for name, value in program.gmem_inouts.items()
+        },
     }
 
 
@@ -138,13 +152,12 @@ def generate_one(
     max_tiles_per_execution_segment: int = 32,
     candidate_id: str = "agent",
     worktree_label: str | None = None,
+    strategy_decision: StrategyDecision | None = None,
+    work_dir_override: Path | None = None,
 ) -> dict[str, Any]:
-    spec, _format_obj, _module = load_custom_format(dataset)
-    if spec["provenance"]["run_id"] != run_dir.name:
-        raise ValueError(
-            f"{dataset}: exported module belongs to {spec['provenance']['run_id']}, "
-            f"not {run_dir.name}"
-        )
+    spec, _format_obj, format_artifact_path, format_artifact_sha256 = load_run_format(
+        run_dir, dataset
+    )
     candidate = select_portfolio_candidate(spec, candidate_id)
     plan = select_backend(
         candidate.spec,
@@ -152,8 +165,21 @@ def generate_one(
         tile_n=tile_n,
         max_tiles_per_execution_segment=max_tiles_per_execution_segment,
     )
+    physical_spec = materialize_backend_format_spec(candidate.spec, plan)
+    physical_validation = validate_format_spec(physical_spec)
+    if physical_validation["status"] != "valid":
+        raise RuntimeError(
+            "backend physicalization produced invalid Format DSL: "
+            + "; ".join(physical_validation["errors"])
+        )
+    physical_format_obj = build_format_from_spec(physical_spec)
     dataset_dir = run_dir / "datasets" / dataset
-    if candidate_id == "agent" and worktree_label is None:
+    if work_dir_override is not None:
+        work_dir = work_dir_override.resolve()
+        operator_dir = work_dir / "operators"
+        label = worktree_label or work_dir.name
+        operator_name = f"{dataset}_{run_dir.name}_{label}.inc"
+    elif candidate_id == "agent" and worktree_label is None:
         work_dir = dataset_dir / "operator_generation"
         operator_dir = dataset_dir / "operators"
         operator_name = f"{dataset}_{run_dir.name}.inc"
@@ -169,20 +195,42 @@ def generate_one(
     operator_dir.mkdir(parents=True, exist_ok=True)
 
     lowering = lower_format_operator(
-        format_obj=candidate.format_obj,
+        format_obj=physical_format_obj,
         codegen_format_name=plan.codegen_format_name,
         operator_path=operator_path,
         ir_dir=ir_dir,
         strategy_dir=strategy_dir,
+        strategy_decision=strategy_decision,
     )
     manifest = {
         "schema_version": "sparsene.operator_generation.v1",
         "dataset": dataset,
         "format_name": candidate.spec["format_name"],
-        "format_source": spec["provenance"],
+        "format_source": {
+            "run_id": run_dir.name,
+            "artifact_path": str(format_artifact_path),
+            "artifact_sha256": format_artifact_sha256,
+            "schema_version": spec.get("schema_version"),
+            "request_id": spec.get("request_id"),
+        },
         "portfolio_candidate": candidate.provenance(),
         "backend_plan": plan.to_dict(),
+        "backend_physicalization": {
+            "applied": physical_spec != candidate.spec,
+            "packing_mode": plan.packing_mode,
+            "physical_format_name": physical_spec["format_name"],
+            "physical_spec_sha256": hashlib.sha256(
+                json.dumps(
+                    physical_spec, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+                ).encode("utf-8")
+            ).hexdigest(),
+            "physical_spec": physical_spec if physical_spec != candidate.spec else None,
+        },
         "strategy_decision": lowering["strategy_decision"],
+        "gmem_inouts": lowering["gmem_inouts"],
+        "strategy_source": (
+            "explicit_override" if strategy_decision is not None else "heuristic"
+        ),
         "operator_path": str(operator_path.resolve()),
         "operator_sha256": lowering["operator_sha256"],
         "launch_contract": {

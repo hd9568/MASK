@@ -2832,6 +2832,11 @@ if(DEFINED SPARSENE_GENERATED_OPERATOR)
         -I${SRCDIR}
         -I${CMAKE_CURRENT_SOURCE_DIR}
     )
+    if(DEFINED SPARSENE_MAX_REGISTERS_PER_THREAD AND NOT "${SPARSENE_MAX_REGISTERS_PER_THREAD}" STREQUAL "")
+        target_compile_options(custom-format-e2e PRIVATE
+            "$<$<COMPILE_LANGUAGE:CUDA>:--maxrregcount=${SPARSENE_MAX_REGISTERS_PER_THREAD}>"
+        )
+    endif()
     target_compile_definitions(custom-format-e2e PRIVATE
         f32
         SPARSENE_GENERATED_OPERATOR="${SPARSENE_GENERATED_OPERATOR}"

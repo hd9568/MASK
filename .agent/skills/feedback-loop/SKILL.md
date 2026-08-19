@@ -19,11 +19,11 @@ records. All work actually executed inside the timed kernel remains included.
 ## Canonical Loop
 
 1. Extract matrix features.
-2. Choose or validate sparse format parameters.
+2. Load and validate the fixed run-owned sparse format and backend plan.
 3. Generate kernel code with a candidate strategy.
 4. Compile the generated kernel.
-5. Run correctness and timing evaluation.
-6. Profile with NCU when available.
+5. Run independent correctness/timing measurements and rank by their median.
+6. Profile one generated-kernel launch with NCU when correctness passes.
 7. Feed structured results back into the next strategy decision.
 
 ## What Feedback Should Influence
@@ -34,13 +34,28 @@ records. All work actually executed inside the timed kernel remains included.
 - memory vs compute throughput
 - register pressure
 - repeated strategy signatures and stagnation
+- compile-time launch/register limits and spill/occupancy trade-offs
+- row-window heavy tail, task mapping, and atomic-boundary overhead
+- requested scheduling knobs versus the effective policy, segment size, task
+  count, and grid recorded by the host result
+- explored/untested field values and whether the generated source or only the
+  compile/runtime behavior actually changed
 
 ## Iteration Policy
 
 - Start from a safe heuristic baseline.
+- Treat that baseline as iteration 0 and run the requested number of Agent
+  iterations after it.
 - Prefer incremental changes from the best correct iteration.
+- Treat a sub-noise-threshold change as inconclusive; do not declare a register
+  cap or occupancy change beneficial/harmful from one close timing sample.
+- `auto` is a request, not an effective policy. Inspect `e2e_result.packed`
+  before proposing `strict_lb` or `multi_bind` as a supposedly new strategy.
 - If multiple rounds stagnate, force more diversity across at least two knobs.
 - Never prioritize speed over correctness regressions.
+- In iterative rounds, return a compact `strategy_patch` containing only fields
+  changed from the best-correct strategy. The local driver merges and
+  normalizes it; do not repeat the full 21-field strategy JSON.
 
 ## Logging Requirements
 
@@ -53,10 +68,17 @@ Each iteration should persist:
 - generated strategy JSON
 - compile log
 - run log
-- aggregate metrics
+- every raw measurement plus median/spread aggregate metrics
 - profile summary
+- exact format/operator hashes, backend plan, runtime schedule, and NCU command
+
+The patch response must remain structured JSON and should include one primary
+hypothesis plus a short rationale. A missing field means “preserve the base
+strategy,” not “reset to a default.”
 
 ## Best-Entry Selection
 
-Choose the best iteration from correct runs only. Rank by the kernel-only ratio
-vs cuSPARSE, then by failure penalties and absolute kernel-only time.
+Choose the best iteration from correct runs only. For one fixed dataset and
+format, rank by warmed generated-kernel milliseconds; report cuSPARSE speedup
+separately. NCU replay duration is diagnostic and must never replace the normal
+warmup/repeat timing.

@@ -7,6 +7,7 @@ physical padding needed by the target hardware.
 
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import asdict, dataclass
 from typing import Any, Mapping
 
@@ -115,22 +116,55 @@ def select_backend(
             backend = "tcf_mco_tensorcore_v1"
             codegen_format_name = "BIT_TCF"
     elif len(levels) == 1:
-        if atomic_type != "mco":
-            raise ValueError("The one-level active-block backend requires an MCO atomic leaf")
         block = _axis_map(levels[0])
         x_outer = _expect_axis(block, "X_o", "df", "ROW")
         _expect_axis(block, "Y_o_s", "sv", "COL")
         _expect_axis(block, "X_i", "df", "ROW")
         _expect_axis(block, "Y_i", "df", "COL")
         if atomic.get("x_axis") != "X_i" or atomic.get("y_axis") != "Y_i":
-            raise ValueError("BIT-BSR MCO leaf must map x_axis=X_i and y_axis=Y_i")
-        packing_mode = "active_fixed_blocks"
-        backend = "bit_bsr_mco_tensorcore_v1"
-        codegen_format_name = "BIT_BSR"
+            raise ValueError("active fixed-block leaf must map x_axis=X_i and y_axis=Y_i")
+        if atomic_type == "dense":
+            # The semantic format stores every active fixed column block as a
+            # dense tile.  The physical ABI expands its block-column id into
+            # BLK_K consecutive scalar columns and then reuses the generated
+            # SR-BCRS dense Tensor-Core data path.  This is an exact metadata
+            # refinement, not a replacement of the Agent format.
+            packing_mode = "active_fixed_blocks_dense"
+            backend = "bit_bsr_dense_tensorcore_v1"
+            codegen_format_name = "SR_BCRS"
+        else:
+            packing_mode = "active_fixed_blocks"
+            backend = "bit_bsr_mco_tensorcore_v1"
+            codegen_format_name = "BIT_BSR"
+    elif len(levels) == 3:
+        # Sparse-row SR-BCRS: the outer sparse row domain removes structurally
+        # empty rows; the remaining two levels are ordinary column-condensed
+        # dense Tensor-Core tiles.  The host bridge preserves an inverse row
+        # map and leaves omitted output rows at zero.
+        sparse_rows = _axis_map(levels[0])
+        outer = _axis_map(levels[1])
+        inner = _axis_map(levels[2])
+        x_outer = _expect_axis(sparse_rows, "X_s", "sv", "ROW")
+        _expect_axis(sparse_rows, "Y", "df", "COL")
+        _expect_axis(outer, "X_so", "df", "ROW")
+        _expect_axis(outer, "Y_s", "sv", "COL")
+        _expect_axis(outer, "X_si", "df", "ROW")
+        _expect_axis_type_in(inner, "Y_so", {"df", "dv"}, "COL")
+        _expect_axis(inner, "Y_si", "df", "COL")
+        _expect_axis(inner, "X_si", "df", "ROW")
+        if atomic_type != "dense":
+            raise ValueError("sparse-row column-condensed backend requires a dense atomic leaf")
+        if atomic.get("x_axis") != "X_si" or atomic.get("y_axis") != "Y_si":
+            raise ValueError(
+                "sparse-row dense leaf must map x_axis=X_si and y_axis=Y_si"
+            )
+        packing_mode = "sparse_row_column_condensed_dense"
+        backend = "sparse_row_sr_bcrs_dense_tensorcore_v1"
+        codegen_format_name = "SR_BCRS"
     else:
         raise ValueError(
-            "No executable MCO backend for this hierarchy: expected two-level "
-            "column condensation or one-level active fixed blocks"
+            "No executable backend for this hierarchy: expected two-level column "
+            "condensation, one-level active fixed blocks, or sparse-row SR-BCRS"
         )
     if atomic.get("layout", "row_major") != "row_major":
         raise ValueError("SM80 tensor-core backends require a row-major atomic leaf")
@@ -146,7 +180,11 @@ def select_backend(
         raise ValueError(f"Unsupported reorder contract for MCO backend: {sorted(row_reorders)}")
     row_reorder = next(iter(row_reorders), None)
     if row_reorder and x_outer.get("reorder") != row_reorder:
-        raise ValueError("row reorder must be attached to the outer X_o row axis")
+        raise ValueError("row reorder must be attached to the outer sparse/dense row axis")
+    if packing_mode == "sparse_row_column_condensed_dense" and row_reorder:
+        raise ValueError(
+            "sparse-row physicalization does not yet compose with an additional row reorder"
+        )
 
     try:
         logical_m = int(params["BLK_M"])
@@ -205,6 +243,17 @@ def select_backend(
             "SM80 TF32 micro-blocks; val_sidx contains one global physical "
             "micro-block column index per active block."
         )
+    elif packing_mode == "active_fixed_blocks_dense":
+        notes.append(
+            "Expand each active fixed block-column id into BLK_K consecutive scalar "
+            "columns for the generated dense SR-BCRS ABI; tile values and arithmetic "
+            "remain exactly those of the Agent-designed dense fixed-block format."
+        )
+    elif packing_mode == "sparse_row_column_condensed_dense":
+        notes.append(
+            "Pack only structurally active rows into the physical row domain, retain "
+            "an inverse row map, and materialize omitted output rows as exact zeros."
+        )
     return BackendPlan(
         backend=backend,
         codegen_format_name=codegen_format_name,
@@ -223,3 +272,100 @@ def select_backend(
         row_reorder=row_reorder,
         notes=tuple(notes),
     )
+
+
+def materialize_backend_format_spec(
+    spec: Mapping[str, Any], plan: BackendPlan
+) -> dict[str, Any]:
+    """Return the explicit Format DSL consumed by the generated-kernel ABI.
+
+    Most backends lower the Agent proposal directly.  Two semantically richer
+    profiles use a documented physical view of the same data so that the
+    already validated SR-BCRS middle end can generate their dense Tensor-Core
+    compute body.  The original immutable artifact remains the source format
+    and is recorded separately in every generation manifest.
+    """
+    physical = deepcopy(dict(spec))
+    if plan.packing_mode not in {
+        "active_fixed_blocks_dense",
+        "sparse_row_column_condensed_dense",
+    }:
+        return physical
+
+    blk_m = int(plan.logical_blk_m)
+    blk_k = int(plan.logical_blk_k)
+    physical["format_name"] = f"{spec['format_name']}.physical_sr_bcrs"
+    physical["levels"] = [
+        {
+            "level": 1,
+            "name": "physical_column_condensation",
+            "axes": [
+                {
+                    "name": "X_o",
+                    "type": "df",
+                    "direction": "ROW",
+                    "length": "M",
+                    "reorder": None,
+                    "purpose": "physical row windows for the generated SR-BCRS ABI",
+                },
+                {
+                    "name": "Y_s",
+                    "type": "sv",
+                    "direction": "COL",
+                    "length": "K",
+                    "reorder": None,
+                    "purpose": "physical scalar-column sequence per row window",
+                },
+                {
+                    "name": "X_i",
+                    "type": "df",
+                    "direction": "ROW",
+                    "length": "BLK_M",
+                    "reorder": None,
+                    "purpose": "physical Tensor-Core tile rows",
+                },
+            ],
+        },
+        {
+            "level": 2,
+            "name": "physical_tensorcore_block",
+            "axes": [
+                {
+                    "name": "Y_so",
+                    "type": "df",
+                    "direction": "COL",
+                    "length": "K/BLK_K",
+                    "reorder": None,
+                    "purpose": "physical dense tile index",
+                },
+                {
+                    "name": "Y_si",
+                    "type": "df",
+                    "direction": "COL",
+                    "length": "BLK_K",
+                    "reorder": None,
+                    "purpose": "physical Tensor-Core tile columns",
+                },
+                {
+                    "name": "X_i",
+                    "type": "df",
+                    "direction": "ROW",
+                    "length": "BLK_M",
+                    "reorder": None,
+                    "purpose": "inherited physical tile rows",
+                },
+            ],
+        },
+    ]
+    physical["atomic"] = {
+        "type": "dense",
+        "x_axis": "X_i",
+        "y_axis": "Y_si",
+        "layout": "row_major",
+        "rationale": (
+            "backend physical view for the generated SR-BCRS dense Tensor-Core ABI"
+        ),
+        "custom_spec": None,
+    }
+    physical["params"] = {"BLK_M": blk_m, "BLK_K": blk_k}
+    return physical

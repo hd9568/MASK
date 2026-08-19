@@ -42,10 +42,7 @@ examples/**/testbed/build_multi_dataset/
 examples/**/testbed/build_perf_logs/
 examples/**/testbed/build_agent_multidataset/
 
-docs/log/
-docs/agent_runs/
-docs/agent_feedback_runs/
-docs/format_design_runs/
+docs/
 current_generated_vs_patched.diff
 
 python/**/*.inc
@@ -59,3 +56,5 @@ examples/src_fp32/dtc/testbed/me_tcf_kernel_origin.inc
 # Deprecated/moved files
 sparsene_llm_sog_deprecated/
 sparsene_llm_sog_logs/
+
+llm_models.yaml

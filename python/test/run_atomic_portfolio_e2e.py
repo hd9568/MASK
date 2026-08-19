@@ -16,7 +16,7 @@ from typing import Any
 
 from generate_custom_format_operators import generate_one
 from run_custom_format_e2e import compile_one, run_one
-from sparsene.formats.custom.loader import load_custom_format
+from sparsene.formats.custom.loader import load_run_format
 from sparsene.op_gen.format_portfolio import (
     executable_atomic_portfolio,
     executable_tcf_portfolio,
@@ -108,7 +108,9 @@ def main() -> None:
 
     rows: list[dict[str, Any]] = []
     for dataset in datasets:
-        spec, _format_obj, _module = load_custom_format(dataset)
+        spec, _format_obj, _artifact_path, _artifact_sha256 = load_run_format(
+            run_dir, dataset
+        )
         tile_n, max_tiles = _selected_tuning(
             tuning, dataset, args.tile_n, args.max_tiles_per_segment
         )

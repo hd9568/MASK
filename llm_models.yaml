@@ -15,7 +15,7 @@ models:
     model: deepseek-v4-pro
     api_base_url: https://api.deepseek.com/v1
     api_key_env: DEEPSEEK_API_KEY
-    api_key: sk-c6ef4e68c8f64ced8574138250d2e5f8
+    api_key: sk-ab10e09dce26499a928abe562d917b16
     defaults:
       temperature: 0.5
       max_tokens: 8192
@@ -26,7 +26,7 @@ models:
     model: deepseek-v4-flash
     api_base_url: https://api.deepseek.com/v1
     api_key_env: DEEPSEEK_API_KEY
-    api_key: sk-c6ef4e68c8f64ced8574138250d2e5f8
+    api_key: sk-ab10e09dce26499a928abe562d917b16
     defaults:
       temperature: 0.5
       max_tokens: 4096

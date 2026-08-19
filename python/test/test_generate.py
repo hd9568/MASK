@@ -77,19 +77,19 @@ def parse_args():
         "--strategy-api-key",
         type=str,
         default=None,
-        help="在线策略智能体使用的 API key，默认使用 strategy_agent.py 中的预设值",
+        help="在线策略智能体使用的 API key；默认由环境变量或 llm_models.yaml 解析",
     )
     args.add_argument(
         "--strategy-api-base-url",
         type=str,
         default=None,
-        help="OpenAI-compatible API base URL，默认使用预设值",
+        help="OpenAI-compatible API base URL；默认从 llm_models.yaml 解析",
     )
     args.add_argument(
         "--strategy-anthropic-base-url",
         type=str,
         default=None,
-        help="Anthropic-compatible API base URL，默认使用预设的 token-plan anthropic 入口",
+        help="Anthropic-compatible API base URL；默认从模型配置解析",
     )
     args.add_argument(
         "--strategy-model",

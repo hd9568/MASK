@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from dataclasses import dataclass
 from datetime import datetime
@@ -11,7 +12,6 @@ from urllib import error as urllib_error
 from urllib import request as urllib_request
 
 from sparsene.op_gen.strategy_agent import (
-    DEFAULT_TOKEN_PLAN_API_KEY,
     DEFAULT_TOKEN_PLAN_BASE_URL,
     DEFAULT_TOKEN_PLAN_MODEL,
 )
@@ -33,10 +33,10 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--timeout-sec", type=int, default=30)
     parser.add_argument("--output", type=str, default=None)
-    parser.add_argument("--token-plan-api-key", type=str, default=DEFAULT_TOKEN_PLAN_API_KEY)
+    parser.add_argument("--token-plan-api-key", type=str, default=os.environ.get("MIMO_API_KEY"))
     parser.add_argument("--token-plan-base-url", type=str, default=DEFAULT_TOKEN_PLAN_BASE_URL)
     parser.add_argument("--token-plan-model", type=str, default=DEFAULT_TOKEN_PLAN_MODEL)
-    parser.add_argument("--deepseek-api-key", type=str, default=None)
+    parser.add_argument("--deepseek-api-key", type=str, default=os.environ.get("DEEPSEEK_API_KEY"))
     parser.add_argument("--deepseek-base-url", type=str, default=DEFAULT_DEEPSEEK_BASE_URL)
     parser.add_argument(
         "--models",

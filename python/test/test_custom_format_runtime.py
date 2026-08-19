@@ -6,8 +6,11 @@ from pathlib import Path
 import pytest
 
 from sparsene.formats.custom.loader import load_custom_format
-from sparsene.formats.dsl import validate_format_spec
-from sparsene.op_gen.backend_registry import select_backend
+from sparsene.formats.dsl import build_format_from_spec, validate_format_spec
+from sparsene.op_gen.backend_registry import (
+    materialize_backend_format_spec,
+    select_backend,
+)
 from sparsene.op_gen.format_portfolio import (
     executable_atomic_portfolio,
     executable_tcf_portfolio,
@@ -132,3 +135,85 @@ def test_tcf_portfolio_adds_hardware_aligned_dense_tiles_without_mutating_agent_
     }
     assert {(8, 16), (16, 8), (16, 16), (32, 8)}.issubset(dense_shapes)
     assert spec["params"] == {"BLK_M": 8, "BLK_K": 16}
+
+
+def _dense_profile_spec(levels: list[dict], atomic_axes: tuple[str, str]) -> dict:
+    return {
+        "schema_version": "sparsene.format_agent.v7",
+        "dataset": "semantic-profile-test",
+        "format_name": "semantic_profile_test",
+        "levels": levels,
+        "atomic": {
+            "type": "dense",
+            "x_axis": atomic_axes[0],
+            "y_axis": atomic_axes[1],
+            "layout": "row_major",
+        },
+        "params": {"BLK_M": 16, "BLK_K": 8},
+    }
+
+
+def test_dense_active_fixed_blocks_selects_explicit_physical_backend() -> None:
+    spec = _dense_profile_spec(
+        [
+            {
+                "level": 1,
+                "name": "active_blocks",
+                "axes": [
+                    {"name": "X_o", "type": "df", "direction": "ROW", "length": "M"},
+                    {"name": "Y_o_s", "type": "sv", "direction": "COL", "length": "K"},
+                    {"name": "X_i", "type": "df", "direction": "ROW", "length": "BLK_M"},
+                    {"name": "Y_i", "type": "df", "direction": "COL", "length": "BLK_K"},
+                ],
+            }
+        ],
+        ("X_i", "Y_i"),
+    )
+    plan = select_backend(spec)
+    assert plan.packing_mode == "active_fixed_blocks_dense"
+    assert plan.codegen_format_name == "SR_BCRS"
+    physical = materialize_backend_format_spec(spec, plan)
+    assert physical != spec
+    assert validate_format_spec(physical)["status"] == "valid"
+    assert derive_rts(build_format_from_spec(physical)).sequence
+
+
+def test_sparse_row_dense_sr_bcrs_selects_explicit_physical_backend() -> None:
+    spec = _dense_profile_spec(
+        [
+            {
+                "level": 1,
+                "name": "sparse_row_domain",
+                "axes": [
+                    {"name": "X_s", "type": "sv", "direction": "ROW", "length": "M"},
+                    {"name": "Y", "type": "df", "direction": "COL", "length": "K"},
+                ],
+            },
+            {
+                "level": 2,
+                "name": "sparse_row_blocks",
+                "axes": [
+                    {"name": "X_so", "type": "df", "direction": "ROW", "length": "M/BLK_M"},
+                    {"name": "Y_s", "type": "sv", "direction": "COL", "length": "K"},
+                    {"name": "X_si", "type": "df", "direction": "ROW", "length": "BLK_M"},
+                ],
+            },
+            {
+                "level": 3,
+                "name": "tensorcore_block",
+                "axes": [
+                    {"name": "Y_so", "type": "df", "direction": "COL", "length": "K/BLK_K"},
+                    {"name": "Y_si", "type": "df", "direction": "COL", "length": "BLK_K"},
+                    {"name": "X_si", "type": "df", "direction": "ROW", "length": "BLK_M"},
+                ],
+            },
+        ],
+        ("X_si", "Y_si"),
+    )
+    plan = select_backend(spec)
+    assert plan.packing_mode == "sparse_row_column_condensed_dense"
+    assert plan.codegen_format_name == "SR_BCRS"
+    physical = materialize_backend_format_spec(spec, plan)
+    assert physical != spec
+    assert validate_format_spec(physical)["status"] == "valid"
+    assert derive_rts(build_format_from_spec(physical)).sequence

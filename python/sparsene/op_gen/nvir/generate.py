@@ -891,6 +891,12 @@ def generate_nvir(
         "warps_per_block": 1,
         "synchronization": "warp",
     }
+    compiler_strategy = getattr(strategy_decision, "compiler", None)
+    min_blocks_per_sm = getattr(
+        compiler_strategy, "launch_bounds_min_blocks_per_sm", None
+    )
+    if min_blocks_per_sm is not None:
+        program.attrs["launch_bounds"] = (32, int(min_blocks_per_sm))
     program.attrs["format_tensor_swizzles"] = format_hints.get("tensor_swizzles", {})
     program.attrs["generated_tile_b"] = int(
         getattr(strategy_decision.tensor_placement, "tile_b", 64)
