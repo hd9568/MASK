@@ -1,0 +1,32 @@
+{
+  "schema_version": "sparsene.current_vs_historical_a100_n512.v1",
+  "comparison_assumption": "A100 and A800 single-card timings are treated as approximately comparable at the user's request; no hardware normalization is applied.",
+  "ratio_direction": "historical_a100_best_ms/current_a800_generated_ms; >1 current wins",
+  "historical_selection": "minimum milliseconds among rows whose anomaly field is empty",
+  "historical_variants": 234,
+  "historical_anomalies_excluded": 3,
+  "datasets": 26,
+  "current_faster_than_audited_historical_best_count": 1,
+  "current_faster_than_audited_historical_best_datasets": [
+    "Yeast"
+  ],
+  "geomean_historical_over_current_speedup": 0.5339224594687939,
+  "median_historical_over_current_speedup": 0.5144940165,
+  "datasets_within_ten_percent": [
+    "OVCAR-8H",
+    "Yeast",
+    "consph"
+  ],
+  "historical_best_format_counts": {
+    "Sparsene/ACC-BIT-TCF": 1,
+    "Sparsene/SR-BCRS-16x8": 19,
+    "Sparsene/SR-BCRS-16x8-multi-bind": 3,
+    "Sparsene/SR-BCRS-16x8-strict-lb": 3
+  },
+  "current_faster_if_flagged_anomalies_are_included_count": 0,
+  "current_faster_if_flagged_anomalies_are_included_datasets": [],
+  "historical_input": "sota_results/summary/a100_n512_fp32_sparsene_historical_all.csv",
+  "current_input": "logs/e2e_runs/20260718_165146_deepseek_v4_pro_format26_v6/operator_e2e_summary.csv",
+  "simplified_output": "sota_results/summary/sparsene_a100_n512.csv",
+  "comparison_output": "sota_results/summary/sparsene_current_vs_a100_n512.csv"
+}

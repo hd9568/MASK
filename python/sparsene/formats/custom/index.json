@@ -1,0 +1,31 @@
+{
+  "run_id": "20260718_165146_deepseek_v4_pro_format26_v6",
+  "datasets": {
+    "ASIC_680k": "ASIC_680k",
+    "DD": "DD",
+    "Ga41As41H72": "Ga41As41H72",
+    "OVCAR-8H": "OVCAR_8H",
+    "Si41Ge41H72": "Si41Ge41H72",
+    "Yeast": "Yeast",
+    "YeastH": "YeastH",
+    "cant": "cant",
+    "conf5_4-8x8-10": "conf5_4_8x8_10",
+    "consph": "consph",
+    "cop20k_A": "cop20k_A",
+    "dc2": "dc2",
+    "ddi": "ddi",
+    "eu-2005": "eu_2005",
+    "mac_econ_fwd500": "mac_econ_fwd500",
+    "mc2depi": "mc2depi",
+    "mip1": "mip1",
+    "pdb1HYS": "pdb1HYS",
+    "protein": "protein",
+    "pwtk": "pwtk",
+    "reddit": "reddit",
+    "rma10": "rma10",
+    "scircuit": "scircuit",
+    "shipsec1": "shipsec1",
+    "web-BerkStan": "web_BerkStan",
+    "webbase-1M": "webbase_1M"
+  }
+}

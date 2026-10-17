@@ -1,0 +1,38 @@
+mma(frag_c, k) {
+	frag_a = alloc_reg_a();
+	frag_b = alloc_reg_b();
+	for (int k_mma = 0; k_mma < K_MMA_COUNT; k_mma += 1) {
+		for (int m_mma = 0; m_mma < M_MMA_COUNT; m_mma += 1) {
+			load_mma_A_to_reg(frag_a, smem_a, m_mma, k_mma + k * K_MMA_COUNT); // if necessary: f32 -> tf32
+		}
+
+		for (int n_mma = 0; n_mma < N_MMA_COUNT; n_mma += 1) {
+			load_mma_B_to_reg(frag_b, smem_b, k_mma + k * K_MMA_COUNT, n_mma); // if necessary: f32 -> tf32
+			for (int m_mma = 0; m_mma < M_MMA_COUNT; m_mma += 1) {
+				mma.xx(frag_c, frag_a[m_mma], frag_b[n_mma], frag_c[m_mma][n_mma]);
+			}
+		}
+	}
+}
+
+main() {
+	smem_A[];
+	smem_B[];
+
+	load_idx(0);
+	load_idx(1);
+	load_tile_A_smem(smem_A, gmem_A, 0);
+	load_tile_B_smem(smem_B, gmem_B, 0);
+	frag_c = alloc_reg_c();
+	for (int k_tile = 0; k_tile < K_TILE_COUNT; k_tile += 1) {
+		if (k_tile + 2 < K_TILE_COUNT) {
+			load_idx(k_tile + 2);
+		}
+		if (k_tile + 1 < K_TILE_COUNT) {
+			load_tile_A_to_smem(smem_A, gmem_A, k_tile + 1);
+			load_tile_B_to_smem(smem_B, gmem_B, k_tile + 1);
+		}
+		mma(frag_c, k_tile);
+	}
+	store_mma_C_to_gmem(gmem_C, frag_C, m_tile, n_tile);
+}

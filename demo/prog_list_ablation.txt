@@ -1,0 +1,17 @@
+/work/sparsene/examples/build/bin/demo-cusp-fp16
+/work/sparsene/examples/build/bin/demo-acc-fp16
+/work/sparsene/examples/build/bin/demo-acc-nopipe-fp16
+/work/sparsene/examples/build/bin/demo-acc-nopipe-nopre-fp16
+/work/sparsene/examples/build/bin/demo-acc-nopipe-nopre-noswz-fp16
+/work/sparsene/examples/build/bin/demo-bitbsr-fp16
+/work/sparsene/examples/build/bin/demo-bitbsr-nopipe-fp16
+/work/sparsene/examples/build/bin/demo-bitbsr-nopipe-nopre-fp16
+/work/sparsene/examples/build/bin/demo-bitbsr-nopipe-nopre-noswz-fp16
+/work/sparsene/examples/build/bin/demo-dtc-fp16
+/work/sparsene/examples/build/bin/demo-dtc-nopipe-fp16
+/work/sparsene/examples/build/bin/demo-dtc-nopipe-nopre-fp16
+/work/sparsene/examples/build/bin/demo-dtc-nopipe-nopre-noswz-fp16
+/work/sparsene/examples/build/bin/demo-srbcrs-fp16
+/work/sparsene/examples/build/bin/demo-srbcrs-nopipe-fp16
+/work/sparsene/examples/build/bin/demo-srbcrs-nopipe-nopre-fp16
+/work/sparsene/examples/build/bin/demo-srbcrs-nopipe-nopre-noswz-fp16

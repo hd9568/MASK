@@ -1,0 +1,32 @@
+for x = 0 to m:
+	for y = 0 to n:
+
+for xo = 0 to divup(m, M):
+	for xi = 0 to M:
+		for y = 0 to n:
+
+for xo = 0 to m step M:
+	for y = 0 to n:
+		for xi = 0 to M:
+
+for xo = 0 to divup(m, M):
+	for y = y_off(x0) to y_off(x0 + 1):
+		for xi = 0 to M:
+
+for xo = 0 to divup(m, M):
+	for yo = y_off(x0) to y_off(x0 + 1) step N:
+		for yi = 0 to N:
+			for xi = 0 to M:
+
+for xo = 0 to divup(m, M):
+	for yo = y_off(x0) to y_off(x0 + 1) step N:
+		for yi = 0 to N:
+			for xio = xi_off(x0, y0) to xi_off(x0, y0 + 1):
+				for xii = 0 to ?:
+
+// swap x and y ! PROBLEM
+for xo = 0 to divup(m, M):
+	for yo = y_off(x0) to y_off(x0 + 1) step N:
+		for yi = 0 to N:
+			for xio = xi_off(x0, y0) to xi_off(x0, y0 + 1):
+				for xii = 0 to ?:

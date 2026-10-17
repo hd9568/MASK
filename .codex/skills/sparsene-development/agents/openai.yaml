@@ -1,0 +1,4 @@
+interface:
+  display_name: "Sparsene Development"
+  short_description: "Develop and validate LLM-driven sparse GPU kernels"
+  default_prompt: "Use $sparsene-development to inspect this Sparsene task, make the scoped change, and validate it with current project evidence."

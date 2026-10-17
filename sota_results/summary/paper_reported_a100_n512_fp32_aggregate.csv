@@ -1,0 +1,7 @@
+gpu,N,precision,baseline,paper_reported_sparsene_speedup
+A100,512,FP32,cuSPARSE,2.19
+A100,512,FP32,Sputnik,2.57
+A100,512,FP32,DTC-SpMM,1.94
+A100,512,FP32,Acc-SpMM,2.82
+A100,512,FP32,FlashSparse,1.2
+A100,512,FP32,SparseTIR,4.85

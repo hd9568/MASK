@@ -1,0 +1,41 @@
+{
+  "schema_version": "sparsene.custom_format_tuning.v1",
+  "hardware": "NVIDIA A800 80GB PCIe (SM80)",
+  "n": 512,
+  "precision": "FP32 inputs with SM80 TF32 tensor-core MMA",
+  "performance_contract": "sparsene.kernel_only_post_conversion.v1",
+  "execution_policy": "strictly_serial_by_dataset",
+  "selection_evidence": "Correctness-first sweep of tile_n={32,64,128} and execution segment limits on representative/all affected formats; no concurrent GPU benchmarks.",
+  "default": {
+    "tile_n": 64,
+    "max_tiles_per_execution_segment": 32
+  },
+  "datasets": {
+    "ASIC_680k": {"tile_n": 64, "max_tiles_per_execution_segment": 32},
+    "DD": {"tile_n": 64, "max_tiles_per_execution_segment": 32},
+    "Ga41As41H72": {"tile_n": 64, "max_tiles_per_execution_segment": 32},
+    "OVCAR-8H": {"tile_n": 128, "max_tiles_per_execution_segment": 32},
+    "Si41Ge41H72": {"tile_n": 64, "max_tiles_per_execution_segment": 32},
+    "Yeast": {"tile_n": 128, "max_tiles_per_execution_segment": 32},
+    "YeastH": {"tile_n": 128, "max_tiles_per_execution_segment": 32},
+    "cant": {"tile_n": 64, "max_tiles_per_execution_segment": 32},
+    "conf5_4-8x8-10": {"tile_n": 64, "max_tiles_per_execution_segment": 32},
+    "consph": {"tile_n": 128, "max_tiles_per_execution_segment": 32},
+    "cop20k_A": {"tile_n": 128, "max_tiles_per_execution_segment": 128},
+    "dc2": {"tile_n": 128, "max_tiles_per_execution_segment": 32},
+    "ddi": {"tile_n": 64, "max_tiles_per_execution_segment": 64},
+    "eu-2005": {"tile_n": 64, "max_tiles_per_execution_segment": 32},
+    "mac_econ_fwd500": {"tile_n": 64, "max_tiles_per_execution_segment": 32},
+    "mc2depi": {"tile_n": 64, "max_tiles_per_execution_segment": 32},
+    "mip1": {"tile_n": 64, "max_tiles_per_execution_segment": 512},
+    "pdb1HYS": {"tile_n": 64, "max_tiles_per_execution_segment": 32},
+    "protein": {"tile_n": 64, "max_tiles_per_execution_segment": 1024},
+    "pwtk": {"tile_n": 64, "max_tiles_per_execution_segment": 32},
+    "reddit": {"tile_n": 64, "max_tiles_per_execution_segment": 1024},
+    "rma10": {"tile_n": 64, "max_tiles_per_execution_segment": 32},
+    "scircuit": {"tile_n": 64, "max_tiles_per_execution_segment": 32},
+    "shipsec1": {"tile_n": 128, "max_tiles_per_execution_segment": 32},
+    "web-BerkStan": {"tile_n": 128, "max_tiles_per_execution_segment": 32},
+    "webbase-1M": {"tile_n": 64, "max_tiles_per_execution_segment": 32}
+  }
+}

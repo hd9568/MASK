@@ -1,0 +1,66 @@
+# Local model configuration. API credentials are read only from environment.
+# Never add literal API keys to this tracked file.
+
+models:
+  deepseek-v4-pro:
+    provider: openai_compatible
+    model: deepseek-v4-pro
+    api_base_url: https://api.deepseek.com/v1
+    api_key_env: DEEPSEEK_API_KEY
+    defaults:
+      temperature: 0.5
+      max_tokens: 8192
+      timeout_sec: 300
+
+  deepseek-v4-flash:
+    provider: openai_compatible
+    model: deepseek-v4-flash
+    api_base_url: https://api.deepseek.com/v1
+    api_key_env: DEEPSEEK_API_KEY
+    defaults:
+      temperature: 0.5
+      max_tokens: 4096
+      timeout_sec: 300
+
+  mimo-v2.5-pro:
+    provider: openai_compatible
+    model: mimo-v2.5-pro
+    api_base_url: https://token-plan-cn.xiaomimimo.com/v1
+    api_key_env: MIMO_API_KEY
+    defaults:
+      temperature: 0.5
+      max_tokens: 4096
+      timeout_sec: 180
+
+  gpt-6.1-sol:
+    provider: openai_compatible
+    model: gpt-6.1-sol
+    api_base_url: https://api.openlux.ai/v1
+    api_key_env: OPENLUX_API_KEY
+    defaults:
+      reasoning_effort: low
+      stream: true
+      max_tokens: 8192
+      timeout_sec: 600
+
+  claude-opus-5:
+    provider: openai_compatible
+    model: claude-opus-5
+    api_base_url: https://api.openlux.ai/v1
+    api_key_env: OPENLUX_API_KEY
+    defaults:
+      temperature: 0.2
+      stream: true
+      max_tokens: 32768
+      timeout_sec: 600
+
+  claude-opus-5-5:
+    provider: openai_compatible
+    model: claude-opus-5-5
+    api_base_url: https://api.openlux.ai/v1
+    api_key_env: OPENLUX_API_KEY
+    defaults:
+      temperature: 0.2
+      stream: true
+      max_tokens: 32768
+      timeout_sec: 600
