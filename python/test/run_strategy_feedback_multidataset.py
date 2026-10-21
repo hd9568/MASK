@@ -39,6 +39,7 @@ from sparsene.op_gen.opir.cValFlattenPass import CValFlattenPass
 from sparsene.op_gen.opir.generate import generate_from_computent
 from sparsene.op_gen.opir.varlenLoweringPass import VarlenLoweringPass
 from sparsene.transform.rts import derive_rts
+from sparsene.utils.temp_paths import DEFAULT_TEMP_ROOT, sparsekg_toolchain_env
 
 
 logger = get_logger(__name__)
@@ -48,7 +49,7 @@ PY_DIR = REPO_ROOT / "python"
 TESTBED_DIR = REPO_ROOT / "examples" / "src_fp32" / "dtc" / "testbed"
 DEFAULT_INC_PATH = PY_DIR / "me_tcf_kernel3.inc"
 DEFAULT_LOOP_LOG_DIR = REPO_ROOT / "docs" / "agent_feedback_runs"
-DEFAULT_BUILD_DIR = TESTBED_DIR / "build_agent_multidataset"
+DEFAULT_BUILD_DIR = Path(os.environ.get("SPARSEKG_TMP_DIR", str(DEFAULT_TEMP_ROOT))) / "legacy_multidataset_build"
 DEFAULT_BUILD_BINARY = DEFAULT_BUILD_DIR / "demo-dtc-generated-multi-dataset-tf32"
 DEFAULT_NCU_BIN = Path.home() / "local" / "cuda" / "nsight-compute-2025.1.0" / "ncu"
 DEFAULT_DATASET_ROOT = Path("/mnt/lustre-client/zhangkaige/selected_mtx")
@@ -624,7 +625,13 @@ def _build_binary(args: argparse.Namespace, iter_dir: Path) -> Path:
         "-o",
         str(binary_path),
     ]
-    result = _run_command(command, cwd=REPO_ROOT, timeout_sec=args.timeout_sec)
+    toolchain_env = sparsekg_toolchain_env()
+    result = _run_command(
+        command,
+        cwd=REPO_ROOT,
+        timeout_sec=args.timeout_sec,
+        env_overrides={key: toolchain_env[key] for key in ("TMPDIR", "TMP", "TEMP")},
+    )
     (iter_dir / "build.log").write_text(result.stdout)
     if result.returncode != 0:
         raise RuntimeError(f"build failed, see {iter_dir / 'build.log'}")

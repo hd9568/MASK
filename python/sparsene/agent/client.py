@@ -183,6 +183,17 @@ def _extract_anthropic_text(raw_payload: Dict[str, Any]) -> str:
     return merged
 
 
+def _canonical_finish_reason(value: Any) -> Optional[str]:
+    """Normalize relay-specific terminal names before truncation decisions."""
+    if not isinstance(value, str) or not value:
+        return None
+    if value in {"length", "max_tokens", "max_output_tokens", "max_completion_tokens"}:
+        return "length"
+    if value in {"stop", "end_turn", "stop_sequence", "eos"}:
+        return "stop"
+    return value
+
+
 def call_openai_compatible(
     *,
     model: str,
@@ -195,6 +206,7 @@ def call_openai_compatible(
     timeout_sec: int,
     response_format: Optional[Dict[str, str]] = None,
     reasoning_effort: Optional[str] = None,
+    thinking_mode: Optional[str] = None,
     stream: bool = False,
 ) -> LLMTextResponse:
     api_url = _normalize_base_url(api_base_url)
@@ -217,6 +229,10 @@ def call_openai_compatible(
         payload["reasoning_effort"] = reasoning_effort
     else:
         payload["temperature"] = temperature
+    if thinking_mode is not None:
+        if thinking_mode not in {"enabled", "disabled"}:
+            raise ValueError(f"Unsupported thinking_mode: {thinking_mode}")
+        payload["thinking"] = {"type": thinking_mode}
     if stream:
         payload["stream"] = True
         payload["stream_options"] = {"include_usage": True}
@@ -275,8 +291,11 @@ def call_openai_compatible(
                             reasoning_delta = delta.get("reasoning_content", "")
                             if isinstance(reasoning_delta, str) and reasoning_delta:
                                 reasoning_chunks.append(reasoning_delta)
-                            if choice.get("finish_reason"):
-                                finish_reason = choice["finish_reason"]
+                            terminal = _canonical_finish_reason(
+                                choice.get("finish_reason") or choice.get("native_finish_reason")
+                            )
+                            if terminal:
+                                finish_reason = terminal
                             if not event_shape:
                                 event_shape = {
                                     "event_keys": sorted(event.keys()),
@@ -301,8 +320,12 @@ def call_openai_compatible(
                         partial_content=partial_content,
                         usage=partial_usage,
                     ) from exc
-                content = "".join(chunks) or (message_fallbacks[-1] if message_fallbacks else "")
-                if finish_reason is None and not saw_done:
+                content = "".join(chunks)
+                # OpenLux occasionally sends a complete final message after
+                # partial deltas. Prefer it only when it is strictly longer.
+                if message_fallbacks and len(message_fallbacks[-1]) > len(content):
+                    content = message_fallbacks[-1]
+                if finish_reason is None:
                     partial_reasoning = "".join(reasoning_chunks)
                     partial_usage = TokenUsage.from_payload(
                         raw_usage,
@@ -310,7 +333,7 @@ def call_openai_compatible(
                         completion_text=content + partial_reasoning,
                     )
                     raise StreamingInterruptedError(
-                        "SSE ended before a terminal [DONE] or finish_reason; "
+                        "SSE ended without a terminal finish_reason; "
                         f"data_events={data_event_count}, content_chars={len(content)}, "
                         f"event_shape={event_shape}",
                         partial_content=content,
@@ -342,9 +365,17 @@ def call_openai_compatible(
         raise RuntimeError(f"openai_compatible failed with status={exc.code}: {detail}") from exc
     except urllib_error.URLError as exc:
         raise RuntimeError(f"openai_compatible could not reach endpoint: {exc.reason}") from exc
+    terminal_reason = _canonical_finish_reason(
+        raw.get("choices", [{}])[0].get("finish_reason")
+        or raw.get("choices", [{}])[0].get("native_finish_reason")
+    )
     content = _extract_openai_text(
         raw,
         allow_reasoning_fallback=not bool(response_format),
+        # A reasoning model can spend the entire completion budget before
+        # emitting any final JSON. Preserve the provider's length terminal so
+        # the format loop can request a shorter complete retry.
+        allow_empty=terminal_reason == "length",
     )
     usage = TokenUsage.from_payload(
         raw.get("usage"),
@@ -358,7 +389,7 @@ def call_openai_compatible(
         raw_payload=raw,
         usage=usage,
         elapsed_s=round(time.time() - t0, 4),
-        finish_reason=str(raw.get("choices", [{}])[0].get("finish_reason") or "") or None,
+        finish_reason=terminal_reason,
     )
 
 

@@ -17,6 +17,7 @@ from typing import Any
 from generate_custom_format_operators import lower_format_operator
 from sparsene.formats.SR_BCRS import SR_BCRS_FORMAT
 from sparsene.op_gen.backend_registry import select_backend
+from sparsene.utils.temp_paths import sparsekg_build_dir, sparsekg_toolchain_env
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -60,6 +61,7 @@ def _run(command: list[str], log_path: Path) -> subprocess.CompletedProcess[str]
     result = subprocess.run(
         command,
         cwd=REPO_ROOT,
+        env=sparsekg_toolchain_env(),
         text=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
@@ -114,7 +116,7 @@ def generate_candidate(base_dir: Path, *, tile_n: int, max_tiles: int) -> dict[s
 
 def compile_candidate(base_dir: Path, manifest: dict[str, Any]) -> Path:
     plan = manifest["backend_plan"]
-    build_dir = base_dir / "build"
+    build_dir = sparsekg_build_dir(base_dir)
     configure = [
         "cmake",
         "-S",

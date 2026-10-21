@@ -50,6 +50,7 @@ from sparsene.op_gen.opir.varlenLoweringPass import VarlenLoweringPass
 from sparsene.op_gen.strategy_agent import StrategyConfig, StrategyDecision, StrategyFeedbackContext, run_strategy_agent
 from sparsene.performance_contract import KERNEL_ONLY_EVALUATION_CONTRACT
 from sparsene.transform.rts import derive_rts
+from sparsene.utils.temp_paths import sparsekg_build_dir, sparsekg_toolchain_env
 
 
 logger = get_logger("end2end_pipeline")
@@ -502,7 +503,7 @@ def _generate_kernel_inc(
 
 
 def _build_binary(iter_dir: Path, args: argparse.Namespace) -> Tuple[bool, str, Path]:
-    build_dir = iter_dir / "build"
+    build_dir = sparsekg_build_dir(iter_dir, kind="dtc_nvcc")
     build_dir.mkdir(parents=True, exist_ok=True)
     binary_path = build_dir / "demo-dtc-generated-tf32"
     iter_inc_path = iter_dir / "me_tcf_kernel3.inc"
@@ -513,7 +514,9 @@ def _build_binary(iter_dir: Path, args: argparse.Namespace) -> Tuple[bool, str, 
     # strategy decisions (swizzle, pipeline, etc.) produce different .inc
     # files, ensuring agent-mode iterations never share stale binaries.
     inc_digest = hashlib.md5(DEFAULT_INC_PATH.read_bytes()).hexdigest()[:12]
-    cache_dir = Path(args.log_root) / ".kernel_binary_cache"
+    cache_dir = sparsekg_build_dir(
+        Path(args.log_root).resolve() / ".kernel_binary_cache", kind="binary_cache"
+    )
     cache_key = f"{inc_digest}_BLK_K{args.tc_block_k}_BLK_M{args.blk_m}_N{args.n_cols}"
     cached_binary = cache_dir / cache_key / "demo-dtc-generated-tf32"
     cached_inc = cache_dir / cache_key / "me_tcf_kernel3.inc"
@@ -561,7 +564,13 @@ def _build_binary(iter_dir: Path, args: argparse.Namespace) -> Tuple[bool, str, 
         str(binary_path),
     ]
     try:
-        result = _run_command(command, cwd=REPO_ROOT, timeout_sec=args.timeout_sec)
+        toolchain_env = sparsekg_toolchain_env()
+        result = _run_command(
+            command,
+            cwd=REPO_ROOT,
+            timeout_sec=args.timeout_sec,
+            env_overrides={key: toolchain_env[key] for key in ("TMPDIR", "TMP", "TEMP")},
+        )
     except subprocess.TimeoutExpired as exc:
         return False, _coerce_timeout_stdout(exc.output) + "\n[TIMEOUT]\n", binary_path
     success = result.returncode == 0

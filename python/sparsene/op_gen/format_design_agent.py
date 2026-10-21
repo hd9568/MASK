@@ -265,6 +265,7 @@ class FormatDesignConfig:
     timeout_sec: int = 180
     temperature: float = 0.35
     max_tokens: int = DEFAULT_MAX_TOKENS
+    reasoning_effort: Optional[str] = None
     model_config_path: Optional[str] = None
     skill_names: List[str] = field(
         default_factory=lambda: ["format-design"]
@@ -1641,6 +1642,7 @@ def run_format_design_agent(
                 api_base_url=config.api_base_url,
                 temperature=config.temperature,
                 max_tokens=config.max_tokens,
+                reasoning_effort=config.reasoning_effort,
                 timeout_sec=config.timeout_sec,
                 model_config_path=config.model_config_path,
             ),

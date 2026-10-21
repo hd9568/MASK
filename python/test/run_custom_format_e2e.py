@@ -16,6 +16,7 @@ import sys
 from typing import Any
 
 from generate_custom_format_operators import generate_one
+from sparsene.utils.temp_paths import sparsekg_build_dir, sparsekg_toolchain_env
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -39,6 +40,7 @@ def _run(
     result = subprocess.run(
         command,
         cwd=REPO_ROOT,
+        env=sparsekg_toolchain_env(),
         text=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
@@ -57,7 +59,7 @@ def compile_one(run_dir: Path, manifest: dict[str, Any], jobs: int) -> Path:
     dataset = manifest["dataset"]
     plan = manifest["backend_plan"]
     work_dir = _work_dir(run_dir, manifest)
-    build_dir = work_dir / "build"
+    build_dir = sparsekg_build_dir(work_dir)
     reorder_codes = {None: 0, "row_rcm": 1, "first_col_sort": 2, "jaccard_greedy": 3}
     packing_codes = {
         "column_condensed": 0,

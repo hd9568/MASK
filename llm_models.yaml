@@ -22,15 +22,17 @@ models:
       max_tokens: 4096
       timeout_sec: 300
 
-  mimo-v2.5-pro:
+  deepseek-flash:
     provider: openai_compatible
-    model: mimo-v2.5-pro
-    api_base_url: https://token-plan-cn.xiaomimimo.com/v1
-    api_key_env: MIMO_API_KEY
+    model: deepseek-flash
+    api_base_url: https://api.deepseek.com/v1
+    api_key_env: DEEPSEEK_API_KEY
     defaults:
-      temperature: 0.5
-      max_tokens: 4096
-      timeout_sec: 180
+      thinking_mode: enabled
+      reasoning_effort: high
+      stream: true
+      max_tokens: 16384
+      timeout_sec: 600
 
   gpt-6.1-sol:
     provider: openai_compatible
@@ -41,6 +43,17 @@ models:
       reasoning_effort: low
       stream: true
       max_tokens: 8192
+      timeout_sec: 600
+
+  gpt-6-astra:
+    provider: openai_compatible
+    model: gpt-6-astra
+    api_base_url: https://api.openlux.ai/v1
+    api_key_env: OPENLUX_API_KEY
+    defaults:
+      reasoning_effort: high
+      stream: true
+      max_tokens: 32768
       timeout_sec: 600
 
   claude-opus-5:

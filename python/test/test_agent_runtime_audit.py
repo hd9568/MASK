@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from http.client import RemoteDisconnected
 from pathlib import Path
 import ssl
@@ -36,6 +37,14 @@ def _resolved() -> ResolvedModelConfig:
 
 
 class AgentRuntimeAuditTest(unittest.TestCase):
+    def test_flash_model_config_enables_thinking_without_logging_key(self) -> None:
+        with patch.dict(os.environ, {"DEEPSEEK_API_KEY": "test-only-secret"}):
+            cfg = AgentModelConfig(model_name="deepseek-flash").resolve()
+        self.assertEqual(cfg.model, "deepseek-flash")
+        self.assertEqual(cfg.thinking_mode, "enabled")
+        self.assertEqual(cfg.reasoning_effort, "high")
+        self.assertNotIn("test-only-secret", json.dumps(cfg.to_dict()))
+
     def test_openai_json_output_option_reaches_http_payload(self) -> None:
         captured = {}
 
@@ -198,6 +207,44 @@ class AgentRuntimeAuditTest(unittest.TestCase):
         self.assertEqual(response.content, '{"ok":true}')
         self.assertEqual(response.finish_reason, "stop")
 
+    def test_deepseek_thinking_mode_reaches_http_payload(self) -> None:
+        captured = {}
+
+        class FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, traceback):
+                return False
+
+            def read(self):
+                return json.dumps({
+                    "choices": [{"message": {"content": '{"ok":true}'}, "finish_reason": "stop"}],
+                    "usage": {"prompt_tokens": 2, "completion_tokens": 3},
+                }).encode()
+
+        def fake_urlopen(request, timeout):
+            captured.update(json.loads(request.data.decode()))
+            return FakeResponse()
+
+        with patch("sparsene.agent.client.urllib_request.urlopen", side_effect=fake_urlopen):
+            call_openai_compatible(
+                model="deepseek-flash",
+                api_key="not-logged",
+                api_base_url="https://example.invalid/v1",
+                system_prompt="return json",
+                user_prompt="return json",
+                temperature=0.5,
+                max_tokens=128,
+                timeout_sec=5,
+                thinking_mode="enabled",
+                reasoning_effort="high",
+                response_format={"type": "json_object"},
+            )
+        self.assertEqual(captured["thinking"], {"type": "enabled"})
+        self.assertEqual(captured["reasoning_effort"], "high")
+        self.assertNotIn("temperature", captured)
+
     def test_stream_eof_without_terminal_marker_is_reported_as_interrupted(self) -> None:
         class IncompleteStreamResponse:
             def __enter__(self):
@@ -227,7 +274,7 @@ class AgentRuntimeAuditTest(unittest.TestCase):
                     timeout_sec=5,
                     stream=True,
                 )
-        self.assertIn("before a terminal [DONE] or finish_reason", str(raised.exception))
+        self.assertIn("without a terminal finish_reason", str(raised.exception))
         self.assertIn("data_events=1", str(raised.exception))
         self.assertEqual(raised.exception.partial_content, "")
 
@@ -265,6 +312,56 @@ class AgentRuntimeAuditTest(unittest.TestCase):
             )
         self.assertEqual(response.content, '{"ok":true}')
         self.assertEqual(response.finish_reason, "stop")
+
+    def test_relay_native_max_tokens_is_reported_as_length(self) -> None:
+        class NativeTerminalResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, traceback):
+                return False
+
+            def __iter__(self):
+                return iter([
+                    b'data: {"choices":[{"delta":{"content":"{\\"partial\\":true}"},"native_finish_reason":"max_tokens"}]}\n',
+                    b"data: [DONE]\n",
+                ])
+
+        with patch("sparsene.agent.client.urllib_request.urlopen", return_value=NativeTerminalResponse()):
+            response = call_openai_compatible(
+                model="gpt-6-astra", api_key="not-logged",
+                api_base_url="https://example.invalid/v1",
+                system_prompt="system", user_prompt="user",
+                temperature=0.1, max_tokens=8, timeout_sec=5, stream=True,
+            )
+        self.assertEqual(response.finish_reason, "length")
+
+    def test_length_with_no_final_json_preserves_retryable_terminal(self) -> None:
+        class EmptyFinalResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, traceback):
+                return False
+
+            def __iter__(self):
+                return iter([
+                    b'data: {"choices":[{"delta":{"reasoning_content":"analysis"},"finish_reason":null}]}\n',
+                    b'data: {"choices":[{"delta":{},"finish_reason":"length"}],"usage":{"prompt_tokens":9,"completion_tokens":8}}\n',
+                    b"data: [DONE]\n",
+                ])
+
+        with patch("sparsene.agent.client.urllib_request.urlopen", return_value=EmptyFinalResponse()):
+            response = call_openai_compatible(
+                model="gpt-6-astra", api_key="not-logged",
+                api_base_url="https://example.invalid/v1",
+                system_prompt="system", user_prompt="user",
+                temperature=0.1, max_tokens=8, timeout_sec=5,
+                response_format={"type": "json_object"}, stream=True,
+            )
+        self.assertEqual(response.content, "")
+        self.assertEqual(response.finish_reason, "length")
+        self.assertEqual(response.usage.completion_tokens, 8)
 
     def test_success_records_complete_messages_response_and_api_usage(self) -> None:
         response = LLMTextResponse(

@@ -196,6 +196,7 @@ def _is_retryable_transport_failure(response: FormatDesignResponse) -> bool:
         "remotedisconnected",
         "stream interrupted",
         "sse ended before a terminal",
+        "sse ended without a terminal",
         "timed out",
         "timeout",
         "status=429",

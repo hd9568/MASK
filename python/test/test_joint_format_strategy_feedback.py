@@ -12,6 +12,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from run_joint_format_strategy_feedback import (  # noqa: E402
     _best_record,
     _compact_best_result,
+    _format_config,
+    _format_retry_guidance,
     _format_signature,
     _publish_dataset_summary,
     build_format_feedback,
@@ -157,10 +159,33 @@ class JointFormatStrategyFeedbackTest(unittest.TestCase):
             self.assertEqual(summary["best_source"], "incumbent_registry")
             self.assertEqual(summary["best_source_run"], "previous_run")
             self.assertEqual(summary["best_generated_ms"], 1.0)
+            self.assertEqual(summary["best_current_run_generated_ms"], 1.5)
+            self.assertEqual(summary["best_current_run_speedup_vs_cusparse"], 1.5)
             self.assertEqual(
                 (root / "run" / "datasets" / "matrix" / "best_operator.inc").read_text(),
                 "// incumbent\n",
             )
+
+    def test_truncated_format_retry_requests_compact_complete_json(self) -> None:
+        response = SimpleNamespace(
+            agent_metadata={"source": "fallback", "finish_reason": "length"},
+            rationale="Model response was truncated (finish_reason=length)",
+            levels=[], atomic={}, params={},
+        )
+        guidance = _format_retry_guidance(response, ["agent fallback was used"], 1)
+        self.assertIn("complete JSON object", guidance["response_budget"])
+        self.assertEqual(guidance["previous_dsl"], {})
+
+    def test_joint_format_call_respects_sol_output_budget(self) -> None:
+        args = SimpleNamespace(
+            format_model="gpt-6.1-sol", format_temperature=0.25,
+            format_max_tokens=8192, format_timeout_sec=900,
+            format_reasoning_effort=None,
+            model_config=Path(__file__).resolve().parents[2] / "llm_models.yaml",
+        )
+        config = _format_config(args, Path("/tmp/format-agent-test"))
+        self.assertEqual(config.max_tokens, 8192)
+        self.assertEqual(config.model, "gpt-6.1-sol")
 
 
 if __name__ == "__main__":

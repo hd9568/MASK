@@ -17,7 +17,9 @@ description: Develop, debug, validate, and optimize SparseKG, a Matrix- and Arch
    from the README without checking the current CLI.
 5. Treat source code and current CLI `--help` output as authoritative. Treat
    dated files under `docs/`, `.trae/skills`, and copied onboarding material as
-   experiment records that may describe an older implementation.
+   experiment records that may describe an older implementation. The slim
+   `sparsekg` remote branch omits `docs/` and `.trae/`; those local records are
+   optional context, never a prerequisite for source-based work.
 6. Read only the references relevant to the task:
    - Paper concepts or compiler architecture: [research-context.md](references/research-context.md)
    - Formats, lowering, atomic-format work, or codegen: [format-codegen.md](references/format-codegen.md)

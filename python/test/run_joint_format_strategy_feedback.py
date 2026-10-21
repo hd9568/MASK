@@ -40,6 +40,7 @@ sys.path.insert(0, str(TEST_ROOT))
 
 from run_format_design_batch import (  # noqa: E402
     _format_artifact,
+    _is_retryable_transport_failure,
     _quality_issues,
     _render_basis_markdown,
 )
@@ -61,6 +62,7 @@ from sparsene.utils.incumbent_registry import (  # noqa: E402
     load_incumbent,
     update_registry_from_runs,
 )
+from sparsene.utils.temp_paths import sparsekg_toolchain_env  # noqa: E402
 
 
 SCHEMA = "sparsene.joint_format_strategy_feedback.v1"
@@ -78,6 +80,7 @@ IMPLEMENTATION_PATHS = (
     "python/test/run_v7_strategy_feedback.py",
     "python/test/generate_custom_format_operators.py",
     "python/test/run_custom_format_e2e.py",
+    "python/sparsene/utils/temp_paths.py",
     "python/sparsene/op_gen/format_design_agent.py",
     "python/sparsene/op_gen/strategy_agent.py",
     "python/sparsene/op_gen/backend_registry.py",
@@ -424,9 +427,40 @@ def _format_config(args: argparse.Namespace, log_dir: Path) -> FormatDesignConfi
         log_dir=str(log_dir),
         timeout_sec=model.timeout_sec,
         temperature=model.temperature,
-        max_tokens=max(model.max_tokens, DEFAULT_MAX_TOKENS),
+        max_tokens=model.max_tokens,
+        reasoning_effort=args.format_reasoning_effort,
         model_config_path=str(args.model_config),
     )
+
+
+def _format_retry_guidance(
+    response: FormatDesignResponse, issues: list[str], attempt: int
+) -> dict[str, Any]:
+    """Give the next request actionable failure evidence, never a fake format."""
+    fallback = response.agent_metadata.get("source") == "fallback"
+    reason = str(response.rationale or "")
+    truncated = response.agent_metadata.get("finish_reason") == "length"
+    guidance: dict[str, Any] = {
+        "failed_attempt": attempt,
+        "blocking_issues": issues[:24],
+        "previous_call_error": reason[:1000] if fallback else "",
+        "previous_dsl": (
+            {} if fallback else {
+                "levels": response.levels,
+                "atomic": response.atomic,
+                "params": response.params,
+            }
+        ),
+    }
+    if truncated or "json parse failed" in reason.lower():
+        guidance["response_budget"] = (
+            "The previous output was truncated or not parseable. Return exactly "
+            "one complete JSON object. Use concise strings and no markdown, "
+            "duplicated explanations, long lists, or narrative outside JSON. "
+            "Still provide every required field and at least three compact "
+            "complete alternatives. Finish the JSON object before the token limit."
+        )
+    return guidance
 
 
 def _write_candidate_manifest(
@@ -476,28 +510,55 @@ def _run_format_agent(
     _write_json(feedback_path, feedback)
     _write_json(dataset_dir / "matrix_features.json", features)
     attempts: list[dict[str, Any]] = []
+    old_decision_path = dataset_dir / "format_decision.json"
+    if args.resume and old_decision_path.is_file():
+        attempts = list(_read_json(old_decision_path).get("attempts") or [])
+    attempt_base = max(
+        [int(item.get("attempt") or 0) for item in attempts] + [0]
+    )
     accepted: FormatDesignResponse | None = None
     last_response: FormatDesignResponse | None = None
-    previous_issues: list[str] = []
-    for attempt in range(1, args.format_max_attempts + 1):
+    previous_issues: list[str] = list(
+        (_read_json(old_decision_path).get("quality_issues") or [])
+        if args.resume and old_decision_path.is_file() else []
+    )
+    quality_feedback: dict[str, Any] = (
+        {"blocking_issues": previous_issues, "previous_call_error": "Resumed after an unsuccessful format-design attempt."}
+        if previous_issues else {}
+    )
+    for attempt_idx in range(1, args.format_max_attempts + 1):
+        attempt = attempt_base + attempt_idx
         attempt_feedback = deepcopy(feedback)
         if last_response is not None:
             attempt_feedback["validation_retry"] = {
                 "attempt": attempt,
-                "reason": "The previous proposal failed deterministic validation. Return a new complete proposal; do not patch or repeat the invalid JSON.",
-                "previous_quality_issues": previous_issues,
-                "previous_proposal": _compact_format(asdict(last_response)),
+                "reason": "The previous call failed; return one new complete, legal JSON proposal.",
+                "previous_quality_issues": previous_issues[:24],
+                "previous_proposal": (
+                    _compact_format(asdict(last_response))
+                    if last_response.agent_metadata.get("source") != "fallback"
+                    else {}
+                ),
                 "required_corrections": [
                     "Use atomic.layout exactly row_major or col_major.",
                     "For atomic.type=custom, provide non-empty value_arrays and metadata_arrays plus logical_mapping and restore_algorithm.",
                     "Preserve a genuinely new format hypothesis while satisfying every reported structural and evidence requirement.",
                 ],
             }
+        config = _format_config(args, log_dir)
+        if attempt_idx > 1 and last_response is not None and (
+            last_response.agent_metadata.get("finish_reason") == "length"
+            or "json parse failed" in str(last_response.rationale or "").lower()
+        ) and config.model.startswith("gpt-6"):
+            # The OpenLux completion budget includes hidden reasoning. Reserve
+            # it for the final JSON instead of repeating high-effort overflow.
+            config.reasoning_effort = "low"
         response = run_format_design_agent(
             dataset,
             features,
-            _format_config(args, log_dir),
+            config,
             empirical_feedback=attempt_feedback,
+            quality_feedback=quality_feedback,
         )
         last_response = response
         issues = _quality_issues(response)
@@ -514,6 +575,7 @@ def _run_format_agent(
             "support_level": response.capability.get("support_level"),
             "quality_issues": issues,
             "is_validation_retry": attempt > 1,
+            "reasoning_effort_override": config.reasoning_effort,
             "token_usage": response.token_usage,
         }
         attempts.append(attempt_record)
@@ -521,8 +583,15 @@ def _run_format_agent(
         if not issues:
             accepted = response
             break
-        if attempt < args.format_max_attempts:
-            time.sleep(args.format_retry_delay_sec)
+        if attempt_idx < args.format_max_attempts:
+            if response.agent_metadata.get("source") == "fallback" and not (
+                _is_retryable_transport_failure(response)
+                or response.agent_metadata.get("finish_reason") == "length"
+                or "json parse failed" in str(response.rationale or "").lower()
+            ):
+                break  # e.g. authentication or unsupported request: fail fast
+            quality_feedback = _format_retry_guidance(response, issues, attempt)
+            time.sleep(min(args.format_retry_delay_sec * 2 ** (attempt_idx - 1), 30.0))
     response = accepted or last_response
     if response is None:
         return None, {"status": "failed_format", "error": "no format response"}
@@ -536,6 +605,10 @@ def _run_format_agent(
             "quality_issues": issues,
             "attempt_count": len(attempts),
             "attempts": attempts,
+            "total_token_usage": {
+                field: sum(int((item.get("token_usage") or {}).get(field) or 0) for item in attempts)
+                for field in ("prompt_tokens", "completion_tokens", "total_tokens", "reasoning_tokens")
+            },
             "feature_file": str(feature_path.resolve()),
             "feature_sha256": _sha256(feature_path),
             "outer_feedback_path": str(feedback_path.resolve()),
@@ -754,6 +827,21 @@ def _publish_dataset_summary(
         "best_generated_ms": best.get("best_generated_ms") if best else None,
         "best_speedup_vs_cusparse": best.get("best_speedup_vs_cusparse") if best else None,
         "best_operator_path": best.get("best_operator_path") if best else None,
+        "best_current_run_format_iteration": (
+            current_best.get("format_iteration") if current_best else None
+        ),
+        "best_current_run_strategy_iteration": (
+            current_best.get("best_strategy_iteration") if current_best else None
+        ),
+        "best_current_run_generated_ms": (
+            current_best.get("best_generated_ms") if current_best else None
+        ),
+        "best_current_run_speedup_vs_cusparse": (
+            current_best.get("best_speedup_vs_cusparse") if current_best else None
+        ),
+        "best_current_run_operator_path": (
+            current_best.get("best_operator_path") if current_best else None
+        ),
         "best_source": best.get("source_kind", "current_run") if best else None,
         "best_source_run": (
             best.get("source_run_id", run_dir.name) if best else None
@@ -807,6 +895,10 @@ def _publish_global(run_dir: Path, args: argparse.Namespace) -> dict[str, Any]:
             "datasets_retaining_incumbent": sum(
                 item.get("best_source") == "incumbent_registry" for item in summaries
             ),
+            "datasets_with_current_run_best": sum(
+                isinstance(item.get("best_current_run_generated_ms"), (int, float))
+                for item in summaries
+            ),
         },
         "results": summaries,
     }
@@ -822,6 +914,11 @@ def _publish_global(run_dir: Path, args: argparse.Namespace) -> dict[str, Any]:
         "best_source",
         "best_source_run",
         "best_operator_path",
+        "best_current_run_format_iteration",
+        "best_current_run_strategy_iteration",
+        "best_current_run_generated_ms",
+        "best_current_run_speedup_vs_cusparse",
+        "best_current_run_operator_path",
     ]
     with (run_dir / "joint_feedback_summary.csv").open("w", newline="", encoding="utf-8") as out:
         writer = csv.DictWriter(out, fieldnames=fields, extrasaction="ignore")
@@ -864,7 +961,17 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--format-max-tokens", type=int, default=DEFAULT_MAX_TOKENS)
     parser.add_argument("--format-timeout-sec", type=int, default=600)
     parser.add_argument("--format-max-attempts", type=int, default=1)
+    parser.add_argument(
+        "--format-reasoning-effort",
+        choices=("low", "medium", "high", "xhigh", "max"),
+        default=None,
+        help="Optional format-only reasoning override; retries after GPT-6 truncation use low.",
+    )
     parser.add_argument("--format-retry-delay-sec", type=float, default=1.0)
+    parser.add_argument(
+        "--abort-on-format-failure", action="store_true",
+        help="Stop at a failed outer format rather than count it as a completed design; resume in the same directory after inspection.",
+    )
     parser.add_argument("--strategy-provider", default="openai_http")
     parser.add_argument("--strategy-model", default="deepseek-v4-pro")
     parser.add_argument("--strategy-temperature", type=float, default=0.2)
@@ -945,8 +1052,9 @@ def _write_root_manifest(args: argparse.Namespace, run_dir: Path, features: dict
         "models": {
             "format": {
                 **model.to_dict(),
-                "effective_max_tokens": max(model.max_tokens, DEFAULT_MAX_TOKENS),
+                "effective_max_tokens": model.max_tokens,
                 "max_attempts": args.format_max_attempts,
+                "reasoning_effort_override": args.format_reasoning_effort,
             },
             "strategy": {
                 "model_name": args.strategy_model,
@@ -1001,8 +1109,8 @@ def _write_root_manifest(args: argparse.Namespace, run_dir: Path, features: dict
         },
         "layout": {
             "per_dataset": "datasets/<dataset>/",
-            "per_format": "datasets/<dataset>/format_iterations/format_<00..02>/",
-            "per_strategy": ".../datasets/<dataset>/strategy_tuning/iteration_<00..05>/",
+            "per_format": f"datasets/<dataset>/format_iterations/format_<00..{args.format_iterations - 1:02d}>/",
+            "per_strategy": f".../datasets/<dataset>/strategy_tuning/iteration_<00..{args.strategy_agent_iterations:02d}>/",
             "dataset_best": "datasets/<dataset>/best_joint_candidate.json",
             "cross_run_incumbent": str(args.incumbent_dir.resolve()),
         },
@@ -1010,8 +1118,21 @@ def _write_root_manifest(args: argparse.Namespace, run_dir: Path, features: dict
     manifest_path = run_dir / "run_manifest.json"
     if args.resume and manifest_path.is_file():
         existing = _read_json(manifest_path)
-        immutable = ("datasets", "loop", "evaluation_contract")
+        immutable = ("datasets", "loop", "evaluation_contract", "protocol")
         mismatch = [name for name in immutable if existing.get(name) != manifest.get(name)]
+        def model_identity(payload: dict[str, Any]) -> dict[str, Any]:
+            models = deepcopy(payload.get("models") or {})
+            format_model = models.get("format") or {}
+            format_model.pop("api_key_present", None)
+            # Older manifests predate this optional override; absent and None
+            # have the same request semantics, so preserve their resume path.
+            format_model.setdefault("reasoning_effort_override", None)
+            format_model.setdefault("reasoning_effort", None)
+            format_model.setdefault("thinking_mode", None)
+            format_model.setdefault("stream", False)
+            return models
+        if model_identity(existing) != model_identity(manifest):
+            mismatch.append("models")
         if mismatch:
             raise SystemExit(
                 "resume manifest mismatch for immutable fields: " + ", ".join(mismatch)
@@ -1025,6 +1146,9 @@ def _write_root_manifest(args: argparse.Namespace, run_dir: Path, features: dict
 def main() -> int:
     args = _parse_args()
     _validate_args(args)
+    toolchain_env = sparsekg_toolchain_env()
+    for key in ("TMPDIR", "TMP", "TEMP"):
+        os.environ[key] = toolchain_env[key]
     run_dir = args.run_dir.resolve()
     run_dir.mkdir(parents=True, exist_ok=True)
     feature_paths = _select_features(args.feature_dir.resolve(), args.datasets)
@@ -1151,6 +1275,22 @@ def main() -> int:
                     **format_record,
                 }
                 _write_json(candidate_summary_path, record)
+                if args.abort_on_format_failure:
+                    _append_event(
+                        run_dir,
+                        {
+                            "event": "campaign_paused_for_format_failure",
+                            "dataset": dataset,
+                            "format_iteration": format_iteration,
+                            "error": record.get("error"),
+                        },
+                    )
+                    print(
+                        f"format {format_iteration} failed after {args.format_max_attempts} "
+                        f"attempts; inspect {decision_path} and resume this run",
+                        flush=True,
+                    )
+                    return 2
             else:
                 returncode, command = _run_strategy_campaign(
                     args=args, candidate_dir=candidate_dir, dataset=dataset

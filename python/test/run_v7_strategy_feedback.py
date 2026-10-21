@@ -14,10 +14,13 @@ from __future__ import annotations
 
 import argparse
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextlib import contextmanager, nullcontext
 from copy import deepcopy
 import csv
+import fcntl
 import hashlib
 import json
+import os
 from pathlib import Path
 import shutil
 from statistics import median
@@ -41,6 +44,7 @@ from sparsene.op_gen.strategy_agent import (
     strategy_search_space,
 )
 from sparsene.profiling.ncu import collect_ncu_profile, parse_ncu_csv
+from sparsene.utils.temp_paths import sparsekg_temp_root, sparsekg_toolchain_env
 
 
 SCHEMA = "sparsene.v7_strategy_feedback.v1"
@@ -50,11 +54,13 @@ PERFORMANCE_CONTRACT = "sparsene.kernel_only_post_conversion.v1"
 # 2026.3, which cannot attach to the driver; the toolkit-pinned 2025.1 binary
 # is compatible and has been verified against the generated-kernel runner.
 DEFAULT_NCU = Path("/home/huoda/local/cuda/nsight-compute-2025.1.0/ncu")
+DEFAULT_GPU_LOCK = Path("/tmp/sparsekg_sm80_gpu_benchmark.lock")
 REPO_ROOT = Path(__file__).resolve().parents[2]
 IMPLEMENTATION_PATHS = (
     "python/test/run_v7_strategy_feedback.py",
     "python/test/generate_custom_format_operators.py",
     "python/test/run_custom_format_e2e.py",
+    "python/sparsene/utils/temp_paths.py",
     "python/sparsene/op_gen/strategy_agent.py",
     "python/sparsene/op_gen/backend_registry.py",
     "python/sparsene/op_gen/nvir/generate.py",
@@ -88,11 +94,64 @@ def _stable_fingerprint(payload: dict[str, Any]) -> str:
     ).hexdigest()
 
 
+@contextmanager
+def _interprocess_gpu_lock():
+    """Serialize correctness, timing, and NCU across model worker processes."""
+    path = Path(os.environ.get("SPARSEKG_GPU_LOCK_FILE", str(DEFAULT_GPU_LOCK)))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor = os.open(path, os.O_CREAT | os.O_RDWR, 0o600)
+    try:
+        fcntl.flock(descriptor, fcntl.LOCK_EX)
+        yield
+    finally:
+        fcntl.flock(descriptor, fcntl.LOCK_UN)
+        os.close(descriptor)
+
+
 def _implementation_hashes() -> dict[str, str]:
     return {
         relative: _sha256(REPO_ROOT / relative)
         for relative in IMPLEMENTATION_PATHS
     }
+
+
+def _storage_only_resume_fingerprints(
+    previous: dict[str, Any], current: dict[str, Any]
+) -> set[str]:
+    """Reuse measurements only when a previous run differs in build placement."""
+    excluded = {
+        "campaign_fingerprint", "implementation_files", "implementation_sha256",
+        "resume_compatible_fingerprints", "temporary_artifact_root", "dry_run",
+    }
+    if {k: v for k, v in previous.items() if k not in excluded} != {
+        k: v for k, v in current.items() if k not in excluded
+    }:
+        return set()
+    old_files = previous.get("implementation_files", {})
+    new_files = current.get("implementation_files", {})
+    changed = {
+        name for name in set(old_files) | set(new_files)
+        if old_files.get(name) != new_files.get(name)
+    }
+    allowed = {
+        "python/test/run_v7_strategy_feedback.py",
+        "python/test/run_custom_format_e2e.py",
+        "python/sparsene/utils/temp_paths.py",
+    }
+    if not changed:
+        if previous.get("campaign_fingerprint") == current.get("campaign_fingerprint"):
+            return {
+                item for item in previous.get("resume_compatible_fingerprints", [])
+                if isinstance(item, str) and item
+            }
+        return set()
+    if not changed <= allowed:
+        return set()
+    fingerprints = {
+        previous.get("campaign_fingerprint"),
+        *previous.get("resume_compatible_fingerprints", []),
+    }
+    return {item for item in fingerprints if isinstance(item, str) and item}
 
 
 def _compact_features(features: dict[str, Any], plan: dict[str, Any]) -> dict[str, Any]:
@@ -789,21 +848,8 @@ def _evaluate_iteration(
         entry["executable_sha256"] = _sha256(executable)
         samples = []
         for measurement_index in range(args.measurement_runs):
-            if gpu_lock is None:
-                sample = run_one(
-                    run_dir,
-                    manifest,
-                    executable,
-                    n=args.n,
-                    warmup=args.warmup,
-                    repeat=args.repeat,
-                    runtime_max_tiles_per_segment=schedule.runtime_max_tiles_per_segment,
-                    execution_policy=schedule.execution_policy,
-                    task_group_tiles=schedule.task_group_tiles,
-                    result_label=f"measurement_{measurement_index:02d}",
-                )
-            else:
-                with gpu_lock:
+            with gpu_lock if gpu_lock is not None else nullcontext():
+                with _interprocess_gpu_lock():
                     sample = run_one(
                         run_dir,
                         manifest,
@@ -831,17 +877,8 @@ def _evaluate_iteration(
         _write_json(iteration_dir / "e2e_result.json", result)
         if result["correctness"]["passed"]:
             entry["status"] = "validated"
-            if gpu_lock is None:
-                entry["ncu_profile"] = _profile(
-                    args=args,
-                    dataset=dataset,
-                    features=features,
-                    executable=executable,
-                    decision=decision,
-                    iteration_dir=iteration_dir,
-                )
-            else:
-                with gpu_lock:
+            with gpu_lock if gpu_lock is not None else nullcontext():
+                with _interprocess_gpu_lock():
                     entry["ncu_profile"] = _profile(
                         args=args,
                         dataset=dataset,
@@ -982,6 +1019,7 @@ def _run_dataset(
     position: int,
     total_datasets: int,
     campaign_fingerprint: str,
+    compatible_cached_fingerprints: set[str],
     gpu_lock: threading.Lock,
     codegen_lock: threading.Lock,
 ) -> dict[str, Any]:
@@ -1032,7 +1070,18 @@ def _run_dataset(
         resumed_decision: StrategyDecision | None = None
         if args.resume and summary_path.is_file():
             cached = _read_json(summary_path)
-            if cached.get("campaign_fingerprint") == campaign_fingerprint:
+            cached_fingerprint = cached.get("campaign_fingerprint")
+            if cached_fingerprint == campaign_fingerprint or cached_fingerprint in compatible_cached_fingerprints:
+                if cached_fingerprint != campaign_fingerprint:
+                    _write_json(
+                        iteration_dir / "resume_storage_migration.json",
+                        {
+                            "reason": "build_artifact_storage_only_change",
+                            "original_campaign_fingerprint": cached_fingerprint,
+                            "current_campaign_fingerprint": campaign_fingerprint,
+                            "original_executable_sha256": cached.get("executable_sha256"),
+                        },
+                    )
                 # Correct and numerically rejected observations are complete,
                 # reproducible terminal outcomes.  A transient build/GPU/API
                 # failure is not: retry it instead of letting --resume freeze
@@ -1164,6 +1213,9 @@ def _run_dataset(
 
 def main() -> int:
     args = parse_args()
+    toolchain_env = sparsekg_toolchain_env()
+    for key in ("TMPDIR", "TMP", "TEMP"):
+        os.environ[key] = toolchain_env[key]
     if args.jobs != 1:
         raise SystemExit("strategy feedback requires --jobs 1; each worker already uses one compile job")
     if args.dataset_workers < 1:
@@ -1216,7 +1268,7 @@ def main() -> int:
         "ncu_enabled": not args.skip_ncu,
         "dry_run": args.dry_run,
         "serial_gpu_execution": True,
-        "gpu_scheduler": "dataset_workers_with_process_gpu_lock",
+        "gpu_scheduler": "dataset_workers_with_process_and_interprocess_gpu_lock",
         "search_space": _v7_strategy_search_space(),
         "implementation_sha256": _stable_fingerprint(implementation_hashes),
         "implementation_files": implementation_hashes,
@@ -1226,7 +1278,15 @@ def main() -> int:
     settings["campaign_fingerprint"] = _stable_fingerprint(fingerprint_payload)
     campaign_fingerprint = settings["campaign_fingerprint"]
     config_prefix = "strategy_tuning" if args.tuning_name == "strategy_tuning" else args.tuning_name
-    _write_json(run_dir / f"{config_prefix}_config.json", settings)
+    config_path = run_dir / f"{config_prefix}_config.json"
+    compatible_cached_fingerprints: set[str] = set()
+    if args.resume and config_path.is_file():
+        compatible_cached_fingerprints = _storage_only_resume_fingerprints(
+            _read_json(config_path), settings
+        )
+    settings["resume_compatible_fingerprints"] = sorted(compatible_cached_fingerprints)
+    settings["temporary_artifact_root"] = str(sparsekg_temp_root())
+    _write_json(config_path, settings)
     gpu_lock = threading.Lock()
     codegen_lock = threading.Lock()
     summaries: list[dict[str, Any]]
@@ -1240,6 +1300,7 @@ def main() -> int:
                 position=position,
                 total_datasets=len(datasets),
                 campaign_fingerprint=campaign_fingerprint,
+                compatible_cached_fingerprints=compatible_cached_fingerprints,
                 gpu_lock=gpu_lock,
                 codegen_lock=codegen_lock,
             )
@@ -1257,6 +1318,7 @@ def main() -> int:
                     position=position,
                     total_datasets=len(datasets),
                     campaign_fingerprint=campaign_fingerprint,
+                    compatible_cached_fingerprints=compatible_cached_fingerprints,
                     gpu_lock=gpu_lock,
                     codegen_lock=codegen_lock,
                 ): dataset

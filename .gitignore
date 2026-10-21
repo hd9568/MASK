@@ -45,6 +45,11 @@ examples/**/testbed/build_perf_logs/
 examples/**/testbed/build_agent_multidataset/
 
 docs/
+mtx_fig/
+.trae/
+.tc_block_k_sweep_*/
+scripts/tmp/
+python/test/tmp/
 current_generated_vs_patched.diff
 
 python/**/*.inc

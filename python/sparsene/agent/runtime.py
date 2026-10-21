@@ -45,6 +45,7 @@ class AgentModelConfig:
     max_tokens: Optional[int] = None
     timeout_sec: Optional[int] = None
     reasoning_effort: Optional[str] = None
+    thinking_mode: Optional[str] = None
     stream: Optional[bool] = None
     model_config_path: Optional[str] = None
 
@@ -61,6 +62,7 @@ class AgentModelConfig:
             max_tokens=self.max_tokens,
             timeout_sec=self.timeout_sec,
             reasoning_effort=self.reasoning_effort,
+            thinking_mode=self.thinking_mode,
             stream=self.stream,
             yaml_path=self.model_config_path,
         )
@@ -125,6 +127,7 @@ def _invoke_llm(
             max_tokens=resolved_model.max_tokens,
             timeout_sec=resolved_model.timeout_sec,
             reasoning_effort=resolved_model.reasoning_effort,
+            thinking_mode=resolved_model.thinking_mode,
             stream=resolved_model.stream,
             response_format={"type": "json_object"} if json_output else None,
         )
@@ -175,6 +178,7 @@ def invoke_json_agent(
             "json_output": json_output,
             "max_tokens": resolved_model.max_tokens,
             "reasoning_effort": resolved_model.reasoning_effort,
+            "thinking_mode": resolved_model.thinking_mode,
             "stream": resolved_model.stream,
         },
         "request": request_payload,

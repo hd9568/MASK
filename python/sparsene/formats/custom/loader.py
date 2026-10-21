@@ -46,8 +46,29 @@ def load_run_format(
     substitute a different Agent decision.
     """
     artifact_path = run_dir / "formats" / f"{dataset}.format.json"
+    repair_manifest_path = run_dir / "manual_repair_manifest.json"
+    repair_entry: dict[str, Any] | None = None
+    if repair_manifest_path.is_file():
+        repair_manifest = json.loads(repair_manifest_path.read_text(encoding="utf-8"))
+        entries = repair_manifest.get("repairs", {})
+        if not isinstance(entries, dict):
+            raise ValueError(f"Invalid manual repair manifest: {repair_manifest_path}")
+        repair_entry = entries.get(dataset)
+        if repair_entry is not None:
+            if not isinstance(repair_entry, dict) or repair_entry.get("source") != "manual_repair":
+                raise ValueError(f"Invalid manual repair entry for {dataset}")
+            relative_path = repair_entry.get("format_path")
+            if not isinstance(relative_path, str):
+                raise ValueError(f"Manual repair format_path missing for {dataset}")
+            candidate = (run_dir / relative_path).resolve()
+            if not candidate.is_relative_to(run_dir.resolve()):
+                raise ValueError(f"Manual repair artifact escapes run directory: {dataset}")
+            artifact_path = candidate
     if not artifact_path.is_file():
         raise FileNotFoundError(f"Missing format artifact for {dataset}: {artifact_path}")
+    artifact_sha = hashlib.sha256(artifact_path.read_bytes()).hexdigest()
+    if repair_entry is not None and artifact_sha != repair_entry.get("format_sha256"):
+        raise ValueError(f"Manual repair artifact hash mismatch for {dataset}")
     payload = json.loads(artifact_path.read_text(encoding="utf-8"))
     if not isinstance(payload, dict):
         raise TypeError(f"Format artifact must be an object: {artifact_path}")
@@ -66,7 +87,7 @@ def load_run_format(
         payload,
         build_format_from_spec(payload),
         artifact_path.resolve(),
-        hashlib.sha256(artifact_path.read_bytes()).hexdigest(),
+        artifact_sha,
     )
 
 

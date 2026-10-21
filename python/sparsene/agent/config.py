@@ -102,6 +102,7 @@ class ResolvedModelConfig:
     timeout_sec: int
     source: str
     reasoning_effort: Optional[str] = None
+    thinking_mode: Optional[str] = None
     stream: bool = False
 
     def to_dict(self) -> Dict[str, Any]:
@@ -117,6 +118,7 @@ class ResolvedModelConfig:
             "max_tokens": self.max_tokens,
             "timeout_sec": self.timeout_sec,
             "reasoning_effort": self.reasoning_effort,
+            "thinking_mode": self.thinking_mode,
             "stream": self.stream,
             "source": self.source,
         }
@@ -135,6 +137,7 @@ def resolve_model_config(
     max_tokens: Optional[int] = None,
     timeout_sec: Optional[int] = None,
     reasoning_effort: Optional[str] = None,
+    thinking_mode: Optional[str] = None,
     stream: Optional[bool] = None,
     yaml_path: Optional[str] = None,
 ) -> ResolvedModelConfig:
@@ -189,6 +192,11 @@ def resolve_model_config(
             reasoning_effort
             if reasoning_effort is not None
             else defaults.get("reasoning_effort")
+        ),
+        thinking_mode=(
+            thinking_mode
+            if thinking_mode is not None
+            else defaults.get("thinking_mode")
         ),
         stream=bool(stream if stream is not None else defaults.get("stream", False)),
         source="llm_models.yaml" if entry else "explicit",

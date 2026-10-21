@@ -79,6 +79,13 @@ replacement history for every dataset. Joint runs read it as a dataset-level
 performance floor and update it only when a compatible correct generated kernel
 has a strictly lower median kernel time.
 
+Rebuildable CMake/NVCC binaries and toolchain scratch default to
+`/mnt/lustre-client/huoda/sparsekg_tmp` (override with `SPARSEKG_TMP_DIR`).
+Run directories under `logs/e2e_runs` retain the generated operator source,
+format/strategy decisions, compile logs, correctness, timing, and profiling
+records. Detailed experiment notes under `docs/` are local-only and are not
+part of the slim source branch.
+
 ## Core Ideas
 
 ### Matrix-aware format design
@@ -169,10 +176,10 @@ synchronization, MMA, accumulation, stores, and any required timed reduction.
 |-- examples/src_fp32/         # CUDA/CUTLASS host bridges and testbeds
 |-- .agent/skills/             # runtime skills injected into project agents
 |-- .codex/skills/             # Codex development skill
-|-- docs/codex/                # current engineering records and contracts
+|-- docs/codex/                # local-only engineering records, when available
 |-- sota_results/summary/      # audited SOTA and generated-kernel summaries
 |-- logs/e2e_runs/             # coordinated experiment artifacts
-`-- paper/                     # original paper source used for context
+`-- paper/                     # local-only original paper source, when available
 ```
 
 ## Environment
@@ -289,18 +296,14 @@ Current project records separate historical paper/SOTA data from freshly
 generated results:
 
 - `sota_results/summary/`: audited A100/A800 CSV and Markdown summaries.
-- `docs/codex/format_design_agent_v6.md`: current format-agent contract.
-- `docs/codex/custom_format_operator_e2e_v6_all26_n512.md`: 26-dataset custom
-  format e2e closure and known performance bottlenecks.
-- `docs/codex/sparsene_a100_best_vs_current_a800_n512.md`: historical
-  A100-versus-current A800 comparison methodology.
-- `docs/codex/strategy_agent_search_space.md`: canonical Strategy Agent field
-  meanings, legal values, applicability rules, and raw search-space size.
-- `docs/codex/asic_680k_strategy_feedback_analysis_20260815.md`: ASIC_680k
-  feedback-loop diagnosis, repairs, and the isolated 12-iteration experiment.
+- `.codex/skills/sparsene-development/`: source-aware compiler, Agent, and
+  validation guidance. Source code and current CLI flags are authoritative.
+- `.codex/skills/sparsekg-literature-guided-search/`: literature-grounded
+  guidance for future iteration-controller design.
 - `logs/e2e_runs/incumbents/a100_a800_n512_fp32/`: maintained 26-dataset
   correctness-gated operator/format/strategy incumbents across compatible runs.
-- `docs/codex/development_log.md`: chronological engineering record.
+- `docs/codex/`, when present locally: historical engineering records and
+  chronological experiment notes; intentionally not published in this branch.
 
 Historical logs and paper results are useful context, but new claims should be
 backed by fresh artifacts from the same code revision, dataset, precision, `N`,
