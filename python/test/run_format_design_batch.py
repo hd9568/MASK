@@ -822,6 +822,7 @@ def main() -> int:
                 config,
                 empirical_feedback=feedback_by_dataset.get(dataset),
                 quality_feedback=quality_feedback,
+                spmm_n=512,
             )
             last_response = response
             attempt_usage = response.token_usage

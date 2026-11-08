@@ -37,6 +37,58 @@ def _resolved() -> ResolvedModelConfig:
 
 
 class AgentRuntimeAuditTest(unittest.TestCase):
+    def test_v4_pro_openlux_config_keeps_prior_defaults_and_secret_out_of_audit(self) -> None:
+        with patch.dict(os.environ, {
+            "OPENLUX_API_KEY": "openlux-test-only-secret",
+            "DEEPSEEK_API_KEY": "old-direct-test-key",
+        }):
+            cfg = AgentModelConfig(model_name="deepseek-v4-pro").resolve()
+        self.assertEqual(cfg.api_key, "openlux-test-only-secret")
+        self.assertEqual(cfg.api_base_url, "https://api.openlux.ai/v1")
+        self.assertEqual(cfg.model, "deepseek-v4-pro")
+        self.assertEqual((cfg.temperature, cfg.max_tokens, cfg.timeout_sec), (0.5, 8192, 300))
+        self.assertTrue(cfg.stream)
+        self.assertEqual(cfg.provider_sort, "success_rate")
+        self.assertNotIn("openlux-test-only-secret", json.dumps(cfg.to_dict()))
+
+    def test_openlux_provider_sort_reaches_streaming_http_body(self) -> None:
+        captured = {}
+
+        class FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, traceback):
+                return False
+
+            def __iter__(self):
+                return iter([
+                    b'data: {"choices":[{"delta":{"content":"{\\"ok\\":true}"},"finish_reason":null}]}\n',
+                    b'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n',
+                    b"data: [DONE]\n",
+                ])
+
+        def fake_urlopen(request, timeout):
+            captured.update(json.loads(request.data.decode()))
+            return FakeResponse()
+
+        with patch("sparsene.agent.client.urllib_request.urlopen", side_effect=fake_urlopen):
+            response = call_openai_compatible(
+                model="deepseek-v4-pro", api_key="not-logged",
+                api_base_url="https://api.openlux.ai/v1",
+                system_prompt="json", user_prompt="json", temperature=0.5,
+                max_tokens=8192, timeout_sec=300, stream=True,
+                provider_sort="success_rate",
+                response_format={"type": "json_object"},
+            )
+        self.assertEqual(captured["model"], "deepseek-v4-pro")
+        self.assertEqual(captured["temperature"], 0.5)
+        self.assertEqual(captured["max_tokens"], 8192)
+        self.assertEqual(captured["provider"], {"sort": "success_rate"})
+        self.assertTrue(captured["stream"])
+        self.assertEqual(captured["response_format"], {"type": "json_object"})
+        self.assertEqual(response.content, '{"ok":true}')
+
     def test_flash_model_config_enables_thinking_without_logging_key(self) -> None:
         with patch.dict(os.environ, {"DEEPSEEK_API_KEY": "test-only-secret"}):
             cfg = AgentModelConfig(model_name="deepseek-flash").resolve()

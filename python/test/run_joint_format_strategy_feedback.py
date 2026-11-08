@@ -45,12 +45,22 @@ from run_format_design_batch import (  # noqa: E402
     _render_basis_markdown,
 )
 from sparsene.agent.config import resolve_model_config  # noqa: E402
+from sparsene.op_gen.backend_registry import select_backend  # noqa: E402
 from sparsene.op_gen.format_design_agent import (  # noqa: E402
     DEFAULT_MAX_TOKENS,
     DESIGN_SCHEMA_VERSION,
     FormatDesignConfig,
     FormatDesignResponse,
+    assess_backend_capability,
     run_format_design_agent,
+    validate_format_dsl,
+)
+from sparsene.formats.SR_BCRS import SR_BCRS_FORMAT  # noqa: E402
+from sparsene.formats.Acc_SpMM import BIT_TCF_FORMAT  # noqa: E402
+from sparsene.utils.sparsene_reference import (  # noqa: E402
+    DEFAULT_REFERENCE_CSV,
+    SparseneReference,
+    load_sparsene_reference,
 )
 from sparsene.performance_contract import (  # noqa: E402
     KERNEL_ONLY_EVALUATION_CONTRACT,
@@ -85,6 +95,7 @@ IMPLEMENTATION_PATHS = (
     "python/sparsene/op_gen/strategy_agent.py",
     "python/sparsene/op_gen/backend_registry.py",
     "python/sparsene/utils/incumbent_registry.py",
+    "python/sparsene/utils/sparsene_reference.py",
     "python/test/update_e2e_incumbents.py",
     ".agent/skills/format-design/SKILL.md",
     ".agent/skills/strategy-optimization/SKILL.md",
@@ -168,6 +179,121 @@ def _format_signature(spec: dict[str, Any]) -> str:
             "params": spec.get("params", {}),
         }
     )
+
+
+def _fixed_sr_bcrs_response(
+    reference: SparseneReference | None = None,
+) -> FormatDesignResponse:
+    """Construct a declared format0 matching the reference's storage semantics.
+
+    The historical execution policy is recorded separately: strict load
+    balancing and multi-binding are schedules, not different Format DSLs.
+    """
+    outer = BIT_TCF_FORMAT if reference and reference.atomic_type == "mco" else SR_BCRS_FORMAT
+    inner = outer.child
+    atomic_leaf = inner.child if inner is not None else None
+    expected_atomic = reference.atomic_type if reference else "dense"
+    if inner is None or atomic_leaf is None or atomic_leaf.atomic_type != expected_atomic:
+        raise ValueError(f"declared format0 no longer has a two-level {expected_atomic} leaf")
+
+    def axes(source: Any) -> list[dict[str, Any]]:
+        result = []
+        for axis in source:
+            axis_type = ("s" if axis.is_sparse else "d") + ("v" if axis.is_varlen else "f")
+            result.append({
+                "name": axis.name,
+                "type": axis_type,
+                "direction": axis.direction.name,
+                "length": str(axis.length),
+                "reorder": axis.reorder,
+            })
+        return result
+
+    levels = [
+        {"level": 1, "name": "row_window_condensation", "axes": axes(outer.axes)},
+        {"level": 2, "name": "tensorcore_block", "axes": axes(inner.axes)},
+    ]
+    atomic = {
+        "type": expected_atomic,
+        "x_axis": atomic_leaf.axes[0].name,
+        "y_axis": atomic_leaf.axes[1].name,
+        "layout": "row_major",
+    }
+    params = {"BLK_M": 16, "BLK_K": 8}
+    name = f"{reference.variant if reference else 'SR-BCRS-16x8'}-fixed-format0"
+    validation = validate_format_dsl(format_name=name, levels=levels, atomic=atomic, params=params)
+    if validation.get("status") != "valid":
+        raise ValueError(f"fixed SR-BCRS DSL invalid: {validation.get('errors')}")
+    capability = assess_backend_capability(
+        format_name=name, levels=levels, atomic=atomic, params=params,
+        selected_candidate="16x8", validation=validation,
+    )
+    if not capability.get("execution_ready"):
+        raise ValueError(f"fixed SR-BCRS is not executable: {capability.get('reasons')}")
+    return FormatDesignResponse(
+        request_id="fixed-sparsene-reference-format0" if reference else "fixed-sr-bcrs-format0",
+        format_name=name,
+        levels=levels,
+        atomic=atomic,
+        params=params,
+        rationale="Deterministic format matching the historical Sparsene reference; not an Agent design.",
+        confidence="high",
+        format_family="tcf_mco" if expected_atomic == "mco" else "tcf_dense",
+        design_summary=f"Declared column-condensed 16x8 {expected_atomic} Tensor-Core format.",
+        selected_candidate="16x8",
+        rationale_cn="按逐数据集历史最快 Sparsene 变体固定格式语义，不消耗格式智能体 token。",
+        format_semantics_cn=[
+            "将行分为16行窗口，对每个窗口的列做凝聚，再按8列分块，"
+            + ("以 MCO 叶子保存块内非零元。" if expected_atomic == "mco"
+               else "以 dense 叶子存储块内 A 值。"),
+        ],
+        selection_reason_cn="作为 format0 的可执行语义起点；历史耗时另列为参考，不冒充当前生成算子。",
+        dsl_validation=validation,
+        capability=capability,
+        executable_profile=str(capability.get("matched_profile") or "none"),
+        agent_metadata={"source": "fixed_repository_format", "model_called": False},
+    )
+
+
+def _run_fixed_initial_format(
+    *, dataset: str, feature_path: Path, candidate_dir: Path,
+    feedback: dict[str, Any], reference: SparseneReference | None = None,
+) -> dict[str, Any]:
+    response = _fixed_sr_bcrs_response(reference)
+    origin = "historical_sparsene_best" if reference else "fixed_repository_sr_bcrs_16x8"
+    dataset_dir = candidate_dir / "datasets" / dataset
+    artifact_path = candidate_dir / "formats" / f"{dataset}.format.json"
+    decision = asdict(response)
+    decision.update({
+        "dataset": dataset,
+        "status": "accepted",
+        "format_origin": origin,
+        "historical_reference": reference.to_dict() if reference else None,
+        "model_called": False,
+        "attempt_count": 0,
+        "total_token_usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+        "feature_file": str(feature_path.resolve()),
+        "feature_sha256": _sha256(feature_path),
+        "outer_feedback_contains_raw_ncu": False,
+    })
+    _write_json(dataset_dir / "matrix_features.json", _read_json(feature_path))
+    _write_json(dataset_dir / "format_feedback_input.json", feedback)
+    _write_json(dataset_dir / "format_decision.json", decision)
+    spec = _format_artifact(dataset, response)
+    spec["format_origin"] = origin
+    if reference:
+        spec["historical_reference"] = reference.to_dict()
+    _write_json(artifact_path, spec)
+    return {
+        "status": "format_accepted",
+        "format_origin": origin,
+        "historical_reference": reference.to_dict() if reference else None,
+        "format_artifact": str(artifact_path.resolve()),
+        "format_artifact_sha256": _sha256(artifact_path),
+        "format_signature": _format_signature(spec),
+        "format": _compact_format(spec),
+        "capability": response.capability,
+    }
 
 
 def _compact_levels(levels: Any) -> list[dict[str, Any]]:
@@ -340,6 +466,7 @@ def build_format_feedback(
         history.append(
             {
                 "format_iteration": record.get("format_iteration"),
+                "format_origin": record.get("format_origin", "format_agent"),
                 "status": record.get("status"),
                 "format_signature": record.get("format_signature"),
                 "format": record.get("format"),
@@ -366,6 +493,7 @@ def build_format_feedback(
     if best is not None:
         best_summary = {
             "format_iteration": best.get("format_iteration"),
+            "format_origin": best.get("format_origin", "format_agent"),
             "format_signature": best.get("format_signature"),
             "best_generated_ms": best.get("best_generated_ms"),
             "best_speedup_vs_cusparse": best.get("best_speedup_vs_cusparse"),
@@ -377,6 +505,29 @@ def build_format_feedback(
         "outer_iteration": format_iteration,
         "total_outer_iterations": total_format_iterations,
         "objective": PERFORMANCE_CONTRACT,
+        "selected_format_execution_contract": {
+            "required": True,
+            "scope": "this joint SM80/A800 operator campaign only",
+            "known_executable_starting_points": [
+                "two-level row-window/column-condensed TCF with MCO or dense leaf",
+                "one-level active fixed blocks with MCO or dense leaf",
+                "three-level sparse-row/column-condensed SR-BCRS with dense leaf",
+            ],
+            "reliable_logical_tiles": {
+                "BLK_M": [8, 16, 32],
+                "BLK_K": [8, 16, 32],
+            },
+            "guidance": (
+                "The selected DSL must pass the current executable backend and "
+                "Format-to-RTS/codegen capability checks. Research-only formats may "
+                "be discussed as alternatives, but cannot be the selected candidate "
+                "in this campaign. Do not rename or silently canonicalize an unsupported "
+                "proposal. Only use a reorder with an implemented host contract: "
+                "row_rcm, first_col_sort, or jaccard_greedy; otherwise omit reorder. "
+                "Use a supported hierarchy/atomic combination, and change the actual "
+                "physical work rather than only the DSL name."
+            ),
+        },
         "role_boundary": {
             "format_agent_receives_raw_ncu": False,
             "reason": (
@@ -463,6 +614,29 @@ def _format_retry_guidance(
     return guidance
 
 
+def _joint_format_issues(response: FormatDesignResponse) -> list[str]:
+    """Additional gate for a campaign that must execute its selected format."""
+    issues = _quality_issues(response)
+    if response.dsl_validation.get("status") != "valid":
+        return issues
+    spec = {
+        "format_name": response.format_name,
+        "levels": response.levels,
+        "atomic": response.atomic,
+        "params": response.params,
+    }
+    try:
+        select_backend(spec, target="sm80")
+    except (ValueError, KeyError, TypeError) as exc:
+        issues.append(f"selected format has no executable SM80 backend: {exc}")
+    if not response.capability.get("execution_ready"):
+        issues.append(
+            "selected format cannot complete the current Format-to-RTS/codegen "
+            "capability check"
+        )
+    return issues
+
+
 def _write_candidate_manifest(
     *,
     candidate_dir: Path,
@@ -522,10 +696,18 @@ def _run_format_agent(
         (_read_json(old_decision_path).get("quality_issues") or [])
         if args.resume and old_decision_path.is_file() else []
     )
-    quality_feedback: dict[str, Any] = (
-        {"blocking_issues": previous_issues, "previous_call_error": "Resumed after an unsuccessful format-design attempt."}
-        if previous_issues else {}
-    )
+    quality_feedback: dict[str, Any] = {
+        "campaign_requirement": (
+            "This is an executable joint Format+Strategy campaign. The selected "
+            "format must be executable by the current SM80 backend; research-only "
+            "ideas belong in alternatives_considered, not the selected DSL."
+        )
+    }
+    if previous_issues:
+        quality_feedback.update({
+            "blocking_issues": previous_issues,
+            "previous_call_error": "Resumed after an unsuccessful format-design attempt.",
+        })
     for attempt_idx in range(1, args.format_max_attempts + 1):
         attempt = attempt_base + attempt_idx
         attempt_feedback = deepcopy(feedback)
@@ -559,9 +741,10 @@ def _run_format_agent(
             config,
             empirical_feedback=attempt_feedback,
             quality_feedback=quality_feedback,
+            spmm_n=args.n,
         )
         last_response = response
-        issues = _quality_issues(response)
+        issues = _joint_format_issues(response)
         previous_issues = list(issues)
         attempt_record = {
             "attempt": attempt,
@@ -590,12 +773,15 @@ def _run_format_agent(
                 or "json parse failed" in str(response.rationale or "").lower()
             ):
                 break  # e.g. authentication or unsupported request: fail fast
-            quality_feedback = _format_retry_guidance(response, issues, attempt)
+            quality_feedback = {
+                **quality_feedback,
+                **_format_retry_guidance(response, issues, attempt),
+            }
             time.sleep(min(args.format_retry_delay_sec * 2 ** (attempt_idx - 1), 30.0))
     response = accepted or last_response
     if response is None:
         return None, {"status": "failed_format", "error": "no format response"}
-    issues = _quality_issues(response)
+    issues = _joint_format_issues(response)
     status = "accepted" if accepted is not None else "failed_format_quality_gate"
     decision = asdict(response)
     decision.update(
@@ -764,6 +950,11 @@ def _record_from_candidate(
             "best_result": _compact_best_result(best),
         }
     )
+    reference = format_record.get("historical_reference")
+    if isinstance(reference, dict) and isinstance(summary.get("baseline_generated_ms"), (int, float)):
+        record["generated_iteration_0_vs_historical_sparsene"] = (
+            float(reference["historical_ms"]) / float(summary["baseline_generated_ms"])
+        ) if summary["baseline_generated_ms"] > 0 else None
     if summary.get("error"):
         record["error"] = summary.get("error")
     return record
@@ -790,6 +981,11 @@ def _publish_dataset_summary(
     failed_candidates = sum(
         int(record.get("strategy_candidates_failed") or 0) for record in records
     )
+    reference = (
+        load_sparsene_reference(dataset, args.sparsene_reference_csv)
+        if getattr(args, "initial_format", None) == "sparsene_historical_best"
+        else None
+    )
     if (
         best
         and len(records) == args.format_iterations
@@ -805,6 +1001,16 @@ def _publish_dataset_summary(
         "schema_version": SCHEMA,
         "dataset": dataset,
         "performance_contract": PERFORMANCE_CONTRACT,
+        "historical_sparsene_reference": reference.to_dict() if reference else None,
+        "historical_sparsene_variant": reference.variant if reference else None,
+        "historical_sparsene_ms": reference.milliseconds if reference else None,
+        "historical_sparsene_reference_speedup": 1.0 if reference else None,
+        "historical_reference_is_generated_candidate": False,
+        "trajectory_indexing": (
+            "format0/iteration0=historical_reference; generated format0 heuristic is "
+            "display iteration1 but internal strategy iteration0"
+            if reference else "generated internal strategy iterations 0..K"
+        ),
         "format_iterations_requested": args.format_iterations,
         "strategy_agent_iterations_per_format": args.strategy_agent_iterations,
         "candidate_budget": candidate_budget,
@@ -836,6 +1042,11 @@ def _publish_dataset_summary(
         "best_current_run_generated_ms": (
             current_best.get("best_generated_ms") if current_best else None
         ),
+        "best_current_run_vs_historical_sparsene": (
+            reference.milliseconds / float(current_best["best_generated_ms"])
+            if reference and current_best and isinstance(current_best.get("best_generated_ms"), (int, float))
+            and current_best["best_generated_ms"] > 0 else None
+        ),
         "best_current_run_speedup_vs_cusparse": (
             current_best.get("best_speedup_vs_cusparse") if current_best else None
         ),
@@ -843,6 +1054,11 @@ def _publish_dataset_summary(
             current_best.get("best_operator_path") if current_best else None
         ),
         "best_source": best.get("source_kind", "current_run") if best else None,
+        "best_vs_historical_sparsene": (
+            reference.milliseconds / float(best["best_generated_ms"])
+            if reference and best and isinstance(best.get("best_generated_ms"), (int, float))
+            and best["best_generated_ms"] > 0 else None
+        ),
         "best_source_run": (
             best.get("source_run_id", run_dir.name) if best else None
         ),
@@ -850,6 +1066,51 @@ def _publish_dataset_summary(
         "status": status,
     }
     _write_json(dataset_dir / "joint_summary.json", summary)
+    if reference:
+        trajectory_rows: list[dict[str, Any]] = [{
+            "dataset": dataset,
+            "format_iteration": 0,
+            "display_iteration": 0,
+            "internal_strategy_iteration": "",
+            "point_type": "historical_sparsene_reference",
+            "status": "historical_sentinel_only",
+            "milliseconds": reference.milliseconds,
+            "speedup_vs_historical_sparsene": 1.0,
+            "variant": reference.variant,
+            "operator_path": "",
+        }]
+        for record in records:
+            format_index = int(record["format_iteration"])
+            tuning_dir = Path(str(record["candidate_dir"])) / "datasets" / dataset / "strategy_tuning"
+            for path in sorted(tuning_dir.glob("iteration_*/iteration_summary.json")):
+                entry = _read_json(path)
+                internal_index = entry.get("iteration")
+                result = entry.get("e2e_result") or {}
+                timing = result.get("timing") or {}
+                milliseconds = timing.get("generated_ms")
+                valid = (entry.get("status") == "validated"
+                         and (result.get("correctness") or {}).get("passed") is True
+                         and isinstance(milliseconds, (int, float)) and milliseconds > 0)
+                trajectory_rows.append({
+                    "dataset": dataset,
+                    "format_iteration": format_index,
+                    "display_iteration": (internal_index + 1 if format_index == 0 else internal_index)
+                    if isinstance(internal_index, int) else "",
+                    "internal_strategy_iteration": internal_index,
+                    "point_type": "generated_kernel",
+                    "status": entry.get("status"),
+                    "milliseconds": milliseconds if valid else "",
+                    "speedup_vs_historical_sparsene": (
+                        reference.milliseconds / milliseconds if valid else ""
+                    ),
+                    "variant": (record.get("format") or {}).get("format_name", ""),
+                    "operator_path": entry.get("operator_path", ""),
+                })
+        fields = list(trajectory_rows[0])
+        with (dataset_dir / "performance_trajectory.csv").open("w", newline="", encoding="utf-8") as handle:
+            writer = csv.DictWriter(handle, fieldnames=fields)
+            writer.writeheader()
+            writer.writerows(trajectory_rows)
     if best:
         operator = Path(str(best["best_operator_path"]))
         artifact = Path(str(best["format_artifact"]))
@@ -906,10 +1167,15 @@ def _publish_global(run_dir: Path, args: argparse.Namespace) -> dict[str, Any]:
     fields = [
         "dataset",
         "status",
+        "historical_sparsene_variant",
+        "historical_sparsene_ms",
+        "historical_sparsene_reference_speedup",
+        "historical_reference_is_generated_candidate",
         "candidate_budget",
         "best_format_iteration",
         "best_strategy_iteration",
         "best_generated_ms",
+        "best_vs_historical_sparsene",
         "best_speedup_vs_cusparse",
         "best_source",
         "best_source_run",
@@ -917,6 +1183,7 @@ def _publish_global(run_dir: Path, args: argparse.Namespace) -> dict[str, Any]:
         "best_current_run_format_iteration",
         "best_current_run_strategy_iteration",
         "best_current_run_generated_ms",
+        "best_current_run_vs_historical_sparsene",
         "best_current_run_speedup_vs_cusparse",
         "best_current_run_operator_path",
     ]
@@ -940,6 +1207,16 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--feature-dir", type=Path, default=DEFAULT_FEATURE_DIR)
     parser.add_argument("--datasets", nargs="+", required=True)
     parser.add_argument("--format-iterations", type=int, default=3)
+    parser.add_argument(
+        "--initial-format",
+        choices=("agent", "sr_bcrs_16x8", "sparsene_historical_best"),
+        default="agent",
+        help="Use the per-dataset historical fastest Sparsene format, fixed SR-BCRS, or an Agent design as format 0.",
+    )
+    parser.add_argument(
+        "--sparsene-reference-csv", type=Path, default=DEFAULT_REFERENCE_CSV,
+        help="Audited A100 N=512 FP32 per-dataset historical fastest variant catalog.",
+    )
     parser.add_argument("--strategy-agent-iterations", type=int, default=5)
     parser.add_argument("--initial-feedback-run-dir", type=Path)
     parser.add_argument(
@@ -1009,6 +1286,9 @@ def _validate_args(args: argparse.Namespace) -> None:
         raise SystemExit("--datasets contains duplicates")
     if not args.model_config.is_file():
         raise SystemExit(f"missing model config: {args.model_config}")
+    if args.initial_format == "sparsene_historical_best":
+        for dataset in args.datasets:
+            load_sparsene_reference(dataset, args.sparsene_reference_csv)
     if args.initial_feedback_run_dir is not None and not args.initial_feedback_run_dir.is_dir():
         raise SystemExit(
             f"missing initial feedback run directory: {args.initial_feedback_run_dir}"
@@ -1035,6 +1315,11 @@ def _write_root_manifest(args: argparse.Namespace, run_dir: Path, features: dict
         "evaluation_contract": KERNEL_ONLY_EVALUATION_CONTRACT,
         "loop": {
             "format_iterations": args.format_iterations,
+            "initial_format": args.initial_format,
+            "sparsene_reference_csv_sha256": (
+                _sha256(args.sparsene_reference_csv)
+                if args.initial_format == "sparsene_historical_best" else None
+            ),
             "strategy_agent_iterations_per_format": args.strategy_agent_iterations,
             "heuristic_baseline_per_format": 1,
             "strategy_candidates_per_format": args.strategy_agent_iterations + 1,
@@ -1119,7 +1404,16 @@ def _write_root_manifest(args: argparse.Namespace, run_dir: Path, features: dict
     if args.resume and manifest_path.is_file():
         existing = _read_json(manifest_path)
         immutable = ("datasets", "loop", "evaluation_contract", "protocol")
-        mismatch = [name for name in immutable if existing.get(name) != manifest.get(name)]
+        mismatch = []
+        for name in immutable:
+            prior = deepcopy(existing.get(name))
+            current = manifest.get(name)
+            if name == "loop" and isinstance(prior, dict):
+                # Older runs had only Agent-designed format 0.
+                prior.setdefault("initial_format", "agent")
+                prior.setdefault("sparsene_reference_csv_sha256", None)
+            if prior != current:
+                mismatch.append(name)
         def model_identity(payload: dict[str, Any]) -> dict[str, Any]:
             models = deepcopy(payload.get("models") or {})
             format_model = models.get("format") or {}
@@ -1157,6 +1451,8 @@ def main() -> int:
         "schema_version": SCHEMA,
         "datasets": args.datasets,
         "format_iterations": args.format_iterations,
+        "initial_format": args.initial_format,
+        "historical_reference_is_generated_candidate": False,
         "strategy_iterations_per_format": list(range(args.strategy_agent_iterations + 1)),
         "candidate_budget_per_dataset": args.format_iterations
         * (args.strategy_agent_iterations + 1),
@@ -1186,6 +1482,12 @@ def main() -> int:
                 )
         seed = dict(_load_seed_feedback(args.initial_feedback_run_dir, dataset) or {})
         seed["registry_incumbent"] = compact_incumbent_feedback(incumbent)
+        reference = (
+            load_sparsene_reference(dataset, args.sparsene_reference_csv)
+            if args.initial_format == "sparsene_historical_best" else None
+        )
+        if reference:
+            seed["historical_sparsene_reference"] = reference.to_dict()
         print(
             f"[{dataset_position:02d}/{len(args.datasets):02d}] {dataset}: "
             f"resume_outer={len(records)}",
@@ -1226,6 +1528,9 @@ def main() -> int:
             candidate_dir.mkdir(parents=True, exist_ok=True)
             feedback_path = candidate_dir / "datasets" / dataset / "format_feedback_input.json"
             _write_json(feedback_path, feedback)
+            # The fixed format and resumed artifacts must satisfy the same
+            # feature-snapshot contract as fresh Agent designs.
+            _write_json(candidate_dir / "datasets" / dataset / "matrix_features.json", features)
             _write_candidate_manifest(
                 candidate_dir=candidate_dir,
                 parent_run_dir=run_dir,
@@ -1250,12 +1555,24 @@ def main() -> int:
                 decision = _read_json(decision_path)
                 format_record = {
                     "status": "format_accepted",
+                    "format_origin": spec.get("format_origin", "format_agent"),
                     "format_artifact": str(artifact_path.resolve()),
                     "format_artifact_sha256": _sha256(artifact_path),
                     "format_signature": _format_signature(spec),
                     "format": _compact_format(spec),
                     "capability": decision.get("capability", {}),
+                    "historical_reference": spec.get("historical_reference"),
                 }
+            elif format_iteration == 0 and args.initial_format in {
+                "sr_bcrs_16x8", "sparsene_historical_best"
+            }:
+                format_record = _run_fixed_initial_format(
+                    dataset=dataset,
+                    feature_path=feature_path,
+                    candidate_dir=candidate_dir,
+                    feedback=feedback,
+                    reference=reference,
+                )
             else:
                 _response, format_record = _run_format_agent(
                     args=args,

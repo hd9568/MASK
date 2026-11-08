@@ -104,6 +104,7 @@ class ResolvedModelConfig:
     reasoning_effort: Optional[str] = None
     thinking_mode: Optional[str] = None
     stream: bool = False
+    provider_sort: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -120,6 +121,7 @@ class ResolvedModelConfig:
             "reasoning_effort": self.reasoning_effort,
             "thinking_mode": self.thinking_mode,
             "stream": self.stream,
+            "provider_sort": self.provider_sort,
             "source": self.source,
         }
 
@@ -139,6 +141,7 @@ def resolve_model_config(
     reasoning_effort: Optional[str] = None,
     thinking_mode: Optional[str] = None,
     stream: Optional[bool] = None,
+    provider_sort: Optional[str] = None,
     yaml_path: Optional[str] = None,
 ) -> ResolvedModelConfig:
     config_path = Path(yaml_path) if yaml_path else DEFAULT_LLM_MODELS_YAML
@@ -199,5 +202,8 @@ def resolve_model_config(
             else defaults.get("thinking_mode")
         ),
         stream=bool(stream if stream is not None else defaults.get("stream", False)),
+        provider_sort=(
+            provider_sort if provider_sort is not None else defaults.get("provider_sort")
+        ),
         source="llm_models.yaml" if entry else "explicit",
     )

@@ -840,6 +840,10 @@ def render_strategy_prompt(request: StrategyRequest) -> str:
             "- align_cp_async_smem_outputs can be toggled; disabling it may save shared memory but risks misaligned cp.async on some problem sizes.",
             "- Change only a small number of knobs between adjacent iterations unless profile evidence strongly suggests a larger change.",
             "- If actual physical tile/MMA, padding, restore, or B-gather work dominates and no active strategy field changes it, report a representation-bound diagnosis instead of random strategy diversity.",
+            "- Before changing runtime_max_tiles_per_segment, check whether the effective policy flips between strict_lb and row; a smaller segment count can still be much slower on an extreme row tail.",
+            "- Coarser task groups can reduce task and atomic overhead, but inspect resulting groups/grid and p95/max row-window work to avoid underfilling or renewed imbalance.",
+            "- For each TILE_B candidate, predict N-grid, B reuse, and register/shared-resource effects for this format; do not transfer a winning value from another matrix without matching evidence.",
+            "- Identical generated source does not imply identical timing: packed data and host task mapping may differ. Conversely, do not credit a source-code optimization when the code hash is unchanged.",
         ]
     )
 
@@ -1020,7 +1024,7 @@ Output requirements:
 - For cp.async paths, ensure alignment and safe fallback logic are considered.
 - For pipeline decisions, avoid aggressive waits/commits unless justified.
 - Use correctness feedback to avoid repeating strategies that fail systematically on the same synthetic shapes or sparsity levels.
-- Explore TILE_B and placement/pipeline choices when the current strategies cluster too tightly; do not keep repeating the same memory/pipeline recipe.
+- Explore an untested TILE_B, placement, or pipeline choice only with a format-specific work/resource hypothesis; do not change fields merely to create diversity.
 - Consider compiler resource limits and runtime task mapping together with NCU register/occupancy and matrix heavy-tail evidence.
 - Every selected value must come from the exact search space. Deterministic normalization makes the final backend-specific legality decision.
 - Use the history and profile feedback to explain why the next strategy should improve or stabilize performance.
@@ -1043,6 +1047,8 @@ Schema:
 
 def _extract_json_object(text: str) -> Dict[str, Any]:
     stripped = text.strip()
+    if not stripped:
+        raise ValueError("empty strategy response from model")
     if stripped.startswith("```"):
         lines = stripped.splitlines()
         if len(lines) >= 3 and lines[0].startswith("```") and lines[-1].startswith("```"):

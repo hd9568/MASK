@@ -11,7 +11,7 @@ from run_v7_strategy_feedback import (
     _normalize_v7_strategy,
     _v7_strategy_search_space,
 )
-from sparsene.op_gen.strategy_agent import StrategyDecision
+from sparsene.op_gen.strategy_agent import StrategyDecision, _extract_json_object
 
 
 class V7StrategyFeedbackResilienceTest(unittest.TestCase):
@@ -100,6 +100,27 @@ class V7StrategyFeedbackResilienceTest(unittest.TestCase):
             self.assertEqual(calls, 1)
             sleep.assert_not_called()
             self.assertEqual(json.loads(audit_path.read_text())["status"], "failed")
+
+    def test_empty_model_response_is_clear_and_retryable(self):
+        with self.assertRaisesRegex(ValueError, "empty strategy response"):
+            _extract_json_object("  \n")
+        with tempfile.TemporaryDirectory() as temporary_dir:
+            calls = 0
+
+            def request():
+                nonlocal calls
+                calls += 1
+                if calls == 1:
+                    return _extract_json_object("")
+                return {"ok": True}
+
+            with patch("run_v7_strategy_feedback.time.sleep"):
+                result = _call_strategy_with_retry(
+                    request,
+                    audit_path=Path(temporary_dir) / "strategy_request_retries.json",
+                )
+            self.assertEqual(result, {"ok": True})
+            self.assertEqual(calls, 2)
 
 
 if __name__ == "__main__":

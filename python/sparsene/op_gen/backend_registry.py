@@ -474,8 +474,11 @@ def select_backend(
                 max_tiles_per_execution_segment=max_tiles_per_execution_segment,
                 exact_error=exact_error,
             )
-        except ValueError:
-            raise exact_error
+        except ValueError as canonical_error:
+            raise ValueError(
+                f"exact backend rejected: {exact_error}; "
+                f"canonical physicalization rejected: {canonical_error}"
+            ) from canonical_error
 
 
 def materialize_backend_format_spec(

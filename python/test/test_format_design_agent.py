@@ -18,6 +18,7 @@ from sparsene.op_gen.format_design_agent import (
     _canonical_atomic,
     _canonical_levels,
     _default_output_schema,
+    _feature_digest,
     assess_backend_capability,
     build_format_from_response,
     normalize_format_payload,
@@ -264,6 +265,32 @@ def _novel_payload() -> dict:
 
 
 class FormatDesignAgentTest(unittest.TestCase):
+    def test_sparse_shape_does_not_supply_spmm_n(self) -> None:
+        features = _features()
+        features["shape"]["N"] = features["shape"]["K"]  # legacy v3 artifact
+        digest = _feature_digest(features)
+        self.assertEqual(digest["shape"]["K"], 128)
+        self.assertNotIn("N", digest["shape"])
+        request = FormatDesignRequest(
+            request_id="n-contract",
+            matrix_name="synthetic",
+            matrix_features=features,
+            hardware={"cuda_arch": "sm_80"},
+            output_schema=_default_output_schema(),
+            constraints=[],
+            rules=[],
+            spmm_n=512,
+        )
+        prompt = render_format_design_prompt(request)
+        workload = prompt.split("=== SPMM WORKLOAD (SEPARATE FROM MATRIX A FEATURES) ===", 1)[1]
+        self.assertIn('"N": 512', workload)
+        feature_map = prompt.split("=== MATRIX FEATURE PATH-VALUE MAP ===", 1)[1].split("=== SPMM WORKLOAD", 1)[0]
+        self.assertNotIn('"shape.N"', feature_map)
+        self.assertNotIn('"N": 128', feature_map)
+        request.spmm_n = 0
+        with self.assertRaisesRegex(ValueError, "positive integer"):
+            render_format_design_prompt(request)
+
     def test_prompt_teaches_open_research_search_space(self) -> None:
         request = FormatDesignRequest(
             request_id="test",

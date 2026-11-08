@@ -72,6 +72,10 @@ schedule. For a heavy-tailed dense format, `auto` can already resolve to
 `strict_lb`; choosing explicit `strict_lb` with the same group size is then not
 a new experiment. Use the effective segment bound, task/task-group counts and
 NCU grid size to quantify scheduling overhead.
+Changing a segment cap can also switch the effective policy to `row`, even if
+the segment count decreases; on an extreme row tail this may be catastrophic.
+Check p95/max tiles per row window first. Coarser task grouping can remove
+scheduling overhead, but may starve the grid or restore imbalance.
 
 ## Reading NCU feedback
 
@@ -116,12 +120,16 @@ Before returning a patch, use this diagnosis order:
    the causal explanation.
 
 Do not assume cp.async, smaller tiles, higher occupancy, strict load balance,
-or multi-bind is inherently faster. ASIC_680k demonstrated that higher
-occupancy can lose, tile_b=32 can double N-grid work and reduce B reuse, and
-multi-bind can explode task/grid overhead; coarser strict task groups won by
-reducing scheduling/atomic work. Allow an empty patch when the winner is stable,
-relevant axes are exhausted, or the remaining bottleneck belongs to the Format
-layer. Random diversity after saturation is not optimization.
+or multi-bind is inherently faster. Evaluate each change against its counter-
+cost: extra N-grid work and weaker B reuse, register spills, task/grid overhead,
+or reduced load balance. A task-group size that removes scheduling overhead on
+one distribution may underfill or imbalance another. Allow an empty patch when
+the winner is stable, relevant axes are exhausted, or the remaining bottleneck
+belongs to the Format layer. Random diversity after saturation is not
+optimization. For each TILE_B candidate, evaluate N-grid, B reuse and resource
+cost rather than copying a value from another matrix. Identical generated CUDA
+source can have different times because packed data and host task mapping
+differ. Sub-noise changes in time or occupancy alone are not proof of a win.
 
 Return structured JSON only, with a concise rationale tied to matrix features,
 backend applicability, history and NCU evidence.

@@ -143,6 +143,8 @@ def _probe_model(model_name: str, model_config_path: str) -> Dict[str, Any]:
             temperature=0.0,
             max_tokens=16,
             timeout_sec=min(resolved.timeout_sec, 60),
+            stream=resolved.stream,
+            provider_sort=resolved.provider_sort,
         )
     return {
         "model_name": model_name,
@@ -857,7 +859,9 @@ def main() -> None:
                 max_tokens=args.format_max_tokens,
                 model_config_path=args.model_config,
             )
-            format_response = run_format_design_agent(mtx_path.stem, features, format_config)
+            format_response = run_format_design_agent(
+                mtx_path.stem, features, format_config, spmm_n=args.n_cols
+            )
             support_level = format_response.capability.get("support_level")
             backend_format_name = format_response.capability.get("backend_format_name")
             if support_level != "integrated_e2e" or backend_format_name != "ME_TCF":

@@ -87,6 +87,11 @@ def test_model(name: str, entry: Dict[str, Any]) -> Dict[str, Any]:
                 {"role": "user", "content": "hello"},
             ],
         }
+        if defaults.get("stream"):
+            payload["stream"] = True
+            payload["stream_options"] = {"include_usage": True}
+        if defaults.get("provider_sort"):
+            payload["provider"] = {"sort": defaults["provider_sort"]}
     result["request_payload"] = payload
 
     headers = {

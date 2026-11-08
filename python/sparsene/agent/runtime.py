@@ -47,6 +47,7 @@ class AgentModelConfig:
     reasoning_effort: Optional[str] = None
     thinking_mode: Optional[str] = None
     stream: Optional[bool] = None
+    provider_sort: Optional[str] = None
     model_config_path: Optional[str] = None
 
     def resolve(self) -> ResolvedModelConfig:
@@ -64,6 +65,7 @@ class AgentModelConfig:
             reasoning_effort=self.reasoning_effort,
             thinking_mode=self.thinking_mode,
             stream=self.stream,
+            provider_sort=self.provider_sort,
             yaml_path=self.model_config_path,
         )
 
@@ -129,6 +131,7 @@ def _invoke_llm(
             reasoning_effort=resolved_model.reasoning_effort,
             thinking_mode=resolved_model.thinking_mode,
             stream=resolved_model.stream,
+            provider_sort=resolved_model.provider_sort,
             response_format={"type": "json_object"} if json_output else None,
         )
     if resolved_model.provider == "anthropic_compatible":
@@ -180,6 +183,7 @@ def invoke_json_agent(
             "reasoning_effort": resolved_model.reasoning_effort,
             "thinking_mode": resolved_model.thinking_mode,
             "stream": resolved_model.stream,
+            "provider_sort": resolved_model.provider_sort,
         },
         "request": request_payload,
     }

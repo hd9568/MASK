@@ -72,6 +72,13 @@ correctness, normal timing, padding/active-tile/metadata costs, effective task
 distribution, and the best normalized strategy. This keeps format design and
 microarchitectural tuning at distinct abstraction levels.
 
+For a fixed Sparsene starting point, the joint runner also accepts
+`--initial-format sr_bcrs_16x8`: format 0 is the repository-declared SR-BCRS
+16x8 dense format, with no Format-Agent call; formats 1 and 2 remain Agent
+designs informed by earlier measured format-level feedback. With
+`--strategy-agent-iterations 5`, every format evaluates heuristic strategy 0
+and Agent strategies 1 through 5 (18 candidates per dataset).
+
 The maintained N=512 FP32 incumbent registry is
 `logs/e2e_runs/incumbents/a100_a800_n512_fp32`. It retains a correctness-gated
 operator, Format DSL, strategy, performance record, hashes, and immutable

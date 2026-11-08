@@ -197,7 +197,7 @@ def _strategy_signature(decision: StrategyDecision) -> str:
     ).hexdigest()
 
 
-def _baseline_decision() -> StrategyDecision:
+def _baseline_decision(execution_policy: str = "auto") -> StrategyDecision:
     return StrategyDecision(
         provider="heuristic",
         rationale="Iteration 0 conservative SM80 baseline for the fixed v7 format.",
@@ -212,7 +212,7 @@ def _baseline_decision() -> StrategyDecision:
         runtime_schedule=RuntimeScheduleStrategy(
             compile_max_tiles_per_segment=32,
             runtime_max_tiles_per_segment=0,
-            execution_policy="auto",
+            execution_policy=execution_policy,
             task_group_tiles=64,
         ),
         agent_metadata={"source": "heuristic_iteration_0"},
@@ -629,6 +629,7 @@ def _is_transient_strategy_error(exc: Exception) -> bool:
         "remote connection closed",
         "connection reset by peer",
         "temporarily unavailable",
+        "empty strategy response from model",
         "failed with status=429",
         "failed with status=500",
         "failed with status=502",
@@ -1117,8 +1118,10 @@ def _run_dataset(
         if resumed_decision is not None:
             decision = resumed_decision
         elif iteration == 0:
+            historical_reference = spec.get("historical_reference") or {}
+            initial_policy = historical_reference.get("initial_execution_policy", "auto")
             decision = _normalize_v7_strategy(
-                _baseline_decision(), packing_mode=base_plan.packing_mode
+                _baseline_decision(initial_policy), packing_mode=base_plan.packing_mode
             )
         else:
             baseline_manifest_path = tuning_dir / "iteration_00" / "generation_manifest.json"

@@ -73,6 +73,7 @@ check() {
   export PYTHONPATH="${ROOT}/python${PYTHONPATH:+:${PYTHONPATH}}"
   for model in "${selected[@]}"; do
     case "${model}" in
+      deepseek-v4-pro) key_env=OPENLUX_API_KEY; expected_endpoint=https://api.openlux.ai/v1 ;;
       deepseek-*) key_env=DEEPSEEK_API_KEY; expected_endpoint=https://api.deepseek.com/v1 ;;
       *) key_env=OPENLUX_API_KEY; expected_endpoint=https://api.openlux.ai/v1 ;;
     esac

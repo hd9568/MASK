@@ -209,6 +209,9 @@ class FormatDesignRequest:
     output_schema: Dict[str, Any]
     constraints: List[str]
     rules: List[str]
+    # Dense operand/output width belongs to the SpMM workload, not the sparse
+    # matrix feature file. Legacy v3 extractors wrote shape.N=K by mistake.
+    spmm_n: int = 512
     # Historical kernel measurements are calibration evidence only.  They do
     # not replace the feature-grounded research design task or constrain the
     # DSL to an already integrated backend.
@@ -382,10 +385,12 @@ ideas, or propose a new hierarchy.  Novelty and diversity are not goals by
 themselves: every level, axis, reorder, atomic encoding, and parameter must
 solve a feature-backed cost problem.
 
-The current repository only executes some known profiles.  That implementation
-state MUST NOT restrict this research design.  Do not claim that a proposal is
-already executable.  Deterministic code will classify backend support after
-the proposal is returned.
+The current repository only executes some known profiles. In format-only
+research mode, that implementation state MUST NOT restrict the proposal. In an
+executable joint campaign, the request feedback explicitly requires the selected
+format to run on the current backend; research-only ideas remain valid as
+alternatives, not as the selected candidate. Do not claim execution readiness
+without the deterministic backend check.
 """
 
 
@@ -462,7 +467,7 @@ FORMAT_DESIGN_RULES = [
     "For every alternative, build a physical-work ledger covering actual MMA tiles, logical-to-physical padding, B gathers/reuse, A payload, metadata/restore, row/task tail, atomics/reduction, and synchronization pressure; storage size or global density alone is not a runtime model.",
     "Cite six to eight exact values from the supplied feature path-value map using verbatim dotted paths; never invent, combine, or silently extrapolate measurements.",
     "Treat hierarchical candidate statistics as exact only for the analyzed ME-style condensation; label them proxies for structurally different proposals.",
-    "Do not optimize for current backend support and do not claim execution readiness; list the implementation work your design would require.",
+    "In format-only research mode, do not restrict the selected design to current backend support. If campaign feedback requires an executable selected format, honor that constraint while retaining research-only ideas as alternatives. Never claim execution readiness without a deterministic check.",
     "Write the main rationale, semantic explanation, final selection reason, and risks in Chinese so the design record is directly auditable.",
     "Prefer the simplest hierarchy that explains the evidence; novelty without a measurable benefit is a design defect.",
     "Treat proposals with the same backend, packing mode, physical tile, reorder, and atomic behavior as performance-equivalent unless you identify a concrete kernel-work difference. When a registry incumbent is present, name one falsifiable representation mechanism that could beat it while preserving it as fallback.",
@@ -635,7 +640,12 @@ def _feature_digest(features: Dict[str, Any]) -> Dict[str, Any]:
     reorder = features.get("reorder_proxy", {})
     digest: Dict[str, Any] = {
         "schema_version": features.get("schema_version"),
-        "shape": features.get("shape", {}),
+        # v3 feature files may contain shape.N=K. Expose only dimensions and
+        # counts intrinsic to sparse A; the real workload N is separate.
+        "shape": {
+            key: value for key, value in (features.get("shape") or {}).items()
+            if key in {"M", "K", "file_nnz", "expanded_nnz", "structural_nnz", "nnz"}
+        },
         "density": features.get("density"),
         "sparsity": features.get("sparsity"),
         "symmetry": features.get("symmetry"),
@@ -726,6 +736,8 @@ def _flatten_digest_values(value: Any, prefix: str = "") -> Dict[str, Any]:
 
 
 def render_format_design_prompt(request: FormatDesignRequest) -> str:
+    if request.spmm_n <= 0:
+        raise ValueError("SpMM workload N must be a positive integer")
     rules_text = "\n".join(f"{i + 1}. {rule}" for i, rule in enumerate(request.rules))
     digest = _feature_digest(request.matrix_features)
     evidence_map = _flatten_digest_values(digest)
@@ -763,12 +775,21 @@ Every `feature_evidence.feature` must be copied verbatim from a key below and
 its `value` must equal the mapped value.  Do not combine two paths into one.
 {json.dumps(evidence_map, indent=2, sort_keys=True, ensure_ascii=False)}
 
+=== SPMM WORKLOAD (SEPARATE FROM MATRIX A FEATURES) ===
+The sparse matrix A has shape M x K.  The dense operand B has shape K x N and
+the output C has shape M x N.  N below is supplied by the current experiment,
+not inferred from the MatrixMarket file.  Ignore any legacy shape.N field in
+the raw v3 feature artifact; it was an extractor placeholder equal to K.
+{json.dumps({"N": request.spmm_n, "dtype": "fp32", "mma": "tf32"}, indent=2, sort_keys=True)}
+
 === HARDWARE CONTEXT ===
 {json.dumps(request.hardware, indent=2, sort_keys=True, ensure_ascii=False)}
 
 === PRIOR EMPIRICAL FEEDBACK (CALIBRATION, NOT A FORMAT TEMPLATE) ===
 The following is a compact record of prior kernel-only measurements for this
-same matrix at N=512, FP32 on an SM80-class GPU.  It is evidence about an
+matrix on an SM80-class GPU.  Check its recorded N against the current SpMM
+workload N={request.spmm_n}; when they differ, treat it as directional evidence,
+not a directly comparable timing.  It is evidence about an
 earlier implementation, not a constraint to copy its hierarchy or its format.
 In a nested Format/Strategy campaign it can contain several completed outer
 format iterations.  Each entry summarizes the best correct result after a
@@ -793,15 +814,27 @@ correctness-gated cross-run performance floor, not another alternative to erase.
 Compare the proposed backend, packing, physical tile, reorder, atomic behavior,
 and kernel-visible costs with that incumbent.  A new name or extra hierarchy
 level with the same physical work is not a performance mechanism.
+Compare the actual backend fingerprint (backend, packing, physical M/K tile,
+reorder, atomic restore, and format-dependent work counts), not the DSL name.
+Different hierarchies can canonicalize to the same backend and generated code;
+when packing/work also match, separate strategy and host-scheduling gains from
+format gains. Fewer tile records are not a target by themselves: larger physical
+tiles may increase padding, B movement, or resource pressure. Compare sparse
+leaves' A-payload savings with metadata/restore costs and remaining MMA work
+against a dense leaf under the same grouping. A proposed reorder needs a
+plausible post-grouping work or locality benefit, not just a visual pattern.
+Treat failed/missing baselines as unknown, and sub-noise timing differences as
+ties rather than evidence that the representation improved.
 {json.dumps(request.empirical_feedback, indent=2, sort_keys=True, ensure_ascii=False)}
 
-=== PRIOR QUALITY-GATE FEEDBACK (CORRECTIVE RETRY ONLY) ===
-If this object is non-empty, the preceding attempt failed deterministic checks.
-Treat every item in `blocking_issues` as a hard requirement to fix in this new
-complete response. Use `previous_dsl` to understand the rejected construction;
-do not repeat the same invalid fields. You may redesign the hierarchy or choose
-a built-in atomic leaf if that is the clearest valid repair. Do not claim that a
-proposal is valid unless it satisfies the full schema and DSL rules.
+=== CAMPAIGN CONSTRAINTS AND QUALITY-GATE FEEDBACK ===
+If `campaign_requirement` is present, it applies to this selected design from
+the first attempt. If `blocking_issues` are present, the preceding attempt
+failed deterministic checks: fix every issue in a new complete response. Use
+`previous_dsl` to understand the rejected construction; do not repeat the same
+invalid fields. You may redesign the hierarchy or choose a built-in atomic leaf
+if that is the clearest valid repair. Do not claim validity without the full
+schema, DSL, and any campaign-specific executable-backend checks.
 {json.dumps(request.quality_feedback, indent=2, sort_keys=True, ensure_ascii=False)}
 
 === REQUIRED REASONING PROCEDURE ===
@@ -824,8 +857,10 @@ proposal is valid unless it satisfies the full schema and DSL rules.
    physical-work change -> expected kernel effect -> falsifying measurement`.
    When an incumbent is present, identify the one representation mechanism
    intended to beat it; otherwise acknowledge physical equivalence.
-8. List implementation requirements without allowing current backend support
-   to bias the design.
+8. List implementation requirements. In format-only research mode, do not let
+   current backend support bias the selected design; in an executable joint
+   campaign, select a currently executable design and keep unsupported ideas
+   among the alternatives.
 9. Copy six to eight exact feature path/value pairs from the supplied map.
 10. Use prior empirical feedback as a calibration record when it is present:
    name the observed bottleneck and one specific design mechanism intended to
@@ -1598,6 +1633,7 @@ def run_format_design_agent(
     config: Optional[FormatDesignConfig] = None,
     empirical_feedback: Optional[Dict[str, Any]] = None,
     quality_feedback: Optional[Dict[str, Any]] = None,
+    spmm_n: int = 512,
 ) -> FormatDesignResponse:
     if config is None:
         config = FormatDesignConfig()
@@ -1624,6 +1660,7 @@ def run_format_design_agent(
             "Separate design quality from current backend capability.",
         ],
         rules=FORMAT_DESIGN_RULES,
+        spmm_n=spmm_n,
         empirical_feedback=deepcopy(empirical_feedback or {}),
         quality_feedback=deepcopy(quality_feedback or {}),
     )

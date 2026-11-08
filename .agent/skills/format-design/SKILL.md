@@ -11,9 +11,12 @@ Design the physical sparse representation that best matches the input matrix.
 The result is a complete hierarchical Format DSL proposal, not a parameter
 choice inside a fixed ME-TCF template.
 
-Current code-generation support is an implementation concern evaluated after
-design.  It must not collapse the research search space.  Never claim a novel
-proposal is already executable; list the work needed to implement it.
+In format-only research mode, current code-generation support is an
+implementation concern evaluated after design and must not collapse the
+research search space. If a joint operator campaign explicitly requires an
+executable selected format, honor that constraint while retaining unsupported
+research ideas as alternatives. Never claim a novel proposal is executable
+without deterministic backend validation; list implementation work when needed.
 
 ## Benchmark Objective
 
@@ -104,6 +107,12 @@ not add complexity merely to look novel or different across datasets.
 
 ## Feature-to-Format Reasoning
 
+The v3 sparse-matrix feature artifact describes A with dimensions M and K.
+Its historical `shape.N` field is not the SpMM output width (it was written as
+K by the extractor). Use the prompt's separate `SPMM WORKLOAD` section for
+the actual dense-operand/output width N; never cite legacy `shape.N` as
+matrix evidence.
+
 - Use row/column percentiles, CV, Gini, empty fraction, and top-tail share to
   diagnose irregularity and load imbalance.
 - Use adjacent-row overlap and unique-column reduction to judge row-window
@@ -141,7 +150,14 @@ work change -> expected kernel effect -> falsifying measurement`. Storage size,
 global density, occupancy, and format novelty are not substitutes for this
 chain. Two DSLs that lower to the same backend, packing mode, physical tile,
 reorder and atomic behavior are performance-equivalent unless a concrete
-kernel-work difference is identified.
+kernel-work difference is identified. Compare the *measured* physical
+fingerprint, not only the format name or hierarchy depth. Different DSLs can
+canonicalize to the same backend and generated source; when format-dependent
+packing and work counters also match, do not attribute a timing change to the
+representation without further evidence. Fewer tile records are not necessarily
+less work: a larger physical tile may increase padding, B movement, or resource
+pressure. Compare sparse leaves' payload savings with their metadata/restore
+cost and remaining MMA work against a dense leaf under the same grouping.
 
 When empirical feedback contains `registry_incumbent`, treat it as the current
 correctness-gated performance floor. The new design should challenge it with
@@ -182,6 +198,11 @@ receive compact summaries of all earlier outer iterations:
 - physical padding, active tiles, metadata/restore semantics, row-window/task
   distribution, and the effective best strategy as attribution context.
 
+Missing or failed baselines are unknown evidence, not measured slow formats.
+Treat improvements smaller than timing noise as ties. Reorder needs a credible
+reduction in physical work or locality cost after actual grouping, not only an
+attractive heatmap pattern.
+
 Use this evidence only to change representation-level decisions: hierarchy,
 axes, atomic leaf, logical tile parameters, or reorder semantics.  Raw NCU
 metrics intentionally remain in the inner Strategy-Agent loop because they
@@ -190,7 +211,9 @@ strategy fields into the Format DSL, or judge a format by NCU replay duration.
 Compare against every prior format, avoid an identical structure unless its
 retention is explicitly justified, and treat unsupported/incorrect designs as
 recorded negative evidence rather than silently replacing them.  Current
-backend capability is feasibility evidence, not a closed research menu.
+backend capability is feasibility evidence, not a closed research menu in
+format-only design. A joint executable campaign may require the selected
+format to satisfy that capability; keep other designs as alternatives.
 
 ## Output Contract
 

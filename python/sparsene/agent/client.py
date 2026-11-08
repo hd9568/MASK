@@ -208,6 +208,7 @@ def call_openai_compatible(
     reasoning_effort: Optional[str] = None,
     thinking_mode: Optional[str] = None,
     stream: bool = False,
+    provider_sort: Optional[str] = None,
 ) -> LLMTextResponse:
     api_url = _normalize_base_url(api_base_url)
     if not api_url.endswith("/chat/completions"):
@@ -238,6 +239,10 @@ def call_openai_compatible(
         payload["stream_options"] = {"include_usage": True}
     if response_format:
         payload["response_format"] = response_format
+    if provider_sort:
+        # OpenAI SDK extra_body={"provider":{"sort":...}} is merged into
+        # the JSON request body. Keep it opt-in for non-OpenLux endpoints.
+        payload["provider"] = {"sort": provider_sort}
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {api_key}",

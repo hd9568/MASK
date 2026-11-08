@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 from pathlib import Path
+from copy import deepcopy
+import csv
+import json
 import sys
 import tempfile
 from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -15,12 +19,161 @@ from run_joint_format_strategy_feedback import (  # noqa: E402
     _format_config,
     _format_retry_guidance,
     _format_signature,
+    _fixed_sr_bcrs_response,
+    _joint_format_issues,
     _publish_dataset_summary,
+    _run_fixed_initial_format,
+    _run_format_agent,
     build_format_feedback,
 )
+from sparsene.utils.sparsene_reference import load_sparsene_reference  # noqa: E402
+from run_ds_v4pro_joint_all26_campaign import DATASETS  # noqa: E402
+from run_v7_strategy_feedback import _baseline_decision  # noqa: E402
 
 
 class JointFormatStrategyFeedbackTest(unittest.TestCase):
+    def test_all_26_historical_best_formats_have_executable_format0(self) -> None:
+        variants = {}
+        for dataset in DATASETS:
+            reference = load_sparsene_reference(dataset)
+            variants[dataset] = reference.variant
+            response = _fixed_sr_bcrs_response(reference)
+            self.assertEqual(response.atomic["type"], reference.atomic_type)
+            self.assertTrue(response.capability["execution_ready"], dataset)
+        self.assertEqual(variants["webbase-1M"], "ACC-BIT-TCF")
+        self.assertEqual(variants["mip1"], "SR-BCRS-16x8-multi-bind")
+        self.assertEqual(variants["ASIC_680k"], "SR-BCRS-16x8-strict-lb")
+
+    def test_historical_reference_is_separate_from_generated_candidate(self) -> None:
+        reference = load_sparsene_reference("webbase-1M")
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            feature = root / "webbase-1M.features.v3.json"
+            feature.write_text("{}\n", encoding="utf-8")
+            record = _run_fixed_initial_format(
+                dataset="webbase-1M", feature_path=feature,
+                candidate_dir=root / "format_00", feedback={}, reference=reference,
+            )
+            self.assertEqual(record["historical_reference"]["provenance"],
+                             "historical_hand_tuned_reference_not_generated")
+            self.assertEqual(record["format"]["atomic"]["type"], "mco")
+            self.assertEqual(record["historical_reference"]["initial_execution_policy"], "row")
+
+    def test_historical_launch_variant_seeds_generated_heuristic(self) -> None:
+        for dataset, expected in (
+            ("ASIC_680k", "strict_lb"),
+            ("mip1", "multi_bind"),
+            ("webbase-1M", "row"),
+            ("DD", "row"),
+        ):
+            policy = load_sparsene_reference(dataset).execution_policy
+            self.assertEqual(policy, expected)
+            self.assertEqual(_baseline_decision(policy).runtime_schedule.execution_policy, expected)
+
+    def test_trajectory_keeps_historical_one_x_distinct_from_generated_iter0(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            candidate = root / "candidate"
+            iteration = candidate / "datasets" / "DD" / "strategy_tuning" / "iteration_00"
+            iteration.mkdir(parents=True)
+            iteration.joinpath("iteration_summary.json").write_text(json.dumps({
+                "iteration": 0, "status": "validated", "operator_path": "/generated.inc",
+                "e2e_result": {"timing": {"generated_ms": 2.0},
+                               "correctness": {"passed": True}},
+            }), encoding="utf-8")
+            reference = load_sparsene_reference("DD")
+            record = {
+                "dataset": "DD", "format_iteration": 0, "candidate_dir": str(candidate),
+                "format": {"format_name": "format0"},
+                "best_generated_ms": 2.0, "best_correctness_passed": True,
+                "best_strategy_iteration": 0, "best_operator_path": "/generated.inc",
+                "format_artifact": "/format.json", "strategy_candidates_evaluated": 1,
+            }
+            args = SimpleNamespace(format_iterations=1, strategy_agent_iterations=0,
+                                   initial_format="sparsene_historical_best",
+                                   sparsene_reference_csv=Path(reference.source_csv))
+            summary = _publish_dataset_summary(
+                run_dir=root / "run", dataset="DD", records=[record], args=args,
+            )
+            self.assertEqual(summary["historical_sparsene_reference_speedup"], 1.0)
+            self.assertAlmostEqual(summary["best_current_run_vs_historical_sparsene"],
+                                   reference.milliseconds / 2.0)
+            trajectory = root / "run" / "datasets" / "DD" / "performance_trajectory.csv"
+            with trajectory.open(newline="", encoding="utf-8") as handle:
+                rows = list(csv.DictReader(handle))
+            self.assertEqual(rows[0]["point_type"], "historical_sparsene_reference")
+            self.assertEqual(rows[0]["display_iteration"], "0")
+            self.assertEqual(rows[0]["speedup_vs_historical_sparsene"], "1.0")
+            self.assertEqual(rows[1]["point_type"], "generated_kernel")
+            self.assertEqual(rows[1]["display_iteration"], "1")
+            self.assertNotEqual(rows[1]["speedup_vs_historical_sparsene"], "1.0")
+
+    def test_fixed_sr_bcrs_format0_is_executable_and_audited_without_agent(self) -> None:
+        response = _fixed_sr_bcrs_response()
+        self.assertEqual(response.dsl_validation["status"], "valid")
+        self.assertTrue(response.capability["execution_ready"])
+        self.assertEqual(response.capability["backend_plan"]["backend"], "sr_bcrs_dense_tensorcore_v1")
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            feature = root / "matrix.features.v3.json"
+            feature.write_text("{}\n", encoding="utf-8")
+            record = _run_fixed_initial_format(
+                dataset="matrix", feature_path=feature,
+                candidate_dir=root / "format_00", feedback={"outer_iteration": 0},
+            )
+            self.assertEqual(record["format_origin"], "fixed_repository_sr_bcrs_16x8")
+            decision = (root / "format_00" / "datasets" / "matrix" / "format_decision.json").read_text()
+            self.assertIn('"model_called": false', decision)
+            self.assertTrue(Path(record["format_artifact"]).is_file())
+            self.assertEqual(
+                (root / "format_00" / "datasets" / "matrix" / "matrix_features.json").read_text(),
+                "{}\n",
+            )
+
+    def test_joint_gate_rejects_backend_unsupported_reorder(self) -> None:
+        response = deepcopy(_fixed_sr_bcrs_response())
+        response.levels[0]["axes"][0]["reorder"] = "first_nonzero_col_asc"
+        response.capability = {"execution_ready": False}
+        issues = _joint_format_issues(response)
+        self.assertTrue(any("no executable SM80 backend" in issue for issue in issues))
+        self.assertTrue(any("first_nonzero_col_asc" in issue for issue in issues))
+        self.assertTrue(any("canonical physicalization rejected" in issue for issue in issues))
+
+    def test_joint_format_retries_unsupported_proposal_before_strategy(self) -> None:
+        unsupported = deepcopy(_fixed_sr_bcrs_response())
+        unsupported.levels[0]["axes"][0]["reorder"] = "first_nonzero_col_asc"
+        unsupported.capability = {"execution_ready": False}
+        unsupported.agent_metadata["run_dir"] = "attempt-1"
+        accepted = deepcopy(_fixed_sr_bcrs_response())
+        accepted.agent_metadata["run_dir"] = "attempt-2"
+        for response in (unsupported, accepted):
+            response.token_usage = {
+                "prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0
+            }
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            feature = root / "matrix.features.v3.json"
+            feature.write_text("{}\n", encoding="utf-8")
+            args = SimpleNamespace(
+                resume=False, format_max_attempts=2, format_retry_delay_sec=0,
+                n=512,
+            )
+            with (
+                patch("run_joint_format_strategy_feedback._quality_issues", side_effect=lambda _: []),
+                patch("run_joint_format_strategy_feedback._format_config", return_value=SimpleNamespace(model="test", reasoning_effort=None)),
+                patch("run_joint_format_strategy_feedback.run_format_design_agent", side_effect=[unsupported, accepted]) as invoke,
+                patch("run_joint_format_strategy_feedback.time.sleep"),
+            ):
+                _, record = _run_format_agent(
+                    args=args, dataset="matrix", features={}, feature_path=feature,
+                    candidate_dir=root / "format_00", feedback={"outer_iteration": 0},
+                )
+            self.assertEqual(record["status"], "format_accepted", record)
+            self.assertEqual(invoke.call_count, 2)
+            first_attempt = (root / "format_00" / "datasets" / "matrix" / "format_attempt_01.json").read_text()
+            self.assertIn("first_nonzero_col_asc", first_attempt)
+            self.assertIn("campaign_requirement", str(invoke.call_args_list[0].kwargs["quality_feedback"]))
+
     def test_outer_feedback_omits_raw_ncu_and_keeps_format_level_evidence(self) -> None:
         records = [
             {
@@ -57,6 +210,7 @@ class JointFormatStrategyFeedbackTest(unittest.TestCase):
         self.assertNotIn("dram_throughput", rendered)
         self.assertNotIn("ncu_profile", rendered)
         self.assertFalse(feedback["role_boundary"]["format_agent_receives_raw_ncu"])
+        self.assertTrue(feedback["selected_format_execution_contract"]["required"])
         history = feedback["previous_outer_iterations"][0]
         self.assertEqual(history["best_kernel_format_level_evidence"]["kernel_visible_format_costs"]["tiles"], 123)
         self.assertEqual(feedback["best_correct_format_so_far"]["format_iteration"], 0)
