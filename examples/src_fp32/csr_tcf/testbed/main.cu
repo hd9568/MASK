@@ -192,6 +192,11 @@ std::filesystem::path getCheckpointCacheDir() {
             return std::filesystem::path(env_dir);
         }
     }
+    if (const char* temp_root = std::getenv("SPARSEKG_TMP_DIR")) {
+        if (temp_root[0] != '\0') {
+            return std::filesystem::path(temp_root) / "mtx_cache";
+        }
+    }
     return std::filesystem::path("/mnt/lustre-client/huoda/mtx_cache");
 }
 

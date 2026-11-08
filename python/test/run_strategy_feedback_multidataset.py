@@ -54,7 +54,12 @@ DEFAULT_BUILD_BINARY = DEFAULT_BUILD_DIR / "demo-dtc-generated-multi-dataset-tf3
 DEFAULT_NCU_BIN = Path.home() / "local" / "cuda" / "nsight-compute-2025.1.0" / "ncu"
 DEFAULT_DATASET_ROOT = Path("/mnt/lustre-client/zhangkaige/selected_mtx")
 DEFAULT_MTX_CACHE_DIR = Path(
-    os.environ.get("SPARSENE_MTX_CACHE_DIR", "/mnt/lustre-client/huoda/mtx_cache")
+    os.environ.get(
+        "SPARSENE_MTX_CACHE_DIR",
+        str(Path(os.environ["SPARSEKG_TMP_DIR"]) / "mtx_cache")
+        if os.environ.get("SPARSEKG_TMP_DIR")
+        else "/mnt/lustre-client/huoda/mtx_cache",
+    )
 )
 DEFAULT_HOST_CXX = Path(os.environ.get("NVCC_CCBIN", "/opt/rh/gcc-toolset-13/root/usr/bin/g++"))
 DEFAULT_CUDA_ARCH = os.environ.get("CUDA_ARCH", "sm_80")

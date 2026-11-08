@@ -34,7 +34,7 @@ Keep these path roles separate:
 |---|---|
 | Raw selected MatrixMarket inputs | `/mnt/lustre-client/zhangkaige/selected_mtx` |
 | Persistent schema-v3 feature store | `/mnt/lustre-client/huoda/selected_mtx` |
-| Matrix checkpoint cache | `/mnt/lustre-client/huoda/mtx_cache` |
+| Matrix checkpoint cache | `${SPARSEKG_TMP_DIR}/mtx_cache` when set; this A800 workspace uses `/mnt/lustre-client/huoda/sparsekg_tmp/mtx_cache` |
 | Coordinated Agent runs | `/home/huoda/sparsene/logs/e2e_runs/<run_id>` |
 
 Persistent feature files are named `<dataset>.features.v3.json`; validate
@@ -82,8 +82,12 @@ send unmatched research designs into that backend.
 
 ## Cache controls
 
-`main.cu` uses `/mnt/lustre-client/huoda/mtx_cache` unless
-`SPARSENE_MTX_CACHE_DIR` overrides it. The host uses checkpoint caching when
+Set `SPARSENE_MTX_CACHE_DIR` explicitly for portable runs. ACC, DTC, and CSR
+hosts use that variable first, then `${SPARSEKG_TMP_DIR}/mtx_cache` when set;
+without either variable, each legacy host retains its original default for
+SM80 compatibility. The A800 checkpoint cache was moved to
+`/mnt/lustre-client/huoda/sparsekg_tmp/mtx_cache`; do not assume this absolute
+path exists on H100. The host uses checkpoint caching when
 `SPARSENE_DISABLE_MTX_CACHE` is absent or `0`; current end-to-end and sweep
 drivers explicitly disable it for safety. `SPARSENE_MTX_CACHE_REFRESH=1`
 forces refresh when the host cache is enabled.

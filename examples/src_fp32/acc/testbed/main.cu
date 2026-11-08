@@ -128,6 +128,16 @@ std::string extractMatrixName(const std::string& file_path) {
 }
 
 std::filesystem::path checkpointPath(const std::string& checkpoint_filename) {
+    if (const char* env_dir = std::getenv("SPARSENE_MTX_CACHE_DIR")) {
+        if (env_dir[0] != '\0') {
+            return std::filesystem::path(env_dir) / checkpoint_filename;
+        }
+    }
+    if (const char* temp_root = std::getenv("SPARSEKG_TMP_DIR")) {
+        if (temp_root[0] != '\0') {
+            return std::filesystem::path(temp_root) / "mtx_cache" / checkpoint_filename;
+        }
+    }
     return std::filesystem::path(__FILE__).parent_path() / "mtx_cache" / checkpoint_filename;
 }
 

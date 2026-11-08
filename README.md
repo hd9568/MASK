@@ -16,6 +16,10 @@ The current target is high-performance SpMM on NVIDIA SM80 GPUs, especially
 A100/A800, with the main evaluation path using FP32 inputs/outputs and TF32
 Tensor Core execution for `N=512`.
 
+The tracked [H100 porting handoff](H100_PORTING_HANDOFF.md) records the
+A100/A800 evidence, the checkpoint-cache migration, and the compatibility
+boundary for a future SM90 backend. The current branch is not yet H100-ready.
+
 ## System Overview
 
 ```text
