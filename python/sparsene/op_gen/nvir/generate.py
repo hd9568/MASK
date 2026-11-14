@@ -551,11 +551,14 @@ def build_gmem_interfaces(opir_root, format_hints: Dict[str, Any]) -> Dict[str, 
             
         symbol = str(op.attributes.get("symbol", op.result.name_hint))
         base_symbol = _clean_symbol(symbol)
+        # Exact names distinguish nested arrays sharing a legacy base name.
+        layout_key = symbol if symbol in custom_layouts else base_symbol
+        shape_key = symbol if symbol in shape_overrides else base_symbol
         
         # --- A. 决定 Dtype ---
         dtype = "float" # 默认 fallback
-        if base_symbol in custom_layouts:
-            dtype = custom_layouts[base_symbol].get("dtype", dtype)
+        if layout_key in custom_layouts:
+            dtype = custom_layouts[layout_key].get("dtype", dtype)
         else:
             for key_pattern, configured_dtype in dtypes_hints.items():
                 if key_pattern in base_symbol:
@@ -566,12 +569,12 @@ def build_gmem_interfaces(opir_root, format_hints: Dict[str, Any]) -> Dict[str, 
         nvir_shapes = []
         cute_shape_args, cute_type_args = [], []
         
-        if base_symbol in shape_overrides:
-            dim_entries = _default_dim_entries(list(shape_overrides[base_symbol]))
+        if shape_key in shape_overrides:
+            dim_entries = _default_dim_entries(list(shape_overrides[shape_key]))
         else:
             dim_entries = _default_dim_entries(list(op.result.type.dims))
 
-        if base_symbol not in custom_layouts:
+        if layout_key not in custom_layouts:
             dim_entries = _maybe_swap_blk_k_last_dim(dim_entries)
 
         nvir_shapes = [entry["shape"] for entry in dim_entries]
@@ -579,13 +582,13 @@ def build_gmem_interfaces(opir_root, format_hints: Dict[str, Any]) -> Dict[str, 
         cute_type_args = [entry["type_arg"] for entry in dim_entries]
 
         # --- C. 决定 CuTe Layout ---
-        if base_symbol in custom_layouts:
+        if layout_key in custom_layouts:
             tensor_str = _render_grid_template(
-                custom_layouts[base_symbol]["tensor_str"],
+                custom_layouts[layout_key]["tensor_str"],
                 symbol=symbol,
                 grid_mapping=grid_mapping,
             )
-            tensor_type_str = custom_layouts[base_symbol]["tensor_type_str"]
+            tensor_type_str = custom_layouts[layout_key]["tensor_type_str"]
         else:
             shape_str = ", ".join(cute_shape_args)
             type_str = ", ".join(cute_type_args)
@@ -854,10 +857,13 @@ def generate_nvir(
     strategy_decision_override: Optional[StrategyDecision] = None,
     strategy_log_dir_override: Optional[str] = None,
 ) -> NvOpProgram:
-    if format_name not in SPARSE_FORMAT_REGISTRY:
+    if format_name == "SCALAR_COMPACT_K4":
+        from .scalar_compact_profile import build_scalar_compact_candidate_hints
+        format_hints = build_scalar_compact_candidate_hints()
+    elif format_name in SPARSE_FORMAT_REGISTRY:
+        format_hints = SPARSE_FORMAT_REGISTRY[format_name]
+    else:
         raise ValueError(f"Unsupported format: {format_name}")
-        
-    format_hints = SPARSE_FORMAT_REGISTRY[format_name]
     grid_mapping = _grid_mapping(format_hints)
     
     # 1. 查表生成 GmemInouts
@@ -878,6 +884,10 @@ def generate_nvir(
             gmem_inouts=gmem_inouts,
             config=strategy_config,
         )
+    if format_name == "SCALAR_COMPACT_K4":
+        from sparsene.op_gen.strategy_agent import normalize_strategy_for_backend
+        strategy_decision = normalize_strategy_for_backend(
+            strategy_decision, packing_mode="scalar_compact_k4_dense")
     program.attrs["strategy_decision"] = strategy_decision
     program.attrs["strategy_log_dir"] = str(strategy_log_dir)
     program.attrs["format_name"] = format_name
@@ -932,9 +942,17 @@ def generate_nvir(
             state=state,
             block_idx_source=_grid_blocks(grid_mapping)["m_block"],
         )
+        if format_name == "SCALAR_COMPACT_K4":
+            from .scalar_compact_profile import pad_candidate_k4_for_mma
+            program.attrs["specialized_parameters"] = {"BLK_K_I": 4}
+            program.attrs["preserve_scalar_offset_divisors"] = ("val_len_1_new_offset",)
+            program.attrs["explicit_sequential_iteration"] = True
+            pad_candidate_k4_for_mma(program, tf32x3=True)
         return program
 
 
+    if format_name == "SCALAR_COMPACT_K4":
+        raise ValueError("scalar compact K4 requires a row-window OPIR loop")
     # 2. 启动 Lowering
     _lower_block(
         block=opir.block,

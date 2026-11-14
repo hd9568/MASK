@@ -1242,6 +1242,12 @@ def assess_backend_capability(
             "semantic hierarchy matches the generalized two-level TCF-MCO SM80 backend",
             "host preprocessing implements optional row reorder and logical-to-physical padding",
         ]
+        if backend_plan.backend == "scalar_compact_k4_tensorcore_v1":
+            reasons = [
+                "exact four-level scalar-sparsify-before-split DSL; dense 16x4 leaf",
+                "host composes two-level indices and pads each K4 leaf to K8 for MMA",
+                "currently requires BLK_M=16, BLK_K=8, BLK_K_I=4, row-major dense leaf",
+            ]
         if rts_error is not None and not canonical:
             # Exact backends must still be reachable through the normal middle-end.
             backend_plan = None
@@ -1249,7 +1255,8 @@ def assess_backend_capability(
             return {
                 "support_level": "integrated_e2e",
                 "matched_profile": (
-                    "FRONTEND_CANONICAL_TCF_V1" if canonical else "TCF_MCO_TENSORCORE_V1"
+                    "FRONTEND_CANONICAL_TCF_V1" if canonical else
+                    "SCALAR_COMPACT_K4_V1" if backend_plan.backend == "scalar_compact_k4_tensorcore_v1" else "TCF_MCO_TENSORCORE_V1"
                 ),
                 "backend_format_name": backend_plan.codegen_format_name,
                 "format_object_buildable": True,

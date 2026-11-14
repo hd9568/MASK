@@ -607,6 +607,13 @@ def _normalize_v7_strategy(
         },
         "agent_values_before_normalization": original,
     }
+    if packing_mode == "scalar_compact_k4_dense":
+        backend_metadata["v7_b_load_contract"]["required"] = {
+            "materialize_b_array_ref_to_smem": True,
+            "enable_b_array_ref_cp_async": False,
+            "b_array_ref_mode": "sync_scalar",
+            "enable_async_pipeline": True,
+        }
     metadata["backend_normalization"] = backend_metadata
     normalized.agent_metadata = metadata
     return normalized

@@ -93,6 +93,10 @@ def lower_format_operator(
     ir_dir: Path,
     strategy_dir: Path,
     strategy_decision: StrategyDecision | None = None,
+    specialized_parameters: dict[str, int] | None = None,
+    preserve_scalar_offset_divisors: tuple[str, ...] = (),
+    explicit_sequential_iteration: bool = False,
+    diagnostic_program_transform=None,
 ) -> dict[str, Any]:
     """Lower any executable Format object through the shared generated path.
 
@@ -130,6 +134,14 @@ def lower_format_operator(
             str(strategy_dir) if strategy_decision is not None else None
         ),
     )
+    if explicit_sequential_iteration:
+        program.attrs["explicit_sequential_iteration"] = True
+    if specialized_parameters:
+        program.attrs["specialized_parameters"] = dict(specialized_parameters)
+    if preserve_scalar_offset_divisors:
+        program.attrs["preserve_scalar_offset_divisors"] = tuple(preserve_scalar_offset_divisors)
+    if diagnostic_program_transform is not None:
+        diagnostic_program_transform(program)
     _write_text(ir_dir / "06_nvir_before_pipeline.txt", program)
     apply_software_pipeline_and_codegen(program, operator_path)
     lowered_barriers = _specialize_single_warp_synchronization(operator_path)
@@ -154,6 +166,7 @@ def generate_one(
     worktree_label: str | None = None,
     strategy_decision: StrategyDecision | None = None,
     work_dir_override: Path | None = None,
+    require_exact_backend: bool = False,
 ) -> dict[str, Any]:
     spec, _format_obj, format_artifact_path, format_artifact_sha256 = load_run_format(
         run_dir, dataset
@@ -164,6 +177,7 @@ def generate_one(
         target="sm80",
         tile_n=tile_n,
         max_tiles_per_execution_segment=max_tiles_per_execution_segment,
+        allow_physicalization=not require_exact_backend,
     )
     physical_spec = materialize_backend_format_spec(candidate.spec, plan)
     physical_validation = validate_format_spec(physical_spec)
@@ -194,6 +208,10 @@ def generate_one(
     ir_dir.mkdir(parents=True, exist_ok=True)
     operator_dir.mkdir(parents=True, exist_ok=True)
 
+    if plan.packing_mode == "scalar_compact_k4_dense" and strategy_decision is not None:
+        from sparsene.op_gen.strategy_agent import normalize_strategy_for_backend
+        strategy_decision = normalize_strategy_for_backend(
+            strategy_decision, packing_mode=plan.packing_mode)
     lowering = lower_format_operator(
         format_obj=physical_format_obj,
         codegen_format_name=plan.codegen_format_name,
@@ -267,6 +285,10 @@ def main() -> None:
         "--worktree-label",
         help="isolate output below operator_generation/portfolio without changing candidate provenance",
     )
+    parser.add_argument(
+        "--require-exact-backend", action="store_true",
+        help="reject canonical fallback when evaluating the proposed format",
+    )
     args = parser.parse_args()
     run_dir = args.run_dir.resolve()
     run_manifest = json.loads((run_dir / "run_manifest.json").read_text(encoding="utf-8"))
@@ -281,6 +303,7 @@ def main() -> None:
             max_tiles_per_execution_segment=args.max_tiles_per_segment,
             candidate_id=args.candidate_id,
             worktree_label=args.worktree_label,
+            require_exact_backend=args.require_exact_backend,
         )
         print(f"[generated] {dataset}: {manifest['operator_path']}")
 

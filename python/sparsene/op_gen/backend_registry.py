@@ -90,6 +90,28 @@ def _select_exact_backend(
             "No executable backend for this design yet: current generalized route requires "
             "an MCO or dense atomic leaf"
         )
+    if len(levels) == 4:
+        # Match the complete transform and axis contract; do not silently
+        # canonicalize this profile to a different two-level representation.
+        from .scalar_compact_k_lowering import lower_scalar_compact_k_spec
+        nested = lower_scalar_compact_k_spec(spec)
+        if (nested.blk_m, nested.blk_k, nested.blk_k_i) != (16, 8, 4):
+            raise ValueError("four-level compact backend currently requires BLK_M=16, BLK_K=8, BLK_K_I=4")
+        if target not in {"sm80", "a800"} or tile_n != 64:
+            raise ValueError("four-level compact backend requires sm80-compatible target and tile_n=64")
+        if max_tiles_per_execution_segment < 1:
+            raise ValueError("max_tiles_per_execution_segment must be positive")
+        return BackendPlan(
+            backend="scalar_compact_k4_tensorcore_v1",
+            codegen_format_name="SCALAR_COMPACT_K4",
+            target="sm80", compute_capability=80,
+            logical_blk_m=16, logical_blk_k=8, physical_blk_m=16,
+            physical_blk_k=8, tile_n=64, mma_m=16, mma_n=8, mma_k=8,
+            max_tiles_per_execution_segment=max_tiles_per_execution_segment,
+            packing_mode="scalar_compact_k4_dense", row_reorder=None,
+            notes=("Original four-level DSL; scalar offsets count padded K4 slots.",
+                   "Each K4 leaf stages into a zero-padded K8 MMA tile."),
+        )
     x_outer: Mapping[str, Any]
     packing_mode: str
     backend: str
@@ -456,8 +478,13 @@ def select_backend(
     target: str = "sm80",
     tile_n: int = 64,
     max_tiles_per_execution_segment: int = 32,
+    allow_physicalization: bool = True,
 ) -> BackendPlan:
-    """Select an exact backend, then a clearly recorded TCF physicalization."""
+    """Select an exact backend, optionally allowing a recorded TCF fallback.
+
+    Set allow_physicalization=False when evaluating a proposed format itself.
+    A fallback measures the replacement representation, not the source DSL.
+    """
     try:
         return _select_exact_backend(
             spec,
@@ -466,6 +493,8 @@ def select_backend(
             max_tiles_per_execution_segment=max_tiles_per_execution_segment,
         )
     except ValueError as exact_error:
+        if not allow_physicalization:
+            raise ValueError(f"exact backend rejected (physicalization disabled): {exact_error}") from exact_error
         try:
             return _select_frontend_canonical_backend(
                 spec,

@@ -17,6 +17,7 @@
 #include <cuda.h>
 #include <cuda_runtime_api.h>
 #include <cusparse.h>
+#include <climits>
 #include <cute/tensor.hpp>
 
 #include "common.h"
@@ -78,7 +79,7 @@ static_assert(kBlockK >= 8 && kBlockK % 8 == 0);
 static_assert(kTileN >= 8 && kTileN % 8 == 0);
 static_assert(kMaxTilesPerExecutionSegment > 0);
 static_assert(kRowReorder >= 0 && kRowReorder <= 3);
-static_assert(kPackingMode >= 0 && kPackingMode <= 4);
+static_assert(kPackingMode >= 0 && kPackingMode <= 5);
 
 int div_up(int a, int b) { return (a + b - 1) / b; }
 int align_up(int a, int b) { return div_up(a, b) * b; }
@@ -345,6 +346,7 @@ const char* packing_mode_name() {
     if constexpr (kPackingMode == 2) return "column_condensed_dense";
     if constexpr (kPackingMode == 3) return "active_fixed_blocks_dense";
     if constexpr (kPackingMode == 4) return "sparse_row_column_condensed_dense";
+    if constexpr (kPackingMode == 5) return "scalar_compact_k4_dense";
     return "column_condensed";
 }
 
@@ -379,6 +381,81 @@ struct PackedMco {
     std::string execution_policy = "row";
 };
 
+// Exact four-level scalar-sparsify-before-K4-split host ABI.  Parent
+// offsets count K8 blocks; inner offsets count K4-padded scalar slots.
+PackedMco convert_scalar_compact_k4(int m, int k, const int* row_ptr,
+                                    const int* col_idx, const float* vals) {
+    PackedMco p;
+    p.row_order = identity_order(m);
+    p.row_windows = div_up(m, 16);
+    p.row_offsets.push_back(0);
+    p.value_offsets.push_back(0);
+    int parent_count = 0;
+    for (int w = 0; w < p.row_windows; ++w) {
+        std::map<int, std::vector<float>> cols;
+        for (int row = w * 16; row < std::min(m, (w + 1) * 16); ++row) {
+            for (int j = row_ptr[row]; j < row_ptr[row + 1]; ++j) {
+                const int col = col_idx[j];
+                if (col < 0 || col >= k) throw std::runtime_error("invalid CSR column");
+                auto& v = cols[col];
+                if (v.empty()) v.resize(16, 0.0f);
+                v[row - w * 16] += vals[j];
+            }
+        }
+        std::vector<int> ids;
+        for (const auto& item : cols) ids.push_back(item.first);
+        for (size_t base = 0; base < ids.size(); base += 8) {
+            const size_t end = std::min(base + 8, ids.size());
+            for (size_t leaf = base; leaf < end; leaf += 4) {
+                const size_t leaf_end = std::min(leaf + 4, end);
+                const size_t offset = p.values.size();
+                p.values.resize(offset + 16 * 4, 0.0f);
+                for (int lane = 0; lane < 4; ++lane) {
+                    const size_t idx = leaf + lane;
+                    p.sparse_columns.push_back(idx < leaf_end ? ids[idx] : 0);
+                    if (idx < leaf_end) {
+                        const auto& rows = cols.at(ids[idx]);
+                        for (int row = 0; row < 16; ++row)
+                            p.values[offset + row * 4 + lane] = rows[row];
+                    }
+                }
+                ++p.tiles;
+            }
+            if (p.sparse_columns.size() > static_cast<size_t>(INT_MAX))
+                throw std::overflow_error("padded scalar offsets exceed int32");
+            p.value_offsets.push_back(static_cast<int>(p.sparse_columns.size()));
+            if (parent_count == INT_MAX) throw std::overflow_error("parent offsets exceed int32");
+            ++parent_count;
+        }
+        p.row_offsets.push_back(parent_count);
+    }
+    // Bound each partial accumulation to reduce roundoff for very long rows.
+    // Offsets stay in parent-block units and the existing reduction restores
+    // the original row-window output after all partial kernels complete.
+    constexpr int max_parents = 32;
+    p.execution_row_offsets.push_back(0);
+    p.logical_segment_offsets.push_back(0);
+    for (int w = 0; w < p.row_windows; ++w) {
+        const int begin = p.row_offsets[w], end = p.row_offsets[w + 1];
+        if (begin == end) {
+            p.execution_row_offsets.push_back(end);
+            ++p.execution_segments;
+        } else {
+            for (int start = begin; start < end; start += max_parents) {
+                p.execution_row_offsets.push_back(std::min(start + max_parents, end));
+                ++p.execution_segments;
+            }
+        }
+        p.logical_segment_offsets.push_back(p.execution_segments);
+    }
+    if (p.values.size() > static_cast<size_t>(INT_MAX))
+        throw std::overflow_error("compact payload exceeds int32");
+    p.aligned_values = static_cast<int>(p.values.size());
+    p.execution_policy = "row";
+    p.max_tiles_per_execution_segment = 32;
+    return p;
+}
+
 PackedMco convert_to_mco(
     int m,
     int k,
@@ -388,6 +465,11 @@ PackedMco convert_to_mco(
     int requested_max_tiles_per_segment,
     const std::string& requested_execution_policy,
     int requested_task_group_tiles) {
+    if constexpr (kPackingMode == 5) {
+        if (requested_execution_policy != "auto" && requested_execution_policy != "row")
+            throw std::runtime_error("scalar compact backend supports row execution only");
+        return convert_scalar_compact_k4(m, k, row_ptr, col_idx, vals);
+    }
     PackedMco packed;
     if constexpr (kRowReorder == 1) {
         packed.row_order = reverse_cuthill_mckee(m, k, row_ptr, col_idx);
@@ -834,7 +916,14 @@ float time_generated_kernel(
     const dim3 block(SPARSENE_GENERATED_THREADS_PER_BLOCK);
     auto launch = [&]() {
         float* generated_output = segmented_execution ? d_partial.ptr : d_c.ptr;
-#if SPARSENE_PACKING_MODE == 2 || SPARSENE_PACKING_MODE == 3 || \
+#if SPARSENE_PACKING_MODE == 5
+        const dim3 grid(packed.execution_segments, n / kTileN);
+        generated_kernel<BLK_MNK, MMA_MNK, BLK_MMA_MNK, WARP_MNK><<<grid, block>>>(
+            d_b.ptr, generated_output, d_value_offsets.ptr, d_row_offsets.ptr,
+            d_values.ptr, d_columns.ptr, d_columns.ptr, k, partial_m,
+            packed.execution_segments + 1, n, static_cast<int>(packed.value_offsets.size()),
+            packed.tiles);
+#elif SPARSENE_PACKING_MODE == 2 || SPARSENE_PACKING_MODE == 3 || \
     SPARSENE_PACKING_MODE == 4
         if (task_mapped_execution) {
 #ifndef SPARSENE_GENERATED_SUPPORTS_TASK_MAPPING

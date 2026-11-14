@@ -282,3 +282,13 @@ def test_heavy_row_partition_frontend_falls_back_transparently_to_canonical_tcf(
     assert validate_format_spec(physical)["status"] == "valid"
     assert derive_rts(build_format_from_spec(physical)).sequence
     assert select_backend(physical).backend == "tcf_mco_tensorcore_v1"
+
+
+def test_exact_backend_mode_rejects_replacement_but_keeps_legacy_fallback() -> None:
+    spec, _format_obj, _module = load_custom_format("ASIC_680k")
+    spec = json.loads(json.dumps(spec))
+    assert not select_backend(spec, allow_physicalization=False).backend.startswith("frontend_canonical_")
+    spec["atomic"]["type"] = "csr"
+    assert select_backend(spec).backend == "frontend_canonical_tcf_mco_tensorcore_v1"
+    with pytest.raises(ValueError, match="physicalization disabled"):
+        select_backend(spec, allow_physicalization=False)

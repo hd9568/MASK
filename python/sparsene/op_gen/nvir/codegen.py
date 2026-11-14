@@ -40,6 +40,8 @@ class NvIrCodeGenerator:
         self.indent_size = indent_size
         self.debug_indent = debug_indent
         self.debug_chars = "."
+        self._specialized_parameters: Dict[str, int] = {}
+        self._explicit_sequential_iteration = False
 
     def _get_indent(self, indent_level: int) -> str:
         return (
@@ -495,7 +497,7 @@ class NvIrCodeGenerator:
             op_calls = []
             for bop in op.body.ops:
                 op_calls.append(
-                    self.dump_f_method_call(bop, buf_idx_str="", shift_constant="")
+                    self.dump_f_method_call(bop, buf_idx_str="", shift_constant="_iter" if self._explicit_sequential_iteration else "")
                 )
             return "\n".join(op_calls)
 
@@ -672,6 +674,8 @@ class NvIrCodeGenerator:
                 arg += "(0)"
             return arg
         elif isinstance(inp.tensor.source, str):
+            if inp.tensor.source in self._specialized_parameters:
+                return str(self._specialized_parameters[inp.tensor.source])
             # BLK_K in a DivOp with offset-style LHS: off_l is already
             # block-level scaled; the division is identity → return 1.
             if (
@@ -2318,6 +2322,18 @@ __global__{launch_bounds_text} void generated_bound_task_kernel(
 """
 
     def dump_nvop_program(self, program: NvOpProgram) -> str:
+        specialized = program.attrs.get("specialized_parameters", {})
+        if not isinstance(specialized, dict):
+            raise ValueError("specialized_parameters must be a dictionary")
+        for name, value in specialized.items():
+            if (not isinstance(name, str) or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name)
+                or name in {"BLK_M", "BLK_N", "BLK_K"}
+                or isinstance(value, bool) or not isinstance(value, int) or value <= 0):
+                raise ValueError(f"invalid specialized parameter: {name!r}")
+        self._specialized_parameters = dict(specialized)
+        self._explicit_sequential_iteration = bool(
+            program.attrs.get("explicit_sequential_iteration", False)
+        )
         strategy = program.attrs.get("strategy_decision")
         tensor = getattr(strategy, "tensor_placement", None)
         tile_b = getattr(tensor, "tile_b", 64)
@@ -2328,6 +2344,10 @@ __global__{launch_bounds_text} void generated_bound_task_kernel(
             f'#define SPARSENE_GENERATED_B_SMEM_SWIZZLE "{b_smem_swizzle}"',
             f'#define SPARSENE_GENERATED_COO_RESTORE_SWIZZLE "{coo_restore_swizzle}"',
         ]
+        metadata.extend(
+            f"using {name} = cute::Int<{value}>;"
+            for name, value in sorted(self._specialized_parameters.items())
+        )
         if program.attrs.get("format_name") == "SR_BCRS":
             metadata.append("#define SPARSENE_GENERATED_SUPPORTS_TASK_MAPPING 1")
         launch_contract = program.attrs.get("launch_contract", {})

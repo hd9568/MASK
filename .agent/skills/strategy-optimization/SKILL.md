@@ -137,3 +137,10 @@ backend applicability, history and NCU evidence.
 For iterative feedback calls, emit only the changed fields under
 `strategy_patch`; preserve all omitted fields from best-correct. This compact
 response avoids exhausting the model completion budget on repeated schema data.
+
+## Four-level scalar compact backend
+
+For `scalar_compact_k4_dense`, only the verified tile_N=64 row-scheduled layout
+and synchronous B staging with the default pipeline are currently executable. Backend
+normalization enforces these settings; compiler resource controls can still be
+evaluated. Do not attribute a performance change to a normalized-away field.

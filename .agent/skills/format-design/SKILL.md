@@ -85,6 +85,13 @@ patterns, not a classifier menu:
   when zero padding/work inside selected blocks is sufficiently small.
 - `BIT_BSR_SPADEN`: one-level sparse active fixed blocks with an MCO leaf; it
   stores active block selection rather than traversing a full dense BSR grid.
+- `scalar_compact_k4_dense`: an executable four-level dense-leaf profile.
+  Split rows by `BLK_M=16`, sparsify COL within each row window, split the
+  condensed COL domain by `BLK_K=8`, sparsify COL inside each parent block,
+  then split by `BLK_K_I=4`. The leaf is row-major dense. The host composes
+  the two sparse indices and the generated kernel zero-pads K4 to MMA K8.
+  Only this validated parameter and transform combination is executable;
+  deterministically check any proposal before treating it as supported.
 - `HME_TCF`: an experimental five-level hierarchy that sparsifies and retiles
   inside an outer TCF tile. The source records unstable RTS behavior, so use it
   as a multi-scale idea rather than an execution claim.
