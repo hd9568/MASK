@@ -67,6 +67,7 @@ def compile_one(run_dir: Path, manifest: dict[str, Any], jobs: int) -> Path:
         "column_condensed_dense": 2,
         "active_fixed_blocks_dense": 3,
         "sparse_row_column_condensed_dense": 4,
+        "scalar_compact_k4_dense": 5,
     }
     try:
         reorder_code = reorder_codes[plan["row_reorder"]]

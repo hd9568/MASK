@@ -435,7 +435,9 @@ def _select_main_loop(program: NvOpProgram) -> Optional[ForLoopNvOp]:
     return max(candidate_loops, key=_score)[0]
 
 
-def _fuse_load_offset_sub_div(program: NvOpProgram) -> None:
+def _fuse_load_offset_sub_div(
+    program: NvOpProgram, *, preserve_offset_names: frozenset[str] = frozenset()
+) -> None:
     """Inline gen_sub + gen_div into load_offset by changing out[1] to off_r-off_l.
 
 
@@ -477,6 +479,16 @@ def _fuse_load_offset_sub_div(program: NvOpProgram) -> None:
             if sub_src0.op is not sub_src1.op:
                 continue
             load_off = sub_src0.op
+
+            # Some host ABIs encode offsets in scalar elements rather than
+            # pre-divided tile units. Their (right-left)/tile divisor is
+            # semantically required; opt out only the explicitly named array.
+            # The default remains unchanged for all established backends.
+            if preserve_offset_names and load_off.inputs:
+                offset_source = load_off.inputs[0].tensor.source
+                offset_name = getattr(offset_source, "name", offset_source)
+                if offset_name in preserve_offset_names:
+                    continue
 
             gen_sub_out = gen_sub.outputs[0]
             gen_div = None
@@ -2103,7 +2115,12 @@ def apply_software_pipeline_and_codegen(program: NvOpProgram, output_path: Union
     自动寻找主循环，划分流水线阶段，并生成 C++ 代码。
     """
     # 1. 寻找主循环 (Main Loop)
-    _fuse_load_offset_sub_div(program)
+    _fuse_load_offset_sub_div(
+        program,
+        preserve_offset_names=frozenset(
+            program.attrs.get("preserve_scalar_offset_divisors", ())
+        ),
+    )
     main_loop = _select_main_loop(program)
             
     if main_loop is None:

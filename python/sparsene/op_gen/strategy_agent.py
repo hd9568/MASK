@@ -582,6 +582,16 @@ def normalize_strategy_for_backend(
     """Remove knobs that the selected semantic backend cannot execute."""
 
     payload = decision.to_dict()
+    if packing_mode == "scalar_compact_k4_dense":
+        # Restrict to the verified layout/pipeline until other combinations have
+        # passed full generated-kernel and host ABI checks. Compiler resource
+        # controls remain available to the strategy agent.
+        from dataclasses import asdict
+        payload["tensor_placement"] = asdict(TensorPlacementStrategy())
+        payload["tensor_placement"]["enable_b_array_ref_cp_async"] = False
+        payload["tensor_placement"]["b_array_ref_mode"] = "sync_scalar"
+        payload["pipeline"] = asdict(PipelineStrategy())
+        payload["runtime_schedule"] = asdict(RuntimeScheduleStrategy(execution_policy="row"))
     dense_task_mapping_modes = {
         "column_condensed_dense",
         "active_fixed_blocks_dense",
@@ -594,10 +604,25 @@ def normalize_strategy_for_backend(
         payload["runtime_schedule"]["task_group_tiles"] = 64
     normalized = StrategyDecision.from_dict(payload)
     normalized.agent_metadata = dict(decision.agent_metadata)
+    previous_normalization = normalized.agent_metadata.get("backend_normalization", {})
     normalized.agent_metadata["backend_normalization"] = {
         "packing_mode": packing_mode,
         "execution_policy": normalized.runtime_schedule.execution_policy,
     }
+    if packing_mode == "scalar_compact_k4_dense":
+        normalized.agent_metadata["backend_normalization"].update({
+            "reason": "only the validated scalar compact layout and row schedule are enabled",
+            "requested": previous_normalization.get("requested", {
+                "tensor_placement": decision.to_dict()["tensor_placement"],
+                "pipeline": decision.to_dict()["pipeline"],
+                "runtime_schedule": decision.to_dict()["runtime_schedule"],
+            }),
+            "effective": {
+                "tensor_placement": normalized.to_dict()["tensor_placement"],
+                "pipeline": normalized.to_dict()["pipeline"],
+                "runtime_schedule": normalized.to_dict()["runtime_schedule"],
+            },
+        })
     return normalized
 
 
@@ -607,6 +632,14 @@ def build_sparse_format_profile(
     gmem_inouts: Dict[str, Any],
 ) -> SparseFormatProfile:
     format_summary = {
+        "SCALAR_COMPACT_K4": (
+            "Exact four-level scalar compact dense format: window and parent "
+            "offsets compose into global B columns, with each K4 leaf padded to "
+            "K8 for TF32x3 MMA. The host limits partial accumulation to 32 "
+            "parent blocks and reduces segments. Only tile_n=64, row scheduling "
+            "and the validated synchronous B staging/pipeline are supported; "
+            "backend normalization fixes unsupported strategy choices."
+        ),
         "ME_TCF": (
             "ME_TCF is a hierarchical mixed sparse SpMM format. "
             "It uses length/offset metadata, sparse row indices (sidx), "
