@@ -87,11 +87,13 @@ patterns, not a classifier menu:
   stores active block selection rather than traversing a full dense BSR grid.
 - `scalar_compact_k4_dense`: an executable four-level dense-leaf profile.
   Split rows by `BLK_M=16`, sparsify COL within each row window, split the
-  condensed COL domain by `BLK_K=8`, sparsify COL inside each parent block,
-  then split by `BLK_K_I=4`. The leaf is row-major dense. The host composes
-  the two sparse indices and the generated kernel zero-pads K4 to MMA K8.
-  Only this validated parameter and transform combination is executable;
-  deterministically check any proposal before treating it as supported.
+  condensed COL domain by `BLK_K`, sparsify COL inside each parent block,
+  then split by `BLK_K_I`. The leaf is row-major dense. The host composes
+  the two sparse indices; the generated kernel pads the leaf to a physical
+  width of 8, 16, or 32 and executes K8 MMA steps. The exact backend requires
+  integer 8 <= BLK_K <= 64, 4 <= BLK_K_I <= 32, BLK_K_I < BLK_K and
+  BLK_K % BLK_K_I == 0; BLK_M remains 16. Other formats may remain valid DSL
+  but are not covered by this backend. Never silently replace this hierarchy.
 - `HME_TCF`: an experimental five-level hierarchy that sparsifies and retiles
   inside an outer TCF tile. The source records unstable RTS behavior, so use it
   as a multi-scale idea rather than an execution claim.

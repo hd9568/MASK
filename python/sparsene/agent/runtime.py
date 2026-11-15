@@ -162,6 +162,7 @@ def invoke_json_agent(
     skill_names: Optional[List[str]] = None,
     skill_root: Optional[Path] = None,
     json_output: bool = False,
+    reject_truncated: bool = False,
 ) -> AgentInvocationResult:
     run_dir = make_agent_run_dir(log_dir, agent_name, subject)
     resolved_model = model_config.resolve()
@@ -266,11 +267,14 @@ def invoke_json_agent(
     (run_dir / "response_text.txt").write_text(llm_response.content)
     parse_error: Optional[str] = None
     try:
+        if reject_truncated and llm_response.finish_reason == "length":
+            raise ValueError("model response truncated: finish_reason=length; completion budget exhausted")
         parsed_payload = response_parser(llm_response.content)
     except Exception as exc:
         (run_dir / "parse_error.txt").write_text(str(exc))
         parse_failure = {
-            "status": "parse_failed",
+            "status": "truncated" if llm_response.finish_reason == "length" else "parse_failed",
+            "finish_reason": llm_response.finish_reason,
             "started_at": started_at,
             "completed_at": datetime.now().isoformat(),
             "elapsed_s": llm_response.elapsed_s,

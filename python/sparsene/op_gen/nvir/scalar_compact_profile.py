@@ -1,7 +1,7 @@
 """NVIR contracts for the strictly matched four-level scalar compact backend.
 
-Only the 16x8 / K4 dense leaf is supported; other hierarchies must be rejected
-by backend selection. The padded staging matches the formal host metadata ABI.
+The supported four-level dense leaf has logical K in [4,32].
+The physical K is padded to 8, 16 or 32 for the swizzled staging layout.
 """
 from __future__ import annotations
 from copy import deepcopy
@@ -25,8 +25,11 @@ def build_scalar_compact_candidate_hints():
     return hints
 
 
-def pad_candidate_k4_for_mma(program, tf32x3=False):
-    """Lower the verified K4 leaf to a physically padded K8 MMA tile."""
+def pad_candidate_k4_for_mma(program, inner_k=4, tf32x3=False):
+    """Stage an inner leaf to K8-aligned fragments without changing its ABI."""
+    if not 4 <= inner_k <= 32:
+        raise ValueError("unsupported scalar compact inner K")
+    physical_k = 1 << (max(8, inner_k) - 1).bit_length()
     from .nvop import ForLoopNvOp, IntShape, Shape, NvOpImpl
     found = {}
     def visit(ops):
@@ -41,20 +44,27 @@ def pad_candidate_k4_for_mma(program, tf32x3=False):
     if set(found) != {'load', 'array_ref_1', 'S2rAValLoadOp', 'S2rBValLoadOp', 'mma'}:
         raise ValueError('unexpected candidate NVIR graph: ' + str(sorted(found)))
     a, b = found['load'], found['array_ref_1']
-    a.outputs[0].tensor.shape = Shape(a.outputs[0].tensor.shape[0], IntShape(8))
+    a.outputs[0].tensor.shape = Shape(a.outputs[0].tensor.shape[0], IntShape(physical_k))
     # ldmatrix.x2 has address operands from 32 lanes; allocate 16 rows even
     # though only the first 8 contain the K8 tile.
-    b.outputs[0].tensor.shape = Shape(IntShape(16), b.outputs[0].tensor.shape[1])
+    b.outputs[0].tensor.shape = Shape(IntShape(physical_k + 8), b.outputs[0].tensor.shape[1])
     found['S2rAValLoadOp'].inputs[0].tensor.shape = a.outputs[0].tensor.shape
     found['S2rBValLoadOp'].inputs[0].tensor.shape = b.outputs[0].tensor.shape
-    a.impl = NvOpImpl('''for (int i = lid; i < get<0>(shape(val_tile)) * 2; i += 32) {
-    int row = i / 2, group = i % 2;
-    float4 v = group == 0 ? *reinterpret_cast<const float4*>(&operand_0(operand_1, 0, row)) : make_float4(0, 0, 0, 0);
-    *reinterpret_cast<float4*>(&val_tile(row, group * 4, buf_idx)) = v;
+    a.impl = NvOpImpl('''for (int i = lid; i < get<0>(shape(val_tile)) * (get<2>(BLK_MNK{}) / 4); i += 32) {
+    int row = i / (get<2>(BLK_MNK{}) / 4), group = i % (get<2>(BLK_MNK{}) / 4);
+    if constexpr (BLK_K_I::value % 4 == 0) {
+        float4 v = group * 4 < BLK_K_I{} ? *reinterpret_cast<const float4*>(&operand_0(operand_1, group * 4, row)) : make_float4(0, 0, 0, 0);
+        *reinterpret_cast<float4*>(&val_tile(row, group * 4, buf_idx)) = v;
+    } else {
+        for (int j = 0; j < 4; ++j) {
+            int k = group * 4 + j;
+            val_tile(row, k, buf_idx) = k < BLK_K_I{} ? operand_0(operand_1, k, row) : 0.0f;
+        }
+    }
 }''')
-    b.impl = NvOpImpl('''for (int i = lid; i < 8 * get<1>(shape(result_0)) / 4; i += 32) {
+    b.impl = NvOpImpl('''for (int i = lid; i < get<2>(BLK_MNK{}) * get<1>(shape(result_0)) / 4; i += 32) {
     int k = i / (get<1>(shape(result_0)) / 4), n = (i % (get<1>(shape(result_0)) / 4)) * 4;
-    float4 v = k < 4 ? *reinterpret_cast<const float4*>(&operand_0(operand_1(k), n)) : make_float4(0, 0, 0, 0);
+    float4 v = k < BLK_K_I{} ? *reinterpret_cast<const float4*>(&operand_0(operand_1(k), n)) : make_float4(0, 0, 0, 0);
     *reinterpret_cast<float4*>(&result_0(k, n, buf_idx)) = v;
 }''')
     for op in (a,b):

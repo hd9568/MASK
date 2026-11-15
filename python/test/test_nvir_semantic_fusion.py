@@ -139,7 +139,7 @@ def test_dtc_hand_impl_specialization_shapes():
     assert "(col + 1, row + 8)" in store_impl
 
 
-def _assert_mco_single_k_hand_impl(program):
+def _assert_mco_hand_impl(program, *, multi_k):
     mco_val = _main_loop_op(program, "G2sSparseMcoValLoadOp").impl.code_template
     mco_val_op = _main_loop_op(program, "G2sSparseMcoValLoadOp")
     assert mco_val_op.attrs.get("cp_async") is True
@@ -163,11 +163,15 @@ def _assert_mco_single_k_hand_impl(program):
 
     s2r_a = _find_leaf_op_by_name(program, "S2rAValLoadOp")
     assert s2r_a is not None
-    assert "for (int k_iter" not in s2r_a.impl.code_template
-
     calculate = _main_loop_op(program, "CalculateOp").impl.code_template
-    assert "for (int k_iter" not in calculate
-    assert "make_coord(m_iter, _0{})" in calculate
+    if multi_k:
+        assert "for (int k_iter" in s2r_a.impl.code_template
+        assert "for (int k_iter" in calculate
+        assert "make_coord(m_iter, k_iter)" in calculate
+    else:
+        assert "for (int k_iter" not in s2r_a.impl.code_template
+        assert "for (int k_iter" not in calculate
+        assert "make_coord(m_iter, _0{})" in calculate
 
     store = _find_leaf_op_by_name(program, "R2gCValStoreOp")
     assert store is not None
@@ -176,38 +180,32 @@ def _assert_mco_single_k_hand_impl(program):
     assert "for (int i_tileN" in store_impl
 
 
-def test_bit_tcf_flat_acc_compute_wrapper_shapes():
+def test_bit_tcf_preserves_all_k_fragments():
+    # BIT-TCF can use BLK_K > 8; dropping the K axis silently loses products.
     program = _fused_program("BIT_TCF", BIT_TCF_FORMAT)
-
+    _assert_mco_hand_impl(program, multi_k=True)
     s2r_a = _find_leaf_op_by_name(program, "S2rAValLoadOp")
-    assert s2r_a is not None
-    assert str(s2r_a.outputs[0].tensor.shape) == "(Int(4), Mnk(BLK_MMA_MNK, m))"
-    assert "__syncthreads();" not in s2r_a.impl.code_template
-    assert "REGA(_, _0{}, buf_idx)" in s2r_a.impl.code_template
-    assert "make_coord(_0{}, _0{})" not in s2r_a.impl.code_template
-
     s2r_b = _find_leaf_op_by_name(program, "S2rBValLoadOp")
-    assert s2r_b is not None
-    assert str(s2r_b.outputs[0].tensor.shape) == "(Int(2), Mnk(BLK_MMA_MNK, n))"
-    assert "__syncthreads();" not in s2r_b.impl.code_template
-    assert "REGB(_, n_iter, buf_idx)" in s2r_b.impl.code_template
-    assert "make_coord(_0{}, n_iter)" not in s2r_b.impl.code_template
-
     calculate = _main_loop_op(program, "CalculateOp")
-    assert len(calculate.inputs) == 2
-    assert str(calculate.inputs[0].tensor.shape) == "(Int(4), Mnk(BLK_MMA_MNK, m))"
-    assert str(calculate.inputs[1].tensor.shape) == "(Int(2), Mnk(BLK_MMA_MNK, n))"
-    calculate_impl = calculate.impl.code_template
-    assert "for (int k_iter" not in calculate_impl
-    assert "REGA(0, m_iter)" in calculate_impl
-    assert "REGB(0, n_iter)" in calculate_impl
-    assert "make_coord(m_iter, _0{})" not in calculate_impl
-    assert "make_coord(_0{}, n_iter)" not in calculate_impl
+    assert s2r_a is not None and s2r_b is not None
+    a_shape = "(Int(4), (Mnk(BLK_MMA_MNK, m), Mnk(BLK_MMA_MNK, k)))"
+    b_shape = "(Int(2), (Mnk(BLK_MMA_MNK, k), Mnk(BLK_MMA_MNK, n)))"
+    assert str(s2r_a.outputs[0].tensor.shape) == a_shape
+    assert str(s2r_b.outputs[0].tensor.shape) == b_shape
+    assert str(calculate.inputs[0].tensor.shape) == a_shape
+    assert str(calculate.inputs[1].tensor.shape) == b_shape
+    for op in (s2r_a, s2r_b, calculate):
+        assert "for (int k_iter = 0; k_iter < get<2>(BLK_MMA_MNK{})" in op.impl.code_template
+    assert "make_coord(m_iter, k_iter)" in s2r_a.impl.code_template
+    assert "make_coord(k_iter, n_iter)" in s2r_b.impl.code_template
+    assert "make_coord(m_iter, k_iter)" in calculate.impl.code_template
+    assert "make_coord(k_iter, n_iter)" in calculate.impl.code_template
+    assert "__syncthreads();" not in s2r_a.impl.code_template
+    assert "__syncthreads();" not in s2r_b.impl.code_template
 
 
-def test_mco_format_hand_impl_specialization_shapes():
-    _assert_mco_single_k_hand_impl(_fused_program("BIT_TCF", BIT_TCF_FORMAT))
-    _assert_mco_single_k_hand_impl(_fused_program("BIT_BSR", BIT_BSR_FORMAT))
+def test_bit_bsr_mco_hand_impl_specialization_shapes():
+    _assert_mco_hand_impl(_fused_program("BIT_BSR", BIT_BSR_FORMAT), multi_k=False)
 
 
 def test_sr_bcrs_hand_impl_specialization_shapes():
