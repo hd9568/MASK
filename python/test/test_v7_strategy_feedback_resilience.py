@@ -11,6 +11,7 @@ from run_v7_strategy_feedback import (
     _normalize_v7_strategy,
     _v7_strategy_search_space,
 )
+from sparsene.agent.client import StreamingInterruptedError
 from sparsene.op_gen.strategy_agent import StrategyDecision, _extract_json_object
 
 
@@ -82,6 +83,22 @@ class V7StrategyFeedbackResilienceTest(unittest.TestCase):
             self.assertEqual(
                 [item["status"] for item in audit["attempts"]], ["failed", "succeeded"]
             )
+
+    def test_sse_ended_without_terminal_is_retried_by_exception_type(self):
+        with tempfile.TemporaryDirectory() as temporary_dir:
+            calls = 0
+            def request():
+                nonlocal calls
+                calls += 1
+                if calls == 1:
+                    raise StreamingInterruptedError(
+                        "SSE ended without a terminal finish_reason",
+                        partial_content="", usage=None)
+                return "ok"
+            with patch("run_v7_strategy_feedback.time.sleep"):
+                self.assertEqual(_call_strategy_with_retry(
+                    request, audit_path=Path(temporary_dir) / "retry.json"), "ok")
+            self.assertEqual(calls, 2)
 
     def test_strategy_request_does_not_retry_nontransient_failure(self):
         with tempfile.TemporaryDirectory() as temporary_dir:

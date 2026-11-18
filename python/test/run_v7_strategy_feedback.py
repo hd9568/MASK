@@ -30,6 +30,7 @@ from typing import Any
 
 from generate_custom_format_operators import generate_one
 from run_custom_format_e2e import compile_one, run_one
+from sparsene.agent.client import StreamingInterruptedError
 from sparsene.formats.custom.loader import load_run_format
 from sparsene.op_gen.backend_registry import select_backend
 from sparsene.op_gen.early_stop import stop_decision
@@ -618,7 +619,7 @@ def _normalize_v7_strategy(
 def _is_transient_strategy_error(exc: Exception) -> bool:
     """Recognize transport interruptions without retrying schema/model errors."""
 
-    if isinstance(exc, (TimeoutError, ConnectionError)):
+    if isinstance(exc, (TimeoutError, ConnectionError, StreamingInterruptedError)):
         return True
     message = str(exc).lower()
     transient_markers = (
