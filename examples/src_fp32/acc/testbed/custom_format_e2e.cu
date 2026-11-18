@@ -1101,10 +1101,8 @@ Verification verify(
     const std::vector<float>& actual,
     int n) {
     if (reference.size() != actual.size()) throw std::runtime_error("output size mismatch");
-    constexpr double atol = 2.0e-2;
-    constexpr double rtol = 5.0e-3;
-    constexpr double max_tf32_relative_l2 = 5.0e-4;
-    constexpr double max_tf32_normalized_abs = 5.0e-3;
+    constexpr double atol = 1.0e-3;
+    constexpr double rtol = 1.0e-3;
     Verification result;
     result.elements = reference.size();
     long double squared_error = 0.0;
@@ -1118,10 +1116,10 @@ Verification verify(
         squared_reference += static_cast<long double>(ref) * ref;
         result.max_reference_magnitude =
             std::max(result.max_reference_magnitude, std::abs(ref));
-        if (!std::isfinite(got)) {
+        if (!std::isfinite(got) || !std::isfinite(ref)) {
             ++result.nonfinite;
         }
-        if (!std::isfinite(got) || abs_error > atol + rtol * std::abs(ref)) {
+        if (!std::isfinite(got) || !std::isfinite(ref) || abs_error > atol + rtol * std::abs(ref)) {
             ++result.mismatches;
         }
         if (abs_error > result.max_abs_error) {
@@ -1135,19 +1133,8 @@ Verification verify(
     }
     result.relative_l2_error = std::sqrt(
         static_cast<double>(squared_error / std::max<long double>(squared_reference, 1.0e-30)));
-    const double normalized_abs_error = result.max_abs_error /
-        std::max(result.max_reference_magnitude, 1.0e-12);
-    // TF32 products can exceed a pointwise tolerance at a tiny number of
-    // near-cancellation outputs even when the sparse structure and reduction
-    // are correct.  Keep reporting those strict mismatches, but accept only a
-    // finite result with both a small global L2 error and a small maximum error
-    // normalized by the output scale.  Structural/indexing failures exceed
-    // these bounds by orders of magnitude (for example dc2 was relative-L2
-    // 0.68 before the K-tile fix).
-    result.passed = result.nonfinite == 0 &&
-        (result.mismatches == 0 ||
-         (result.relative_l2_error <= max_tf32_relative_l2 &&
-          normalized_abs_error <= max_tf32_normalized_abs));
+    // A global norm is diagnostic only; every element must satisfy the contract.
+    result.passed = result.nonfinite == 0 && result.mismatches == 0;
     return result;
 }
 
@@ -1217,9 +1204,8 @@ void write_json(
         << ", \"max_abs_actual\": " << verification.max_abs_actual
         << ", \"max_abs_location\": [" << verification.max_abs_row << ", "
         << verification.max_abs_col
-        << "], \"atol\": 0.02, \"rtol\": 0.005, "
-        << "\"tf32_max_relative_l2\": 0.0005, "
-        << "\"tf32_max_abs_normalized\": 0.005}\n"
+        << "], \"atol\": 0.001, \"rtol\": 0.001, "
+        << "\"acceptance\": \"all_elements\"}\n"
         << "}\n";
 }
 

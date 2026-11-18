@@ -320,6 +320,31 @@ class JointFormatStrategyFeedbackTest(unittest.TestCase):
                 "// incumbent\n",
             )
 
+    def test_early_stop_requires_evidence_and_failed_formats_are_gaps(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            operator = root / "operator.inc"
+            operator.write_text("// kernel", encoding="utf-8")
+            fmt = root / "format.json"
+            fmt.write_text("{}", encoding="utf-8")
+            tuning = root / "tuning"
+            tuning.mkdir()
+            summary_path = tuning / "summary.json"
+            summary_path.write_text("{}", encoding="utf-8")
+            record = {"format_iteration": 0, "status": "completed",
+                      "strategy_candidates_evaluated": 3, "strategy_candidates_failed": 0,
+                      "strategy_summary_path": str(summary_path),
+                      "best_generated_ms": 1.0, "best_correctness_passed": True,
+                      "best_operator_path": str(operator), "format_artifact": str(fmt)}
+            args = SimpleNamespace(format_iterations=1, strategy_agent_iterations=5)
+            def publish():
+                return _publish_dataset_summary(run_dir=root / "run", dataset="matrix", records=[record], args=args)
+            self.assertEqual(publish()["status"], "completed_with_gaps")
+            (tuning / "early_stop_decision.json").write_text('{"stop": true}', encoding="utf-8")
+            self.assertEqual(publish()["status"], "completed")
+            record["status"] = "unsupported"
+            self.assertEqual(publish()["status"], "completed_with_gaps")
+
     def test_truncated_format_retry_requests_compact_complete_json(self) -> None:
         response = SimpleNamespace(
             agent_metadata={"source": "fallback", "finish_reason": "length"},

@@ -50,6 +50,31 @@ __device__ __forceinline__ void mma_m16n8k8_fp32_tf32_tf32_fp32(float* acc, uint
     );
 }
 
+// Two residual MMA terms substantially reduce TF32 input-rounding error.
+// Defining SPARSENE_FAST_TF32 restores the original single-MMA operation;
+// the same strict, elementwise correctness gate still applies in both modes.
+__device__ __forceinline__ void mma_m16n8k8_fp32_tf32_compensated(
+    float* acc, uint32_t* hi_a, uint32_t* hi_b,
+    float a0, float a1, float a2, float a3, float b0, float b1) {
+#ifndef SPARSENE_FAST_TF32
+    float a[4] = {a0, a1, a2, a3}, b[2] = {b0, b1};
+    uint32_t lo_a[4], lo_b[2];
+    #pragma unroll
+    for (int i = 0; i < 4; ++i) {
+        float residual = a[i] - __uint_as_float(hi_a[i]);
+        asm("cvt.rna.tf32.f32 %0, %1;\n" : "=r"(lo_a[i]) : "f"(residual));
+    }
+    #pragma unroll
+    for (int i = 0; i < 2; ++i) {
+        float residual = b[i] - __uint_as_float(hi_b[i]);
+        asm("cvt.rna.tf32.f32 %0, %1;\n" : "=r"(lo_b[i]) : "f"(residual));
+    }
+    mma_m16n8k8_fp32_tf32_tf32_fp32(acc, lo_a, hi_b);
+    mma_m16n8k8_fp32_tf32_tf32_fp32(acc, hi_a, lo_b);
+#endif
+    mma_m16n8k8_fp32_tf32_tf32_fp32(acc, hi_a, hi_b);
+}
+
 __device__ __forceinline__ void unpack_half_short(uint32_t packed, half& h, short & s) {
     uint16_t half_bits = static_cast<uint16_t>(packed >> 16);
     uint16_t short_bits = static_cast<uint16_t>(packed & 0xFFFF);

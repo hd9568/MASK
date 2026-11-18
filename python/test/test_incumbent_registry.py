@@ -72,6 +72,11 @@ class IncumbentRegistryTest(unittest.TestCase):
             },
             "correctness": {
                 "passed": True,
+                "acceptance": "all_elements",
+                "atol": 0.001,
+                "rtol": 0.001,
+                "mismatches": 0,
+                "nonfinite": 0,
                 "all_measurements_passed": True,
                 "measurement_runs": 3,
             },
@@ -150,8 +155,14 @@ class IncumbentRegistryTest(unittest.TestCase):
             wrong_n["protocol"]["n"] = 256
             incorrect = self._candidate(root, candidate_id="incorrect", generated_ms=0.5)
             incorrect["correctness"]["passed"] = False
-            report = update_registry(registry, [wrong_n, incorrect])
-            self.assertEqual(len(report["rejected"]), 2)
+            old_evidence = self._candidate(root, candidate_id="old_evidence", generated_ms=0.4)
+            del old_evidence["correctness"]["atol"]
+            loose = self._candidate(root, candidate_id="loose", generated_ms=0.3)
+            loose["correctness"]["rtol"] = 0.005
+            fallback = self._candidate(root, candidate_id="fallback", generated_ms=0.2)
+            fallback["correctness"]["acceptance"] = "relative_l2"
+            report = update_registry(registry, [wrong_n, incorrect, old_evidence, loose, fallback])
+            self.assertEqual(len(report["rejected"]), 5)
             self.assertIsNone(load_incumbent(registry, "matrix"))
 
 

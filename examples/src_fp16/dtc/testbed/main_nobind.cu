@@ -1,3 +1,4 @@
+#include <cmath>
 #include <bits/stdc++.h>
 #include <cuda.h>
 #include <cuda_fp16.h>
@@ -337,7 +338,7 @@ void verify_new(float* C_cpu, float* C_cuda, int M, int N) {
         for (int j = 0; j < N; j++) {
             float cusparse_val = C_cpu[OFFSET_ROW(i, j, N)];
             float mykernel_val = C_cuda[OFFSET_ROW(i, j, N)];
-            if (fabs(cusparse_val - mykernel_val) > 0.01) {
+            if (!std::isfinite(cusparse_val) || !std::isfinite(mykernel_val) || fabs(cusparse_val - mykernel_val) > 0.001 + 0.001 * fabs(cusparse_val)) {
                 printf("Error(%d, %d): cusp(%.1f) mykernel(%.1f)\n", i, j, cusparse_val,
                        mykernel_val);
             }
