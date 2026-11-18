@@ -9,6 +9,7 @@ from unittest.mock import patch
 from run_v7_strategy_feedback import (
     _call_strategy_with_retry,
     _normalize_v7_strategy,
+    _operator_stats,
     _v7_strategy_search_space,
 )
 from sparsene.agent.client import StreamingInterruptedError
@@ -56,6 +57,21 @@ class V7StrategyFeedbackResilienceTest(unittest.TestCase):
             ],
             False,
         )
+
+    def test_operator_summary_counts_logical_mma_calls_without_helper_internals(self):
+        with tempfile.TemporaryDirectory() as temporary_dir:
+            path = Path(temporary_dir) / "operator.inc"
+            path.write_text("""void mma_m16n8k8_fp32_tf32_tf32_fp32( void ) {}
+void mma_m16n8k8_fp32_tf32_compensated( void ) {
+  mma_m16n8k8_fp32_tf32_tf32_fp32();
+  mma_m16n8k8_fp32_tf32_tf32_fp32();
+  mma_m16n8k8_fp32_tf32_tf32_fp32();
+}
+void kernel() { mma_m16n8k8_fp32_tf32_compensated(); }
+""", encoding="utf-8")
+            stats = _operator_stats(path)
+            self.assertEqual(stats["tf32_mma_sites"], 1)
+            self.assertIn("three MMA terms", stats["tf32_mma_site_note"])
 
     def test_strategy_request_retries_transient_transport_error_and_audits(self):
         with tempfile.TemporaryDirectory() as temporary_dir:

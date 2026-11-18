@@ -175,6 +175,15 @@ def _compact_features(features: dict[str, Any], plan: dict[str, Any]) -> dict[st
 
 def _operator_stats(operator_path: Path) -> dict[str, Any]:
     source = operator_path.read_text(encoding="utf-8")
+    compensated_helper = "mma_m16n8k8_fp32_tf32_compensated("
+    single_helper = "mma_m16n8k8_fp32_tf32_tf32_fp32("
+    if compensated_helper in source:
+        # Exclude the helper definition and its three internal MMA calls;
+        # count generated logical sites, not textual helper implementations.
+        logical_mma_sites = max(0, source.count(compensated_helper) - 1)
+        logical_mma_sites += max(0, source.count(single_helper) - 4)
+    else:
+        logical_mma_sites = max(0, source.count(single_helper) - 1)
     return {
         "bytes": operator_path.stat().st_size,
         "sha256": _sha256(operator_path),
@@ -183,7 +192,8 @@ def _operator_stats(operator_path: Path) -> dict[str, Any]:
         "pipeline_wait_sites": source.count("__pipeline_wait_prior"),
         "warp_sync_sites": source.count("SPARSENE_GENERATED_BLOCK_SYNC()") - 1,
         "atomic_add_sites": source.count("atomicAdd("),
-        "tf32_mma_sites": source.count("mma_m16n8k8_fp32_tf32_tf32_fp32"),
+        "tf32_mma_sites": logical_mma_sites,
+        "tf32_mma_site_note": "static logical call sites; compensated mode executes three MMA terms per site by default",
         "has_launch_bounds": "__launch_bounds__" in source,
     }
 
