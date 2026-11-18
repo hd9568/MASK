@@ -125,7 +125,7 @@ def worker_command(args: argparse.Namespace, dataset: str) -> list[str]:
         "--format-model", args.model,
         "--format-max-tokens", "32768",
         "--format-timeout-sec", "900",
-        "--format-max-attempts", "1",
+        "--format-max-attempts", "2",
         "--format-retry-delay-sec", "1",
         "--strategy-provider", "openai_http",
         "--strategy-model", args.model,
