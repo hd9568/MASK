@@ -717,8 +717,8 @@ struct VerificationSummary {
 };
 
 VerificationSummary verify_new(float* C_cpu, float* C_cuda, int M, int N) {
-    constexpr double atol = 1.0e-2;
-    constexpr double rtol = 1.0e-4;
+    constexpr double atol = 1.0e-3;
+    constexpr double rtol = 1.0e-3;
     VerificationSummary summary;
     for (int i = 0; i < M; i++) {
         for (int j = 0; j < N; j++) {

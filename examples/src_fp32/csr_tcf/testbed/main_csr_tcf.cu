@@ -1,3 +1,4 @@
+#include <cmath>
 #include <bits/stdc++.h>
 #include <cuda.h>
 #include <cuda_fp16.h>
@@ -326,7 +327,7 @@ int main(int argc, char* argv[]) {
             float cusp_v = C_cpu[OFFSET_ROW(i, j, N)];
             float my_v = C_cuda[OFFSET_ROW(i, j, N)];
             float diff = fabs(cusp_v - my_v);
-            if (diff > 0.01) {
+            if (!std::isfinite(cusp_v) || !std::isfinite(my_v) || diff > 0.001 + 0.001 * fabs(cusp_v)) {
                 errors++;
                 max_diff = max(max_diff, diff);
                 if (errors <= 10)

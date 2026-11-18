@@ -1128,7 +1128,7 @@ def _dtc_hand_calculate_impl(op: NvOp) -> NvOpImpl:
         asm("cvt.rna.tf32.f32  %0, %1;\\n" : "=r"(frag_B[0]) : "f"({reg_b}(0, make_coord(_0{{}}, n_iter))));
         asm("cvt.rna.tf32.f32  %0, %1;\\n" : "=r"(frag_B[1]) : "f"({reg_b}(1, make_coord(_0{{}}, n_iter))));
 
-        mma_m16n8k8_fp32_tf32_tf32_fp32({reg_c}(_, make_coord(m_iter, n_iter)).data(), frag_A, frag_B);
+        mma_m16n8k8_fp32_tf32_compensated({reg_c}(_, make_coord(m_iter, n_iter)).data(), frag_A, frag_B, {reg_a}(0, make_coord(m_iter, _0{{}})), {reg_a}(1, make_coord(m_iter, _0{{}})), {reg_a}(2, make_coord(m_iter, _0{{}})), {reg_a}(3, make_coord(m_iter, _0{{}})), {reg_b}(0, make_coord(_0{{}}, n_iter)), {reg_b}(1, make_coord(_0{{}}, n_iter)));
     }}
 }}"""
     )
@@ -1187,7 +1187,7 @@ def _acc_hand_calculate_impl(op: NvOp) -> NvOpImpl:
             asm("cvt.rna.tf32.f32  %0, %1;\\n" : "=r"(frag_B[0]) : "f"({reg_b}(0, make_coord(k_iter, n_iter))));
             asm("cvt.rna.tf32.f32  %0, %1;\\n" : "=r"(frag_B[1]) : "f"({reg_b}(1, make_coord(k_iter, n_iter))));
 
-            mma_m16n8k8_fp32_tf32_tf32_fp32({reg_c}(_, make_coord(m_iter, n_iter)).data(), frag_A, frag_B);
+            mma_m16n8k8_fp32_tf32_compensated({reg_c}(_, make_coord(m_iter, n_iter)).data(), frag_A, frag_B, {reg_a}(0, make_coord(m_iter, k_iter)), {reg_a}(1, make_coord(m_iter, k_iter)), {reg_a}(2, make_coord(m_iter, k_iter)), {reg_a}(3, make_coord(m_iter, k_iter)), {reg_b}(0, make_coord(k_iter, n_iter)), {reg_b}(1, make_coord(k_iter, n_iter)));
         }}
     }}
 }}"""
@@ -1483,7 +1483,7 @@ def _sr_bcrs_calculate_impl(op: NvOp) -> NvOpImpl:
             asm("cvt.rna.tf32.f32  %0, %1;\\n" : "=r"(frag_B[0]) : "f"({reg_b}(0, make_coord(k_iter, n_iter))));
             asm("cvt.rna.tf32.f32  %0, %1;\\n" : "=r"(frag_B[1]) : "f"({reg_b}(1, make_coord(k_iter, n_iter))));
 
-            mma_m16n8k8_fp32_tf32_tf32_fp32({reg_c}(_, make_coord(m_iter, n_iter)).data(), frag_A, frag_B);
+            mma_m16n8k8_fp32_tf32_compensated({reg_c}(_, make_coord(m_iter, n_iter)).data(), frag_A, frag_B, {reg_a}(0, make_coord(m_iter, k_iter)), {reg_a}(1, make_coord(m_iter, k_iter)), {reg_a}(2, make_coord(m_iter, k_iter)), {reg_a}(3, make_coord(m_iter, k_iter)), {reg_b}(0, make_coord(k_iter, n_iter)), {reg_b}(1, make_coord(k_iter, n_iter)));
         }}
     }}
 }}"""
