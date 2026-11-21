@@ -630,8 +630,8 @@ def build_sparse_format_profile(
     format_summary = {
         "SCALAR_COMPACT_K4": (
             "Exact four-level scalar compact dense format: window and parent "
-            "offsets compose into global B columns, with each K4 leaf padded to "
-            "K8 for TF32x3 MMA. The host limits partial accumulation to 32 "
+            "offsets compose into global B columns; inner K is padded to 8, 16 "
+            "or 32 and processed in K8 TF32x3 MMA steps. The host limits partial accumulation to 32 "
             "parent blocks and reduces segments. Only tile_n=64, row scheduling "
             "and the validated synchronous B staging/pipeline are supported; "
             "backend normalization fixes unsupported strategy choices."

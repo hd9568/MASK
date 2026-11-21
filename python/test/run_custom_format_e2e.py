@@ -85,6 +85,7 @@ def compile_one(run_dir: Path, manifest: dict[str, Any], jobs: int) -> Path:
         f"-DSPARSENE_LOGICAL_BLK_M={plan['logical_blk_m']}",
         f"-DSPARSENE_PHYSICAL_BLK_M={plan['physical_blk_m']}",
         f"-DSPARSENE_BLK_K={plan['physical_blk_k']}",
+        f"-DSPARSENE_LOGICAL_BLK_K={plan['logical_blk_k']}",
         f"-DSPARSENE_TILE_N={plan['tile_n']}",
         f"-DSPARSENE_ROW_REORDER={reorder_code}",
         f"-DSPARSENE_PACKING_MODE={packing_code}",

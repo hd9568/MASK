@@ -1244,9 +1244,9 @@ def assess_backend_capability(
         ]
         if backend_plan.backend == "scalar_compact_k4_tensorcore_v1":
             reasons = [
-                "exact four-level scalar-sparsify-before-split DSL; dense 16x4 leaf",
-                "host composes two-level indices and pads each K4 leaf to K8 for MMA",
-                "currently requires BLK_M=16, BLK_K=8, BLK_K_I=4, row-major dense leaf",
+                "exact four-level scalar-sparsify-before-split DSL; row-major dense leaf",
+                "host composes two-level indices; K4 is padded to K8 and larger leaves use K8 MMA steps",
+                "BLK_M=16; BLK_K in [8,64]; BLK_K_I in [4,32], smaller than and dividing BLK_K",
             ]
         if rts_error is not None and not canonical:
             # Exact backends must still be reachable through the normal middle-end.
