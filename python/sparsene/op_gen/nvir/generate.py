@@ -1593,7 +1593,7 @@ for (int linear = lid; linear < rows * cols; linear += 32) {{
             asm("cvt.rna.tf32.f32  %0, %1;\\n" : "=r"(frag_A[3]) : "f"({inputs[0].name}(3, make_coord(m_iter, k_iter))));
             asm("cvt.rna.tf32.f32  %0, %1;\\n" : "=r"(frag_B[0]) : "f"({inputs[1].name}(0, make_coord(k_iter, n_iter))));
             asm("cvt.rna.tf32.f32  %0, %1;\\n" : "=r"(frag_B[1]) : "f"({inputs[1].name}(1, make_coord(k_iter, n_iter))));
-            mma_m16n8k8_fp32_tf32_tf32_fp32({outputs[0].name}(_, make_coord(m_iter, n_iter)).data(), frag_A, frag_B);
+            mma_m16n8k8_fp32_tf32_compensated({outputs[0].name}(_, make_coord(m_iter, n_iter)).data(), frag_A, frag_B, {inputs[0].name}(0, make_coord(m_iter, k_iter)), {inputs[0].name}(1, make_coord(m_iter, k_iter)), {inputs[0].name}(2, make_coord(m_iter, k_iter)), {inputs[0].name}(3, make_coord(m_iter, k_iter)), {inputs[1].name}(0, make_coord(k_iter, n_iter)), {inputs[1].name}(1, make_coord(k_iter, n_iter)));
         }}
     }}
 }}"""

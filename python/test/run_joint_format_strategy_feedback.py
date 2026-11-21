@@ -46,6 +46,7 @@ from run_format_design_batch import (  # noqa: E402
 )
 from sparsene.agent.config import resolve_model_config  # noqa: E402
 from sparsene.op_gen.backend_registry import select_backend  # noqa: E402
+from sparsene.op_gen.early_stop import stop_decision  # noqa: E402
 from sparsene.op_gen.format_design_agent import (  # noqa: E402
     DEFAULT_MAX_TOKENS,
     DESIGN_SCHEMA_VERSION,
@@ -82,10 +83,15 @@ DEFAULT_FEATURE_DIR = Path("/mnt/lustre-client/huoda/selected_mtx")
 DEFAULT_MODEL_CONFIG = REPO_ROOT / "llm_models.yaml"
 DEFAULT_NCU = Path("/home/huoda/local/cuda/nsight-compute-2025.1.0/ncu")
 DEFAULT_INCUMBENT_DIR = (
-    REPO_ROOT / "logs" / "e2e_runs" / "incumbents" / "a100_a800_n512_fp32"
+    REPO_ROOT / "logs" / "e2e_runs" / "incumbents" / "a100_a800_n512_fp32_atol1e-3_rtol1e-3"
 )
 FEATURE_SUFFIX = ".features.v3.json"
 IMPLEMENTATION_PATHS = (
+    "python/sparsene/op_gen/early_stop.py",
+    "python/sparsene/op_gen/nvir/templates.py",
+    "python/sparsene/op_gen/nvir/compiler_driver.py",
+    "python/sparsene/op_gen/nvir/generate.py",
+    "examples/src_fp32/acc/testbed/custom_format_e2e.cu",
     "python/test/run_joint_format_strategy_feedback.py",
     "python/test/run_v7_strategy_feedback.py",
     "python/test/generate_custom_format_operators.py",
@@ -100,7 +106,6 @@ IMPLEMENTATION_PATHS = (
     ".agent/skills/format-design/SKILL.md",
     ".agent/skills/strategy-optimization/SKILL.md",
     ".agent/skills/feedback-loop/SKILL.md",
-    "scripts/run_joint_format_strategy_3datasets.sh",
     "scripts/run_joint_format_strategy_26datasets.sh",
 )
 
@@ -869,6 +874,8 @@ def _strategy_command(args: argparse.Namespace, candidate_dir: Path, dataset: st
     ]
     if args.skip_ncu:
         command.append("--skip-ncu")
+    if getattr(args, "disable_early_stop", False):
+        command.append("--disable-early-stop")
     if args.resume:
         command.append("--resume")
     return command
@@ -986,15 +993,24 @@ def _publish_dataset_summary(
         if getattr(args, "initial_format", None) == "sparsene_historical_best"
         else None
     )
-    if (
-        best
-        and len(records) == args.format_iterations
-        and evaluated == candidate_budget
-        and failed_candidates == 0
-    ):
-        status = "completed"
-    elif best and len(records) == args.format_iterations:
-        status = "completed_with_gaps"
+    stop_path = dataset_dir / "early_stop_decision.json"
+    outer_stopped = stop_path.is_file() and _read_json(stop_path).get("stop") is True
+    # A smaller candidate count is complete only when an inner campaign really
+    # stopped early. Unsupported/failed formats are gaps, never convergence.
+    def inner_finished(record: dict[str, Any]) -> bool:
+        if record.get("status") != "completed":
+            return False
+        if int(record.get("strategy_candidates_evaluated") or 0) >= args.strategy_agent_iterations + 1:
+            return True
+        summary_path = record.get("strategy_summary_path")
+        if not summary_path:
+            return False
+        inner_stop = Path(summary_path).parent / "early_stop_decision.json"
+        return inner_stop.is_file() and _read_json(inner_stop).get("stop") is True
+
+    all_finished = failed_candidates == 0 and all(inner_finished(record) for record in records)
+    if best and (outer_stopped or len(records) == args.format_iterations):
+        status = "completed" if all_finished else "completed_with_gaps"
     else:
         status = "incomplete"
     summary = {
@@ -1013,6 +1029,7 @@ def _publish_dataset_summary(
         ),
         "format_iterations_requested": args.format_iterations,
         "strategy_agent_iterations_per_format": args.strategy_agent_iterations,
+        "early_stop": _read_json(stop_path) if stop_path.is_file() else None,
         "candidate_budget": candidate_budget,
         "format_iterations": records,
         "counts": {
@@ -1206,7 +1223,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--run-dir", type=Path, required=True)
     parser.add_argument("--feature-dir", type=Path, default=DEFAULT_FEATURE_DIR)
     parser.add_argument("--datasets", nargs="+", required=True)
-    parser.add_argument("--format-iterations", type=int, default=3)
+    parser.add_argument("--format-iterations", type=int, default=6, help="maximum format candidates; early stopping may finish sooner")
     parser.add_argument(
         "--initial-format",
         choices=("agent", "sr_bcrs_16x8", "sparsene_historical_best"),
@@ -1218,6 +1235,7 @@ def _parse_args() -> argparse.Namespace:
         help="Audited A100 N=512 FP32 per-dataset historical fastest variant catalog.",
     )
     parser.add_argument("--strategy-agent-iterations", type=int, default=5)
+    parser.add_argument("--disable-early-stop", action="store_true", help="run all format and strategy iterations")
     parser.add_argument("--initial-feedback-run-dir", type=Path)
     parser.add_argument(
         "--incumbent-dir",
@@ -1321,6 +1339,7 @@ def _write_root_manifest(args: argparse.Namespace, run_dir: Path, features: dict
                 if args.initial_format == "sparsene_historical_best" else None
             ),
             "strategy_agent_iterations_per_format": args.strategy_agent_iterations,
+            "early_stop_enabled": not args.disable_early_stop,
             "heuristic_baseline_per_format": 1,
             "strategy_candidates_per_format": args.strategy_agent_iterations + 1,
             "candidate_budget_per_dataset": args.format_iterations
@@ -1494,6 +1513,19 @@ def main() -> int:
             flush=True,
         )
         for format_iteration in range(args.format_iterations):
+            if format_iteration and not args.disable_early_stop:
+                observations = [{"iteration": item.get("format_iteration"),
+                    "status": "validated" if item.get("best_correctness_passed") is True and item.get("status") == "completed" else "invalid",
+                    "time_ms": item.get("best_generated_ms"),
+                    "spread_pct": ((item.get("best_result") or {}).get("timing") or {}).get("relative_spread_pct")}
+                    for item in records if int(item.get("format_iteration", -1)) < format_iteration]
+                decision_stop = stop_decision(observations)
+                decision_stop.update({"scope": "format", "next_iteration": format_iteration})
+                _write_json(dataset_dir / "early_stop_decision.json", decision_stop)
+                _write_json(dataset_dir / "early_stop" / f"before_{format_iteration:02d}.json", decision_stop)
+                if decision_stop["stop"]:
+                    _append_event(run_dir, {"event": "format_early_stop", "dataset": dataset, **decision_stop})
+                    break
             candidate_dir = (
                 dataset_dir / "format_iterations" / f"format_{format_iteration:02d}"
             )

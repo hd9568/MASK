@@ -2,9 +2,15 @@
 set -euo pipefail
 
 REPO_ROOT=/home/huoda/sparsene
-RUN_DIR=${RUN_DIR:-${REPO_ROOT}/logs/e2e_runs/20260902_sparsekg_joint_format3_strategy5_all26_v1}
-SEED_RUN_DIR=${SEED_RUN_DIR:-${REPO_ROOT}/logs/e2e_runs/20260722_232100_mask_deepseek_v4_pro_format26_v7_empirical_feedback}
-INCUMBENT_DIR=${INCUMBENT_DIR:-${REPO_ROOT}/logs/e2e_runs/incumbents/a100_a800_n512_fp32}
+RUN_DIR=${RUN_DIR:-${REPO_ROOT}/logs/e2e_runs/$(date +%Y%m%d_%H%M%S)_adaptive_strict_all26}
+SEED_RUN_DIR=${SEED_RUN_DIR:-}
+INCUMBENT_DIR=${INCUMBENT_DIR:-${REPO_ROOT}/logs/e2e_runs/incumbents/a100_a800_n512_fp32_atol1e-3_rtol1e-3}
+FORMAT_MAX_ITERATIONS=${FORMAT_MAX_ITERATIONS:-6}
+STRATEGY_MAX_ITERATIONS=${STRATEGY_MAX_ITERATIONS:-5}
+SEED_ARGS=()
+if [[ -n "${SEED_RUN_DIR}" ]]; then
+  SEED_ARGS=(--initial-feedback-run-dir "${SEED_RUN_DIR}")
+fi
 
 DATASETS=(
   ASIC_680k
@@ -45,9 +51,9 @@ python python/test/run_joint_format_strategy_feedback.py \
   --run-dir "${RUN_DIR}" \
   --feature-dir /mnt/lustre-client/huoda/selected_mtx \
   --datasets "${DATASETS[@]}" \
-  --format-iterations 3 \
-  --strategy-agent-iterations 5 \
-  --initial-feedback-run-dir "${SEED_RUN_DIR}" \
+  --format-iterations "${FORMAT_MAX_ITERATIONS}" \
+  --strategy-agent-iterations "${STRATEGY_MAX_ITERATIONS}" \
+  "${SEED_ARGS[@]}" \
   --incumbent-dir "${INCUMBENT_DIR}" \
   --format-model deepseek-v4-pro \
   --format-max-tokens 32768 \

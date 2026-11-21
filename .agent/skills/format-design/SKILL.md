@@ -194,6 +194,25 @@ full-output validation.
 
 ## Outer-Loop Empirical Feedback
 
+### Probe scope and nested blocks
+
+The nine fixed BLK_M/BLK_K probes describe window-local column condensation,
+not arbitrary fixed-coordinate blocks or all possible nested leaves. Never
+reuse their tile counts as measured costs for a different reorder, encoding,
+or non-condensed traversal. A negative unique-column reduction means the
+reordered window unions grew, not shrank; cite the exact sign and values.
+For FP32, account for the actual MMA numerical mode: the default TF32
+residual-compensated path executes three MMA terms per logical tile; a
+single-MMA fast build is permitted only when it passes the same strict gate.
+Compare nested blocks only with an explicit model of actual executable work:
+nonempty child counts, K=8 staging/padding, physical MMA count, shared B
+gathers, index/mask/restore traffic and per-task tails. A compact child storage
+alone does not imply fewer physical MMA or B loads. Use measured candidate-
+specific data when present; otherwise mark the benefit unknown and give a
+falsifiable prediction. Respect the backend/host capability and fail clearly
+for research-only variants; do not silently map a nested proposal to a
+different physical layout. Do not hard-code a dataset, candidate or benchmark.
+
 In a nested Format-Agent/Strategy-Agent campaign, one Format design is followed
 by a complete fixed-format strategy search.  A later Format iteration may
 receive compact summaries of all earlier outer iterations:

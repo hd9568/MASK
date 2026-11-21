@@ -30,8 +30,10 @@ from typing import Any
 
 from generate_custom_format_operators import generate_one
 from run_custom_format_e2e import compile_one, run_one
+from sparsene.agent.client import StreamingInterruptedError
 from sparsene.formats.custom.loader import load_run_format
 from sparsene.op_gen.backend_registry import select_backend
+from sparsene.op_gen.early_stop import stop_decision
 from sparsene.op_gen.strategy_agent import (
     PipelineStrategy,
     RuntimeScheduleStrategy,
@@ -57,6 +59,8 @@ DEFAULT_NCU = Path("/home/huoda/local/cuda/nsight-compute-2025.1.0/ncu")
 DEFAULT_GPU_LOCK = Path("/tmp/sparsekg_sm80_gpu_benchmark.lock")
 REPO_ROOT = Path(__file__).resolve().parents[2]
 IMPLEMENTATION_PATHS = (
+    "python/sparsene/op_gen/early_stop.py",
+    "python/sparsene/op_gen/nvir/templates.py",
     "python/test/run_v7_strategy_feedback.py",
     "python/test/generate_custom_format_operators.py",
     "python/test/run_custom_format_e2e.py",
@@ -171,6 +175,15 @@ def _compact_features(features: dict[str, Any], plan: dict[str, Any]) -> dict[st
 
 def _operator_stats(operator_path: Path) -> dict[str, Any]:
     source = operator_path.read_text(encoding="utf-8")
+    compensated_helper = "mma_m16n8k8_fp32_tf32_compensated("
+    single_helper = "mma_m16n8k8_fp32_tf32_tf32_fp32("
+    if compensated_helper in source:
+        # Exclude the helper definition and its three internal MMA calls;
+        # count generated logical sites, not textual helper implementations.
+        logical_mma_sites = max(0, source.count(compensated_helper) - 1)
+        logical_mma_sites += max(0, source.count(single_helper) - 4)
+    else:
+        logical_mma_sites = max(0, source.count(single_helper) - 1)
     return {
         "bytes": operator_path.stat().st_size,
         "sha256": _sha256(operator_path),
@@ -179,7 +192,8 @@ def _operator_stats(operator_path: Path) -> dict[str, Any]:
         "pipeline_wait_sites": source.count("__pipeline_wait_prior"),
         "warp_sync_sites": source.count("SPARSENE_GENERATED_BLOCK_SYNC()") - 1,
         "atomic_add_sites": source.count("atomicAdd("),
-        "tf32_mma_sites": source.count("mma_m16n8k8_fp32_tf32_tf32_fp32"),
+        "tf32_mma_sites": logical_mma_sites,
+        "tf32_mma_site_note": "static logical call sites; compensated mode executes three MMA terms per site by default",
         "has_launch_bounds": "__launch_bounds__" in source,
     }
 
@@ -622,7 +636,7 @@ def _normalize_v7_strategy(
 def _is_transient_strategy_error(exc: Exception) -> bool:
     """Recognize transport interruptions without retrying schema/model errors."""
 
-    if isinstance(exc, (TimeoutError, ConnectionError)):
+    if isinstance(exc, (TimeoutError, ConnectionError, StreamingInterruptedError)):
         return True
     message = str(exc).lower()
     transient_markers = (
@@ -984,6 +998,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--first", type=int)
     parser.add_argument("--exclude-datasets", nargs="+", default=[])
     parser.add_argument("--agent-iterations", type=int, default=5)
+    parser.add_argument("--disable-early-stop", action="store_true", help="use the full fixed strategy budget")
     parser.add_argument("--n", type=int, default=512)
     parser.add_argument("--warmup", type=int, default=3)
     parser.add_argument("--repeat", type=int, default=32)
@@ -1073,6 +1088,21 @@ def _run_dataset(
 
     entries: list[dict[str, Any]] = []
     for iteration in range(args.agent_iterations + 1):
+        if iteration and not getattr(args, "disable_early_stop", False):
+            observations = []
+            for item in entries:
+                result = item.get("e2e_result") or {}
+                timing = result.get("timing") or {}
+                observations.append({"iteration": item.get("iteration"),
+                    "status": "validated" if item.get("status") == "validated" and (result.get("correctness") or {}).get("passed") is True else "invalid",
+                    "time_ms": timing.get("generated_ms"), "spread_pct": timing.get("relative_spread_pct")})
+            decision_stop = stop_decision(observations)
+            decision_stop.update({"scope": "strategy", "next_iteration": iteration})
+            _write_json(tuning_dir / "early_stop_decision.json", decision_stop)
+            _write_json(tuning_dir / "early_stop" / f"before_{iteration:02d}.json", decision_stop)
+            if decision_stop["stop"]:
+                print(f"{dataset}: strategy early stop before iteration {iteration}", flush=True)
+                break
         iteration_dir = tuning_dir / f"iteration_{iteration:02d}"
         summary_path = iteration_dir / "iteration_summary.json"
         resumed_decision: StrategyDecision | None = None
@@ -1262,6 +1292,7 @@ def main() -> int:
         "jobs": args.jobs,
         "dataset_workers": args.dataset_workers,
         "agent_iterations": args.agent_iterations,
+        "early_stop_enabled": not args.disable_early_stop,
         "total_iterations_per_executable_dataset": args.agent_iterations + 1,
         "strategy_provider": args.strategy_provider,
         "strategy_model": args.strategy_model,

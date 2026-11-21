@@ -107,6 +107,18 @@ per iteration.
 
 Before returning a patch, use this diagnosis order:
 
+The default FP32 TF32 path uses three MMA terms per logical tile for residual
+compensation; do not estimate compute work as single-MMA unless the build
+explicitly selects the fast mode and passes the strict correctness gate.
+For hierarchical blocks, distinguish stored subblocks from the actual K=8
+staging, MMA instructions, B gather/reuse, metadata decoding, and task mapping.
+Only claim a skipped operation when the generated backend and measurements
+support it. A task-bound kernel can gain from *less* load-balancing machinery;
+compare the effective policy and overhead as well as the tail distribution.
+Treat fixed-format probes as conditional estimates, not candidate-specific
+measurements. Do not promote an incorrect candidate or infer a win from a
+single profiler percentage.
+
 1. Confirm the best-correct base, measurement noise, normalized signatures,
    and fields active for this backend.
 2. Inspect effective policy/segment/tasks/groups/grid rather than requested

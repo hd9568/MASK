@@ -9,8 +9,10 @@ from unittest.mock import patch
 from run_v7_strategy_feedback import (
     _call_strategy_with_retry,
     _normalize_v7_strategy,
+    _operator_stats,
     _v7_strategy_search_space,
 )
+from sparsene.agent.client import StreamingInterruptedError
 from sparsene.op_gen.strategy_agent import StrategyDecision, _extract_json_object
 
 
@@ -56,6 +58,21 @@ class V7StrategyFeedbackResilienceTest(unittest.TestCase):
             False,
         )
 
+    def test_operator_summary_counts_logical_mma_calls_without_helper_internals(self):
+        with tempfile.TemporaryDirectory() as temporary_dir:
+            path = Path(temporary_dir) / "operator.inc"
+            path.write_text("""void mma_m16n8k8_fp32_tf32_tf32_fp32( void ) {}
+void mma_m16n8k8_fp32_tf32_compensated( void ) {
+  mma_m16n8k8_fp32_tf32_tf32_fp32();
+  mma_m16n8k8_fp32_tf32_tf32_fp32();
+  mma_m16n8k8_fp32_tf32_tf32_fp32();
+}
+void kernel() { mma_m16n8k8_fp32_tf32_compensated(); }
+""", encoding="utf-8")
+            stats = _operator_stats(path)
+            self.assertEqual(stats["tf32_mma_sites"], 1)
+            self.assertIn("three MMA terms", stats["tf32_mma_site_note"])
+
     def test_strategy_request_retries_transient_transport_error_and_audits(self):
         with tempfile.TemporaryDirectory() as temporary_dir:
             audit_path = Path(temporary_dir) / "strategy_request_retries.json"
@@ -82,6 +99,22 @@ class V7StrategyFeedbackResilienceTest(unittest.TestCase):
             self.assertEqual(
                 [item["status"] for item in audit["attempts"]], ["failed", "succeeded"]
             )
+
+    def test_sse_ended_without_terminal_is_retried_by_exception_type(self):
+        with tempfile.TemporaryDirectory() as temporary_dir:
+            calls = 0
+            def request():
+                nonlocal calls
+                calls += 1
+                if calls == 1:
+                    raise StreamingInterruptedError(
+                        "SSE ended without a terminal finish_reason",
+                        partial_content="", usage=None)
+                return "ok"
+            with patch("run_v7_strategy_feedback.time.sleep"):
+                self.assertEqual(_call_strategy_with_retry(
+                    request, audit_path=Path(temporary_dir) / "retry.json"), "ok")
+            self.assertEqual(calls, 2)
 
     def test_strategy_request_does_not_retry_nontransient_failure(self):
         with tempfile.TemporaryDirectory() as temporary_dir:

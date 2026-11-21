@@ -1,3 +1,4 @@
+#include <cmath>
 #include <bits/stdc++.h>
 #include <cuda.h>
 #include <cuda_fp16.h>
@@ -73,18 +74,18 @@ bool verify_new(float* C_cpu, float* C_cuda, int M, int N) {
             squared_error += (long double)abs_error * abs_error;
             squared_reference += (long double)cusparse_val * cusparse_val;
             max_abs_error = std::max(max_abs_error, abs_error);
-            if (!std::isfinite(mykernel_val)) {
+            if (!std::isfinite(cusparse_val) || !std::isfinite(mykernel_val)) {
                 nonfinite++;
             }
-            if (!std::isfinite(mykernel_val) ||
-                abs_error > 0.02 + 0.005 * fabs((double)cusparse_val)) {
+            if (!std::isfinite(cusparse_val) || !std::isfinite(mykernel_val) ||
+                abs_error > 0.001 + 0.001 * fabs((double)cusparse_val)) {
                 mismatches++;
             }
         }
     }
     const double relative_l2 = sqrt((double)(
       squared_error / std::max<long double>(squared_reference, 1.0e-30L)));
-    const bool passed = nonfinite == 0 && relative_l2 <= 5.0e-4;
+    const bool passed = nonfinite == 0 && mismatches == 0;
     printf("correctness: %s mismatches=%zu nonfinite=%zu max_abs_error=%.9g relative_l2=%.9g\n",
            passed ? "PASS" : "FAIL", mismatches, nonfinite, max_abs_error, relative_l2);
     return passed;

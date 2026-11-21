@@ -186,6 +186,9 @@ def _candidate_from_iteration(
         raise IncumbentRegistryError(f"missing correctness/timing for {dataset}")
     if correctness.get("passed") is not True:
         raise IncumbentRegistryError(f"correctness did not pass for {dataset}")
+    issues = _strict_correctness_issues(correctness)
+    if issues:
+        raise IncumbentRegistryError(f"strict correctness evidence missing for {dataset}: {', '.join(issues)}")
     measurement_runs = int(timing.get("measurement_runs") or 0)
     if measurement_runs > 1 and correctness.get("all_measurements_passed") is not True:
         raise IncumbentRegistryError(
@@ -323,6 +326,9 @@ def _candidate_from_iteration(
         },
         "correctness": {
             "passed": True,
+            "atol": correctness.get("atol"),
+            "rtol": correctness.get("rtol"),
+            "acceptance": correctness.get("acceptance"),
             "all_measurements_passed": correctness.get("all_measurements_passed"),
             "measurement_runs": correctness.get("measurement_runs"),
             "mismatches": correctness.get("mismatches"),
@@ -442,6 +448,21 @@ def extract_run_candidates(
     )
 
 
+def _strict_correctness_issues(correctness: dict[str, Any]) -> list[str]:
+    """Require recorded full-output evidence at least as strict as the current gate."""
+    issues: list[str] = []
+    if correctness.get("acceptance") != "all_elements":
+        issues.append("correctness.acceptance")
+    for name in ("atol", "rtol"):
+        value = correctness.get(name)
+        if not isinstance(value, (int, float)) or not math.isfinite(value) or not 0 <= value <= 0.001:
+            issues.append(f"correctness.{name}")
+    for name in ("mismatches", "nonfinite"):
+        if correctness.get(name) != 0:
+            issues.append(f"correctness.{name}")
+    return issues
+
+
 def candidate_matches_scope(
     candidate: dict[str, Any],
     *,
@@ -460,6 +481,7 @@ def candidate_matches_scope(
         if actual_hardware.get(key) != hardware_scope.get(key):
             issues.append(f"hardware.{key}")
     correctness = candidate.get("correctness", {})
+    issues.extend(_strict_correctness_issues(correctness))
     if correctness.get("passed") is not True:
         issues.append("correctness.passed")
     if int(protocol.get("measurement_runs", 1)) > 1 and correctness.get(
