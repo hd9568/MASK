@@ -85,12 +85,19 @@ def compile_one(run_dir: Path, manifest: dict[str, Any], jobs: int) -> Path:
         f"-DSPARSENE_LOGICAL_BLK_M={plan['logical_blk_m']}",
         f"-DSPARSENE_PHYSICAL_BLK_M={plan['physical_blk_m']}",
         f"-DSPARSENE_BLK_K={plan['physical_blk_k']}",
+        f"-DSPARSENE_LOGICAL_BLK_K={plan['logical_blk_k']}",
         f"-DSPARSENE_TILE_N={plan['tile_n']}",
         f"-DSPARSENE_ROW_REORDER={reorder_code}",
         f"-DSPARSENE_PACKING_MODE={packing_code}",
         "-DSPARSENE_MAX_TILES_PER_SEGMENT="
         f"{plan.get('max_tiles_per_execution_segment', 32)}",
     ]
+    # H100 override is opt-in; absent environment variables preserve SM80 behavior.
+    import os
+    if os.environ.get("SPARSEKG_CUDA_ARCH"):
+        configure.append(f"-DSPARSENE_CUSTOM_CUDA_ARCHITECTURES={os.environ['SPARSEKG_CUDA_ARCH']}")
+    if os.environ.get("SPARSEKG_CUTLASS_ROOT"):
+        configure.append(f"-DSPARSENE_CUTLASS_ROOT={os.environ['SPARSEKG_CUTLASS_ROOT']}")
     compiler_strategy = manifest.get("strategy_decision", {}).get("compiler", {})
     max_registers = compiler_strategy.get("max_registers_per_thread")
     if max_registers is not None:

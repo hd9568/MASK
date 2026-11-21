@@ -742,7 +742,7 @@ def render_format_design_prompt(request: FormatDesignRequest) -> str:
     digest = _feature_digest(request.matrix_features)
     evidence_map = _flatten_digest_values(digest)
     source_catalog = prompt_source_catalog()
-    return f"""You are the sparse-format research architect in SparseKG, a matrix- and architecture-aware agentic compiler for SpMM kernel generation on an SM80-class GPU.
+    return f"""You are the sparse-format research architect in SparseKG, a matrix- and architecture-aware agentic compiler for SpMM kernel generation on the detected GPU using the currently supported backend.
 
 Your task is to design the physical hierarchical sparse format that best fits
 this matrix.  Do not reduce the task to choosing a tile for a fixed ME-TCF
@@ -787,7 +787,7 @@ the raw v3 feature artifact; it was an extractor placeholder equal to K.
 
 === PRIOR EMPIRICAL FEEDBACK (CALIBRATION, NOT A FORMAT TEMPLATE) ===
 The following is a compact record of prior kernel-only measurements for this
-matrix on an SM80-class GPU.  Check its recorded N against the current SpMM
+matrix on the recorded hardware.  Only compare timing measured on the same GPU and protocol. Check its recorded N against the current SpMM
 workload N={request.spmm_n}; when they differ, treat it as directional evidence,
 not a directly comparable timing.  It is evidence about an
 earlier implementation, not a constraint to copy its hierarchy or its format.
@@ -1244,9 +1244,9 @@ def assess_backend_capability(
         ]
         if backend_plan.backend == "scalar_compact_k4_tensorcore_v1":
             reasons = [
-                "exact four-level scalar-sparsify-before-split DSL; dense 16x4 leaf",
-                "host composes two-level indices and pads each K4 leaf to K8 for MMA",
-                "currently requires BLK_M=16, BLK_K=8, BLK_K_I=4, row-major dense leaf",
+                "exact four-level scalar-sparsify-before-split DSL; row-major dense leaf",
+                "host composes two-level indices; K4 is padded to K8 and larger leaves use K8 MMA steps",
+                "BLK_M=16; BLK_K in [8,64]; BLK_K_I in [4,32], smaller than and dividing BLK_K",
             ]
         if rts_error is not None and not canonical:
             # Exact backends must still be reachable through the normal middle-end.
@@ -1652,6 +1652,8 @@ def run_format_design_agent(
         "driver_version": hardware.driver_version,
         "total_memory_mb": hardware.total_memory_mb,
         "warp_size": hardware.warp_size,
+        "sm_count": getattr(hardware, "sm_count", None),
+        "shared_memory_per_sm_kb": getattr(hardware, "shared_memory_per_sm_kb", None),
         "design_note": "Hardware guides alignment/cost reasoning but does not restrict the research DSL to current backend profiles.",
     }
 

@@ -30,6 +30,7 @@ class BackendPlan:
     packing_mode: str
     row_reorder: str | None
     notes: tuple[str, ...]
+    logical_inner_blk_k: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -95,8 +96,13 @@ def _select_exact_backend(
         # canonicalize this profile to a different two-level representation.
         from .scalar_compact_k_lowering import lower_scalar_compact_k_spec
         nested = lower_scalar_compact_k_spec(spec)
-        if (nested.blk_m, nested.blk_k, nested.blk_k_i) != (16, 8, 4):
-            raise ValueError("four-level compact backend currently requires BLK_M=16, BLK_K=8, BLK_K_I=4")
+        if (nested.blk_m != 16 or not 8 <= nested.blk_k <= 64
+                or not 4 <= nested.blk_k_i <= 32
+                or nested.blk_k_i >= nested.blk_k
+                or nested.blk_k % nested.blk_k_i):
+            raise ValueError("four-level compact backend requires BLK_M=16, "
+                             "8 <= BLK_K <= 64, 4 <= BLK_K_I <= 32, "
+                             "and BLK_K_I < BLK_K with exact divisibility")
         if target not in {"sm80", "a800"} or tile_n != 64:
             raise ValueError("four-level compact backend requires sm80-compatible target and tile_n=64")
         if max_tiles_per_execution_segment < 1:
@@ -105,12 +111,13 @@ def _select_exact_backend(
             backend="scalar_compact_k4_tensorcore_v1",
             codegen_format_name="SCALAR_COMPACT_K4",
             target="sm80", compute_capability=80,
-            logical_blk_m=16, logical_blk_k=8, physical_blk_m=16,
-            physical_blk_k=8, tile_n=64, mma_m=16, mma_n=8, mma_k=8,
+            logical_blk_m=16, logical_blk_k=nested.blk_k, physical_blk_m=16,
+            physical_blk_k=1 << (max(8, nested.blk_k_i) - 1).bit_length(), tile_n=64, mma_m=16, mma_n=8, mma_k=8,
+            logical_inner_blk_k=nested.blk_k_i,
             max_tiles_per_execution_segment=max_tiles_per_execution_segment,
             packing_mode="scalar_compact_k4_dense", row_reorder=None,
-            notes=("Original four-level DSL; scalar offsets count padded K4 slots.",
-                   "Each K4 leaf stages into a zero-padded K8 MMA tile."),
+            notes=("Original four-level DSL; inner offsets count padded scalar slots.",
+                   "Each leaf stages to a multiple-of-8 Tensor Core K tile."),
         )
     x_outer: Mapping[str, Any]
     packing_mode: str
@@ -493,7 +500,10 @@ def select_backend(
             max_tiles_per_execution_segment=max_tiles_per_execution_segment,
         )
     except ValueError as exact_error:
-        if not allow_physicalization:
+        # Preserve hierarchical inner-K semantics: a rejected multi-level
+        # design must not be silently replaced with an unrelated 2-level DSL.
+        nested_inner_k = len(spec.get("levels", [])) == 4 and "BLK_K_I" in spec.get("params", {})
+        if not allow_physicalization or nested_inner_k:
             raise ValueError(f"exact backend rejected (physicalization disabled): {exact_error}") from exact_error
         try:
             return _select_frontend_canonical_backend(

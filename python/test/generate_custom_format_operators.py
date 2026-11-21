@@ -133,6 +133,7 @@ def lower_format_operator(
         strategy_log_dir_override=(
             str(strategy_dir) if strategy_decision is not None else None
         ),
+        specialized_parameters=specialized_parameters,
     )
     if explicit_sequential_iteration:
         program.attrs["explicit_sequential_iteration"] = True
@@ -219,6 +220,10 @@ def generate_one(
         ir_dir=ir_dir,
         strategy_dir=strategy_dir,
         strategy_decision=strategy_decision,
+        specialized_parameters=(
+            {"BLK_K_I": plan.logical_inner_blk_k}
+            if plan.packing_mode == "scalar_compact_k4_dense" else None
+        ),
     )
     manifest = {
         "schema_version": "sparsene.operator_generation.v1",

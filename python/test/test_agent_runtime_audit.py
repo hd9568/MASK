@@ -500,6 +500,27 @@ class AgentRuntimeAuditTest(unittest.TestCase):
             self.assertEqual(audit["status"], "truncated")
             self.assertEqual(result.finish_reason, "length")
 
+    def test_interrupted_stream_counts_provider_reasoning_alias(self) -> None:
+        class Stream:
+            def __enter__(self): return self
+            def __exit__(self, *args): return False
+            def __iter__(self):
+                yield b'data: {"choices":[{"delta":{"reasoning":"12345678"},"finish_reason":null}]}\n'
+        with patch("sparsene.agent.client.urllib_request.urlopen", return_value=Stream()):
+            with self.assertRaises(StreamingInterruptedError) as caught:
+                call_openai_compatible(model="mock", api_key="test", api_base_url="https://example.invalid", system_prompt="s", user_prompt="u", temperature=0.1, max_tokens=8, timeout_sec=5, stream=True)
+        self.assertIn("reasoning_chars=8", str(caught.exception))
+        self.assertGreaterEqual(caught.exception.usage.completion_tokens, 2)
+
+    def test_strategy_rejects_truncated_even_when_json_is_parseable(self) -> None:
+        response = LLMTextResponse(provider="openai_compatible", model="mock", content='{"strategy_patch": {}}', raw_payload={}, usage=TokenUsage(1, 128, 129), elapsed_s=0.1, finish_reason="length")
+        with tempfile.TemporaryDirectory() as tmp, patch.object(AgentModelConfig, "resolve", return_value=_resolved()), patch("sparsene.agent.runtime._invoke_llm", return_value=response):
+            with self.assertRaisesRegex(ValueError, "finish_reason=length"):
+                invoke_json_agent(agent_name="audit", subject="matrix", log_dir=tmp, model_config=AgentModelConfig(), system_prompt="s", user_prompt="u", request_payload={}, response_parser=json.loads, reject_truncated=True)
+            audit = json.loads((next(Path(tmp).iterdir()) / "audit.json").read_text())
+            self.assertEqual(audit["status"], "truncated")
+            self.assertEqual(audit["finish_reason"], "length")
+
     def test_failed_request_still_records_input_and_estimated_usage(self) -> None:
         with tempfile.TemporaryDirectory() as tmp, patch.object(
             AgentModelConfig, "resolve", return_value=_resolved()

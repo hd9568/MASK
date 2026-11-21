@@ -52,12 +52,12 @@ class HardwareProfile:
     cuda_arch: str = "sm_80"
     total_memory_mb: Optional[int] = None
     sm_count: Optional[int] = None
-    warp_size: int = 32
-    max_threads_per_sm: int = 2048
-    max_warps_per_sm: int = 64
-    max_blocks_per_sm: int = 32
-    register_file_32bit_per_sm: int = 65536
-    shared_memory_per_sm_kb: int = 164
+    warp_size: Optional[int] = 32
+    max_threads_per_sm: Optional[int] = 2048
+    max_warps_per_sm: Optional[int] = 64
+    max_blocks_per_sm: Optional[int] = 32
+    register_file_32bit_per_sm: Optional[int] = 65536
+    shared_memory_per_sm_kb: Optional[int] = 164
     source: str = "env_or_default"
 
 
@@ -380,39 +380,35 @@ class StrategyConfig:
 
 
 def discover_hardware_profile() -> HardwareProfile:
-    cuda_arch = os.environ.get("CUDA_ARCH", "sm_80")
-    query = _safe_read_command_output(
-        [
-            "nvidia-smi",
-            "--query-gpu=name,driver_version,memory.total,multiprocessor_count",
-            "--format=csv,noheader,nounits",
-        ]
-    )
-    if not query:
-        return HardwareProfile(cuda_arch=cuda_arch)
-
-    first_line = query.splitlines()[0]
-    parts = [part.strip() for part in first_line.split(",")]
-    total_memory_mb: Optional[int] = None
-    if len(parts) >= 3:
-        try:
-            total_memory_mb = int(parts[2])
-        except ValueError:
-            total_memory_mb = None
-    sm_count: Optional[int] = None
-    if len(parts) >= 4:
-        try:
-            sm_count = int(parts[3])
-        except ValueError:
-            sm_count = None
-    return HardwareProfile(
-        gpu_name=parts[0] if len(parts) >= 1 else "unknown",
-        driver_version=parts[1] if len(parts) >= 2 else "unknown",
-        total_memory_mb=total_memory_mb,
-        sm_count=sm_count,
-        cuda_arch=cuda_arch,
-        source="nvidia-smi",
-    )
+    """Discover the active device; report unknown attributes instead of SM80 guesses."""
+    import ctypes
+    cuda_arch = os.environ.get("CUDA_ARCH") or ("sm_" + os.environ["SPARSEKG_CUDA_ARCH"] if os.environ.get("SPARSEKG_CUDA_ARCH") else "unknown")
+    query = _safe_read_command_output([
+        "nvidia-smi", "--query-gpu=name,driver_version,memory.total,compute_cap",
+        "--format=csv,noheader,nounits",
+    ])
+    parts = [part.strip() for part in query.splitlines()[0].split(",")] if query else []
+    if len(parts) >= 4 and parts[3].replace(".", "").isdigit():
+        cuda_arch = "sm_" + parts[3].replace(".", "")
+    profile = HardwareProfile(gpu_name=parts[0] if parts else "unknown", driver_version=parts[1] if len(parts)>1 else "unknown", total_memory_mb=int(parts[2]) if len(parts)>2 and parts[2].isdigit() else None, cuda_arch=cuda_arch, source="nvidia-smi" if parts else "unavailable")
+    # CUDA driver attributes refer to visible device 0, like the generated jobs.
+    for name in ("sm_count", "warp_size", "max_threads_per_sm", "max_warps_per_sm", "max_blocks_per_sm", "register_file_32bit_per_sm", "shared_memory_per_sm_kb"):
+        setattr(profile, name, None)
+    try:
+        cuda = ctypes.CDLL("libcuda.so.1")
+        device = ctypes.c_int()
+        if cuda.cuInit(0) != 0 or cuda.cuDeviceGet(ctypes.byref(device), 0) != 0:
+            raise RuntimeError("CUDA device unavailable")
+        for name, attr in (("sm_count",16),("warp_size",10),("max_threads_per_sm",39),("max_blocks_per_sm",106),("register_file_32bit_per_sm",82),("shared_memory_per_sm_kb",81)):
+            value = ctypes.c_int()
+            if cuda.cuDeviceGetAttribute(ctypes.byref(value), attr, device) == 0:
+                setattr(profile, name, value.value // 1024 if name == "shared_memory_per_sm_kb" else value.value)
+        if profile.max_threads_per_sm and profile.warp_size:
+            profile.max_warps_per_sm = profile.max_threads_per_sm // profile.warp_size
+        profile.source += "+cuda_driver"
+    except (OSError, AttributeError, RuntimeError):
+        pass
+    return profile
 
 
 _STRATEGY_FIELD_CATALOG: Dict[str, Dict[str, Dict[str, Any]]] = {
@@ -634,8 +630,8 @@ def build_sparse_format_profile(
     format_summary = {
         "SCALAR_COMPACT_K4": (
             "Exact four-level scalar compact dense format: window and parent "
-            "offsets compose into global B columns, with each K4 leaf padded to "
-            "K8 for TF32x3 MMA. The host limits partial accumulation to 32 "
+            "offsets compose into global B columns; inner K is padded to 8, 16 "
+            "or 32 and processed in K8 TF32x3 MMA steps. The host limits partial accumulation to 32 "
             "parent blocks and reduces segments. Only tile_n=64, row scheduling "
             "and the validated synchronous B staging/pipeline are supported; "
             "backend normalization fixes unsupported strategy choices."
@@ -766,7 +762,7 @@ def build_strategy_request(
     )
     constraints = [
         "Must preserve correctness for the selected run-owned format and semantic backend.",
-        "Should prefer strategies already known to be safe on SM80/A100-like hardware.",
+        "Use only strategies supported by the current SM80-compatible backend on the detected GPU.",
         "Should only choose from the documented structured schema.",
         "Do not invent new schema fields or unsupported codegen knobs.",
         "Current lowering only supports canonical swizzles: B staging uses swizzle_323 and COO restore uses swizzle_123.",
@@ -857,7 +853,7 @@ def render_strategy_prompt(request: StrategyRequest) -> str:
 
     optimization_guidance = "\n".join(
         [
-            "- On SM80/A100/A800-like GPUs, cp.async usually helps only when data is aligned, reuse exists, and the producer-consumer distance can hide latency.",
+            "- With this SM80-compatible backend on Ampere or Hopper, cp.async usually helps only when data is aligned, reuse exists, and the producer-consumer distance can hide latency.",
             "- Turning off cp.async or moving tensors from smem to rmem may improve safety, but often reduces bandwidth amortization and Tensor Core feed efficiency.",
             "- High registers/thread or low waves-per-SM indicates occupancy pressure; if the grid is also small, aggressive pipelining may not help.",
             "- If Memory Throughput is much higher than Compute Throughput, prefer memory-traffic reductions and stable async copies over extra synchronization.",
@@ -1212,12 +1208,14 @@ def _run_llm_strategy(
             "Diagnose one dominant bottleneck, change only active effective fields, and explain the "
             "expected benefit, counter-cost, and falsifying observation; return an empty iterative "
             "patch when the fixed representation is the limiting layer or the search is saturated. "
+            "Keep rationale concise, emit the complete JSON object within the output budget. "
             "Return only valid JSON matching the requested schema. "
             "Do not include markdown fences, prose, or extra keys."
         ),
         user_prompt=request.prompt,
         request_payload=request.to_dict(),
         response_parser=_extract_json_object,
+        reject_truncated=True,
         skill_names=config.skill_names,
         json_output=True,
     )

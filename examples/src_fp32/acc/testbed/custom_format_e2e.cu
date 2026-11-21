@@ -35,6 +35,9 @@
 #ifndef SPARSENE_BLK_K
 #error "SPARSENE_BLK_K is required"
 #endif
+#ifndef SPARSENE_LOGICAL_BLK_K
+#define SPARSENE_LOGICAL_BLK_K SPARSENE_BLK_K
+#endif
 #ifndef SPARSENE_TILE_N
 #define SPARSENE_TILE_N 64
 #endif
@@ -64,6 +67,15 @@ namespace sparsene_custom_e2e {
 constexpr int kLogicalM = SPARSENE_LOGICAL_BLK_M;
 constexpr int kPhysicalM = SPARSENE_PHYSICAL_BLK_M;
 constexpr int kBlockK = SPARSENE_BLK_K;
+constexpr int kParentK = SPARSENE_LOGICAL_BLK_K;
+#if SPARSENE_PACKING_MODE == 5
+constexpr int kInnerK = BLK_K_I::value;
+static_assert(kInnerK >= 4 && kInnerK <= 32);
+static_assert(kParentK > kInnerK && kParentK % kInnerK == 0);
+static_assert(kBlockK == (kInnerK <= 8 ? 8 : kInnerK <= 16 ? 16 : 32));
+#else
+constexpr int kInnerK = 0;
+#endif
 constexpr int kTileN = SPARSENE_TILE_N;
 constexpr int kMmaM = 16;
 constexpr int kMmaN = 8;
@@ -381,8 +393,8 @@ struct PackedMco {
     std::string execution_policy = "row";
 };
 
-// Exact four-level scalar-sparsify-before-K4-split host ABI.  Parent
-// offsets count K8 blocks; inner offsets count K4-padded scalar slots.
+// Exact four-level scalar-sparsify-before-inner-K-split host ABI.
+// Parent offsets count outer-K blocks; inner offsets count padded scalar slots.
 PackedMco convert_scalar_compact_k4(int m, int k, const int* row_ptr,
                                     const int* col_idx, const float* vals) {
     PackedMco p;
@@ -404,19 +416,19 @@ PackedMco convert_scalar_compact_k4(int m, int k, const int* row_ptr,
         }
         std::vector<int> ids;
         for (const auto& item : cols) ids.push_back(item.first);
-        for (size_t base = 0; base < ids.size(); base += 8) {
-            const size_t end = std::min(base + 8, ids.size());
-            for (size_t leaf = base; leaf < end; leaf += 4) {
-                const size_t leaf_end = std::min(leaf + 4, end);
+        for (size_t base = 0; base < ids.size(); base += kParentK) {
+            const size_t end = std::min(base + kParentK, ids.size());
+            for (size_t leaf = base; leaf < end; leaf += kInnerK) {
+                const size_t leaf_end = std::min(leaf + kInnerK, end);
                 const size_t offset = p.values.size();
-                p.values.resize(offset + 16 * 4, 0.0f);
-                for (int lane = 0; lane < 4; ++lane) {
+                p.values.resize(offset + 16 * kInnerK, 0.0f);
+                for (int lane = 0; lane < kInnerK; ++lane) {
                     const size_t idx = leaf + lane;
                     p.sparse_columns.push_back(idx < leaf_end ? ids[idx] : 0);
                     if (idx < leaf_end) {
                         const auto& rows = cols.at(ids[idx]);
                         for (int row = 0; row < 16; ++row)
-                            p.values[offset + row * 4 + lane] = rows[row];
+                            p.values[offset + row * kInnerK + lane] = rows[row];
                     }
                 }
                 ++p.tiles;
@@ -1249,6 +1261,9 @@ void write_json(
         << "  \"format\": {\"logical_blk_m\": " << kLogicalM
         << ", \"physical_blk_m\": " << kPhysicalM
         << ", \"blk_k\": " << kBlockK
+        << ", \"logical_blk_k\": " << kParentK
+        << ", \"physical_blk_k\": " << kBlockK
+        << ", \"logical_inner_blk_k\": " << (kPackingMode == 5 ? std::to_string(kInnerK) : "null")
         << ", \"row_reorder\": \"" << row_reorder_name()
         << "\", \"packing_mode\": \"" << packing_mode_name() << "\"},\n"
         << "  \"packed\": {\"row_windows\": " << packed.row_windows
@@ -1329,7 +1344,7 @@ int main(int argc, char** argv) {
 
         std::cout << "dataset=" << options.dataset << " M=" << m << " K=" << k
                   << " N=" << options.n << " nnz=" << nnz << " logical_tile="
-                  << kLogicalM << "x" << kBlockK << " physical_tile="
+                  << kLogicalM << "x" << kParentK << " physical_tile="
                   << kPhysicalM << "x" << kBlockK << " row_reorder="
                   << row_reorder_name() << " packing=" << packing_mode_name() << std::endl;
         const PackedMco packed = convert_to_mco(

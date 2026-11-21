@@ -856,6 +856,7 @@ def generate_nvir(
     strategy_config: Optional[StrategyConfig] = None,
     strategy_decision_override: Optional[StrategyDecision] = None,
     strategy_log_dir_override: Optional[str] = None,
+    specialized_parameters: Optional[dict[str, int]] = None,
 ) -> NvOpProgram:
     if format_name == "SCALAR_COMPACT_K4":
         from .scalar_compact_profile import build_scalar_compact_candidate_hints
@@ -944,10 +945,13 @@ def generate_nvir(
         )
         if format_name == "SCALAR_COMPACT_K4":
             from .scalar_compact_profile import pad_candidate_k4_for_mma
-            program.attrs["specialized_parameters"] = {"BLK_K_I": 4}
+            inner_k = int((specialized_parameters or {}).get("BLK_K_I", 4))
+            if not 4 <= inner_k <= 32:
+                raise ValueError("unsupported scalar compact inner K")
+            program.attrs["specialized_parameters"] = {"BLK_K_I": inner_k}
             program.attrs["preserve_scalar_offset_divisors"] = ("val_len_1_new_offset",)
             program.attrs["explicit_sequential_iteration"] = True
-            pad_candidate_k4_for_mma(program, tf32x3=True)
+            pad_candidate_k4_for_mma(program, inner_k=inner_k, tf32x3=True)
         return program
 
 
