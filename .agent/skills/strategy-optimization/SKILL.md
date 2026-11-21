@@ -1,6 +1,6 @@
 ---
 name: "strategy-optimization"
-description: "Selects legal compile-time and runtime strategies for a fixed run-owned sparse format using SM80 hardware and NCU feedback."
+description: "Selects legal compile-time and runtime strategies for a fixed run-owned sparse format using the current SM80-compatible backend on the detected GPU and NCU feedback."
 ---
 
 # Strategy Optimization
@@ -149,6 +149,10 @@ backend applicability, history and NCU evidence.
 For iterative feedback calls, emit only the changed fields under
 `strategy_patch`; preserve all omitted fields from best-correct. This compact
 response avoids exhausting the model completion budget on repeated schema data.
+
+## Output budget and evidence
+
+Return a complete valid JSON object with a short rationale. Thinking and final output may share the completion budget: avoid repeating the request, feature tables, history or long explanations. Base each proposed change on measured active fields and describe its expected benefit and cost briefly. A truncated response is invalid even if a partial object appears parseable.
 
 ## Four-level scalar compact backend
 

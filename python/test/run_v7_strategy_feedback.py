@@ -674,6 +674,9 @@ def _call_strategy_with_retry(
     repeats the strategy request, never codegen, compilation, or GPU work.
     """
 
+    # A broken response can still be charged upstream; opt-in single attempt.
+    if os.environ.get("SPARSEKG_NO_AMBIGUOUS_RETRY") == "1":
+        max_attempts = 1
     attempts: list[dict[str, Any]] = []
     for attempt in range(1, max_attempts + 1):
         try:
@@ -727,7 +730,7 @@ def _design_context(
         "backend_plan_before_strategy": plan,
         "matrix_features": _compact_features(features, plan),
         "objective": PERFORMANCE_CONTRACT,
-        "fixed_problem": {"N": 512, "input_output": "fp32", "mma": "tf32", "target": "sm80"},
+        "fixed_problem": {"N": 512, "input_output": "fp32", "mma": "tf32", "target": "sm80", "compiled_cuda_arch": os.environ.get("SPARSEKG_CUDA_ARCH", "80")},
     }
 
 

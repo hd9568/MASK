@@ -512,7 +512,7 @@ def build_format_feedback(
         "objective": PERFORMANCE_CONTRACT,
         "selected_format_execution_contract": {
             "required": True,
-            "scope": "this joint SM80/A800 operator campaign only",
+            "scope": ("this H100 campaign using the SM80-compatible backend" if os.environ.get("SPARSEKG_CUDA_ARCH") == "90" else "this joint SM80/A800 operator campaign only"),
             "known_executable_starting_points": [
                 "two-level row-window/column-condensed TCF with MCO or dense leaf",
                 "one-level active fixed blocks with MCO or dense leaf",
@@ -958,7 +958,7 @@ def _record_from_candidate(
         }
     )
     reference = format_record.get("historical_reference")
-    if isinstance(reference, dict) and isinstance(summary.get("baseline_generated_ms"), (int, float)):
+    if not getattr(args, "historical_format_only", False) and isinstance(reference, dict) and isinstance(summary.get("baseline_generated_ms"), (int, float)):
         record["generated_iteration_0_vs_historical_sparsene"] = (
             float(reference["historical_ms"]) / float(summary["baseline_generated_ms"])
         ) if summary["baseline_generated_ms"] > 0 else None
@@ -990,7 +990,7 @@ def _publish_dataset_summary(
     )
     reference = (
         load_sparsene_reference(dataset, args.sparsene_reference_csv)
-        if getattr(args, "initial_format", None) == "sparsene_historical_best"
+        if getattr(args, "initial_format", None) == "sparsene_historical_best" and not getattr(args, "historical_format_only", False)
         else None
     )
     stop_path = dataset_dir / "early_stop_decision.json"
@@ -1018,7 +1018,7 @@ def _publish_dataset_summary(
         "dataset": dataset,
         "performance_contract": PERFORMANCE_CONTRACT,
         "historical_sparsene_reference": reference.to_dict() if reference else None,
-        "historical_sparsene_variant": reference.variant if reference else None,
+        "historical_sparsene_variant": (reference.variant if reference else next(((r.get("historical_reference") or {}).get("variant") for r in records if r.get("historical_reference")), None)),
         "historical_sparsene_ms": reference.milliseconds if reference else None,
         "historical_sparsene_reference_speedup": 1.0 if reference else None,
         "historical_reference_is_generated_candidate": False,
@@ -1234,6 +1234,7 @@ def _parse_args() -> argparse.Namespace:
         "--sparsene-reference-csv", type=Path, default=DEFAULT_REFERENCE_CSV,
         help="Audited A100 N=512 FP32 per-dataset historical fastest variant catalog.",
     )
+    parser.add_argument("--historical-format-only", action="store_true", help="Use historical format and policy only; never compare A100 times with current device measurements.")
     parser.add_argument("--strategy-agent-iterations", type=int, default=5)
     parser.add_argument("--disable-early-stop", action="store_true", help="run all format and strategy iterations")
     parser.add_argument("--initial-feedback-run-dir", type=Path)
@@ -1408,7 +1409,7 @@ def _write_root_manifest(args: argparse.Namespace, run_dir: Path, features: dict
             "revision": _git_value("rev-parse", "HEAD"),
             "dirty": bool(_git_value("status", "--short")),
             "implementation_files": {
-                relative: _sha256(REPO_ROOT / relative) for relative in IMPLEMENTATION_PATHS
+                relative: (None if os.environ.get("SPARSEKG_CUDA_ARCH") == "90" and relative == "scripts/run_joint_format_strategy_3datasets.sh" and not (REPO_ROOT / relative).exists() else _sha256(REPO_ROOT / relative)) for relative in IMPLEMENTATION_PATHS
             },
         },
         "layout": {
@@ -1505,7 +1506,7 @@ def main() -> int:
             load_sparsene_reference(dataset, args.sparsene_reference_csv)
             if args.initial_format == "sparsene_historical_best" else None
         )
-        if reference:
+        if reference and not args.historical_format_only:
             seed["historical_sparsene_reference"] = reference.to_dict()
         print(
             f"[{dataset_position:02d}/{len(args.datasets):02d}] {dataset}: "

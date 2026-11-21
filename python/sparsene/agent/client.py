@@ -131,6 +131,18 @@ def _normalize_base_url(url: str) -> str:
 
 def _urlopen_with_tls_eof_retry(req: urllib_request.Request, timeout_sec: int):
     """Retry only TLS handshake EOFs, which occur before an HTTP request is sent."""
+    import os
+    if os.environ.get("SPARSEKG_NO_AMBIGUOUS_RETRY") == "1":
+        # DNS resolution failure and refused TCP connection precede HTTP submission.
+        # Do not replay TLS EOF, timeouts, or broken streams: billing is ambiguous.
+        import socket
+        for attempt in range(1, 4):
+            try:
+                return urllib_request.urlopen(req, timeout=timeout_sec)
+            except urllib_error.URLError as exc:
+                if not isinstance(exc.reason, (socket.gaierror, ConnectionRefusedError)) or attempt == 3:
+                    raise
+                time.sleep(attempt)
     max_attempts = 3
     for attempt in range(1, max_attempts + 1):
         try:
@@ -293,7 +305,7 @@ def call_openai_compatible(
                             message_content = choice.get("message", {}).get("content", "")
                             if isinstance(message_content, str) and message_content:
                                 message_fallbacks.append(message_content)
-                            reasoning_delta = delta.get("reasoning_content", "")
+                            reasoning_delta = delta.get("reasoning_content") or delta.get("reasoning", "")
                             if isinstance(reasoning_delta, str) and reasoning_delta:
                                 reasoning_chunks.append(reasoning_delta)
                             terminal = _canonical_finish_reason(
@@ -339,7 +351,8 @@ def call_openai_compatible(
                     )
                     raise StreamingInterruptedError(
                         "SSE ended without a terminal finish_reason; "
-                        f"data_events={data_event_count}, content_chars={len(content)}, "
+                        f"data_events={data_event_count}, saw_done={saw_done}, content_chars={len(content)}, "
+                        f"reasoning_chars={len(partial_reasoning)}, "
                         f"event_shape={event_shape}",
                         partial_content=content,
                         usage=partial_usage,

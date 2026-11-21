@@ -742,7 +742,7 @@ def render_format_design_prompt(request: FormatDesignRequest) -> str:
     digest = _feature_digest(request.matrix_features)
     evidence_map = _flatten_digest_values(digest)
     source_catalog = prompt_source_catalog()
-    return f"""You are the sparse-format research architect in SparseKG, a matrix- and architecture-aware agentic compiler for SpMM kernel generation on an SM80-class GPU.
+    return f"""You are the sparse-format research architect in SparseKG, a matrix- and architecture-aware agentic compiler for SpMM kernel generation on the detected GPU using the currently supported backend.
 
 Your task is to design the physical hierarchical sparse format that best fits
 this matrix.  Do not reduce the task to choosing a tile for a fixed ME-TCF
@@ -787,7 +787,7 @@ the raw v3 feature artifact; it was an extractor placeholder equal to K.
 
 === PRIOR EMPIRICAL FEEDBACK (CALIBRATION, NOT A FORMAT TEMPLATE) ===
 The following is a compact record of prior kernel-only measurements for this
-matrix on an SM80-class GPU.  Check its recorded N against the current SpMM
+matrix on the recorded hardware.  Only compare timing measured on the same GPU and protocol. Check its recorded N against the current SpMM
 workload N={request.spmm_n}; when they differ, treat it as directional evidence,
 not a directly comparable timing.  It is evidence about an
 earlier implementation, not a constraint to copy its hierarchy or its format.
@@ -1652,6 +1652,8 @@ def run_format_design_agent(
         "driver_version": hardware.driver_version,
         "total_memory_mb": hardware.total_memory_mb,
         "warp_size": hardware.warp_size,
+        "sm_count": getattr(hardware, "sm_count", None),
+        "shared_memory_per_sm_kb": getattr(hardware, "shared_memory_per_sm_kb", None),
         "design_note": "Hardware guides alignment/cost reasoning but does not restrict the research DSL to current backend profiles.",
     }
 

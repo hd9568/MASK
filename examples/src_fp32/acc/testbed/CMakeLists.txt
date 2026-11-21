@@ -33,9 +33,15 @@ add_compile_options("$<$<COMPILE_LANGUAGE:CUDA>:-lineinfo>")
 # Header file paths
 set(SRCDIR ${CMAKE_SOURCE_DIR}/src)
 
-set(CUTLASS_INCLUDE_DIR ${CMAKE_SOURCE_DIR}/cutlass/include)
-set(CUTLASS_COMMON_DIR ${CMAKE_SOURCE_DIR}/cutlass/examples/common)
-set(CUTLASS_UTIL_DIR ${CMAKE_SOURCE_DIR}/cutlass/tools/util/include)
+# Optional external CUTLASS checkout; preserve the existing submodule default.
+if(DEFINED SPARSENE_CUTLASS_ROOT AND NOT "${SPARSENE_CUTLASS_ROOT}" STREQUAL "")
+    set(_sparsene_cutlass_root "${SPARSENE_CUTLASS_ROOT}")
+else()
+    set(_sparsene_cutlass_root "${CMAKE_SOURCE_DIR}/cutlass")
+endif()
+set(CUTLASS_INCLUDE_DIR ${_sparsene_cutlass_root}/include)
+set(CUTLASS_COMMON_DIR ${_sparsene_cutlass_root}/examples/common)
+set(CUTLASS_UTIL_DIR ${_sparsene_cutlass_root}/tools/util/include)
 
 include_directories(${CUTLASS_INCLUDE_DIR} ${CUTLASS_COMMON_DIR} ${CUTLASS_UTIL_DIR} ${SRCDIR})
 
@@ -2826,7 +2832,12 @@ if(DEFINED SPARSENE_GENERATED_OPERATOR)
         ${PROJECT_SOURCE_DIR}/custom_format_e2e.cu
         ${SRC_CUDA_FILES}
     )
-    set_target_properties(custom-format-e2e PROPERTIES CUDA_ARCHITECTURES 80)
+    # Opt-in native code generation for the testbed; the backend plan and
+    # generated warp-level instructions remain SM80-compatible, not SM90-specific.
+    if(NOT DEFINED SPARSENE_CUSTOM_CUDA_ARCHITECTURES)
+        set(SPARSENE_CUSTOM_CUDA_ARCHITECTURES 80)
+    endif()
+    set_target_properties(custom-format-e2e PROPERTIES CUDA_ARCHITECTURES "${SPARSENE_CUSTOM_CUDA_ARCHITECTURES}")
     target_compile_options(custom-format-e2e PRIVATE
         ${CUDA_NVCC_FLAGS}
         -I${SRCDIR}
