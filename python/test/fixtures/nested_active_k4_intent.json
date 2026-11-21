@@ -1,0 +1,105 @@
+{
+  "format_name": "nested_active_k4_intent_reference",
+  "levels": [
+    {
+      "level": 1,
+      "name": "row_window_condensation",
+      "axes": [
+        {
+          "name": "X_o",
+          "type": "df",
+          "direction": "ROW",
+          "length": "M",
+          "reorder": null,
+          "purpose": "按BLK_M=16切分外层行窗口"
+        },
+        {
+          "name": "Y_s",
+          "type": "sv",
+          "direction": "COL",
+          "length": "K",
+          "reorder": null,
+          "purpose": "每个行窗口实际出现的去重列，真实长度由窗口元数据给出"
+        },
+        {
+          "name": "X_i",
+          "type": "df",
+          "direction": "ROW",
+          "length": "BLK_M",
+          "reorder": null,
+          "purpose": "窗口内固定16行坐标"
+        }
+      ]
+    },
+    {
+      "level": 2,
+      "name": "outer_tc_block",
+      "axes": [
+        {
+          "name": "Y_so",
+          "type": "df",
+          "direction": "COL",
+          "length": "K/BLK_K",
+          "reorder": null,
+          "purpose": "将凝聚列按BLK_K=8切分的外层块序号"
+        },
+        {
+          "name": "Y_si",
+          "type": "df",
+          "direction": "COL",
+          "length": "BLK_K",
+          "reorder": null,
+          "purpose": "外层16x8 TC块内8列"
+        },
+        {
+          "name": "X_i",
+          "type": "df",
+          "direction": "ROW",
+          "length": "BLK_M",
+          "reorder": null,
+          "purpose": "外层TC块内16行，复用L1行坐标"
+        }
+      ]
+    },
+    {
+      "level": 3,
+      "name": "split_then_sparsify_inner_k_blocks",
+      "axes": [
+        {
+          "name": "Y_sio",
+          "type": "sv",
+          "direction": "COL",
+          "length": "BLK_K/BLK_K_I",
+          "reorder": null
+        },
+        {
+          "name": "Y_sii",
+          "type": "df",
+          "direction": "COL",
+          "length": "BLK_K_I",
+          "reorder": null
+        },
+        {
+          "name": "X_i",
+          "type": "df",
+          "direction": "ROW",
+          "length": "BLK_M",
+          "reorder": null
+        }
+      ]
+    }
+  ],
+  "atomic": {
+    "type": "dense",
+    "x_axis": "X_i",
+    "y_axis": "Y_sii",
+    "layout": "row_major",
+    "rationale": "活跃16x4子块已在L3选出，leaf无需位掩码/坐标；dense staging 64个A值可降低恢复元数据。",
+    "custom_spec": null
+  },
+  "params": {
+    "BLK_M": 16,
+    "BLK_K": 8,
+    "BLK_K_I": 4
+  }
+}

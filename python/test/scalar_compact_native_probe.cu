@@ -1,0 +1,69 @@
+// Diagnostic host probe for the experimental OPIR-to-NVIR generated candidate.
+#include <cuda_runtime.h>
+#include <mma.h>
+#include <cusparse.h>
+#include <cstdio>
+#include <cstdlib>
+#include <cmath>
+#include <cstdint>
+#include <fstream>
+#include <string>
+#include <vector>
+#define CHECK(x) do {auto cuda_result=(x);if(cuda_result!=cudaSuccess){fprintf(stderr,"CUDA %s line %d\n",cudaGetErrorString(cuda_result),__LINE__);exit(2);}}while(0)
+#define SP(x) do {auto e=(x);if(e!=CUSPARSE_STATUS_SUCCESS){fprintf(stderr,"cuSPARSE status %d line %d\n",int(e),__LINE__);exit(3);}}while(0)
+template<typename T> T* read_device(const std::string& file,size_t expected) {
+ std::ifstream f(file,std::ios::binary|std::ios::ate);if(!f){fprintf(stderr,"missing %s\n",file.c_str());exit(4);} auto size=f.tellg();
+ if(size<0 || size_t(size)!=expected*sizeof(T)){fprintf(stderr,"bad bytes %s: %lld expected %zu\n",file.c_str(),(long long)size,expected*sizeof(T));exit(5);}
+ std::vector<T> h(expected);f.seekg(0);f.read(reinterpret_cast<char*>(h.data()),size);if(!f){fprintf(stderr,"read error\n");exit(6);} T* p;CHECK(cudaMalloc(&p,size));CHECK(cudaMemcpy(p,h.data(),size,cudaMemcpyHostToDevice));return p;
+}
+__global__ void initB(float* B,long long count,int n) {for(long long i=blockIdx.x*(long long)blockDim.x+threadIdx.x;i<count;i+=blockDim.x*(long long)gridDim.x) B[i]=float(int((i/n*17+i%n*13)%97)-48)/49.0f;}
+// The host and comparison are a diagnostic harness, not the production runner.
+#include "kernel.inc"
+__global__ void compare(const float* C,const float* R,long long n,unsigned long long* mismatch,unsigned int* maxbits,unsigned int* maxref,double* err2,double* ref2,unsigned long long* official_bad,unsigned long long* nonfinite) {
+ __shared__ double ebuf[256],rbuf[256]; double e=0,r=0;
+ for(long long i=blockIdx.x*(long long)blockDim.x+threadIdx.x;i<n;i+=blockDim.x*(long long)gridDim.x) {
+  float err=fabsf(C[i]-R[i]),ref=fabsf(R[i]); if(!isfinite(err) || err>1e-3f*(1+ref)) atomicAdd(mismatch,1ULL); if(!isfinite(err)||!isfinite(ref)) atomicAdd(nonfinite,1ULL); if(!isfinite(err)||err>0.02f+0.005f*ref) atomicAdd(official_bad,1ULL);
+  if(isfinite(err)&&isfinite(ref)) {atomicMax(maxbits,__float_as_uint(err)); atomicMax(maxref,__float_as_uint(ref)); e+=double(err)*err;r+=double(ref)*ref;} else {e=INFINITY;}
+ }
+ ebuf[threadIdx.x]=e;rbuf[threadIdx.x]=r;__syncthreads();
+ for(int step=128;step>0;step/=2) {if(threadIdx.x<step){ebuf[threadIdx.x]+=ebuf[threadIdx.x+step];rbuf[threadIdx.x]+=rbuf[threadIdx.x+step];}__syncthreads();}
+ if(threadIdx.x==0){atomicAdd(err2,ebuf[0]);atomicAdd(ref2,rbuf[0]);}
+}
+int main(int argc,char** argv) {
+ if(argc!=10){fprintf(stderr,"usage: %s DATA_DIR dense N repeats M K nnz roots children\n",argv[0]);return 1;}
+ std::string base=argv[1],leaf=argv[2],dir=base+"/"+leaf;bool coo=leaf=="coo";if(!coo&&leaf!="dense")return 1;
+ if(coo) {fprintf(stderr,"dense only\n");return 1;}
+ int N=atoi(argv[3]),repeat=atoi(argv[4]);if(N<=0||repeat<=0)return 1;
+ int M=atoi(argv[5]),K=atoi(argv[6]),nnz=atoi(argv[7]),roots=atoi(argv[8]),children=atoi(argv[9]);
+ if(M<=0||K<=0||nnz<=0||roots<=0||children<=0)return 1; int windows=(M+15)/16;
+ auto wp=read_device<int32_t>(dir+"/abi_window_ptr.bin",windows+1);const int64_t* cols=nullptr;
+ auto bp=read_device<int32_t>(dir+"/abi_scalar_ptr.bin",roots+1);
+ auto composed=read_device<int32_t>(dir+"/abi_column_tiles_safe.bin",children*4); const int64_t* sp=nullptr; const int32_t* si=nullptr;
+ auto val=read_device<float>(dir+"/values.bin",children*16*4);
+ auto row=read_device<int32_t>(base+"/csr_ptr.bin",M+1);auto col=read_device<int32_t>(base+"/csr_col.bin",nnz);auto av=read_device<float>(base+"/csr_val.bin",nnz);
+ float *B,*C,*R;long long total=(long long)M*N;CHECK(cudaMalloc(&B,(long long)K*N*sizeof(float)));CHECK(cudaMalloc(&C,(long long)windows*16*N*sizeof(float)));CHECK(cudaMalloc(&R,total*sizeof(float)));
+ initB<<<4096,256>>>(B,(long long)K*N,N);CHECK(cudaGetLastError());
+ cusparseHandle_t h;cusparseSpMatDescr_t A;cusparseDnMatDescr_t BD,RD;SP(cusparseCreate(&h));
+ SP(cusparseCreateCsr(&A,M,K,nnz,row,col,av,CUSPARSE_INDEX_32I,CUSPARSE_INDEX_32I,CUSPARSE_INDEX_BASE_ZERO,CUDA_R_32F));
+ SP(cusparseCreateDnMat(&BD,K,N,N,B,CUDA_R_32F,CUSPARSE_ORDER_ROW));SP(cusparseCreateDnMat(&RD,M,N,N,R,CUDA_R_32F,CUSPARSE_ORDER_ROW));
+ float alpha=1,beta=0;size_t bytes=0;SP(cusparseSpMM_bufferSize(h,CUSPARSE_OPERATION_NON_TRANSPOSE,CUSPARSE_OPERATION_NON_TRANSPOSE,&alpha,A,BD,&beta,RD,CUDA_R_32F,CUSPARSE_SPMM_ALG_DEFAULT,&bytes));
+ void* temp=nullptr;if(bytes)CHECK(cudaMalloc(&temp,bytes));
+ auto reference=[&](){SP(cusparseSpMM(h,CUSPARSE_OPERATION_NON_TRANSPOSE,CUSPARSE_OPERATION_NON_TRANSPOSE,&alpha,A,BD,&beta,RD,CUDA_R_32F,CUSPARSE_SPMM_ALG_DEFAULT,temp));};
+ int grid=int((total+255)/256);if(grid>65535)grid=65535;
+ using BLK_MNK=decltype(cute::make_shape(cute::_16{},cute::_64{},cute::_8{}));
+ using MMA_MNK=decltype(cute::make_shape(cute::_16{},cute::_8{},cute::_8{}));
+ using BLK_MMA_MNK=decltype(cute::make_shape(cute::_1{},cute::_8{},cute::_1{}));
+ using WARP_MNK=decltype(cute::make_shape(cute::_1{},cute::_1{},cute::_1{}));
+ if(N%64){fprintf(stderr,"N must be a multiple of 64\n");return 1;}
+ auto candidate=[&](){generated_kernel<BLK_MNK,MMA_MNK,BLK_MMA_MNK,WARP_MNK><<<dim3(windows,N/64),32>>>(B,C,bp,wp,val,composed,composed,K,windows*16,windows+1,N,roots+1,children);};
+ reference();candidate();CHECK(cudaGetLastError());CHECK(cudaDeviceSynchronize());
+ unsigned long long *dm,hm,*doff,hoff,*dnf,hnf;unsigned int *de,he,*dr,hr; double *dE,*dR,hE,hR;
+ CHECK(cudaMalloc(&dm,sizeof(hm)));CHECK(cudaMalloc(&doff,sizeof(hoff)));CHECK(cudaMalloc(&dnf,sizeof(hnf)));CHECK(cudaMemset(doff,0,sizeof(hoff)));CHECK(cudaMemset(dnf,0,sizeof(hnf)));CHECK(cudaMalloc(&de,sizeof(he)));CHECK(cudaMalloc(&dr,sizeof(hr)));CHECK(cudaMalloc(&dE,sizeof(hE)));CHECK(cudaMalloc(&dR,sizeof(hR)));
+ CHECK(cudaMemset(dm,0,sizeof(hm)));CHECK(cudaMemset(de,0,sizeof(he)));CHECK(cudaMemset(dr,0,sizeof(hr)));CHECK(cudaMemset(dE,0,sizeof(hE)));CHECK(cudaMemset(dR,0,sizeof(hR)));
+ compare<<<4096,256>>>(C,R,total,dm,de,dr,dE,dR,doff,dnf);CHECK(cudaGetLastError());CHECK(cudaMemcpy(&hm,dm,sizeof(hm),cudaMemcpyDeviceToHost));CHECK(cudaMemcpy(&he,de,sizeof(he),cudaMemcpyDeviceToHost));CHECK(cudaMemcpy(&hoff,doff,sizeof(hoff),cudaMemcpyDeviceToHost));CHECK(cudaMemcpy(&hnf,dnf,sizeof(hnf),cudaMemcpyDeviceToHost));CHECK(cudaMemcpy(&hr,dr,sizeof(hr),cudaMemcpyDeviceToHost));CHECK(cudaMemcpy(&hE,dE,sizeof(hE),cudaMemcpyDeviceToHost));CHECK(cudaMemcpy(&hR,dR,sizeof(hR),cudaMemcpyDeviceToHost));float maxerr,maxref;memcpy(&maxerr,&he,sizeof(float));memcpy(&maxref,&hr,sizeof(float));double relative_l2=sqrt(hE/(hR>1e-30?hR:1e-30)), normalized=maxerr/fmaxf(1e-12f,maxref);
+ cudaEvent_t s,e;CHECK(cudaEventCreate(&s));CHECK(cudaEventCreate(&e));
+ CHECK(cudaEventRecord(s));for(int i=0;i<repeat;i++)candidate();CHECK(cudaEventRecord(e));CHECK(cudaEventSynchronize(e));float cms;CHECK(cudaEventElapsedTime(&cms,s,e));
+ CHECK(cudaEventRecord(s));for(int i=0;i<repeat;i++)reference();CHECK(cudaEventRecord(e));CHECK(cudaEventSynchronize(e));float rms;CHECK(cudaEventElapsedTime(&rms,s,e));
+ printf("{\"m\":%d,\"k\":%d,\"n\":%d,\"nnz\":%d,\"leaf\":\"%s\",\"strict_1e3_mismatches\":%llu,\"project_pointwise_mismatches\":%llu,\"nonfinite\":%llu,\"max_abs_error\":%.9g,\"relative_l2\":%.9g,\"max_abs_normalized\":%.9g,\"native_candidate_ms\":%.9g,\"cusparse_ms\":%.9g,\"repeats\":%d,\"native_candidate\":true}\n",M,K,N,nnz,leaf.c_str(),hm,hoff,hnf,maxerr,relative_l2,normalized,cms/repeat,rms/repeat,repeat);
+ return (hnf==0 && (hoff==0 || (relative_l2<=5e-4 && normalized<=5e-3)))?0:7;
+}
